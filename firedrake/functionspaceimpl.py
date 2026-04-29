@@ -668,7 +668,7 @@ class AbstractFunctionSpace:
         vec.setUp()
         return vec
 
-    # @cached_method()
+    @cached_method()
     def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 

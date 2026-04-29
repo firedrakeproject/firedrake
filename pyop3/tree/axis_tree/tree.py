@@ -819,11 +819,10 @@ class EquivalentAxisTargetSet(tuple):
     pass
 
 
-# def _getitem_cache_key(indices, *, strict=False) -> Hashable:
-def _getitem_cache_key(self, indices, *, strict=False) -> Hashable:
+def _getitem_cache_key(indices, *, strict=False) -> Hashable:
     if isinstance(indices, list):
         indices = tuple(indices)
-    return pyop3.cache.default_hashkey(indices, strict=strict)
+    return (indices, strict)
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
