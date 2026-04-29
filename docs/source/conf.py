@@ -183,6 +183,7 @@ linkcheck_ignore = [
     r'https://fluids.leeds.ac.uk/',
     r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
+    r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
 
