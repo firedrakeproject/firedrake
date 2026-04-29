@@ -321,7 +321,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # DM with an app context in place so that if the DM is active
         # on a subKSP the context is available.
         dm = self.snes.getDM()
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx):
             self.set_from_options(self.snes)
 
         # Used for custom grid transfer.

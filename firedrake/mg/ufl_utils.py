@@ -9,7 +9,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, add_hook)
+                               get_parent)
 
 from . import utils
 
@@ -145,6 +145,7 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
+    # NOTE: This isn't really safe, need to have a unique dm
     if hasattr(V, "_coarse"):
         return V._coarse
 

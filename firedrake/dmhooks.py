@@ -212,24 +212,29 @@ class add_hooks(object):
           pc.apply(...)
     """
     def __init__(self, dm, obj, *, appctx=None):
-        if appctx is not None:
-            add_hook(
-                dm,
-                setup=partial(push_appctx, dm, appctx),
-                teardown=partial(pop_appctx, dm, appctx),
-            )
-
+        # if appctx is not None:
+        #     add_hook(
+        #         dm,
+        #         setup=partial(push_appctx, dm, appctx),
+        #         teardown=partial(pop_appctx, dm, appctx),
+        #     )
+        #
         self.dm = dm
         self.appctx = appctx
+        #
+        # self.hooks = SetupHooks()
+        # self.hooks.add_setup(push_appctx)
+        # self.hooks.add_teardown(push_appctx)
 
     def __enter__(self):
-        hooks = SetupHooks()
-        push_attr("__setup_hooks__", self.dm, hooks)
-        if self.appctx is not None:
+        # self.hooks.setup()
+        if self.appctx:
+            push_appctx(self.dm, self.appctx)
 
     def __exit__(self, typ, value, traceback):
-        hooks = pop_attr("__setup_hooks__", self.dm)
-        hooks.teardown()
+        # self.hooks.teardown()
+        if self.appctx:
+            pop_appctx(self.dm, self.appctx)
 
 
 # Things we're going to transfer around DMs
@@ -238,7 +243,7 @@ pop_parent = partial(pop_attr, "__parent__")
 
 
 def get_parent(dm):
-    raise AssertionError("No longer used")
+    # raise AssertionError("No longer used")
     return get_attr("__parent__", dm, default=dm)
 
 
@@ -410,21 +415,27 @@ def coarsen(dm, comm):
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
     parent = get_parent(dm)
-    add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-             call_setup=True)
+    # add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+    #          call_setup=True)
+    # The DM is created during a solve, so it's fine to attach solver-specific information to it
+    push_parent(cdm, parent)
     if len(V) > 1:
         for V_, Vc_ in zip(V, Vc):
-            add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
-                     call_setup=True)
-    add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
-             teardown=partial(pop_ctx_coarsener, cdm, coarsen),
-             call_setup=True)
+            # but is this safe?
+            push_parent(Vc_.dm, parent)
+            # add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
+            #          call_setup=True)
+    push_ctx_coarsener(cdm, coarsen)
+    # add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
+    #          teardown=partial(pop_ctx_coarsener, cdm, coarsen),
+             # call_setup=True)
     ctx = get_appctx(dm)
     if ctx is not None:
         cctx = coarsen(ctx, coarsen)
-        add_hook(parent, setup=partial(push_appctx, cdm, cctx),
-                 teardown=partial(pop_appctx, cdm, cctx),
-                 call_setup=True)
+        push_appctx(cdm, cctx)
+        # add_hook(parent, setup=partial(push_appctx, cdm, cctx),
+        #          teardown=partial(pop_appctx, cdm, cctx),
+        #          call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
         dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
