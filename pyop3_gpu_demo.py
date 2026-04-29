@@ -41,9 +41,8 @@ assert f.dat.buffer.state[str(gpu)] == 0  # untouched
 assert g.dat.buffer.state[host] == 0  # untouched
 assert g.dat.buffer.state[str(gpu)] == 0  # untouched
 
-with op3.offloading(gpu):
+with gpu:
     # Getting the .data attribute on the GPU should give us back a GPU array type
-
     assert not isinstance(f.dat.data_ro, np.ndarray)
     assert not isinstance(g.dat.data_ro, np.ndarray)
 

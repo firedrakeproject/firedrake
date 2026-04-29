@@ -4,20 +4,29 @@ import contextlib
 import contextvars
 import warnings
 
+import cupy as cp
+
+
 # TODO: The constant should be elsewhere but temporary here 
 HOST_DEVICE = "cpu"
 
-# NOTE: Use contextvars to act as a bridge between buffer and manager classes
+# NOTE: Use contextvars to act as a bridge between buffer and manager class
 _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
 
 class Device(metaclass=ABCMeta):
-    _available: bool
     _name: str
-    _accessed_buffer: list
+    _registered_arrays: set 
 
-    def __init__(self):
-        self._available = True
-        self._accessed_buffer = []
+    def __init__(self, device: int | None = None):
+        pass
+
+    @staticmethod
+    def current():
+        device = _current_device.get()
+        return device
+
+    @abstractmethod
+    def register(self, arr):
         pass
 
     @abstractmethod
@@ -28,12 +37,38 @@ class Device(metaclass=ABCMeta):
     def __str__(self):
         pass
 
+# TODO: Necessary to make this?
+class CPU(Device):
+    pass
+
+# Implementation follows similar idea to CuPY (with GPU(): ...)
 class GPU(Device):
     
-    def __init__(self):
+    def __init__(self, device: int | None = None):
         super().__init__()
         self._name = "gpu"
-    pass
+        self._registered_arrays = set()
+        self._token = None
+        self.device = cp.cuda.Device(device)
+
+    def __enter__(self):
+        self._token = _current_device.set(self)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.sync_buffers()
+        _current_device.reset(self._token)
+        self._reset_register()
+
+    def sync_buffers(self):
+        for arr in self._registered_arrays:
+            arr.maybe_sync_to_host()
+
+    def register(self, arr):
+        self._registered_arrays.add(arr)
+
+    def _reset_register(self):
+        self._registered_arrays = set()
 
     def __repr__(self):
         return self._name
@@ -41,12 +76,3 @@ class GPU(Device):
     def __str__(self):
         return self._name
 
-@contextlib.contextmanager
-def offloading(dev: Device): 
-    token = _current_device.set(dev)
-    try:
-        yield
-    finally:
-        _current_device.reset(token)
-        # TODO: Update buffers and copy back
-        # NOTE: Does this have to happen lazily if we do not have a record of accessed buffers?

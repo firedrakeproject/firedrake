@@ -23,7 +23,7 @@ from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
     HOST_DEVICE,
-    _current_device
+    Device
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -322,7 +322,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        self._state[self.get_context()] += 1
+        self._state[self.get_context_string()] += 1
 
     # NOTE: Why is this using _lazy_data instead of _data?
     # TODO: Either adjust for _lazy_data mapping or switch to _data
@@ -338,8 +338,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     is_nested: ClassVar[bool] = False
     
-    def get_context(self) -> str:
-        return str(_current_device.get())
+    def get_context(self) -> Device:
+        return Device.current()
+
+    def get_context_string(self) -> str:
+        return str(Device.current())
 
     @property
     def handle(self) -> np.ndarray:
@@ -489,41 +492,25 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def _data(self):
         context = self.get_context()
+        context_str = self.get_context_string()
 
-        # TODO: This logic cannot be kept
-        '''
-            Flaw in that host and gpu modifications will be out of sync.
-            This could lead to situations where multiple copies are made before GPU
-            context has reached the same modifications as CPU.
-            Even worse if data is called without being modified - copied but no state change.
-
-            Solution: 
-                - Copy state modifications after context window
-                - If states match, check if None, else copy.
-                - Do we want to free cupy space after context window? 
-        '''
-        if context == "gpu":
-            # If GPU has modifications >= CPU and not None, don't copy.
-            if self._lazy_data[context] is None or self.state[context] < self.state[pyop3.HOST_DEVICE]:
+        if context_str == "gpu":
+            if self._lazy_data[context_str] is None or self.state[context_str] < self.state[pyop3.HOST_DEVICE]:
                 self._sync_to_device()
+                context.register(self)
 
-        elif context == "cpu":
-            # If CPU has modifications >= GPU and not None, don't copy.
-            if self._lazy_data[context] is None or self.state[context] < self.state["gpu"]:
-                self._sync_to_host()
-
-        # if context == "cpu":
-        #     if self._lazy_data[context] is None:
-        #         self._lazy_data[context] = np.zeros(self.shape, dtype=self.dtype)
-        # elif context == "gpu":
-        #     if self._lazy_data[context] is None:
-        #         self._lazy_data[context] = cp.zeros(self.shape, dtype=self.dtype)
+        # if context_str == "cpu":
+        #     if self._lazy_data[context_str] is None:
+        #         self._lazy_data[context_str] = np.zeros(self.shape, dtype=self.dtype)
+        # elif context_str == "gpu":
+        #     if self._lazy_data[context_str] is None:
+        #         self._lazy_data[context_str] = cp.zeros(self.shape, dtype=self.dtype)
         # else:
         #     raise RuntimeError("Offload device not supported")
 
         if self.name == "array_247_buffer":
             breakpoint()
-        return self._lazy_data[context]
+        return self._lazy_data[context_str]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
@@ -638,6 +625,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.__record_init__(sf=None)
     
     # TODO: Consider whether to make these asynchronous and group with a sync
+    def maybe_sync_to_host(self):
+        # Only sync if modified whilst on GPU
+        self.state[pyop3.HOST_DEVICE] < self.state["gpu"]:
+            self._sync_to_host()
+
     def _sync_to_host(self):
         self._lazy_data[pyop3.HOST_DEVICE] = cp.asnumpy(self._lazy_data["gpu"])
         self.state[pyop3.HOST_DEVICE] = self.state["gpu"]
