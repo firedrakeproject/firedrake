@@ -37,6 +37,7 @@ from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
 from pyop3.pyop2_utils import as_tuple
 
+import firedrake.logging
 from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
@@ -2423,7 +2424,7 @@ def entity_permutations_key(entity_permutations):
 # TODO: make return type and arg consistent
 # TODO: can be a method of a function space
 # Don't need to pass lgmap as an arg because we can derive it
-def mask_lgmap(V, field_index: int | None, bcs) -> PETSc.LGMap:
+def mask_lgmap(V, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
     """Return a map from process-local to global DoF numbering.
 
     # update this#
@@ -2448,29 +2449,39 @@ def mask_lgmap(V, field_index: int | None, bcs) -> PETSc.LGMap:
         block_size = numpy.prod(V.shape)
     lgmap_dat = lgmap_axes.materialize().global_numbering
 
-    if not bcs:
-        return PETSc.LGMap().create(
-            lgmap_dat.data_ro, bsize=block_size, comm=V.comm
-        )
-
-    if field_index is None:
+    # track which BCs are used so we can warn if any are missed
+    unused_bcs = set(bcs)
+    if index is None:
         # The lgmap is for the full space
         if len(V) > 1:
             split_bcs = []
             for subspace in V:
                 split_bcs.append(((subspace.index,), []))
                 for bc in bcs:
-                    if bc.function_space_index() == subspace.index:
+                    if bc.function_space() == subspace:
                         split_bcs[subspace.index][1].append(bc)
+                        unused_bcs.discard(bc)
         else:
-            split_bcs = [((), bcs)]
+            split_bcs = [((), [])]
+            for bc in bcs:
+                if bc.function_space() == V:
+                    split_bcs[0][1].append(bc)
+                    unused_bcs.discard(bc)
 
     else:
         # The lgmap is only for a subspace
-        split_bcs = [((field_index,), [])]
+        subspace = V[index]
+        split_bcs = [((index,), [])]
         for bc in bcs:
-            if bc.function_space_index() == field_index:
+            if bc.function_space() == subspace:
                 split_bcs[0][1].append(bc)
+                unused_bcs.discard(bc)
+
+    if unused_bcs:
+        firedrake.logging.warning(
+            "Some boundary conditions did not match the function space and were "
+            "ignored when masking the local to global map"
+        )
 
     for field_idx, bcs_per_field in split_bcs:
         for bc in bcs_per_field:

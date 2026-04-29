@@ -1834,69 +1834,14 @@ class ParloopBuilder:
     def get_indicess(self):
         return (self._local_knl.indices,)
 
-        # think below is not needed anymore
-        # assert len(self._form.arguments()) == 2 and not self._diagonal
-        # if all(i is None for i in self._local_knl.indices):
-        #     test, trial = self._form.arguments()
-        #     return numpy.ndindex((len(test.function_space()),
-        #                           len(trial.function_space())))
-        # else:
-        #     assert all(i is not None for i in self._local_knl.indices)
-        #     return self._local_knl.indices,
-
-    def _filter_bcs(self, row, col):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        if len(self.test_function_space) > 1:
-            bcrow = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == row)
-        else:
-            bcrow = self._bcs
-
-        if len(self.trial_function_space) > 1:
-            bccol = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == col
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
-        return bcrow, bccol
-
-    def needs_unrolling(self):
-        """Do we need to address matrix elements directly rather than in
-        a blocked fashion?
-
-        This is slower but required for the application of some boundary conditions
-        to 2-forms.
-
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
-        """
-        if len(self._form.arguments()) == 2 and not self._diagonal:
-            for i, j in self.get_indicess():
-                if i is None:
-                    i = 0
-                if j is None:
-                    j = 0
-
-                for bc in itertools.chain(*self._filter_bcs(i, j)):
-                    if bc.function_space().component is not None:
-                        return True
-        return False
-
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
 
         This is only needed when applying boundary conditions to 2-forms.
 
         """
-
         if len(self._form.arguments()) != 2 or self._diagonal:
             return None
-
-        # NOTE: It would be nice to avoid having to do this...
-        row_bcs, column_bcs = self._filter_bcs(*indices)
-        if not (row_bcs or column_bcs):
-            return None
-
 
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
@@ -1914,8 +1859,11 @@ class ParloopBuilder:
         if petscmat.type == PETSc.Mat.Type.PYTHON:
             return None
 
-        masked_row_lgmap = mask_lgmap(row_space, i, row_bcs)
-        masked_column_lgmap = mask_lgmap(column_space, j, column_bcs)
+        row_bcs = [bc for bc in self._bcs if bc.function_space() == row_space]
+        column_bcs = [bc for bc in self._bcs if bc.function_space() == column_space]
+
+        masked_row_lgmap = mask_lgmap(row_space, row_bcs, i)
+        masked_column_lgmap = mask_lgmap(column_space, column_bcs, j)
         return (masked_row_lgmap, masked_column_lgmap)
 
     @property
