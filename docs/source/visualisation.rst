@@ -17,7 +17,7 @@ Creating output files
 
 Output for visualisation purposes is managed with a
 :class:`~.vtk_output.VTKFile` object. To create one, first import the
-class from `firedrake.output, then we just need to pass the name of the
+class from `firedrake.output`, then we just need to pass the name of the
 output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
 
