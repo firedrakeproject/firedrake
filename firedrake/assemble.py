@@ -1882,15 +1882,21 @@ class ParloopBuilder:
                         return True
         return False
 
-    # This should be done outside the local kernel I think?
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
 
         This is only needed when applying boundary conditions to 2-forms.
 
         """
-        if not self._bcs or len(self._form.arguments()) != 2 or self._diagonal:
+
+        if len(self._form.arguments()) != 2 or self._diagonal:
             return None
+
+        # NOTE: It would be nice to avoid having to do this...
+        row_bcs, column_bcs = self._filter_bcs(*indices)
+        if not (row_bcs or column_bcs):
+            return None
+
 
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
@@ -1908,40 +1914,8 @@ class ParloopBuilder:
         if petscmat.type == PETSc.Mat.Type.PYTHON:
             return None
 
-        masked_row_lgmap = mask_lgmap(row_space, i, self._bcs)
-        masked_column_lgmap = mask_lgmap(column_space, j, self._bcs)
-        return (masked_row_lgmap, masked_column_lgmap)
-
-
-        petscmat = matrix.M.buffer.mat
-        row_axes = matrix.M.row_axes
-        column_axes = matrix.M.column_axes
-        row_bcs, column_bcs = self._filter_bcs(i or 0, j or 0)
-
-        if petscmat.type == PETSc.Mat.Type.NEST:
-            assert len(row_space) > 1 and len(column_space) > 1
-            petscmat = petscmat.getNestSubMatrix(i, j)
-        if petscmat.type == PETSc.Mat.Type.PYTHON:
-            return None
-
-        if len(row_space) > 1:
-            row_label = row_space.field_axis.component_labels[i]
-            row_axes = row_axes[row_label]
-            row_space = row_space[i]
-        if len(column_space) > 1:
-            column_label = column_space.field_axis.component_labels[j]
-            column_axes = column_axes[column_label]
-            column_space = column_space[j]
-
-        row_lgmap, column_lgmap = petscmat.getLGMap()
-
-        row_shape = row_space.shape if len(row_space) == 1 else ()
-        column_shape = column_space.shape if len(column_space) == 1 else ()
-
-        masked_row_lgmap = mask_lgmap(row_space, row_axes, row_lgmap, row_bcs, row_shape)
-        masked_column_lgmap = mask_lgmap(
-            column_space, column_axes, column_lgmap, column_bcs, column_shape
-        )
+        masked_row_lgmap = mask_lgmap(row_space, i, row_bcs)
+        masked_column_lgmap = mask_lgmap(column_space, j, column_bcs)
         return (masked_row_lgmap, masked_column_lgmap)
 
     @property

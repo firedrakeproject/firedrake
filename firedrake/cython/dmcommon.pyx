@@ -1789,7 +1789,10 @@ def facet_closure_nodes(V, sub_domain):
         np.ndarray points
         np.ndarray nodes
     if sub_domain == "on_boundary":
-        pointss = (dm.getStratumIS("exterior_facets", 1),)
+        if V.extruded:
+            pointss = (dm.getStratumIS("base_exterior_facets", 1),)
+        else:
+            pointss = (dm.getStratumIS("exterior_facets", 1),)
     elif sub_domain == "top":
         pointss = (dm.getStratumIS("exterior_facets_top", 1),)
     elif sub_domain == "bottom":
