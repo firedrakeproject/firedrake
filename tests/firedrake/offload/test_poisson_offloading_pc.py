@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 
 
-# TODO: add something to check if cuda memory was really used(?)
 @pytest.mark.skipnogpu
 @pytest.mark.parametrize(
     "ksp_type, pc_type", [("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")]
