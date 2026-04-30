@@ -20,7 +20,7 @@ DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 SERIAL_DEMOS = [
     Demo(("adaptive_multigrid", "adaptive_multigrid"), ["matplotlib", "netgen", "vtk"]),
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
-    Demo(("boussinesq", "boussinesq"), []),
+    Demo(("boussinesq", "boussinesq"), ["netgen", "vtk"]),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
     Demo(("deflation", "deflation"), ["matplotlib"]),
@@ -38,7 +38,7 @@ SERIAL_DEMOS = [
     Demo(("matrix_free", "poisson"), []),
     Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
     Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
-    Demo(("multicomponent", "multicomponent"), ["vtk, netgen"]),
+    Demo(("multicomponent", "multicomponent"), ["netgen", "vtk"]),
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
     Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
