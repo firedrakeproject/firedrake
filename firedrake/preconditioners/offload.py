@@ -44,7 +44,7 @@ class OffloadPC(PCBase):
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
 
-        self.device_mat = device_matrix_type(pc.comm.rank == 0)
+        self.device_mat = device_matrix_type(warn=(pc.comm.rank == 0))
         self.device_type = get_device_type()
         dm = opc.getDM()
 
@@ -91,11 +91,11 @@ class OffloadPC(PCBase):
                         # Create the to-be-offloaded vector
                         y_dev = PETSc.Vec()
                         # Use device implementation of 'createWithArrays' function
-                        self.call_device_vec_impl(y_dev, "createWithArrays", (y.array_r, None))
+                        self.call_device_vec_impl(y_dev, "createWithArrays", y.array_r, None)
                         # Create the to-be-offloaded vector
                         x_dev = PETSc.Vec()
                         # Use device implementation of 'createWithArrays' function
-                        self.call_device_vec_impl(x_dev, "createWithArrays", (x.array_r, None))
+                        self.call_device_vec_impl(x_dev, "createWithArrays", x.array_r, None)
                     with PETSc.Log.Event("Event: solve"):
                         pc_apply(x_dev, y_dev)
                     with PETSc.Log.Event("Event: vectors copy back"):
