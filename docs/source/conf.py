@@ -435,7 +435,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
-    'torch': ('https://pytorch.org/docs/stable/', None),
+    'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 
