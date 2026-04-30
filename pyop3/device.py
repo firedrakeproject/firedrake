@@ -4,13 +4,12 @@ import contextlib
 import contextvars
 import warnings
 
-import cupy as cp
-
 class Device(metaclass=ABCMeta):
     _name: str
     _registered_arrays: set 
+    _device_index: int | None
 
-    def __init__(self, device: int | None = None):
+    def __init__(self, device_index: int | None = None):
         pass
 
     @staticmethod
@@ -34,6 +33,10 @@ class Device(metaclass=ABCMeta):
     def name(self):
         return self._name
 
+    @property
+    def device_index(self):
+        return self._device_index
+
     def __repr__(self):
         return self._name
         
@@ -42,11 +45,11 @@ class Device(metaclass=ABCMeta):
 
 class CPU(Device):
 
-    def __init__(self, device: int | None = None):
+    def __init__(self, device_index: int | None = None):
         super().__init__()
         self._name = "cpu"
         self._registered_arrays = set()
-        self.device = None
+        self._device_index = device_index
 
     # NOTE: Is it necessary to have any implementation here? 
     # Maybe perfunctory implementations but no real purpose
@@ -61,12 +64,19 @@ class CPU(Device):
 
 class GPU(Device):
     
-    def __init__(self, device: int | None = None):
+    def __init__(self, device_index: int | None = None):
         super().__init__()
         self._name = "gpu"
         self._registered_arrays = set()
         self._token = None
-        self.device = cp.cuda.Device(device)
+        self._device_index = device_index
+
+        try:
+            import cupy as cp
+            assert cp.is_available()
+        except:
+            # Raise No GPU exception
+            raise NotImplementedError 
 
     def sync_buffers(self):
         for arr in self._registered_arrays:
@@ -79,17 +89,17 @@ class GPU(Device):
         self._registered_arrays = set()
 
 @contextlib.contextmanager
-def offloading(device: Device):
-    # TODO: Not device exception
-    if not isinstance(device, Device):
+def offloading(dev: Device):
+    # TODO: Not Device exception
+    if not isinstance(dev, Device):
         raise NotImplementedError
 
-    token = _current_device.set(device)
+    token = _current_device.set(dev)
     try:
         yield
     finally:
-        device.sync_buffers()
-        device._reset_register()
+        dev.sync_buffers()
+        dev._reset_register()
         _current_device.reset(token)
 
 # TODO: Should this const variable be here? 

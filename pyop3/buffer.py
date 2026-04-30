@@ -626,8 +626,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.__record_init__(sf=None)
     
     # TODO: Consider whether to make these asynchronous and group with a sync
+    # NOTE: Perhaps it is easier to allow user to make it non/blocking
     def maybe_sync_to_host(self):
-        # Only sync if modified whilst on GPU
+        # NOTE: Ugly but won't throw error if context is host 
         if self.state[pyop3.HOST_DEVICE] < self.state[self.get_context()]:
             self._sync_to_host()
 
@@ -642,7 +643,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def _sync_to_device(self):
         context = self.get_context()
-        # TODO: Raise exception (warning?) as user on host already
+        # TODO: Raise exception as user still on host
         if context is pyop3.HOST_DEVICE:
             raise NotImplementedError
 
