@@ -85,7 +85,7 @@ class OffloadPC(PCBase):
             with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
                 pc_apply(x, y)
         else:
-            with PETSc.Log.Event("Event: apply offload"):  #
+            with PETSc.Log.Event("Event: apply offload"):
                 with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
                     with PETSc.Log.Event("Event: vectors offload"):
                         # Create the to-be-offloaded vector
