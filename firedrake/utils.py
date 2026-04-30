@@ -28,15 +28,16 @@ SLATE_SUPPORTS_COMPLEX = False
 
 @cache
 def get_device_type() -> str | None:
-    r"""Get PETSc device type
+    r"""Get PETSc device type.
 
     Attempt to initialise a GPU and return the type of GPU
-    identified by PETSc
+    identified by PETSc.
 
     Returns
     -------
     str | None
-        The PETSc device type
+        The PETSc device type, or `None` if no device is found.
+
     """
     try:
         dev = PETSc.Device.create()
