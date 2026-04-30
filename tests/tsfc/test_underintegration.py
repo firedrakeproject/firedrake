@@ -21,7 +21,7 @@ def gll_quadrature_rule(cell, elem_deg):
     fiat_rule = GaussLobattoLegendreQuadratureLineRule(fiat_cell, elem_deg + 1)
     line_rules = [QuadratureRule(GaussLobattoLegendrePointSet(fiat_rule.get_points()),
                                  fiat_rule.get_weights())
-                  for _ in range(cell.topological_dimension())]
+                  for _ in range(cell.topological_dimension)]
     finat_rule = reduce(lambda a, b: TensorProductQuadratureRule([a, b]), line_rules)
     return finat_rule
 
@@ -31,7 +31,7 @@ def gl_quadrature_rule(cell, elem_deg):
     fiat_rule = GaussLegendreQuadratureLineRule(fiat_cell, elem_deg + 1)
     line_rules = [QuadratureRule(GaussLegendrePointSet(fiat_rule.get_points()),
                                  fiat_rule.get_weights())
-                  for _ in range(cell.topological_dimension())]
+                  for _ in range(cell.topological_dimension)]
     finat_rule = reduce(lambda a, b: TensorProductQuadratureRule([a, b]), line_rules)
     return finat_rule
 

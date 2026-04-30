@@ -7,9 +7,10 @@ numpy
 pkgconfig
 petsctools
 pybind11
-setuptools>=77.0.3
 rtree>=1.2
+setuptools>=77.0.3
 
 # Transitive build dependencies
 hatchling
 meson-python
+scikit_build_core

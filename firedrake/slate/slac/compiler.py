@@ -23,7 +23,6 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 from pyop2.caching import memory_and_disk_cache
@@ -36,6 +35,7 @@ import petsctools
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 import copy
 
 from petsc4py import PETSc
@@ -43,13 +43,6 @@ from petsc4py import PETSc
 __all__ = ['compile_expression']
 
 GREEN = "\033[1;37;32m%s\033[0m"
-
-
-try:
-    PETSC_DIR, PETSC_ARCH = get_petsc_dir()
-except ValueError:
-    PETSC_DIR, = get_petsc_dir()
-    PETSC_ARCH = None
 
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
@@ -192,14 +185,20 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=builder.bag.needs_cell_orientations,
                        subdomain_id=("otherwise",),
                        domain_number=0,
+                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ) if builder.bag.needs_coordinates else (),
+                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else (),
+                                                                 cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
+                                                                 exterior_facets=(),
+                                                                 interior_facets=(),
+                                                                 orientations_cell=(),
+                                                                 orientations_exterior_facet=(),
+                                                                 orientations_interior_facet=(),),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
-                       needs_cell_sizes=builder.bag.needs_cell_sizes,
                        arguments=arguments,
                        events=events)
 

@@ -788,6 +788,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt nclosure, p, vi, v, fi, i
         PetscInt start_v, off
         PetscInt *closure = NULL
+        PetscInt closure_tmp[2*9]
         PetscInt c_vertices[4]
         PetscInt c_facets[4]
         PetscInt g_vertices[4]
@@ -804,13 +805,13 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
     ncells = cEnd - cStart
     entity_per_cell = 4 + 4 + 1
 
+    CHKERR(PetscMalloc1(2*9, &closure))
+
     cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
-        # First extract the facets (edges) and the vertices
-        # from the transitive closure into c_facets and c_vertices.
         # Here we assume that DMPlex gives entities in the order:
         #
         #   8--3--7
@@ -821,7 +822,65 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         #
         # where the starting vertex and order of traversal is arbitrary.
         # (We fix that later.)
+
+        # If we have a periodic mesh with only a single cell in the periodic
+        # direction then the closure will look like
         #
+        #   4--1--5
+        #   |     |
+        #   3  0  2   (vertical periodicity)
+        #   |     |
+        #   4--1--5
+        #
+        # or
+        #
+        #   5--3--5
+        #   |     |
+        #   2  0  2   (horizontal periodicity)
+        #   |     |
+        #   4--1--4
+        #
+        # and only have 6 entries instead of 9. For the following to work we have
+        # to blow this out to a 9 entry array including the repeats.
+        if nclosure == 4:
+            raise NotImplementedError("Single-cell periodic quad meshes are "
+                                      "not supported")
+        elif nclosure == 6:
+            horiz_periodicity, vert_periodicity = _get_periodicity(plex)
+            (_, horiz_unit_periodic) = horiz_periodicity
+            (_, vert_unit_periodic) = vert_periodicity
+            if vert_unit_periodic:
+                assert not horiz_unit_periodic
+                closure_tmp[2*0] = closure[2*0]
+                closure_tmp[2*1] = closure[2*1]
+                closure_tmp[2*2] = closure[2*2]
+                closure_tmp[2*3] = closure[2*1]
+                closure_tmp[2*4] = closure[2*3]
+                closure_tmp[2*5] = closure[2*4]
+                closure_tmp[2*6] = closure[2*5]
+                closure_tmp[2*7] = closure[2*5]
+                closure_tmp[2*8] = closure[2*4]
+            else:
+                assert horiz_unit_periodic
+                assert not vert_unit_periodic
+                closure_tmp[2*0] = closure[2*0]
+                closure_tmp[2*1] = closure[2*1]
+                closure_tmp[2*2] = closure[2*2]
+                closure_tmp[2*3] = closure[2*3]
+                closure_tmp[2*4] = closure[2*2]
+                closure_tmp[2*5] = closure[2*4]
+                closure_tmp[2*6] = closure[2*4]
+                closure_tmp[2*7] = closure[2*5]
+                closure_tmp[2*8] = closure[2*5]
+
+            nclosure = 9
+            for i in range(9):
+                closure[2*i] = closure_tmp[2*i]
+        else:
+            assert nclosure == 9
+
+        # Extract the facets (edges) and the vertices
+        # from the transitive closure into c_facets and c_vertices.
         # For the vertices, we also retrieve the global numbers into g_vertices.
         vi = 0
         fi = 0
@@ -923,8 +982,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         cell_closure[cell, 4 + 3] = facets[1]
         cell_closure[cell, 8] = c
 
-    if closure != NULL:
-        restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
+    CHKERR(PetscFree(closure))
 
     return cell_closure
 
@@ -1263,7 +1321,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 nodes = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2)).reshape(dimension + 1, -1)
     else:
         nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    section = PETSc.Section().create(comm=mesh._comm)
+    section = PETSc.Section().create(comm=mesh.comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
 
@@ -1987,7 +2045,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
     if isinstance(dm, PETSc.DMPlex):
         if not dm.getCoordinatesLocalized():
-            # Use CG coordiantes.
+            # Use CG coordinates.
             dm_sec = dm.getCoordinateSection()
             dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
             coords = np.empty_like(dm_coords)
@@ -1998,12 +2056,11 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
                 for i in range(dim):
                     coords[offset, i] = dm_coords[dm_offset, i]
         else:
-            # Use DG coordiantes.
+            # Use DG coordinates.
             get_height_stratum(dm.dm, 0, &cStart, &cEnd)
             dim = dm.getCoordinateDim()
             ndofs, perm, perm_offsets = _get_firedrake_plex_permutation_dg_transitive_closure(dm)
-            dm_sec = dm.getCellCoordinateSection()
-            dm_coords = dm.getCellCoordinatesLocal().array.reshape(((cEnd - cStart) * ndofs[0], dim))
+            dm_coords, dm_sec = _get_expanded_dm_dg_coords(dm, ndofs)
             coords = np.empty_like(dm_coords)
             for c in range(cStart, cEnd):
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))  # scalar offset
@@ -2030,6 +2087,138 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
     return coords
+
+
+def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
+    """Return the DM DG coordinates expanded to the full closure size.
+
+    This transformation accounts for the fact that single-cell periodic
+    domains have closures that are smaller than expected (due to repeated
+    points).
+
+    """
+    cdef:
+        const PetscReal *L
+
+        PETSc.Section dm_sec_expanded
+
+    cStart, cEnd = dm.getHeightStratum(0)
+    dim = dm.getCoordinateDim()
+    coords_shape = ((cEnd-cStart) * ndofs[0], dim)
+
+    if dm.getCellCoordinateSection().getDof(cStart) < ndofs[0] * dim:
+        # Fewer cell coordinates available, we must be single-cell periodic
+        if dm.getCellType(cStart) == PETSc.DM.PolytopeType.QUADRILATERAL:
+            # If we have a periodic mesh with only a single cell in the periodic
+            # direction then the cell coordinates will be
+            #
+            #   1-----2
+            #   |     |
+            #   |     |   (vertical periodicity)
+            #   |     |
+            #   1-----2
+            #
+            # or
+            #
+            #   2-----2
+            #   |     |
+            #   |     |   (horizontal periodicity)
+            #   |     |
+            #   1-----1
+            #
+            # when the standard layout is
+            #
+            #   4-----3
+            #   |     |
+            #   |     |
+            #   |     |
+            #   1-----2
+            assert ndofs[0] == 4, "Not expecting high order coords here"
+            dm_coords_orig = dm.getCellCoordinatesLocal().array_r.reshape(((cEnd-cStart) * 2, dim))
+            dm_coords_expanded = np.empty(coords_shape, dtype=dm_coords_orig.dtype)
+
+            # Create a new cell coordinate section
+            dm_sec_orig = dm.getCellCoordinateSection()
+            dm_sec_expanded = PETSc.Section().create(comm=dm_sec_orig.comm)
+            dm_sec_expanded.setChart(*dm_sec_orig.getChart())
+            dm_sec_expanded.setPermutation(dm_sec_orig.getPermutation())
+
+            horiz_periodicity, vert_periodicity = _get_periodicity(dm)
+            (_, horiz_unit_periodic) = horiz_periodicity
+            (_, vert_unit_periodic) = vert_periodicity
+
+            # Find the domain sizes
+            CHKERR(DMGetPeriodicity(dm.dm, NULL, NULL, &L))
+
+            if horiz_unit_periodic:
+                if vert_unit_periodic:
+                    raise NotImplementedError("Single-cell periodic quad meshes are "
+                                              "not supported")
+                else:
+                    cell_width = L[0]
+
+                    for c in range(cStart, cEnd):
+                        CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
+
+                        dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
+                        dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+0, 0] + cell_width
+                        dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0] + cell_width
+                        dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+1, 0]
+                        dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
+                        dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+0, 1]
+                        dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1]
+                        dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+1, 1]
+
+            else:
+                assert vert_unit_periodic
+                cell_height = L[1]
+
+                for c in range(cStart, cEnd):
+                    CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
+
+                    dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
+                    dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+1, 0]
+                    dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0]
+                    dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+0, 0]
+                    dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
+                    dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+1, 1]
+                    dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1] + cell_height
+                    dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+0, 1] + cell_height
+
+            dm_sec_expanded.setUp()
+
+            dm_coords = dm_coords_expanded
+            dm_sec = dm_sec_expanded
+
+        else:
+            raise NotImplementedError("Single cell periodicity for cell type "
+                                      f"{dm.getCellType(cStart)} is not supported")
+
+    else:
+        dm_coords = dm.getCellCoordinatesLocal().array_r.reshape(coords_shape)
+        dm_sec = dm.getCellCoordinateSection()
+
+    return dm_coords, dm_sec
+
+
+def _get_periodicity(dm: PETSc.DM) -> tuple[tuple[bool, bool], ...]:
+    """Return mesh periodicity information.
+    
+    This function returns a 2-tuple of bools per dimension where the first entry indicates
+    whether the mesh is periodic in that dimension, and the second indicates whether the
+    mesh is single-cell periodic in that dimension.
+    
+    """
+    cdef:
+        const PetscReal *maxCell, *L
+
+    dim = dm.getCoordinateDim()
+    CHKERR(DMGetPeriodicity(dm.dm, &maxCell, NULL, &L))
+    return tuple(
+        (L[d] >= 0, maxCell[d] >= L[d])
+        for d in range(dim)
+    )
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -3480,7 +3669,7 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                 numAdj += 1
             # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
-                SETERR(77)
+                CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
     adjSize[0] = numAdj
     return 0
@@ -3565,7 +3754,7 @@ cdef int DMPlexGetAdjacency_Closure_Star_Ridge(
                 numAdj += 1
             # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
-                SETERR(77)
+                CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
     CHKERR(DMPlexRestoreTransitiveClosure(dm, p, PETSC_FALSE, &starSize, &star))
     adjSize[0] = numAdj
@@ -3700,42 +3889,6 @@ def mark_points_with_function_array(PETSc.DM plex,
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
 
 
-def to_petsc_local_numbering(PETSc.Vec vec, V):
-    """
-    Reorder a PETSc Vec corresponding to a Firedrake Function w.r.t.
-    the PETSc natural numbering.
-
-    :arg vec: the PETSc Vec to reorder; must be a global vector
-    :arg V: the FunctionSpace of the Function which the Vec comes from
-    :ret out: a copy of the Vec, ordered with the PETSc natural numbering
-    """
-    cdef int dim, idx, start, end, p, d, k
-    cdef PetscInt dof, off
-    cdef PETSc.Vec out
-    cdef PETSc.Section section
-    cdef np.ndarray varray, oarray
-
-    section = V.dm.getGlobalSection()
-    out = vec.duplicate()
-    varray = vec.array_r
-    oarray = out.array
-    dim = V.value_size
-    idx = 0
-    start, end = vec.getOwnershipRange()
-    for p in range(*section.getChart()):
-        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-        if dof > 0:
-            CHKERR(PetscSectionGetOffset(section.sec, p, &off))
-            assert off >= 0
-            off *= dim
-            for d in range(dof):
-                for k in range(dim):
-                    oarray[idx] = varray[off + dim * d + k - start]
-                    idx += 1
-    assert idx == (end - start)
-    return out
-
-
 def create_halo_exchange_sf(PETSc.DM dm):
     """Create the halo exchange sf.
 
@@ -3819,7 +3972,8 @@ def submesh_create(PETSc.DM dm,
                    PetscInt subdim,
                    label_name,
                    PetscInt label_value,
-                   PetscBool ignore_label_halo):
+                   PetscBool ignore_label_halo,
+                   comm=None):
     """Create submesh.
 
     Parameters
@@ -3834,12 +3988,12 @@ def submesh_create(PETSc.DM dm,
         Value in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
 
     """
     cdef:
-        PETSc.DM subdm = PETSc.DMPlex()
         PETSc.DMLabel label, temp_label
-        PETSc.SF ownership_transfer_sf = PETSc.SF()
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
         PetscInt pStart, pEnd, p, i, stratum_size
         PETSc.PetscIS stratum_is = NULL
@@ -3863,7 +4017,11 @@ def submesh_create(PETSc.DM dm,
         CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
         CHKERR(ISDestroy(&stratum_is))
     # Make submesh using temp_label.
-    CHKERR(DMPlexFilter(dm.dm, temp_label.dmlabel, label_value, ignore_label_halo, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
+    subdm, ownership_transfer_sf = dm.filter(label=temp_label,
+                                             value=label_value,
+                                             ignoreHalo=ignore_label_halo,
+                                             sanitizeSubMesh=PETSC_TRUE,
+                                             comm=comm)
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)
@@ -3903,50 +4061,69 @@ def submesh_correct_entity_classes(PETSc.DM dm,
 
     if dm.comm.size == 1:
         return
+
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
-    CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-    assert nroots == pEnd - pStart
     assert pStart == 0
-    ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
-    ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        ownership_loss[p] = 1
-    unit = MPI._typedict[np.dtype(IntType).char]
-    ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    subpoint_is = subdm.getSubpointIS()
-    CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
-    assert nsubpoints == subpEnd - subpStart
     assert subpStart == 0
-    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_core", &lbl_core))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_ghost", &lbl_ghost))
     CHKERR(DMLabelCreateIndex(lbl_core, subpStart, subpEnd))
     CHKERR(DMLabelCreateIndex(lbl_owned, subpStart, subpEnd))
     CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
-    for subp in range(subpStart, subpEnd):
-        p = subpoint_indices[subp]
-        if ownership_loss[p] == 1:
+
+    if subdm.comm.size == 1:
+        # Undistributed case: relabel every point as core
+        for subp in range(subpStart, subpEnd):
             CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
-        if ownership_gain[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
+            if has:
+                continue
             CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
+            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
+            CHKERR(DMLabelSetValue(lbl_core, subp, 1))
+    else:
+        ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
+        ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
+        CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+        assert nroots == pEnd - pStart
+        for i in range(nleaves):
+            p = ilocal[i] if ilocal else i
+            ownership_loss[p] = 1
+        unit = MPI._typedict[np.dtype(IntType).char]
+        ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+        ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+
+        subpoint_is = subdm.getSubpointIS()
+        CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
+        assert nsubpoints == subpEnd - subpStart
+        CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+
+        for subp in range(subpStart, subpEnd):
+            p = subpoint_indices[subp]
+            if ownership_loss[p] == 1:
+                CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
+                assert has == PETSC_FALSE
+                CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
+                assert has == PETSC_TRUE
+                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
+                CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
+            if ownership_gain[p] == 1:
+                CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
+                assert has == PETSC_FALSE
+                CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
+                assert has == PETSC_TRUE
+                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
+                CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
+
+        CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMLabelDestroyIndex(lbl_core))
     CHKERR(DMLabelDestroyIndex(lbl_owned))
     CHKERR(DMLabelDestroyIndex(lbl_ghost))
-    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
 
 
 @cython.boundscheck(False)

@@ -11,6 +11,6 @@ def test_submesh_parent():
     cell_marker = 100
     parent = RelabeledMesh(mesh, [m], [cell_marker])
 
-    submesh = Submesh(parent, parent.topological_dimension(), cell_marker)
+    submesh = Submesh(parent, parent.topological_dimension, cell_marker)
     assert submesh.topology.submesh_parent is parent.topology
     assert submesh.submesh_parent is parent

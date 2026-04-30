@@ -143,6 +143,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
+    ('py:class', 'pyop2.op2.Kernel'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -157,6 +158,8 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
+    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
+    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # Dodgy links
@@ -178,7 +181,9 @@ linkcheck_ignore = [
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
-    r'https://buy.crosscountrytrains.co.uk'
+    r'https://www.ox.ac.uk',
+    r'https://buy.crosscountrytrains.co.uk',
+    r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
 
@@ -431,7 +436,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
-    'torch': ('https://pytorch.org/docs/stable/', None),
+    'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 

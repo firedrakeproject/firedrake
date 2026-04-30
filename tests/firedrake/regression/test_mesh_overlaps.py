@@ -98,3 +98,31 @@ def test_override_distribution_parameters(overlap):
         assert mesh.num_cells() == 2
 
     assert fine_mesh.num_cells() == 4
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("reorder", [False, True])
+def test_submesh_distribution_parameters(overlap, reorder):
+    # Test that mesh._distribution_parameters and mesh._did_reordering
+    # are propagated
+    partition = True
+    params = {"partition": partition,
+              "overlap_type": overlap}
+    mesh = UnitSquareMesh(2, 2, reorder=reorder,
+                          distribution_parameters=params)
+    orig_params = mesh._distribution_parameters
+    did_reordering = mesh._did_reordering
+    assert did_reordering == reorder
+
+    x, *_ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG0).interpolate(conditional(lt(x, 0.5), 1, 0))
+    label = 111
+    rmesh = RelabeledMesh(mesh, [ind], [label])
+    assert rmesh._distribution_parameters == orig_params
+    assert rmesh._did_reordering == did_reordering
+
+    dim = mesh.topological_dimension
+    submesh = Submesh(rmesh, dim, label)
+    assert submesh._distribution_parameters == orig_params
+    assert submesh._did_reordering == did_reordering

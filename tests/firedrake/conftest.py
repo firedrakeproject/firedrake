@@ -9,8 +9,14 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc
+from mpi4py import MPI
 from petsctools import get_external_packages
+from pyadjoint.tape import (
+    annotate_tape, get_working_tape, set_working_tape,
+    continue_annotation, pause_annotation
+)
+
+from firedrake.petsc import PETSc
 
 
 # Use a non-interactive backend for matplotlib if DISPLAY is undefined. This
@@ -160,10 +166,14 @@ def pytest_configure(config):
         "markers",
         "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
     )
+    config.addinivalue_line(
+        "markers",
+        "skipnogpu: mark as skipped when GPU hardware is unavailable"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
-    from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+    from firedrake.utils import complex_mode, device_matrix_type, SLATE_SUPPORTS_COMPLEX
 
     for item in items:
         if complex_mode:
@@ -175,6 +185,10 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
+        if device_matrix_type(False) is None:
+            if item.get_closest_marker("skipnogpu") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test requires GPU hardware to run."))
+
         for dep, marker, reason in dependency_skip_markers_and_reasons:
             if item.get_closest_marker(marker) is not None and _skip_test_dependency(dep):
                 item.add_marker(pytest.mark.skip(reason))
@@ -182,10 +196,9 @@ def pytest_collection_modifyitems(session, config, items):
 
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
-    """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import annotate_tape, get_working_tape
-
-    def fin():
+    """Check that the tape is empty at the end of each module.
+    """
+    def finalizer():
         # make sure taping is switched off
         assert not annotate_tape()
 
@@ -194,7 +207,17 @@ def check_empty_tape(request):
         if tape is not None:
             assert len(tape.get_blocks()) == 0
 
-    request.addfinalizer(fin)
+    request.addfinalizer(finalizer)
+
+
+@pytest.fixture
+def set_test_tape():
+    """Set a new working tape specifically for this test.
+    """
+    continue_annotation()
+    with set_working_tape():
+        yield
+    pause_annotation()
 
 
 @pytest.fixture
@@ -242,3 +265,10 @@ class _petsc_raises:
 def petsc_raises():
     # This function is needed because pytest does not support classes as fixtures.
     return _petsc_raises
+
+
+@pytest.fixture
+def garbage_cleanup():
+    """Fixture that runs the parallel garbage collector."""
+    yield
+    PETSc.garbage_cleanup(MPI.COMM_WORLD)

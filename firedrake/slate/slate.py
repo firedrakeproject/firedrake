@@ -15,7 +15,7 @@ compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
-
+import functools
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Constant
@@ -24,8 +24,9 @@ from ufl.coefficient import BaseCoefficient
 from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
-from firedrake.utils import cached_property, unique
+from firedrake.utils import unique
 
+from functools import cached_property
 from itertools import chain, count
 
 from pyop2.utils import as_tuple
@@ -252,6 +253,13 @@ class TensorBase(object, metaclass=ABCMeta):
         except ValueError:
             raise ValueError("All integrals must share the same domain of integration.")
         return domain
+
+    @staticmethod
+    def _expand_mixed_meshes(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            return sort_domains(join_domains(func(self, *args, **kwargs)))
+        return wrapper
 
     @abstractmethod
     def ufl_domains(self):
@@ -487,6 +495,7 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -562,6 +571,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns a BlockFunction in a tuple which carries all information to generate the right coefficients and maps."""
         return (BlockFunction(self._function, self._indices, self._original_function),)
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
         """
@@ -720,6 +730,7 @@ class Block(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -815,6 +826,7 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -918,6 +930,7 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -976,6 +989,7 @@ class TensorOp(TensorBase):
         coeffs = [op.slate_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.

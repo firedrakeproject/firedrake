@@ -55,6 +55,32 @@ def test_restricted_function_space_j_j_square(j):
     compare_function_space_assembly(V, V_res, [bc])
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("into_restricted", (True, False), ids=("into-restricted", "from-restricted"))
+def test_restrict_assign(into_restricted):
+    mesh = UnitSquareMesh(3, 3)
+
+    V = VectorFunctionSpace(mesh, "RT", 1)
+    Vres = RestrictedFunctionSpace(V, ("on_boundary",))
+
+    u = Function(V)
+    ures = Function(Vres)
+
+    if into_restricted:
+        source = u
+        target = ures
+    else:
+        source = ures
+        target = u
+
+    size = source.dat.data_ro.size
+    shape = source.dat.data_ro.shape
+    source.dat.data_wo[...] = np.arange(size).reshape(shape)
+
+    target.assign(source)
+    assert errornorm(ures, u) < 1E-13
+
+
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 2)
@@ -462,13 +488,22 @@ def test_restrict_python_pc():
     assert errornorm(u_exact, u) < 1E-10
 
 
-def test_restrict_multigrid():
+@pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
+def test_restrict_multigrid(degree, relax):
+    if relax == "asm":
+        relax_params = {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+        }
+    else:
+        relax_params = {"pc_type": relax}
+
     base = UnitSquareMesh(2, 2)
     refine = 2
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", degree)
     u = Function(V)
     test = TestFunction(V)
 
@@ -488,7 +523,7 @@ def test_restrict_multigrid():
         "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
+        "mg_levels": relax_params,
         "mg_coarse_pc_type": "lu"})
     solver.solve()
 

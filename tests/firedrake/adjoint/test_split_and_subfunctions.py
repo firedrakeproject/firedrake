@@ -6,42 +6,44 @@ import numpy as np
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+@pytest.fixture
+def mesh():
+    return UnitSquareMesh(2, 2)
 
 
-mesh = UnitSquareMesh(2, 2)
-cg2 = FiniteElement("CG", triangle, 2)
-cg1 = FiniteElement("CG", triangle, 1)
-ele = MixedElement([cg2, cg1])
-ZZ = FunctionSpace(mesh, ele)
-V2 = FunctionSpace(mesh, cg2)
+@pytest.fixture
+def V1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
 
 
-# the tests are run on functions from the MixedFunctionSpace ZZ
+@pytest.fixture
+def V2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
+
+
+# the tests are run on functions from the MixedFunctionSpace V2*V1
 # and on a normal (non-mixed) FunctionSpace. Calling split() on
 # a non-mixed function is trivial, but was previously broken
-@pytest.fixture(params=[ZZ, V2], ids=('mixed', 'non-mixed'))
-def Z(request):
-    return request.param
+@pytest.fixture(params=['non-mixed', 'mixed'])
+def Z(request, V2, V1):
+    if request.param == 'non-mixed':
+        return V2
+    elif request.param == 'mixed':
+        return V2*V1
+    else:
+        raise ValueError("Unknown function space specification")
 
 
-rg = RandomGenerator()
+@pytest.fixture
+def rng():
+    return RandomGenerator(PCG64(seed=13))
 
 
-def main(ic, fnsplit=True):
+def main(ic, V2, fnsplit=True):
     u = Function(V2)
     w = TrialFunction(V2)
     v = TestFunction(V2)
@@ -60,10 +62,10 @@ def main(ic, fnsplit=True):
 
 
 @pytest.mark.skipcomplex
-def test_split(Z):
+def test_split(Z, V2):
     ic = Function(Z)
 
-    u = main(ic, fnsplit=False)
+    u = main(ic, V2, fnsplit=False)
     j = assemble(u**2*dx)
     rf = ReducedFunctional(j, Control(ic))
 
@@ -72,36 +74,36 @@ def test_split(Z):
 
 
 @pytest.mark.skipcomplex
-def test_fn_split(Z):
+def test_fn_split(Z, V2, rng):
     set_working_tape(Tape())
     ic = Function(Z)
 
-    u = main(ic, fnsplit=True)
+    u = main(ic, V2, fnsplit=True)
     j = assemble(u**2*dx)
     rf = ReducedFunctional(j, Control(ic))
 
-    h = rg.uniform(Z)
+    h = rng.uniform(Z)
 
     assert taylor_test(rf, ic, h) > 1.9
 
 
 @pytest.mark.skipcomplex
-def test_fn_split_hessian(Z):
+def test_fn_split_hessian(Z, V2, rng):
     set_working_tape(Tape())
     ic = Function(Z)
 
-    u = main(ic, fnsplit=True)
+    u = main(ic, V2, fnsplit=True)
     j = assemble(u ** 4 * dx)
     rf = ReducedFunctional(j, Control(ic))
 
-    h = rg.uniform(Z)
+    h = rng.uniform(Z)
     dJdm = rf.derivative()._ad_dot(h)
     Hm = rf.hessian(h)._ad_dot(h)
     assert taylor_test(rf, ic, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_fn_split_no_annotate(Z):
+def test_fn_split_no_annotate(Z, V2, rng):
     set_working_tape(Tape())
     ic = Function(Z)
 
@@ -120,7 +122,7 @@ def test_fn_split_no_annotate(Z):
     j = assemble(u ** 4 * dx + ic_uv * dx)
     rf = ReducedFunctional(j, Control(ic))
 
-    h = rg.uniform(Z)
+    h = rng.uniform(Z)
     r = taylor_to_dict(rf, ic, h)
 
     assert min(r["R0"]["Rate"]) > 0.95

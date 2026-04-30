@@ -153,19 +153,23 @@ class ASMStarPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.cell_set._extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
-        validate_overlap(mesh, depth, "star")
+        validate_overlap(mesh_unique, depth, "star")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
         ises = []
@@ -191,9 +195,11 @@ class ASMStarPC(ASMPatchPC):
                     # Local indices within W
                     W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
+
+            indices = numpy.array(indices)
+            indices = indices[indices >= 0]
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
-
         return ises
 
 
@@ -210,8 +216,12 @@ class ASMVankaPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.layers:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.layers:
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -230,7 +240,7 @@ class ASMVankaPC(ASMPatchPC):
         ordering = opts.getString("mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
         ises = []
@@ -240,7 +250,7 @@ class ASMVankaPC(ASMPatchPC):
         else:
             (start, end) = mesh_dm.getHeightStratum(height)
             patch_dim = mesh_dm.getDimension() - height
-        validate_overlap(mesh, patch_dim, "vanka")
+        validate_overlap(mesh_unique, patch_dim, "vanka")
 
         for seed in range(start, end):
             # Only build patches over owned DoFs
@@ -273,6 +283,9 @@ class ASMVankaPC(ASMPatchPC):
                     # Local indices within W
                     W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
+
+            indices = numpy.array(indices)
+            indices = indices[indices >= 0]
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
@@ -302,12 +315,20 @@ class ASMLinesmoothPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        assert mesh.cell_set._extruded
-        dm = mesh.topology_dm
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        assert mesh_unique.cell_set._extruded
+        dm = mesh_unique.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
+
+        if len(V) > 1:
+            raise NotImplementedError("Not implemeneted for mixed spaces")
+        V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
         ises = []
@@ -320,7 +341,10 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
+                zlice = slice(off*V.block_size, V.block_size * (off + dof))
+
+                indices = V_local_ises_indices[0][zlice]
+                indices = indices[indices >= 0]
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -387,7 +411,7 @@ def get_basemesh_nodes(W):
 
     if W.mesh().extruded_periodic:
         # Account for missing dofs from the top layer
-        for dim in range(W.mesh().topological_dimension()):
+        for dim in range(W.mesh().topological_dimension):
             qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
             quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
             basemeshdof[qstart-pstart:qend-pstart] += quotient
@@ -408,9 +432,13 @@ class ASMExtrudedStarPC(ASMStarPC):
 
     def get_patches(self, V):
         mesh = V.mesh()
-        mesh_dm = mesh.topology_dm
-        nlayers = mesh.layers
-        if not mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        nlayers = mesh_unique.layers
+        if not mesh_unique.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
         periodic = mesh.extruded_periodic
 
@@ -421,7 +449,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_ises = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_ises = get_local_ises_indices(V)
         basemeshoff = []
         basemeshdof = []
         basemeshlayeroffsets = []
@@ -459,7 +487,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             else:
                 continue
 
-            validate_overlap(mesh, base_depth, "star")
+            validate_overlap(mesh_unique, base_depth, "star")
             start, end = mesh_dm.getDepthStratum(base_depth)
             for seed in range(start, end):
                 # Only build patches over owned DoFs
@@ -512,9 +540,22 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
+                    indices = numpy.array(indices)
+                    indices = indices[indices >= 0]
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
+
+
+def get_local_ises_indices(V):
+    """Return the local indices of each subspace of V.
+    The restricted DOFs will be masked for a RestrictedFunctionSpace.
+    """
+    V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+    for Vi, indices in zip(V, V_local_ises_indices):
+        if Vi.boundary_set:
+            indices[Vi.dof_dset.lgmap.indices == -1] = -1
+    return V_local_ises_indices
 
 
 def validate_overlap(mesh, patch_dim, patch_type):
