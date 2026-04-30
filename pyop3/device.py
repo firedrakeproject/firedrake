@@ -6,13 +6,6 @@ import warnings
 
 import cupy as cp
 
-
-# TODO: The constant should be elsewhere but temporary here 
-HOST_DEVICE = "cpu"
-
-# NOTE: Use contextvars to act as a bridge between buffer and manager class
-_current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
-
 class Device(metaclass=ABCMeta):
     _name: str
     _registered_arrays: set 
@@ -24,24 +17,48 @@ class Device(metaclass=ABCMeta):
     def current():
         device = _current_device.get()
         return device
+    
+    @abstractmethod
+    def sync_buffers(self):
+        pass
 
     @abstractmethod
     def register(self, arr):
         pass
 
     @abstractmethod
-    def __repr__(self):
-        pass 
-
-    @abstractmethod
-    def __str__(self):
+    def _reset_register(self):
         pass
 
-# TODO: Necessary to make this?
-class CPU(Device):
-    pass
+    @property
+    def name(self):
+        return self._name
 
-# Implementation follows similar idea to CuPY (with GPU(): ...)
+    def __repr__(self):
+        return self._name
+        
+    def __str__(self):
+        return self._name
+
+class CPU(Device):
+
+    def __init__(self, device: int | None = None):
+        super().__init__()
+        self._name = "cpu"
+        self._registered_arrays = set()
+        self.device = None
+
+    # NOTE: Is it necessary to have any implementation here? 
+    # Maybe perfunctory implementations but no real purpose
+    def sync_buffers(self):
+        pass
+
+    def register(self, arr):
+        self._registered_arrays.add(arr)
+
+    def _reset_register(self):
+        self._registered_arrays = set()
+
 class GPU(Device):
     
     def __init__(self, device: int | None = None):
@@ -50,15 +67,6 @@ class GPU(Device):
         self._registered_arrays = set()
         self._token = None
         self.device = cp.cuda.Device(device)
-
-    def __enter__(self):
-        self._token = _current_device.set(self)
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.sync_buffers()
-        _current_device.reset(self._token)
-        self._reset_register()
 
     def sync_buffers(self):
         for arr in self._registered_arrays:
@@ -70,9 +78,22 @@ class GPU(Device):
     def _reset_register(self):
         self._registered_arrays = set()
 
-    def __repr__(self):
-        return self._name
+@contextlib.contextmanager
+def offloading(device: Device):
+    # TODO: Not device exception
+    if not isinstance(device, Device):
+        raise NotImplementedError
 
-    def __str__(self):
-        return self._name
+    token = _current_device.set(device)
+    try:
+        yield
+    finally:
+        device.sync_buffers()
+        device._reset_register()
+        _current_device.reset(token)
 
+# TODO: Should this const variable be here? 
+HOST_DEVICE = CPU() 
+
+# NOTE: Use contextvars to act as a bridge between buffer and manager class
+_current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)

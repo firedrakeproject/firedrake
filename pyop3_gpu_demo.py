@@ -37,11 +37,11 @@ assert isinstance(g.dat.data_ro, np.ndarray)
 
 # state tracking checks, .buffer.state is now device-specific
 assert f.dat.buffer.state[host] == 1  # modified once
-assert f.dat.buffer.state[str(gpu)] == 0  # untouched
+assert f.dat.buffer.state[gpu] == 0  # untouched
 assert g.dat.buffer.state[host] == 0  # untouched
-assert g.dat.buffer.state[str(gpu)] == 0  # untouched
+assert g.dat.buffer.state[gpu] == 0  # untouched
 
-with gpu:
+with op3.offloading(gpu):
     # Getting the .data attribute on the GPU should give us back a GPU array type
     assert not isinstance(f.dat.data_ro, np.ndarray)
     assert not isinstance(g.dat.data_ro, np.ndarray)
@@ -54,9 +54,9 @@ with gpu:
 
     # state tracking checks
     assert f.dat.buffer.state[host] == 1  # modified once
-    assert f.dat.buffer.state[str(gpu)] == 1  # matches host
+    assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
-    assert g.dat.buffer.state[str(gpu)] == 1  # modified once
+    assert g.dat.buffer.state[gpu] == 1  # modified once
 
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
@@ -64,6 +64,6 @@ assert (g.dat.data_ro == 23).all()
 
 # state tracking checks
 assert f.dat.buffer.state[host] == 1  # modified once
-assert f.dat.buffer.state[str(gpu)] == 1  # matches host
+assert f.dat.buffer.state[gpu] == 1  # matches host
 assert g.dat.buffer.state[host] == 1  # matches device
-assert g.dat.buffer.state[str(gpu)] == 1  # modified once
+assert g.dat.buffer.state[gpu] == 1  # modified once

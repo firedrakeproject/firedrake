@@ -22,8 +22,8 @@ from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
-    HOST_DEVICE,
-    Device
+    Device,
+    HOST_DEVICE
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -239,7 +239,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
     # TODO: Mutable pair of variables corresponding to state for host & device  
-    _state: dict[str, int]
+    _state: dict[Device, int]
 
     _max_value: np.number | None = None
 
@@ -256,7 +256,16 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(self, data: np.ndarray | cp.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
 
-        data_mapping = {pyop3.HOST_DEVICE: None, "gpu": None}
+        data_mapping = {}
+        if isinstance(data, np.ndarray):
+            data_mapping[pyop3.HOST_DEVICE] = data
+        elif isinstance(data, cp.ndarray):
+            ctx = self.get_context()
+            # TODO: Raise custom exception if no Device context 
+            if not isinstance(ctx, Device):
+                raise NotImplementedError
+
+            data_mapping[ctx] = data 
 
         if sf is None:
             sf = NullStarForest(data.size)
@@ -270,11 +279,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # TODO: CuPy has no support for `writeable` flag 
         if constant:
             data.flags.writeable = False
-
-        if isinstance(data, np.ndarray):
-            data_mapping[pyop3.HOST_DEVICE] = data
-        elif isinstance(data, cp.ndarray):
-            data_mapping["gpu"] = data 
             
         self._lazy_data = data_mapping 
         self.sf = sf
@@ -283,8 +287,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        # TODO: Quite ugly, maybe switch to ENUM in future.
-        self._state = {pyop3.HOST_DEVICE: 0, "gpu": 0}
+
+        # NOTE: Defaultdict approach, worth discussing with Connor 
+        # TODO: Not acknowledging if created whilst in device context
+        self._state = collections.defaultdict(int, [(pyop3.HOST_DEVICE, 0)]) 
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -322,7 +328,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        self._state[self.get_context_string()] += 1
+        self._state[self.get_context()] += 1
 
     # NOTE: Why is this using _lazy_data instead of _data?
     # TODO: Either adjust for _lazy_data mapping or switch to _data
@@ -340,9 +346,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     
     def get_context(self) -> Device:
         return Device.current()
-
-    def get_context_string(self) -> str:
-        return str(Device.current())
 
     @property
     def handle(self) -> np.ndarray:
@@ -491,26 +494,24 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def _data(self):
-        context = self.get_context()
-        context_str = self.get_context_string()
+        ctx = self.get_context()
 
-        if context_str == "gpu":
-            if self._lazy_data[context_str] is None or self.state[context_str] < self.state[pyop3.HOST_DEVICE]:
+        # NOTE: Consequence of implicit transfers
+        if ctx not in self._lazy_data:
+            self._lazy_data[ctx] = None    
+
+        # TODO: Don't like explicit GPU reference
+        if ctx.name == "gpu":
+            if self._lazy_data[ctx] is None or self.state[ctx] < self.state[pyop3.HOST_DEVICE]:
                 self._sync_to_device()
-                context.register(self)
-
-        # if context_str == "cpu":
-        #     if self._lazy_data[context_str] is None:
-        #         self._lazy_data[context_str] = np.zeros(self.shape, dtype=self.dtype)
-        # elif context_str == "gpu":
-        #     if self._lazy_data[context_str] is None:
-        #         self._lazy_data[context_str] = cp.zeros(self.shape, dtype=self.dtype)
-        # else:
-        #     raise RuntimeError("Offload device not supported")
+                ctx.register(self)
+        
+        # if self._lazy_data[ctx_str] is None:
+        #    self._lazy_data[ctx_str] = np.zeros(self.shape, dtype=self.dtype)
 
         if self.name == "array_247_buffer":
             breakpoint()
-        return self._lazy_data[context_str]
+        return self._lazy_data[ctx]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
@@ -627,16 +628,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: Consider whether to make these asynchronous and group with a sync
     def maybe_sync_to_host(self):
         # Only sync if modified whilst on GPU
-        self.state[pyop3.HOST_DEVICE] < self.state["gpu"]:
+        if self.state[pyop3.HOST_DEVICE] < self.state[self.get_context()]:
             self._sync_to_host()
 
     def _sync_to_host(self):
-        self._lazy_data[pyop3.HOST_DEVICE] = cp.asnumpy(self._lazy_data["gpu"])
-        self.state[pyop3.HOST_DEVICE] = self.state["gpu"]
+        context = self.get_context()
+        # TODO: Raise exception (warning?) as user on host already
+        if context is pyop3.HOST_DEVICE:
+            raise NotImplementedError
+
+        self._lazy_data[pyop3.HOST_DEVICE] = cp.asnumpy(self._lazy_data[context])
+        self.state[pyop3.HOST_DEVICE] = self.state[context]
 
     def _sync_to_device(self):
-        self._lazy_data["gpu"] = cp.asarray(self._lazy_data[pyop3.HOST_DEVICE])
-        self.state["gpu"] = self.state[pyop3.HOST_DEVICE]
+        context = self.get_context()
+        # TODO: Raise exception (warning?) as user on host already
+        if context is pyop3.HOST_DEVICE:
+            raise NotImplementedError
+
+        self._lazy_data[context] = cp.asarray(self._lazy_data[pyop3.HOST_DEVICE])
+        self.state[context] = self.state[pyop3.HOST_DEVICE]
 
 class MatBufferSpec(abc.ABC):
     pass
