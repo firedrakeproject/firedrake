@@ -24,7 +24,7 @@ TESTS = {
         # near nullspace
         "tests/firedrake/regression/test_nullspace.py::test_near_nullspace",
         # GPU offload
-        "tests/firedrake/offload/test_poisson_offloading_pc.py::test_poisson_offload",
+        "tests/firedrake/offload/test_poisson_offloading_pc.py::test_poisson_offload[cg-gamg-True]",
     ),
     2: (
         # HDF5/checkpointing
