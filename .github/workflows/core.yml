@@ -650,7 +650,6 @@ jobs:
           pip list
 
       - name: Build documentation
-        if: success() || steps.install.conclusion == 'success'
         id: build_docs
         working-directory: firedrake-repo/docs
         run: |
@@ -661,6 +660,7 @@ jobs:
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
 
       - name: Check bibtex
+        if: success() || steps.install.conclusion == 'success'
         run: make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
