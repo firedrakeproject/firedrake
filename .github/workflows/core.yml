@@ -673,15 +673,7 @@ jobs:
           firedrake-clean
           pip list
 
-      - name: Check bibtex
-        run: make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        if: success() || steps.install.conclusion == 'success'
-        run: make -C firedrake-repo/docs linkcheck
-
       - name: Build documentation
-        if: success() || steps.install.conclusion == 'success'
         id: build_docs
         working-directory: firedrake-repo/docs
         run: |
@@ -690,6 +682,14 @@ jobs:
           make latexpdf
           # : Copy manual to HTML tree
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Check bibtex
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs linkcheck
 
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v3

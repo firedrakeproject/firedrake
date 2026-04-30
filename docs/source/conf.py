@@ -184,6 +184,7 @@ linkcheck_ignore = [
     r'https://fluids.leeds.ac.uk/',
     r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
+    r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
 
@@ -437,7 +438,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
-    'torch': ('https://pytorch.org/docs/stable/', None),
+    'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 
