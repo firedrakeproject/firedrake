@@ -1342,6 +1342,17 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         for point in range(component.local_size):
             section.setDof(point, sizes[point])
 
+        # IMPORTANT: If the tree contains constraints then the *local* section
+        # is incorrect. This is because constrained DoFs are pushed to the back
+        # of the array via axis component regions and therefore
+        # 'section.getOffset(constrained_pt)' will give the wrong answer. At
+        # present this doesn't seem to be causing any problems because we always
+        # constrain all DoFs associated with a point and I would also guess that the
+        # local section isn't actually used anywhere.
+        # Since sections are not capable of handling interleaved layouts the answer
+        # is either that the local section should be NULL or determined in a custom
+        # way, but that the global section resulting from the 'invalid' section here
+        # should be correct. This currently fails consistency checks inside PETSc.
         if "constrained" in subtree._all_region_labels:
             cdat = Dat.zeros(self.regionless(), dtype=IntType)
             loop(
@@ -2110,7 +2121,21 @@ class AxisForest(DistributedObject):
         return self.trees[0]._buffer_indices
 
 
-class ContextSensitiveAxisTree(ContextSensitiveLoopIterable, DistributedObject):
+@pyop3.record.frozenrecord()
+class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
+
+    # {{{ instance attrs
+
+    trees: idict  # context to tree
+
+    def __init__(self, trees):
+        object.__setattr__(self, "trees", trees)
+
+    # }}}
+
+    @property
+    def context_map(self):  # old alias
+        return self.trees
 
     @property
     def comm(self) -> MPI.Comm:

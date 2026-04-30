@@ -13,7 +13,7 @@ from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
 from pyop3.node import Visitor, LabelledTreeVisitor, postorder
 from pyop3.tree.labelled_tree import parent_path
-import pyop3.tree.axis_tree as op3_tree
+import pyop3.tree.axis_tree as op3_tree  # TODO: import directly
 
 from .layout import compute_layouts  # noqa: F401
 from .size import compute_axis_tree_size, compute_axis_tree_component_size  # noqa: F401
@@ -203,6 +203,27 @@ def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
     unindexed = canonicalize_labels(axes.unindexed, relabeler)
     targets = _canonicalize_target_labels(axes.targets, relabeler)
     return axes.__record_init__(unindexed=unindexed, _targets=targets)
+
+
+@canonicalize_labels.register(op3_tree.ContextSensitiveAxisTree)
+def _(axes: op3_tree.ContextSensitiveAxisTree, relabeler):
+    relabeled_trees = {}
+    for ctx, tree in axes.trees.items():
+        relabeled_ctx = {}
+        for loop_id, path in ctx.items():
+            relabeled_loop_id = relabeler.add(loop_id, "loop")
+            relabeled_path = idict({
+                relabeler.add(axis, "axis"): component
+                for axis, component in path.items()
+            })
+            relabeled_ctx[relabeled_loop_id] = relabeled_path
+        relabeled_ctx = idict(relabeled_ctx)
+
+        relabeled_tree = canonicalize_labels(tree, relabeler)
+        relabeled_trees[relabeled_ctx] = relabeled_tree
+    relabeled_trees = idict(relabeled_trees)
+    return axes.__record_init__(trees=relabeled_trees)
+
 
 def _canonicalize_target_labels(targets, relabeler):
     from pyop3.expr.visitors import canonicalize_labels as relabel_expr

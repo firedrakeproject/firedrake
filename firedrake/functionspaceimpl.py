@@ -1395,38 +1395,10 @@ class FunctionSpace(AbstractFunctionSpace):
         # mixed spaces if the field axis is outermost.
         axis_section = orphaned_space.layout_axes.section({}, "mylabel")
 
-        if self.boundary_set:
-            breakpoint()
-
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
-        section_ = dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
-
-        # Restricted function spaces need to report which DoFs are constrained
-        if self.boundary_set:
-            breakpoint()
-            # for marker in boundary_set:
-            #     if marker in ["bottom", "top"]:
-            #         continue
-            #     elif marker == "on_boundary":
-            #         label = "exterior_facets"
-            #         marker = 1
-            #     else:
-            #         label = FACE_SETS_LABEL
-            #     n = dm.getStratumSize(label, marker)
-            #     if n == 0:
-            #         continue
-            #     points = dm.getStratumIS(label, marker).indices
-            #     for i in range(n):
-            #         p = points[i]
-            #         CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-            #         for j in range(dof):
-            #             dof_array[j] = j
-            #         CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-            # CHKERR(PetscFree(dof_array))
-
-        return section_
+        return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
 
     @cached_property
     def topological(self):

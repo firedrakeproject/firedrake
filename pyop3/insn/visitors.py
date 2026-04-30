@@ -83,7 +83,7 @@ class LoopContextExpander(InstructionTransformer):
             # loop_context = {loop.index.id: leaf_target_paths}
             loop_context_ = {loop.index.id: leaf_path}
 
-            restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context))
+            restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context_))
 
             # skip empty loops
             if restricted_loop_index.iterset.size == 0:
