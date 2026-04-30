@@ -232,14 +232,14 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ Instance attrs
 
     # TODO: Update to lazily allocated pair of host/device arrays
-    _lazy_data: dict[str, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
-    # TODO: Mutable pair of variables corresponding to state for host & device  
-    _state: dict[Device, int]
+    # TODO: Should this be a defaultdict?
+    _state: collections.defaultdict[Device, int]
 
     _max_value: np.number | None = None
 

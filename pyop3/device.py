@@ -75,7 +75,7 @@ class GPU(Device):
             import cupy as cp
             assert cp.is_available()
         except:
-            # Raise No GPU exception
+            # TODO: Raise No GPU exception
             raise NotImplementedError 
 
     def sync_buffers(self):
