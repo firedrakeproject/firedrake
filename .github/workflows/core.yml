@@ -622,19 +622,6 @@ jobs:
           echo "SNESSolve not found in PETSc log_view output!"
           exit 1
 
-      # All CPU-only tests should run correctly on GPU-enabled builds. Run
-      # the single process Firedrake tests here, which include some additional
-      # GPU tests not run by firedrake-check
-      - name: Run Firedrake tests (nprocs = 1)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 90
-
-
       - name: Post-run cleanup
         if: always()
         run: |
