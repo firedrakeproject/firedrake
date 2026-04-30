@@ -27,7 +27,31 @@ SLATE_SUPPORTS_COMPLEX = False
 
 
 @cache
-def device_matrix_type(warn: bool = True) -> str | None:
+def get_device_type() -> str | None:
+    r"""Get PETSc device type.
+
+    Attempt to initialise a GPU and return the type of GPU
+    identified by PETSc.
+
+    Returns
+    -------
+    str | None
+        The PETSc device type, or `None` if no device is found.
+
+    """
+    try:
+        dev = PETSc.Device.create()
+    except PETSc.Error:
+        # Could not initialise device - not a failure condition as this could
+        # be a GPU-enabled PETSc installation running on a CPU-only host.
+        return None
+    dev_type = dev.getDeviceType()
+    dev.destroy()
+    return dev_type
+
+
+@cache
+def device_matrix_type(*, warn: bool = True) -> str | None:
     r"""Get device matrix type
 
     Attempt to initialise a GPU device and return the PETSc mat_type
@@ -39,7 +63,7 @@ def device_matrix_type(warn: bool = True) -> str | None:
     ----------
     warn
         Emit a warning containing the reason a device mat_type
-        has not been returned. Defaults to False.
+        has not been returned. Defaults to True.
 
     Raises
     ------
@@ -55,18 +79,13 @@ def device_matrix_type(warn: bool = True) -> str | None:
 
     """
     _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
-    try:
-        dev = PETSc.Device.create()
-    except PETSc.Error:
-        # Could not initialise device - not a failure condition as this could
-        # be a GPU-enabled PETSc installation running on a CPU-only host.
+    dev_type = get_device_type()
+    if dev_type is None:
         if warn:
             warnings.warn(
                 "This installation of Firedrake is GPU-enabled, but no GPU device has been detected"
             )
         return None
-    dev_type = dev.getDeviceType()
-    dev.destroy()
     if dev_type not in _device_mat_type_map:
         raise UnrecognisedDeviceError(
             f"Unknown device type: {dev_type} initialised by PETSc. Firedrake "
