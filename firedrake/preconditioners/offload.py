@@ -23,9 +23,9 @@ class OffloadPC(PCBase):
 
     _prefix = "offload_"
 
-    def call_device_vec_impl(self, x, func_name: str, func_args=(), func_kwargs={}):
+    def call_device_vec_impl(self, x, func_name: str, *args, **kwargs):
         return getattr(x, _device_vector_impls[self.device_type][func_name])(
-            *func_args, **func_kwargs
+            *args, **kwargs
         )
 
     def initialize(self, pc):
