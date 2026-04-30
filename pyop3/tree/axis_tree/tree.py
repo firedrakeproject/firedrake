@@ -135,13 +135,9 @@ class ContextSensitive(ContextAware, abc.ABC):
         self.context_map = idict(context_map)
 
     @cached_property
-    def keys(self):
-        # loop is used just for unpacking
-        for context in self.context_map.keys():
-            indices = set()
-            for loop_index in context.keys():
-                indices.add(loop_index)
-            return frozenset(indices)
+    def loop_indices(self):
+        # all branches must have the same loop indices
+        return utils.single_valued(c.keys() for c in self.context_map.keys())
 
     def with_context(self, context, *, strict=False):
         if not strict:
@@ -150,14 +146,15 @@ class ContextSensitive(ContextAware, abc.ABC):
         try:
             return self.context_map[context]
         except KeyError:
+            breakpoint()
             raise ContextMismatchException
 
     def filter_context(self, context):
-        key = {}
-        for loop_index, path in context.items():
-            if loop_index in self.keys:
-                key.update({loop_index: tuple(path)})
-        return idict(key)
+        return idict({
+            loop_index: path
+            for loop_index, path in context.items()
+            if loop_index in self.loop_indices
+        })
 
     def _shared_attr(self, attr: str):
         return single_valued(getattr(a, attr) for a in self.context_map.values())
