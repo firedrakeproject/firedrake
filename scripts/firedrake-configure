@@ -647,7 +647,7 @@ SUPPORTED_ARCHS: Mapping[ArchID, Arch] = {
             "hwloc",
             "hdf5-mpi",
             "metis",
-            "openblas"
+            "openblas",
             "openmpi",
             "pnetcdf",
             "scalapack",
@@ -700,7 +700,7 @@ SUPPORTED_ARCHS: Mapping[ArchID, Arch] = {
             "hwloc",
             "hdf5-mpi",
             "metis",
-            "openblas"
+            "openblas",
             "openmpi",
             "pnetcdf",
             "scalapack",
