@@ -89,7 +89,7 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      image: ubuntu:latest
+      image: ubuntu:resolute
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
     env:
