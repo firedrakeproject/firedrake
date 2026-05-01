@@ -24,7 +24,7 @@ import pyop3 as op3
 
 # made up API, we need some way to identify the device
 host = op3.HOST_DEVICE  # or similar
-gpu = op3.GPU()
+gpu = op3.CUDAGPU()
 
 mesh = UnitSquareMesh(3, 3)
 V = FunctionSpace(mesh, "P", 2)
@@ -58,6 +58,8 @@ with op3.offloading(gpu):
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
 
+# print(f"{g.dat.buffer._lazy_data=}")
+# print(f"{f.dat.buffer._lazy_data=}")
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 assert (g.dat.data_ro == 23).all()

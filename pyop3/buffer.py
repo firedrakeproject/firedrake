@@ -23,6 +23,8 @@ from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
     Device,
+    CUDAGPU,
+    CPU,
     HOST_DEVICE
 )
 
@@ -240,6 +242,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _ordered: bool
     # TODO: Should this be a defaultdict?
     _state: collections.defaultdict[Device, int]
+    _last_updated_device: Device
 
     _max_value: np.number | None = None
 
@@ -287,10 +290,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        self._last_updated_device = self.get_context()
 
-        # NOTE: Defaultdict approach, worth discussing with Connor 
+        # NOTE: Connor and I don't like defaultdict, unsure how to change it atm 
         # TODO: Not acknowledging if created whilst in device context
-        self._state = collections.defaultdict(int, [(pyop3.HOST_DEVICE, 0)]) 
+        self._state = collections.defaultdict(int, [(self.get_context(), 0)]) 
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -328,7 +332,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        self._state[self.get_context()] += 1
+        ctx = self.get_context()
+        self._state[ctx] += 1
+        self._last_updated_device = ctx
 
     # NOTE: Why is this using _lazy_data instead of _data?
     # TODO: Either adjust for _lazy_data mapping or switch to _data
@@ -496,18 +502,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _data(self):
         ctx = self.get_context()
 
-        # NOTE: Consequence of implicit transfers
-        if ctx not in self._lazy_data:
-            self._lazy_data[ctx] = None    
-
-        # TODO: Don't like explicit GPU reference
-        if ctx.name == "gpu":
-            if self._lazy_data[ctx] is None or self.state[ctx] < self.state[pyop3.HOST_DEVICE]:
-                self._sync_to_device()
-                ctx.register(self)
+        if not self._is_data_available(ctx) or not self._is_data_synced(ctx):
+            self.sync_devices(ctx)
         
-        # if self._lazy_data[ctx_str] is None:
-        #    self._lazy_data[ctx_str] = np.zeros(self.shape, dtype=self.dtype)
+        # NOTE: If data is None, set to zeros? 
+        # if self._lazy_data is None:
+        #    self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
 
         if self.name == "array_247_buffer":
             breakpoint()
@@ -627,28 +627,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     
     # TODO: Consider whether to make these asynchronous and group with a sync
     # NOTE: Perhaps it is easier to allow user to make it non/blocking
-    def maybe_sync_to_host(self):
-        # NOTE: Ugly but won't throw error if context is host 
-        if self.state[pyop3.HOST_DEVICE] < self.state[self.get_context()]:
-            self._sync_to_host()
+    def sync_devices(self, current_device: Device):
+        last_updated_device = self._last_updated_device
 
-    def _sync_to_host(self):
-        context = self.get_context()
-        # TODO: Raise exception (warning?) as user on host already
-        if context is pyop3.HOST_DEVICE:
-            raise NotImplementedError
+        self._lazy_data[current_device] = current_device.asarray(self._lazy_data[last_updated_device])
 
-        self._lazy_data[pyop3.HOST_DEVICE] = cp.asnumpy(self._lazy_data[context])
-        self.state[pyop3.HOST_DEVICE] = self.state[context]
+        # if isinstance(current_device, CUDAGPU):
+        #     self._lazy_data[current_device] = cp.asarray(self._lazy_data[last_updated_device])
+        # elif isinstance(current_device, CPU):
+        #     if isinstance(last_updated_device, CUDAGPU):
+        #         self._lazy_data[current_device] = cp.asnumpy(self._lazy_data[last_updated_device])
+        #     elif isinstance(last_updated_device, CPU):
+        #         self._lazy_data[current_device] = np.array(self._lazy_data[last_updated_device])
+        # else:
+        #     raise NotImplementedError 
+        
+        self._state[current_device] = self._state[last_updated_device]
 
-    def _sync_to_device(self):
-        context = self.get_context()
-        # TODO: Raise exception as user still on host
-        if context is pyop3.HOST_DEVICE:
-            raise NotImplementedError
+    def _is_data_available(self, device: Device):
+        return device in self._lazy_data
 
-        self._lazy_data[context] = cp.asarray(self._lazy_data[pyop3.HOST_DEVICE])
-        self.state[context] = self.state[pyop3.HOST_DEVICE]
+    def _is_data_synced(self, device: Device):
+        return self.state[device] == max(self.state.values())
 
 class MatBufferSpec(abc.ABC):
     pass

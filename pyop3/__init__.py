@@ -89,7 +89,7 @@ from pyop3.insn import (  # noqa: F401
 )
 from pyop3.device import ( # noqa: F401
     HOST_DEVICE,
-    GPU,
+    CUDAGPU,
     offloading
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf

@@ -4,30 +4,21 @@ import contextlib
 import contextvars
 import warnings
 
+import numpy as np
+
 class Device(metaclass=ABCMeta):
     _name: str
-    _registered_arrays: set 
     _device_index: int | None
 
     def __init__(self, device_index: int | None = None):
         pass
 
+    # TODO: Method should not be associated with object 
+    # NOTE: Would be weird to get current device as CPU whilst requesting on GPU
     @staticmethod
     def current():
         device = _current_device.get()
         return device
-    
-    @abstractmethod
-    def sync_buffers(self):
-        pass
-
-    @abstractmethod
-    def register(self, arr):
-        pass
-
-    @abstractmethod
-    def _reset_register(self):
-        pass
 
     @property
     def name(self):
@@ -36,6 +27,10 @@ class Device(metaclass=ABCMeta):
     @property
     def device_index(self):
         return self._device_index
+
+    @abstractmethod
+    def asarray(self, arr):
+        pass
 
     def __repr__(self):
         return self._name
@@ -51,42 +46,33 @@ class CPU(Device):
         self._registered_arrays = set()
         self._device_index = device_index
 
-    # NOTE: Is it necessary to have any implementation here? 
-    # Maybe perfunctory implementations but no real purpose
-    def sync_buffers(self):
-        pass
+    def asarray(self, arr):
+        # NOTE: Better logic if we switch from just NumPy/CuPy
+        if not isinstance(arr, np.ndarray):
+            import cupy as cp
+            return cp.asnumpy(arr)
+    
+        return np.array(arr)    
 
-    def register(self, arr):
-        self._registered_arrays.add(arr)
-
-    def _reset_register(self):
-        self._registered_arrays = set()
-
-class GPU(Device):
+class CUDAGPU(Device):
     
     def __init__(self, device_index: int | None = None):
         super().__init__()
-        self._name = "gpu"
+        self._name = "CudaGPU"
         self._registered_arrays = set()
         self._token = None
         self._device_index = device_index
 
         try:
             import cupy as cp
-            assert cp.is_available()
+            assert cp.is_available() 
         except:
             # TODO: Raise No GPU exception
             raise NotImplementedError 
 
-    def sync_buffers(self):
-        for arr in self._registered_arrays:
-            arr.maybe_sync_to_host()
-
-    def register(self, arr):
-        self._registered_arrays.add(arr)
-
-    def _reset_register(self):
-        self._registered_arrays = set()
+    def asarray(self, arr):
+        import cupy as cp
+        return cp.asarray(arr)
 
 @contextlib.contextmanager
 def offloading(dev: Device):
@@ -98,8 +84,6 @@ def offloading(dev: Device):
     try:
         yield
     finally:
-        dev.sync_buffers()
-        dev._reset_register()
         _current_device.reset(token)
 
 # TODO: Should this const variable be here? 
