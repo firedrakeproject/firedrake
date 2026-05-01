@@ -10,8 +10,9 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
+from functools import cached_property
+
 from firedrake.parloops import par_loop, INC, READ
-from firedrake.utils import cached_property
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
@@ -198,7 +199,7 @@ def create_matis(Amat, local_mat_type, cellwise=False):
             return cache[key]
         except KeyError:
             if mesh.comm.size > 1:
-                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, reorder=False, comm=COMM_SELF)
+                submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
             else:
                 submesh = None
             return cache.setdefault(key, submesh)

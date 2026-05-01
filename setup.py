@@ -3,15 +3,16 @@ import pkgconfig
 import platform
 import shutil
 import site
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from glob import glob
 from pathlib import Path
 
 import libsupermesh
+import firedrake_rtree
 import numpy as np
 import pybind11
 import petsctools
-import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
@@ -20,8 +21,7 @@ from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
 # Ensure that the PETSc getting linked against is compatible
-# TODO RELEASE set to ">=3.25"
-petsctools.init(version_spec=">=3.23.0")
+petsctools.init(version_spec=">=3.25.0")
 import petsc4py
 
 
@@ -31,17 +31,17 @@ class ExternalDependency:
     that correspond to the keyword arguments of `Extension`. For convenience it
     also implements addition and `**` unpacking.
     '''
-    include_dirs: list[str] = field(default_factory=list, init=True)
-    extra_compile_args: list[str] = field(default_factory=list, init=True)
-    libraries: list[str] = field(default_factory=list, init=True)
-    library_dirs: list[str] = field(default_factory=list, init=True)
-    extra_link_args: list[str] = field(default_factory=list, init=True)
-    runtime_library_dirs: list[str] = field(default_factory=list, init=True)
+    include_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_compile_args: Sequence[str] = field(default_factory=list, init=True)
+    libraries: Sequence[str] = field(default_factory=list, init=True)
+    library_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_link_args: Sequence[str] = field(default_factory=list, init=True)
+    runtime_library_dirs: Sequence[str] = field(default_factory=list, init=True)
 
     def __add__(self, other):
         combined = {}
         for f in self.__dataclass_fields__.keys():
-            combined[f] = getattr(self, f) + getattr(other, f)
+            combined[f] = [*getattr(self, f), *getattr(other, f)]
         return self.__class__(**combined)
 
     def keys(self):
@@ -83,14 +83,14 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dir = petsctools.get_petsc_dir()
-petsc_arch = petsctools.get_petsc_arch()
-petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
-    include_dirs=[petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs],
-    library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
-    runtime_library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
+    include_dirs=[
+        petsc4py.get_include(),
+        *petsctools.get_petsc_dirs(subdir="include"),
+    ],
+    library_dirs=petsctools.get_petsc_dirs(subdir="lib"),
+    runtime_library_dirs=petsctools.get_petsc_dirs(subdir="lib"),
 )
 petscvariables = petsctools.get_petscvariables()
 petsc_hdf5_compile_args = petscvariables.get("HDF5_INCLUDE", "")
@@ -120,24 +120,20 @@ else:
     # Set the library name and hope for the best
     hdf5_ = ExternalDependency(libraries=["hdf5"])
 
-# When we link against spatialindex or libsupermesh we need to know where
+# When we link against firedrake-rtree or libsupermesh we need to know where
 # the '.so' files end up. Since installation happens in an isolated
-# environment we cannot simply query rtree and libsupermesh for the
+# environment we cannot simply query firedrake-rtree and libsupermesh for the
 # current paths as they will not be valid once the installation is complete.
 # Therefore we set the runtime library search path to all the different
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
-# libspatialindex
-# example:
-# gcc -I/rtree/include
-# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
-libspatialindex_so = Path(rtree.core.rt._name).absolute()
-spatialindex_ = ExternalDependency(
-    include_dirs=[rtree.finder.get_include()],
-    extra_link_args=[str(libspatialindex_so)],
+# firedrake_rtree
+rtree_ = ExternalDependency(
+    include_dirs=[firedrake_rtree.get_include()],
+    extra_link_args=[firedrake_rtree.get_lib_filename()],
     runtime_library_dirs=[
-        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+        os.path.join(dir, "firedrake_rtree") for dir in sitepackage_dirs
     ],
 )
 
@@ -196,12 +192,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/spatialindex.pyx: numpy, spatialindex
+    # firedrake/cython/rtree.pyx: numpy, rtree-capi
     cython_list.append(Extension(
-        name="firedrake.cython.spatialindex",
+        name="firedrake.cython.rtree",
         language="c",
-        sources=[os.path.join("firedrake", "cython", "spatialindex.pyx")],
-        **(mpi_ + numpy_ + spatialindex_)
+        sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
+        **(mpi_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
@@ -239,6 +235,7 @@ FIREDRAKE_CHECK_FILES = (
     "tests/firedrake/regression/test_dg_advection.py",
     "tests/firedrake/regression/test_interpolate_cross_mesh.py",
     "tests/firedrake/output/test_io_function.py",
+    "tests/firedrake/offload/test_poisson_offloading_pc.py",
 )
 
 

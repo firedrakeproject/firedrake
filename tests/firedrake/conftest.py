@@ -9,6 +9,7 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
+from mpi4py import MPI
 from petsctools import get_external_packages
 from pyadjoint.tape import (
     annotate_tape, get_working_tape, set_working_tape,
@@ -16,6 +17,17 @@ from pyadjoint.tape import (
 )
 
 from firedrake.petsc import PETSc
+
+
+# Use a non-interactive backend for matplotlib if DISPLAY is undefined. This
+# prevents test failures when developing remotely.
+try:
+    import matplotlib
+except ImportError:
+    pass
+else:
+    if os.environ.get("DISPLAY", "") == "":
+        matplotlib.use("Agg")
 
 
 @functools.cache
@@ -154,10 +166,14 @@ def pytest_configure(config):
         "markers",
         "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
     )
+    config.addinivalue_line(
+        "markers",
+        "skipnogpu: mark as skipped when GPU hardware is unavailable"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
-    from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+    from firedrake.utils import complex_mode, device_matrix_type, SLATE_SUPPORTS_COMPLEX
 
     for item in items:
         if complex_mode:
@@ -168,6 +184,10 @@ def pytest_collection_modifyitems(session, config, items):
         else:
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+
+        if device_matrix_type(warn=False) is None:
+            if item.get_closest_marker("skipnogpu") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test requires GPU hardware to run."))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
             if item.get_closest_marker(marker) is not None and _skip_test_dependency(dep):
@@ -198,6 +218,15 @@ def set_test_tape():
     with set_working_tape():
         yield
     pause_annotation()
+
+
+@pytest.fixture
+def clear_pyplot_figures():
+    """Destroy all pyplot figures to prevent leaks."""
+    import matplotlib.pyplot as plt
+
+    yield
+    plt.close("all")
 
 
 class _petsc_raises:
@@ -236,3 +265,10 @@ class _petsc_raises:
 def petsc_raises():
     # This function is needed because pytest does not support classes as fixtures.
     return _petsc_raises
+
+
+@pytest.fixture
+def garbage_cleanup():
+    """Fixture that runs the parallel garbage collector."""
+    yield
+    PETSc.garbage_cleanup(MPI.COMM_WORLD)

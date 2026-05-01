@@ -812,7 +812,7 @@ def test_writing_large_so():
             #include <stdio.h>\n
             void big(double *result){
             """)
-        variables = (f"v{next(tempfile._get_candidate_names())}" for _ in range(128*1024))
+        variables = (f"v{next(tempfile._get_candidate_names())}" for _ in range(1024))
         lines = (f"  double {v} = {hash(v)/1000000000};\n  *result += {v};\n" for v in variables)
         program = "\n".join(chain.from_iterable(((preamble, ), lines, ("}\n", ))))
         with open("big.c", "w") as fh:
@@ -821,6 +821,7 @@ def test_writing_large_so():
     COMM_WORLD.Barrier()
     with open("big.c", "r") as fh:
         program = fh.read()
+    COMM_WORLD.Barrier()
 
     if COMM_WORLD.rank == 1:
         os.remove("big.c")

@@ -10,8 +10,9 @@ from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
+from functools import cached_property
+
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.utils import cached_property
 from firedrake.logging import warning
 
 
@@ -278,7 +279,7 @@ class _SNESContext(object):
 
     def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
         """Reconstruct this _SNESContext instance with new arguments."""
-        problem = problem or self.problem
+        problem = problem or self._problem
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type
         kwargs.setdefault("sub_mat_type", self.sub_mat_type)

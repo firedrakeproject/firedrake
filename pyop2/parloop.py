@@ -2,6 +2,7 @@ import abc
 import itertools
 import operator
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Optional, Tuple
 
 import loopy as lp
@@ -18,7 +19,6 @@ from pyop2.local_kernel import LocalKernel, CStringLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.types.data_carrier import DataCarrier
-from pyop2.utils import cached_property
 
 
 class ParloopArg(abc.ABC):

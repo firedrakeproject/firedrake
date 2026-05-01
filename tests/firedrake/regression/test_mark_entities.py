@@ -103,7 +103,7 @@ def test_mark_entities_mesh_mark_entities_2d():
     plex = mesh.topology.topology_dm
     label = plex.getLabel(label_name)
     assert label.getStratumIS(label_value).getSize() == 2
-    assert all(label.getStratumIS(label_value).getIndices() == [20, 30])
+    assert all(label.getStratumIS(label_value).getIndices() == [20, 23])
 
 
 def test_mark_entities_mesh_mark_entities_1d():

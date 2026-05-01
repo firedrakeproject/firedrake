@@ -10,6 +10,7 @@ from pyop2 import (
     exceptions as ex,
     utils
 )
+from functools import cached_property
 from pyop2.types.set import GlobalSet, MixedSet, Set
 
 
@@ -53,11 +54,11 @@ class Map:
         # A cache for objects built on top of this map
         self._cache = {}
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return (self._values.ctypes.data, )
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return (type(self), self.arity, utils.tuplify(self.offset), utils.tuplify(self.offset_quotient))
 
@@ -75,7 +76,7 @@ class Map:
     # Here we enforce that every map stores a single, unique MapKernelArg.
     # This is required because we use object identity to determined whether
     # maps are referenced more than once in a parloop.
-    @utils.cached_property
+    @cached_property
     def _global_kernel_arg(self):
         from pyop2.global_kernel import MapKernelArg
 
@@ -83,27 +84,27 @@ class Map:
         offset_quotient = tuple(self.offset_quotient) if self.offset_quotient is not None else None
         return MapKernelArg(self.arity, offset, offset_quotient)
 
-    @utils.cached_property
+    @cached_property
     def split(self):
         return (self,)
 
-    @utils.cached_property
+    @cached_property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
 
-    @utils.cached_property
+    @cached_property
     def toset(self):
         """:class:`Set` mapped to."""
         return self._toset
 
-    @utils.cached_property
+    @cached_property
     def arity(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element."""
         return self._arity
 
-    @utils.cached_property
+    @cached_property
     def arities(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element.
@@ -111,12 +112,12 @@ class Map:
         :rtype: tuple"""
         return (self._arity,)
 
-    @utils.cached_property
+    @cached_property
     def arange(self):
         """Tuple of arity offsets for each constituent :class:`Map`."""
         return (0, self._arity)
 
-    @utils.cached_property
+    @cached_property
     def values(self):
         """Mapping array.
 
@@ -124,7 +125,7 @@ class Map:
         halo points too, use :meth:`values_with_halo`."""
         return self._values[:self.iterset.size]
 
-    @utils.cached_property
+    @cached_property
     def values_with_halo(self):
         """Mapping array.
 
@@ -133,17 +134,17 @@ class Map:
         points."""
         return self._values
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined label"""
         return self._name
 
-    @utils.cached_property
+    @cached_property
     def offset(self):
         """The vertical offset."""
         return self._offset
 
-    @utils.cached_property
+    @cached_property
     def offset_quotient(self):
         """The offset quotient."""
         return self._offset_quotient
@@ -160,7 +161,7 @@ class Map:
         """self<=o if o equals self or self._parent <= o."""
         return self == o
 
-    @utils.cached_property
+    @cached_property
     def flattened_maps(self):
         """Return all component maps.
 
@@ -200,12 +201,12 @@ class PermutedMap(Map):
         self.permutation = np.asarray(permutation, dtype=Map.dtype)
         assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return super()._wrapper_cache_key_ + (tuple(self.permutation),)
 
     # See Map._global_kernel_arg above for more information.
-    @utils.cached_property
+    @cached_property
     def _global_kernel_arg(self):
         from pyop2.global_kernel import PermutedMapKernelArg
 
@@ -258,25 +259,25 @@ class ComposedMap(Map):
         self._cache = {}
         self.maps_ = tuple(maps_)
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return tuple(itertools.chain(*[m._kernel_args_ for m in self.maps_]))
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return tuple(m._wrapper_cache_key_ for m in self.maps_)
 
-    @utils.cached_property
+    @cached_property
     def _global_kernel_arg(self):
         from pyop2.global_kernel import ComposedMapKernelArg
 
         return ComposedMapKernelArg(*(m._global_kernel_arg for m in self.maps_))
 
-    @utils.cached_property
+    @cached_property
     def values(self):
         raise RuntimeError("ComposedMap does not store values directly")
 
-    @utils.cached_property
+    @cached_property
     def values_with_halo(self):
         r = np.empty(self.shape, dtype=Map.dtype)
         # Initialise map values.
@@ -294,7 +295,7 @@ class ComposedMap(Map):
         r[~mask, :] = Map.VALUE_UNDEFINED
         return r
 
-    @utils.cached_property
+    @cached_property
     def indices_active_with_halo(self):
         """Return boolean array for active indices.
 
@@ -324,7 +325,7 @@ class ComposedMap(Map):
     def __le__(self, o):
         raise NotImplementedError("__le__ not implemented for ComposedMap")
 
-    @utils.cached_property
+    @cached_property
     def flattened_maps(self):
         return tuple(itertools.chain(*(m.flattened_maps for m in self.maps_)))
 
@@ -357,24 +358,24 @@ class MixedMap(Map, caching.ObjectCached):
     def _cache_key(cls, maps):
         return maps
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return tuple(itertools.chain(*(m._kernel_args_ for m in self if m is not None)))
 
-    @utils.cached_property
+    @cached_property
     def _argtypes_(self):
         return tuple(itertools.chain(*(m._argtypes_ for m in self if m is not None)))
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return tuple(m._wrapper_cache_key_ for m in self if m is not None)
 
-    @utils.cached_property
+    @cached_property
     def split(self):
         r"""The underlying tuple of :class:`Map`\s."""
         return self._maps
 
-    @utils.cached_property
+    @cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
         s, = set(m.iterset for m in self._maps)
@@ -383,13 +384,13 @@ class MixedMap(Map, caching.ObjectCached):
         else:
             raise RuntimeError("Found multiple itersets.")
 
-    @utils.cached_property
+    @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
         return MixedSet(tuple(GlobalSet(comm=self.comm) if m is None else
                               m.toset for m in self._maps))
 
-    @utils.cached_property
+    @cached_property
     def arity(self):
         """Arity of the mapping: total number of toset elements mapped to per
         iterset element."""
@@ -399,7 +400,7 @@ class MixedMap(Map, caching.ObjectCached):
         else:
             raise RuntimeError("Found multiple itersets.")
 
-    @utils.cached_property
+    @cached_property
     def arities(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element.
@@ -407,12 +408,12 @@ class MixedMap(Map, caching.ObjectCached):
         :rtype: tuple"""
         return tuple(m.arity for m in self._maps)
 
-    @utils.cached_property
+    @cached_property
     def arange(self):
         """Tuple of arity offsets for each constituent :class:`Map`."""
         return (0,) + tuple(np.cumsum(self.arities))
 
-    @utils.cached_property
+    @cached_property
     def values(self):
         """Mapping arrays excluding data for halos.
 
@@ -420,7 +421,7 @@ class MixedMap(Map, caching.ObjectCached):
         halo points too, use :meth:`values_with_halo`."""
         return tuple(m.values for m in self._maps)
 
-    @utils.cached_property
+    @cached_property
     def values_with_halo(self):
         """Mapping arrays including data for halos.
 
@@ -430,17 +431,17 @@ class MixedMap(Map, caching.ObjectCached):
         return tuple(None if m is None else
                      m.values_with_halo for m in self._maps)
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined labels"""
         return tuple(m.name for m in self._maps)
 
-    @utils.cached_property
+    @cached_property
     def offset(self):
         """Vertical offsets."""
         return tuple(0 if m is None else m.offset for m in self._maps)
 
-    @utils.cached_property
+    @cached_property
     def offset_quotient(self):
         """Offsets quotient."""
         return tuple(0 if m is None else m.offset_quotient for m in self._maps)
@@ -464,6 +465,6 @@ class MixedMap(Map, caching.ObjectCached):
     def __repr__(self):
         return "MixedMap(%r)" % (self._maps,)
 
-    @utils.cached_property
+    @cached_property
     def flattened_maps(self):
         raise NotImplementedError("flattend_maps should not be necessary for MixedMap")

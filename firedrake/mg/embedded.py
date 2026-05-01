@@ -48,28 +48,36 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
-    def is_native(self, element, op):
+    def is_native(self, element, gdim, op):
         if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
         if isinstance(element.cell, ufl.TensorProductCell):
             if isinstance(element, finat.ufl.TensorProductElement):
-                return all(self.is_native(e, op) for e in element.factor_elements)
+                return all(self.is_native(e, gdim, op) for e in element.factor_elements)
             elif isinstance(element, finat.ufl.MixedElement):
-                return all(self.is_native(e, op) for e in element.sub_elements)
+                return all(self.is_native(e, gdim, op) for e in element.sub_elements)
 
         # Can we interpolate into this element?
+        # Piola-mapped elements on manifolds
+        # have degrees of freedom evaluating to
+        # different values on either side of a facet
+        tdim = element.cell.topological_dimension
+        if tdim != gdim and element.mapping() != "identity":
+            return False
+
         finat_element = create_element(element)
         try:
             finat_element.dual_basis
-            return True
         except NotImplementedError:
             return False
+        else:
+            return True
 
-    def _native_transfer(self, element, op):
+    def _native_transfer(self, element, gdim, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if self.is_native(element, op):
+            if self.is_native(element, gdim, op):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
@@ -241,8 +249,9 @@ class TransferManager(object):
         if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
-        if self.is_native(target_element, transfer_op):
-            self._native_transfer(target_element, transfer_op)(source, target)
+        gdim = Vt.mesh().geometric_dimension
+        if self.is_native(target_element, gdim, transfer_op):
+            self._native_transfer(target_element, gdim, transfer_op)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
@@ -306,8 +315,9 @@ class TransferManager(object):
         if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
-        if self.is_native(source_element, Op.RESTRICT):
-            self._native_transfer(source_element, Op.RESTRICT)(source, target)
+        gdim = Vs_star.mesh().geometric_dimension
+        if self.is_native(source_element, gdim, Op.RESTRICT):
+            self._native_transfer(source_element, gdim, Op.RESTRICT)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):

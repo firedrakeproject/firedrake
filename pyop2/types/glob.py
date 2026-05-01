@@ -12,6 +12,7 @@ from pyop2 import (
     mpi,
     utils
 )
+from functools import cached_property
 from pyop2.types.access import Access
 from pyop2.types.dataset import GlobalDataSet
 from pyop2.types.data_carrier import DataCarrier, EmptyDataMixin, VecAccessMixin
@@ -27,15 +28,15 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "%s_#x%x" % (self.__class__.__name__.lower(), id(self))
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return (self._data.ctypes.data, )
 
-    @utils.cached_property
+    @cached_property
     def _argtypes_(self):
         return (ctypes.c_voidp, )
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return (type(self), self.dtype, self.shape)
 
@@ -312,7 +313,7 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
             comm=self.comm
         )
 
-    @utils.cached_property
+    @cached_property
     def dataset(self):
         return GlobalDataSet(self)
 
@@ -375,7 +376,7 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
         part of a :class:`MixedDat`."""
         pass
 
-    @utils.cached_property
+    @cached_property
     def _vec(self):
         assert self.dtype == PETSc.ScalarType, \
             "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
