@@ -252,7 +252,7 @@ class Arch:
     ]
 
     def show_system_packages(self) -> None:
-        pipe(" ".join(self.system_packages+self.petsc_extras_system_packages), end="")
+        pipe(" ".join(self.system_packages), end="")
 
     def show_petsc_configure_options(self) -> None:
         include_dirs = [f"-I{idir}" for idir in self.include_dirs]
@@ -390,16 +390,16 @@ SUPPORTED_ARCHS: Mapping[ArchID, Arch] = {
             "libscalapack-openmpi-dev",
 
             # CUDA packages
-            f"cuda-compat-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-nvtx-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-cudart-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-command-line-tools-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-minimal-build-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-libraries-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"cuda-nvml-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"libnpp-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"libcusparse-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
-            f"libcublas-dev-{SUPPORTED_CUDA_VERSION.replace(".", "-")}",
+            f"cuda-compat-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-nvtx-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-cudart-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-command-line-tools-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-minimal-build-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-libraries-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"cuda-nvml-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"libnpp-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"libcusparse-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            f"libcublas-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
