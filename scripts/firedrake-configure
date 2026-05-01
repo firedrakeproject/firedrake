@@ -10,14 +10,8 @@
 # As a matter of policy, new package managers and archs should only be added to
 # this file if they are *tested in CI*.
 
-<<<<<<< HEAD
 import sys
 import time
-=======
-# Start by checking the Python version, older Pythons may not be able to run
-# this script.
-import sys
->>>>>>> origin/release
 
 
 def stdout(msg: str, **kwargs) -> None:
@@ -25,7 +19,6 @@ def stdout(msg: str, **kwargs) -> None:
     print(msg, file=sys.stdout, **kwargs)
 
 
-<<<<<<< HEAD
 def pipe(msg: str, **kwargs) -> None:
     """Print a message to stdout and stop the script."""
     stdout(msg, **kwargs)
@@ -35,15 +28,6 @@ def pipe(msg: str, **kwargs) -> None:
 def stderr(msg: str, **kwargs) -> None:
     """Write to stderr."""
     print(msg, file=sys.stderr, **kwargs)
-=======
-def stderr(msg: str, **kwargs) -> None:
-    """Write to stderr.
-
-    To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
-
-    """
-    print(f"ERROR: {msg}", file=sys.stderr, **kwargs)
->>>>>>> origin/release
 
 
 def abort() -> None:
@@ -51,7 +35,6 @@ def abort() -> None:
     exit(1)
 
 
-<<<<<<< HEAD
 def error(msg: str, **kwargs):
     """Print an error message to stderr and stop the script.
 
@@ -82,14 +65,6 @@ if sys.version < MINIMUM_PYTHON_VERSION:
     error(f"Firedrake requires Python {MINIMUM_PYTHON_VERSION} or greater")
 
 
-=======
-MINIMUM_PYTHON_VERSION = "3.10"
-if sys.version < MINIMUM_PYTHON_VERSION:
-    stderr(f"Firedrake requires Python {MINIMUM_PYTHON_VERSION} or greater")
-    abort()
-
-
->>>>>>> origin/release
 import argparse
 import dataclasses
 import enum
@@ -204,15 +179,9 @@ Please see https://firedrakeproject.org/install for more information."""
         os_ = sniff_package_manager()
     scalar_type = ScalarType(args.arch)
 
-<<<<<<< HEAD
     gpu_platform = GPUPlatform(args.gpu_arch)
     if gpu_platform != GPUPlatform.NO_GPU and os_ == OS.MACOS_ARM64:
         error(
-=======
-    gpu_arch = GPUArch(args.gpu_arch)
-    if gpu_arch != NO_GPU and package_manager == MACOS_HOMEBREW_ARM64:
-        stderr(
->>>>>>> origin/release
             "GPU-compatible PETSc builds are currently only supported"
             "on Linux"
         )
@@ -231,7 +200,6 @@ Please see https://firedrakeproject.org/install for more information."""
         error("arch not found")
 
     if args.show_system_packages:
-<<<<<<< HEAD
         # TODO: Move into the arch itself?
         if os_ == OS.UNKNOWN:
             error(
@@ -248,32 +216,6 @@ Please see https://firedrakeproject.org/install for more information."""
     else:
         assert args.show_env
         arch.show_env()
-=======
-        if package_manager is None:
-            stderr(
-                "Cannot install Firedrake dependencies without a package manager, "
-                "please install them manually"
-            )
-            abort()
-        stdout(" ".join(SYSTEM_PACKAGES[package_manager, arch, gpu_arch]), end="")
-    elif args.show_minimal_system_packages:
-        if package_manager is None:
-            stderr(
-                "Cannot install Firedrake dependencies without a package manager, "
-                "please install them manually"
-            )
-            abort()
-        stdout(" ".join(MINIMAL_SYSTEM_PACKAGES[package_manager]), end="")
-    elif args.show_petsc_configure_options:
-        stdout(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch, gpu_arch]), end="")
-    elif args.show_petsc_version:
-        stdout(SUPPORTED_PETSC_VERSION, end="")
-    elif args.show_extra_repo_pkg_url:
-        stdout(EXTRA_LINUX_APT_PKG_URL[gpu_arch], end="")
-    else:
-        assert args.show_env
-        stdout(" ".join(ENVIRONMENT_VARS[package_manager, arch, gpu_arch]), end="")
->>>>>>> origin/release
 
 
 class OS(enum.Enum):
