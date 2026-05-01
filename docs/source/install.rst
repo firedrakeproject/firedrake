@@ -119,10 +119,9 @@ ensure that these system dependencies are in place. Some of the dependencies
 downloaded by PETSc ``configure`` by passing additional flags like
 ``--download-mpich`` or ``--download-openblas`` (run ``./configure --help | less`` to
 see what is available). To give you a guide as to what system dependencies are
-needed, on Ubuntu they are:
+needed, on Ubuntu they are::
 
-.. literalinclude:: minimal_apt_deps.txt
-   :language: text
+   build-essential flex gfortran git ninja-build pkg-config python3-dev python3-pip
 
 .. _install_petsc:
 
