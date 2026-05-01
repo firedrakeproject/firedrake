@@ -10,6 +10,36 @@
 # As a matter of policy, new package managers and archs should only be added to
 # this file if they are *tested in CI*.
 
+# Start by checking the Python version, older Pythons may not be able to run
+# this script.
+import sys
+
+
+def stdout(msg: str) -> None:
+    """Write to stdout."""
+    print(msg, file=sys.stdout)
+
+
+def stderr(msg: str) -> None:
+    """Write to stderr.
+
+    To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
+
+    """
+    print(f"ERROR: {msg}", file=sys.stderr)
+
+
+def abort() -> None:
+    """Terminate the script."""
+    exit(1)
+
+
+MINIMUM_PYTHON_VERSION = "3.10"
+if sys.version < MINIMUM_PYTHON_VERSION:
+    stderr(f"Firedrake requires Python {MINIMUM_PYTHON_VERSION} or greater")
+    abort()
+
+
 import argparse
 import enum
 import os
@@ -164,24 +194,27 @@ Please see https://firedrakeproject.org/install for more information."""
 
     gpu_arch = GPUArch(args.gpu_arch)
     if gpu_arch != NO_GPU and package_manager == MACOS_HOMEBREW_ARM64:
-        raise RuntimeError(
+        stderr(
             "GPU-compatible PETSc builds are currently only supported"
             "on Linux"
         )
+        abort()
 
     if args.show_system_packages:
         if package_manager is None:
-            raise RuntimeError(
+            stderr(
                 "Cannot install Firedrake dependencies without a package manager, "
                 "please install them manually"
             )
+            abort()
         print(" ".join(SYSTEM_PACKAGES[package_manager, arch, gpu_arch]), end="")
     elif args.show_minimal_system_packages:
         if package_manager is None:
-            raise RuntimeError(
+            stderr(
                 "Cannot install Firedrake dependencies without a package manager, "
                 "please install them manually"
             )
+            abort()
         print(" ".join(MINIMAL_SYSTEM_PACKAGES[package_manager]), end="")
     elif args.show_petsc_configure_options:
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch, gpu_arch]), end="")
@@ -205,10 +238,11 @@ def sniff_package_manager() -> Optional[PackageManager]:
         if has_homebrew():
             if platform.machine() == "arm64":
                 return MACOS_HOMEBREW_ARM64
-    raise RuntimeError(
+    stderr(
         "No package manager detected, if you want to configure Firedrake without "
         "any system packages please pass '--no-package-manager'"
     )
+    abort()
 
 
 def has_apt() -> bool:
@@ -218,7 +252,8 @@ def has_apt() -> bool:
     except FileNotFoundError:
         return False
     except:  # noqa: E722
-        raise RuntimeError("Unexpected error occurred searching for apt")
+        stderr("Unexpected error occurred searching for apt")
+        abort()
 
 
 def has_homebrew() -> bool:
@@ -228,7 +263,8 @@ def has_homebrew() -> bool:
     except FileNotFoundError:
         return False
     except:  # noqa: E722
-        raise RuntimeError("Unexpected error occurred searching for homebrew")
+        stderr("Unexpected error occurred searching for homebrew")
+        abort()
 
 
 MINIMAL_LINUX_APT_PACKAGES = (
