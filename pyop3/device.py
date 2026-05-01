@@ -90,7 +90,7 @@ def offloading(dev: Device):
     finally:
         _current_device.reset(token)
 
-# TODO: Should this const variable be here? 
+# NOTE: Should this const variable be here? 
 HOST_DEVICE = CPU() 
 
 # NOTE: Use contextvars to act as a bridge between buffer and manager

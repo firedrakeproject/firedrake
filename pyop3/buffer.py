@@ -233,13 +233,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ Instance attrs
 
-    # TODO: Update to lazily allocated pair of host/device arrays
     _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
+
     # TODO: Should this be a defaultdict?
     _state: collections.defaultdict[Device, int]
     _last_updated_device: Device
@@ -329,7 +329,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._state[ctx] += 1
         self._last_updated_device = ctx
 
-    # TODO: Either adjust for _lazy_data mapping or switch to _data
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
