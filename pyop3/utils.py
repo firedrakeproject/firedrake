@@ -56,6 +56,44 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
         else:
             return generator(default_prefix)
 
+# does this live here?
+class Renamer:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def add(self, obj: Any):
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[type(obj)])
+            label = f"{type(obj).__name__}_{index}"
+            return self._store.setdefault(obj, label)
+
+# same as above but takes in strings
+class Renamer2:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        assert isinstance(key, str)
+        return self._store[key]
+
+    def add(self, obj: str, obj_type: str):
+        assert isinstance(obj, str)
+        assert isinstance(obj_type, str)
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[obj_type])
+            label = f"{obj_type}_{index}"
+            return self._store.setdefault(obj, label)
+
+
 
 # NOTE: Python 3.13 has warnings.deprecated
 def deprecated(prefer=None, internal=False):

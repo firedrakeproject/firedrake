@@ -715,44 +715,6 @@ def concretize_materialized_indirections(obj, layouts) -> pyop3.insn.Instruction
     return MaterializedIndirectionsConcretizer()(obj, layouts=layouts)
 
 
-# does this live here?
-class Renamer:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def __getitem__(self, key):
-        return self._store[key]
-
-    def add(self, obj: Any):
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[type(obj)])
-            label = f"{type(obj).__name__}_{index}"
-            return self._store.setdefault(obj, label)
-
-
-# same as above but takes in strings
-class Renamer2:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def __getitem__(self, key):
-        assert isinstance(key, str)
-        return self._store[key]
-
-    def add(self, obj: Any, obj_type):
-        assert isinstance(obj, str)
-        assert isinstance(obj_type, str)
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[obj_type])
-            label = f"{obj_type}_{index}"
-            return self._store.setdefault(obj, label)
-
 
 class InstructionCacheKeyGetter(NodeVisitor):
     @functools.singledispatchmethod
@@ -855,145 +817,13 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 # and you'd get the same result) but currently these hash differently.
 def get_instruction_executor_cache_key(insn: pyop3.insn.Instruction) -> Hashable:
     return InstructionExecutorCacheKeyGetter()(insn)
-
-
-class DiskCacheKeyGetter(InstructionCacheKeyGetter):
-    def __init__(self) -> None:
-        self._renamer = Renamer()
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: pyop3.insn.Instruction) -> Hashable:
-        return super().process(obj)
-
-    @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop) -> Hashable:
-        from pyop3.tree.axis_tree.visitors import (
-            get_disk_cache_key as get_axis_tree_disk_cache_key
-        )
-
-        self._renamer.add(loop.index)
-        return (
-            type(loop),
-            get_axis_tree_disk_cache_key(loop.index.iterset, self._renamer),
-            *(self(stmt) for stmt in loop.statements),
-        )
-
-    @process.register(pyop3.insn.StandaloneCalledFunction)
-    def _(self, func: pyop3.insn.StandaloneCalledFunction) -> Hashable:
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        loopy_key = LoopyKeyBuilder()(func.function)
-        return (
-            type(func),
-            loopy_key,
-            *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
-        )
-
-    @process.register(pyop3.insn.Exscan)
-    def _(self, exscan: pyop3.insn.Exscan) -> Hashable:
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        return (
-            type(exscan),
-            get_expr_disk_cache_key(exscan.assignee, self._renamer),
-            get_expr_disk_cache_key(exscan.expression, self._renamer),
-            exscan.scan_type,
-        )
-
-    # TODO: Could have a nice visiter that checks fields (except where hash=False)
-    @process.register(pyop3.insn.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: pyop3.insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-        from pyop3.tree.axis_tree.visitors import get_disk_cache_key as get_axis_tree_disk_cache_key
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        return (
-            type(assignment),
-            get_expr_disk_cache_key(assignment.assignee, self._renamer),
-            get_expr_disk_cache_key(assignment.expression, self._renamer),
-            assignment.assignment_type,
-            tuple(get_axis_tree_disk_cache_key(tree, self._renamer) for tree in assignment.axis_trees),
-        )
-
-
-def get_disk_cache_key(insn: pyop3.insn.Instruction) -> Hashable:
-    return DiskCacheKeyGetter()(insn)
-
-
-class BufferCollector(NodeCollector):
-
-    def __init__(self, comm):
-        from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
-        from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
-
-        expr_collector = ExprBufferCollector.maybe_singleton(comm)
-        tree_collector = TreeBufferCollector.maybe_singleton(comm)
-        expr_collector.tree_collector = tree_collector
-        tree_collector.expr_collector = expr_collector
-
-        self._expr_collector = expr_collector
-        self._tree_collector = tree_collector
-        super().__init__()
-
-    @classmethod
-    # @memory_cache(heavy=True)
-    def maybe_singleton(cls, comm) -> Self:
-        return cls(comm)
-
-    @functools.singledispatchmethod
-    def process(self, obj: Any) -> OrderedFrozenSet:
-        return super().process(obj)
-
-    @process.register(pyop3.insn.InstructionList)
-    @postorder
-    def _(self, insn_list: pyop3.insn.InstructionList, visited, /) -> OrderedFrozenSet:
-        return utils.reduce("|", visited.values(), OrderedFrozenSet())
-
-    @process.register(pyop3.insn.NullInstruction)
-    def _(self, insn: pyop3.insn.NullInstruction, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet()
-
-    @process.register(pyop3.insn.Loop)
-    @postorder
-    def _(self, insn: pyop3.insn.Loop, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            self._tree_collector(insn.index.iterset),
-            *visited["statements"],
-        )
-
-    @process.register(pyop3.insn.StandaloneCalledFunction)
-    def _(self, func: pyop3.insn.StandaloneCalledFunction, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            *(self._expr_collector(arg) for arg in func.arguments)
-        )
-
-    @process.register(pyop3.insn.Exscan)
-    def _(self, exscan: pyop3.insn.Exscan, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            self._expr_collector(exscan.assignee),
-            self._expr_collector(exscan.expression),
-            self._expr_collector(exscan.extent),
-        )
-
-    @process.register(pyop3.insn.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: pyop3.insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-        return (
-            self._expr_collector(assignment.assignee)
-            | self._expr_collector(assignment.expression)
-            | utils.reduce("|", map(self._tree_collector, assignment.axis_trees))
-        )
-
-
-def collect_buffers(insn: pyop3.insn.Instruction) -> OrderedFrozenSet:
-    return BufferCollector.maybe_singleton(insn.comm)(insn)
-
-
 class LiteralInserter(NodeTransformer):
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> pyop3.insn.Instruction:
         return super().process(obj)
 
+    @process.register(pyop3.insn.InstructionList)
     @process.register(pyop3.insn.Loop)
     @process.register(pyop3.insn.Exscan)
     @process.register(pyop3.insn.StandaloneCalledFunction)
@@ -1037,7 +867,7 @@ def insert_literals(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
 class LabelCanonicalizer(NodeTransformer):
 
     def __init__(self):
-        self._relabeler = Renamer2()
+        self._relabeler = utils.Renamer2()
         super().__init__()
 
     @functools.singledispatchmethod

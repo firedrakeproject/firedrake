@@ -7,6 +7,8 @@ from functools import cached_property
 from typing import Any
 
 from immutabledict import immutabledict as idict
+
+import pyop3.obj
 from pyop3 import collections as op3_collections, utils
 from pyop3.cache import memory_cache
 from pyop3.collections import OrderedFrozenSet
@@ -67,7 +69,7 @@ def postorder(method):
 
 
 # maybe implement __record_init__ here?
-class Node(abc.ABC):
+class Node(pyop3.obj.Pyop3Object, abc.ABC):
     # bikeshedding, since this is meant to be inherited from it would be good to 'namespace' it
     @property
     @abc.abstractmethod

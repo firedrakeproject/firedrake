@@ -30,7 +30,7 @@ from petsc4py import PETSc
 import pyop3.cache
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
-from pyop3.collections import StrictlyUniqueDict, OrderedSet
+from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
 from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
@@ -215,7 +215,18 @@ class UnrecognisedAxisException(ValueError):
 
 
 # TODO: This is going to need some (trivial) tree manipulation routines
-class _UnitAxisTree:
+class _UnitAxisTree(pyop3.obj.Pyop3Object):
+
+    # {{{ instance attrs (there aren't any)
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet()
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self),)
+
+    # }}}
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
@@ -311,12 +322,18 @@ labels.
 
 
 @pyop3.record.frozenrecord()
-class AxisComponentRegion:
+class AxisComponentRegion(pyop3.obj.Pyop3Object):
 
     # {{{ instance attrs
 
     size: AxisComponentRegionSizeT
     label: frozenset | str | None = None
+
+    def collect_buffers(self, visitor):
+        return visitor(self.size)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.size), self.label)
 
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
@@ -453,6 +470,17 @@ class AxisComponent(LabelledNodeComponent):
     _size: Any
     _label: Any
     sf: Any
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(
+            *(map(visitor, self.regions)),
+            visitor(self._size),
+        )
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self), tuple(map(visitor, self.regions)), visitor(self._size), self.label
+        )
 
     def __init__(
         self,
@@ -611,8 +639,17 @@ class AxisComponent(LabelledNodeComponent):
 
 @pyop3.record.frozenrecord()
 class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
+
+    # {{{ instance attrs
+
     components: tuple[AxisComponent, ...]
     _label: Any
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(*(map(visitor, self.components)))
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self._label, "Axis"))
 
     def __init__(
         self,
@@ -636,6 +673,8 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
     def __post_init__(self) -> None:
         assert isinstance(self.components, tuple)
         super().__post_init__()
+
+    # }}}
 
     label = pyop3.record.attr("_label")
 
@@ -809,15 +848,31 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
 
 
 @pyop3.record.frozenrecord()
-class AxisTarget:
+class AxisTarget(pyop3.obj.Pyop3Object):
     """TODO.
 
     (this is hard to explain)
 
     """
+
+    # {{{ instance attrs
+
     axis: AxisLabelT
     component: AxisComponentLabelT
     expr: ExpressionT
+
+    def collect_buffers(self, visitor) -> OrderedFrozenSet:
+        return visitor(self.expr)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor.renamer.add(self.axis, "Axis"),
+            self.component,
+            visitor(self.expr),
+        )
+
+    # }}}
 
     @property
     def path(self) -> ConcretePathT:
@@ -1255,6 +1310,20 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     _node_map: idict
 
+    def collect_buffers(self, visitor):
+        return utils.reduce("|", map(visitor, self.node_map.values()), OrderedFrozenSet())
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        node_map_key = {}
+        for path, axis in self._node_map.items():
+            relabeled_path = idict({
+                visitor.renamer.add(axis_label, "Axis"): component_label
+                for axis_label, component_label in path.items()
+            })
+            node_map_key[relabeled_path] = visitor(axis)
+        node_map_key = idict(node_map_key)
+        return (type(self), node_map_key)
+
     def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
 
@@ -1472,6 +1541,40 @@ class IndexedAxisTree(AbstractAxisTree):
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     _unindexed: AxisTree | None
     _targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
+
+    def collect_buffers(self, visitor) -> OrderedFrozenSet:
+        buffers = OrderedFrozenSet()
+        for axis in self._node_map.values():
+            buffers |= visitor(axis)
+        for path, targetss in self._targets.items():
+            for targets in targetss:
+                for target in targets:
+                    buffers |= visitor(target)
+        return buffers
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        node_map_key = {}
+        for path, axis in self._node_map.items():
+            relabeled_path = idict({
+                visitor.renamer.add(axis_label, "Axis"): component_label
+                for axis_label, component_label in path.items()
+            })
+            node_map_key[relabeled_path] = visitor(axis)
+        node_map_key = idict(node_map_key)
+
+        targets_key = {}
+        for path, targetss in self._targets.items():
+            relabeled_path = idict({
+                visitor.renamer.add(axis_label, "Axis"): component_label
+                for axis_label, component_label in path.items()
+            })
+            targets_key[relabeled_path] = tuple(
+                tuple(visitor(target) for target in targets)
+                for targets in targetss
+            )
+        targets_key = idict(targets_key)
+
+        return (type(self), node_map_key, visitor(self._unindexed), targets_key)
 
     # TODO: where to put *, and order?
     def __init__(
@@ -1737,10 +1840,17 @@ class IndexedAxisTree(AbstractAxisTree):
 
 # TODO: Choose a suitable base class
 @pyop3.record.frozenrecord()
-class UnitIndexedAxisTree(DistributedObject):
+class UnitIndexedAxisTree(DistributedObject, pyop3.obj.Pyop3Object):
     """An indexed axis tree representing something indexed down to a scalar."""
+
+    # {{{ instance attrs
+
     unindexed: AxisTree
     _targets: Any
+
+    def collect_buffers(self, visitor):
+        raise NotImplementedError
+        return visitor(self.unindexed)
 
     def __init__(
         self,
@@ -1758,6 +1868,8 @@ class UnitIndexedAxisTree(DistributedObject):
 
     def __post_init__(self) -> None:
         pass
+
+    # }}}
 
     def getitem(self, indices, *, strict=False) -> UnitIndexedAxisTree:
         if utils.is_ellipsis_type(indices):

@@ -14,6 +14,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.obj
 import pyop3.record
 import pyop3.sf
 from pyop3 import utils
@@ -62,7 +63,7 @@ def record_modified(func):
     return wrapper
 
 
-class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
+class AbstractBuffer(DistributedObject, pyop3.obj.Pyop3Object, metaclass=abc.ABCMeta):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
@@ -243,6 +244,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
+    def get_disk_cache_key(self, visitor):
+        return (type(self), visitor.renamer.add(self.name, "ArrayBuffer"))
+
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (
             type(self), self._constant, self._rank_equal, self._ordered, 
@@ -272,6 +276,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        if self.name == "array_276":
+            breakpoint()
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size

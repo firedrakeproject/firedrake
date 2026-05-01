@@ -169,6 +169,12 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
     a: ExpressionT
 
+    def collect_buffers(self, visitor):
+        return visitor(self.a)
+
+    def get_disk_cache_key(self, visitor):
+        return (type(self), visitor(self.a))
+
     # }}}
 
     # {{{ interface impls
@@ -220,6 +226,12 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     a: ExpressionT
     b: ExpressionT
+
+    def collect_buffers(self, visitor):
+        return visitor(self.a) | visitor(self.b)
+
+    def get_disk_cache_key(self, visitor):
+        return (type(self), visitor(self.a), visitor(self.b))
 
     # }}}
 
@@ -385,6 +397,12 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
     b: ExpressionT
     c: ExpressionT
 
+    def collect_buffers(self, visitor):
+        return visitor(self.a) | visitor(self.b) | visitor(self.c)
+
+    def get_disk_cache_key(self, visitor):
+        return (type(self), visitor(self.a), visitor(self.b), visitor(self.c))
+
     # }}}
 
     # {{{ interface impls
@@ -480,6 +498,12 @@ class AxisVar(TerminalExpression):
 
     axis: Axis
 
+    def collect_buffers(self, visitor):
+        return visitor(self.axis)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.axis))
+
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
         assert axis.component.sf is None
@@ -510,11 +534,16 @@ class AxisVar(TerminalExpression):
     # }}}
 
 
-# TODO: notanumberexception
 @pyop3.record.frozenrecord()
 class NaN(TerminalExpression):
 
     # {{{ interface impls
+
+    def disk_cache_key(self, renamer):
+        return (type(self),)
+
+    def instruction_executor_cache_key(self, renamer):
+        return (type(self),)
 
     @property
     def local_max(self) -> NoReturn:
@@ -539,6 +568,12 @@ class LoopIndexVar(TerminalExpression):
 
     loop_index: LoopIndex
     axis: Axis
+
+    def collect_buffers(self, visitor):
+        return visitor(self.loop_index) | visitor(self.axis)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.loop_index), visitor(self.axis))
 
     def __init__(self, loop_index, axis) -> None:
         from pyop3 import LoopIndex

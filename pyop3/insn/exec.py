@@ -222,7 +222,7 @@ class InstructionExecutionContext:
     @cached_property
     def buffers(self) -> OrderedFrozenSet:
         """The buffers (global data) that are present in the operation."""
-        from pyop3.insn.visitors import collect_buffers
+        from pyop3.visitors import collect_buffers
 
         return collect_buffers(self._preprocess)
 
@@ -234,7 +234,7 @@ class InstructionExecutionContext:
         overly specific information such as buffer names or array values.
 
         """
-        from pyop3.insn.visitors import get_disk_cache_key
+        from pyop3.visitors import get_disk_cache_key
 
         return get_disk_cache_key(self._preprocess)
 
@@ -623,7 +623,8 @@ def compile(op, compiler_parameters=None):
 
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
-    loopy_code, buffer_index_map = _compile_static(op, compiler_parameters)
+    loopy_code, buffer_index_map, orig_op = _compile_static(op, compiler_parameters)
+    assert len(op.buffers) == len(orig_op.buffers), "huh, bad cache hit?"
     executable = Executable(loopy_code, compiler_parameters, op.comm)
 
     # TODO: The handling of nest indices here is very confused

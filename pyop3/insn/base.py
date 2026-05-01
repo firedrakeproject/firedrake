@@ -138,6 +138,12 @@ class Loop(Instruction):
     index: LoopIndex
     statements: tuple[Instruction, ...]
 
+    def collect_buffers(self, visitor):
+        return visitor(self.index).union(*(map(visitor, self.statements)))
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
+
     def __init__(
         self,
         index: LoopIndex,
@@ -182,6 +188,15 @@ class InstructionList(Instruction):
     # {{{ instance attrs
 
     instructions: tuple[Instruction]
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(*(visitor(insn) for insn in self.instructions))
+
+    def disk_cache_key(self, visitor):
+        return (type(self), tuple(visitor(insn) for insn in self.instructions))
+
+    def instruction_executor_cache_key(self, visitor):
+        return (type(self), tuple(visitor(insn) for insn in self.instructions))
 
     def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
@@ -524,6 +539,13 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 class NullInstruction(TerminalInstruction):
     """An instruction that does nothing."""
 
+    # {{{ instance attrs (there aren't any)
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet()
+
+    # }}}
+
     arguments = ()
 
     # COMM_DYNAMIC?
@@ -751,6 +773,22 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     _axis_trees: tuple[AxisTree, ...]
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+        return OrderedFrozenSet().union(
+            visitor(self._assignee),
+            visitor(self._expression),
+            *(visitor(tree) for tree in self._axis_trees),
+        )
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._assignee),
+            visitor(self._expression),
+            *(map(visitor, self._axis_trees)),
+            self._assignment_type,
+        )
+
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
 
@@ -787,6 +825,22 @@ class Exscan(TerminalInstruction):
     scan_type: Any
     scan_axis: Axis
     _comm: MPI.Comm = dataclasses.field(hash=False)
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(
+            visitor(self.assignee),
+            visitor(self.expression),
+            visitor(self.scan_axis),
+        )
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.assignee),
+            visitor(self.expression),
+            self.scan_type,
+            visitor(self.scan_axis),
+        )
 
     # }}}
 

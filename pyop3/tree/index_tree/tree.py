@@ -377,16 +377,28 @@ class LoopIndex(Index):
         Only add context later on
 
     """
+
+    # {{{ instance attrs
+
     iterset: AbstractAxisTree
     id: Any
 
-    dtype = IntType
+    def collect_buffers(self, visitor):
+        return visitor(self.iterset)
+
+    def get_disk_cache_key(self, visitor):
+        return (type(self), visitor(self.iterset), visitor.renamer.add(self.id, "LoopIndex"))
 
     def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
         id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
 
         object.__setattr__(self, "iterset", iterset)
         object.__setattr__(self, "id", id)
+
+    # }}}
+
+    dtype = IntType
+
 
     # ick, remove
     @property

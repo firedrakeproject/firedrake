@@ -25,6 +25,7 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
+import pyop3.cache
 import pyop3.dtypes
 import pyop3.expr
 from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
@@ -177,6 +178,9 @@ class LoopyCodegenContext(CodegenContext):
         # is not.
         if buffer.is_nested:
             raise NotImplementedError("Currently handle nesting outside the generated code")
+
+        if buffer.name == "array_276":
+            breakpoint()
 
         buffer_key = (buffer.name, buffer.nest_indices)
         if isinstance(buffer, NullBuffer):
@@ -415,13 +419,11 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
     return (op.disk_cache_key, compiler_parameters, config)
 
 
-# FIXME: This is causing
-# tests/firedrake/multigrid/test_p_multigrid.py::test_p_multigrid_scalar[triangles-matfree-restrict]
-# to fail because of buffer issues, are we adding extra buffers during lowering?
-# @memory_and_disk_cache(
-#     hashkey=_compile_static_hashkey,
-#     get_comm=lambda op, *args, **kwargs: op.comm,
-# )
+# @memory_and_disk_cache(  # FIXME: debugging things
+@pyop3.cache.memory_cache(
+    hashkey=_compile_static_hashkey,
+    get_comm=lambda op, *args, **kwargs: op.comm,
+)
 def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
 
@@ -509,7 +511,8 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
         intent = context.global_buffer_intents[buffer_key]
         buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
 
-    return translation_unit, buffer_index_map
+    # return translation_unit, buffer_index_map, len(op.buffers)
+    return translation_unit, buffer_index_map, op
 
 
 

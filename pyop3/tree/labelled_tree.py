@@ -18,6 +18,7 @@ from pyop3.exceptions import Pyop3Exception
 import pytools
 
 from pyop3.cache import cached_method
+import pyop3.obj
 
 from pyop3 import utils
 from pyop3.utils import (
@@ -65,18 +66,19 @@ class TreeMutationException(Pyop3Exception):
     pass
 
 
+# ah crud, this is another node!
 class Node:
     pass
 
 
-class LabelledNodeComponent(abc.ABC):
+class LabelledNodeComponent(pyop3.obj.Pyop3Object, abc.ABC):
     @property
     @abc.abstractmethod
     def label(self) -> ComponentLabelT:
         pass
 
 
-class MultiComponentLabelledNode(Node, Labelled):
+class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Pyop3Object):
 
     @property
     @abc.abstractmethod
@@ -105,7 +107,7 @@ class MultiComponentLabelledNode(Node, Labelled):
         return just_one(self.component_labels)
 
 
-class LabelledTree:
+class LabelledTree(pyop3.obj.Pyop3Object):
 
     # {{{ abstract methods
 

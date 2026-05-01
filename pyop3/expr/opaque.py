@@ -20,6 +20,9 @@ class OpaqueTerminal(NamedTerminalExpression):
     buffer: pyop3.buffer.AbstractBuffer
     _name: str
 
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet({self.buffer})
+
     def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
         return (
             type(self),

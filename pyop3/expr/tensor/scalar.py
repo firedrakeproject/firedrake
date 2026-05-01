@@ -27,6 +27,9 @@ class Scalar(Tensor):
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._buffer.instruction_executor_cache_key(buffer_counter))
 
+    def disk_cache_key(self, renamer: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (type(self), self._buffer.disk_cache_key(renamer))
+
     def __init__(
         self,
         value: numbers.Number | None = None,

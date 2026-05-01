@@ -14,6 +14,7 @@ from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
+from pyop3.collections import OrderedFrozenSet
 
 from .base import Expression, as_str
 from .tensor import Scalar, Dat, CompositeDat
@@ -69,6 +70,15 @@ class ScalarBufferExpression(BufferExpression):
 
     _buffer: AbstractBuffer
 
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet({self._buffer})
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self._buffer))
+
+    def instruction_executor_cache_key(self, renamer):
+        return (type(self), self._buffer.instruction_executor_cache_key(renamer))
+
     def __init__(self, buffer) -> None:
         object.__setattr__(self, "_buffer", buffer)
 
@@ -92,35 +102,35 @@ class ScalarBufferExpression(BufferExpression):
     def _full_str(self) -> str:
         return self.name
 
-    def __add__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.constant:
-            if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value+other, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-        return super().__add__(other)
-
-    def __sub__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.constant:
-            if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value-other, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-        return super().__sub__(other)
-
-    def __mul__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.constant:
-            if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value*other, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True, dtype=self.dtype)
-                return type(self)(buffer)
-        return super().__mul__(other)
+    # def __add__(self, other: ExpressionT, /) -> ExpressionT:
+    #     if self.buffer.constant:
+    #         if isinstance(other, numbers.Number):
+    #             buffer = ArrayBuffer.from_scalar(self.value+other, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #         elif type(other) is type(self) and other.buffer.constant:
+    #             buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #     return super().__add__(other)
+    #
+    # def __sub__(self, other: ExpressionT, /) -> ExpressionT:
+    #     if self.buffer.constant:
+    #         if isinstance(other, numbers.Number):
+    #             buffer = ArrayBuffer.from_scalar(self.value-other, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #         elif type(other) is type(self) and other.buffer.constant:
+    #             buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #     return super().__sub__(other)
+    #
+    # def __mul__(self, other: ExpressionT, /) -> ExpressionT:
+    #     if self.buffer.constant:
+    #         if isinstance(other, numbers.Number):
+    #             buffer = ArrayBuffer.from_scalar(self.value*other, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #         elif type(other) is type(self) and other.buffer.constant:
+    #             buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True, dtype=self.dtype)
+    #             return type(self)(buffer)
+    #     return super().__mul__(other)
 
     # }}}
 
@@ -157,6 +167,16 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     _buffer: Any  # array buffer type
     layout: Any
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet({self._buffer}) | visitor(self.layout)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._buffer),
+            visitor(self.layout),
+        )
 
     def __init__(self, buffer, layout):
         object.__setattr__(self, "_buffer", buffer)
@@ -212,6 +232,9 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     _buffer: AbstractBuffer
     layouts: idict
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet({self._buffer}).union(*(map(visitor, layouts.values()))) 
 
     def __post_init__(self) -> None:
         from pyop3.expr.visitors import check_valid_layout

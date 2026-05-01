@@ -1128,73 +1128,65 @@ def min_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Num
         return pyop3.expr.Conditional(pyop3.expr.LessThan(a, b), a, b)
 
 
-class DiskCacheKeyGetter(ExpressionVisitor):
-
-    def __init__(self, renamer=None, tree_getter=None):
-        if renamer is None:  # TODO: unsure about this
-            renamer = Renamer()
-        self._renamer = renamer
-        # self._lazy_tree_getter = tree_getter
-        self._lazy_tree_getter = None
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /) -> Hashable:
-        return super().process(obj)
-
-    @process.register(numbers.Number)
-    @process.register(pyop3.expr.NaN)
-    def _(self, obj: ExpressionT, /) -> Hashable:
-        return (obj,)
-
-    @process.register(pyop3.expr.Operator)
-    @postorder
-    def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
-        return (type(op), visited)
-
-
-    @process.register(pyop3.expr.AxisVar)
-    def _(self, axis_var: pyop3.expr.AxisVar, /) -> Hashable:
-        return (type(axis_var), self._get_tree_disk_cache_key(axis_var.axis.as_tree()))
-
-    @process.register(pyop3.expr.LoopIndexVar)
-    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> Hashable:
-        return (
-            type(loop_var),
-            self._renamer.add(loop_var.loop_index),
-            self._get_tree_disk_cache_key(loop_var.loop_index.iterset),
-            self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
-        )
-
-    @process.register(pyop3.expr.OpaqueTerminal)
-    @process.register(pyop3.expr.BufferExpression)
-    @postorder
-    def _(self, expr: pyop3.expr.BufferExpression, visited: Mapping, /) -> Hashable:
-        return (
-            type(expr),
-            self._add_buffer(expr.buffer),
-            visited,
-        )
-
-    def _add_buffer(self, buffer):
-        buffer_name = self._renamer.add(buffer)
-        if isinstance(buffer, NullBuffer):
-            return (type(buffer), buffer_name, buffer.size, buffer.dtype)
-        else:
-            assert isinstance(buffer, ConcreteBuffer)
-            return (type(buffer), buffer_name, buffer.dtype)
-
-    def _get_tree_disk_cache_key(self, tree):
-        from pyop3.tree.axis_tree.visitors import DiskCacheKeyGetter as TreeDiskCacheKeyGetter
-
-        if self._lazy_tree_getter is None:
-            self._lazy_tree_getter = TreeDiskCacheKeyGetter(self._renamer, self)
-
-        return self._lazy_tree_getter._safe_call(tree)
-
-
-def get_disk_cache_key(expr: ExpressionT, renamer) -> Hashable:
-    return DiskCacheKeyGetter(renamer)(expr)
+# class DiskCacheKeyGetter(ExpressionVisitor):
+#
+#     def __init__(self, renamer=None, tree_getter=None):
+#         if renamer is None:  # TODO: unsure about this
+#             renamer = Renamer()
+#         self._renamer = renamer
+#         # self._lazy_tree_getter = tree_getter
+#         self._lazy_tree_getter = None
+#         super().__init__()
+#
+#     @functools.singledispatchmethod
+#     def process(self, obj: ExpressionT, /) -> Hashable:
+#         return super().process(obj)
+#
+#     @process.register(numbers.Number)
+#     @process.register(pyop3.expr.NaN)
+#     def _(self, obj: ExpressionT, /) -> Hashable:
+#         return (obj,)
+#
+#     @process.register(pyop3.expr.Operator)
+#     @postorder
+#     def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
+#         return (type(op), visited)
+#
+#
+#     @process.register(pyop3.expr.LoopIndexVar)
+#     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> Hashable:
+#         return (
+#             type(loop_var),
+#             self._renamer.add(loop_var.loop_index),
+#             self._get_tree_disk_cache_key(loop_var.loop_index.iterset),
+#             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
+#         )
+#
+#     @process.register(pyop3.expr.OpaqueTerminal)
+#     @process.register(pyop3.expr.BufferExpression)
+#     @postorder
+#     def _(self, expr: pyop3.expr.BufferExpression, visited: Mapping, /) -> Hashable:
+#         return (
+#             type(expr),
+#             self._add_buffer(expr.buffer),
+#             visited,
+#         )
+#
+#     def _add_buffer(self, buffer):
+#         buffer_name = self._renamer.add(buffer)
+#         if isinstance(buffer, NullBuffer):
+#             return (type(buffer), buffer_name, buffer.size, buffer.dtype)
+#         else:
+#             assert isinstance(buffer, ConcreteBuffer)
+#             return (type(buffer), buffer_name, buffer.dtype)
+#
+#     def _get_tree_disk_cache_key(self, tree):
+#         from pyop3.tree.axis_tree.visitors import DiskCacheKeyGetter as TreeDiskCacheKeyGetter
+#
+#         if self._lazy_tree_getter is None:
+#             self._lazy_tree_getter = TreeDiskCacheKeyGetter(self._renamer, self)
+#
+#         return self._lazy_tree_getter._safe_call(tree)
 
 
 class ArgumentCollector(NodeCollector):
@@ -1277,10 +1269,10 @@ class BufferCollector(NodeCollector):
                 | self._collect_tree(loop_var.axis.as_tree())
             )
 
-    @process.register(pyop3.expr.OpaqueTerminal)
-    @process.register(pyop3.expr.ScalarBufferExpression)
-    def _(self, scalar_expr: pyop3.expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([scalar_expr.buffer])
+    # @process.register(pyop3.expr.OpaqueTerminal)
+    # @process.register(pyop3.expr.ScalarBufferExpression)
+    # def _(self, scalar_expr: pyop3.expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
+    #     return OrderedFrozenSet([scalar_expr.buffer])
 
     @process.register(pyop3.expr.Dat)
     def _(self, dat: pyop3.expr.Dat, /) -> OrderedFrozenSet:
@@ -1288,24 +1280,24 @@ class BufferCollector(NodeCollector):
             raise NotImplementedError
         return OrderedFrozenSet([dat.buffer])
 
-    @process.register(pyop3.expr.LinearDatBufferExpression)
-    @postorder
-    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-        if self.shallow:
-            return OrderedFrozenSet([dat_expr.buffer])
-        else:
-            return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
+    # @process.register(pyop3.expr.LinearDatBufferExpression)
+    # @postorder
+    # def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+    #     if self.shallow:
+    #         return OrderedFrozenSet([dat_expr.buffer])
+    #     else:
+    #         return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
 
-    @process.register(pyop3.expr.NonlinearDatBufferExpression)
-    @postorder
-    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-        assert len(visited) == 1
-        if self.shallow:
-            return OrderedFrozenSet([dat_expr.buffer])
-        else:
-            return OrderedFrozenSet([dat_expr.buffer]).union(
-                *visited["layouts"].values()
-            )
+    # @process.register(pyop3.expr.NonlinearDatBufferExpression)
+    # @postorder
+    # def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+    #     assert len(visited) == 1
+    #     if self.shallow:
+    #         return OrderedFrozenSet([dat_expr.buffer])
+    #     else:
+    #         return OrderedFrozenSet([dat_expr.buffer]).union(
+    #             *visited["layouts"].values()
+    #         )
 
     @process.register(pyop3.expr.MatPetscMatBufferExpression)
     @postorder
