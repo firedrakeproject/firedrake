@@ -13,13 +13,6 @@ class Device(metaclass=ABCMeta):
     def __init__(self, device_index: int | None = None):
         pass
 
-    # TODO: Method should not be associated with object 
-    # NOTE: Would be weird to get current device as CPU whilst requesting on GPU
-    @staticmethod
-    def current():
-        device = _current_device.get()
-        return device
-
     @property
     def name(self):
         return self._name
@@ -30,6 +23,10 @@ class Device(metaclass=ABCMeta):
 
     @abstractmethod
     def asarray(self, arr):
+        pass
+
+    @abstractmethod
+    def zeros_like(self, arr):
         pass
 
     def __repr__(self):
@@ -47,12 +44,15 @@ class CPU(Device):
         self._device_index = device_index
 
     def asarray(self, arr):
-        # NOTE: Better logic if we switch from just NumPy/CuPy
+        # NOTE: Better logic needed if we switch from just NumPy/CuPy
         if not isinstance(arr, np.ndarray):
             import cupy as cp
             return cp.asnumpy(arr)
     
-        return np.array(arr)    
+        return np.array(arr)
+
+    def zeros_like(self, arr):
+        return np.zeros_like(arr)
 
 class CUDAGPU(Device):
     
@@ -73,6 +73,10 @@ class CUDAGPU(Device):
     def asarray(self, arr):
         import cupy as cp
         return cp.asarray(arr)
+    
+    def zeros_like(self, arr):
+        import cupy as cp
+        return cp.zeros_like(arr)
 
 @contextlib.contextmanager
 def offloading(dev: Device):
@@ -89,5 +93,5 @@ def offloading(dev: Device):
 # TODO: Should this const variable be here? 
 HOST_DEVICE = CPU() 
 
-# NOTE: Use contextvars to act as a bridge between buffer and manager class
+# NOTE: Use contextvars to act as a bridge between buffer and manager
 _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)

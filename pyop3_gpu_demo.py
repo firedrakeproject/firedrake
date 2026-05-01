@@ -51,6 +51,9 @@ with op3.offloading(gpu):
 
     # Do the assignment using MLIR (this is a later step)
     # g.dat.assign(2*f.dat + 3, eager=True, eager_strategy="compile")
+    k = Function(V)
+    k.dat.buffer.duplicate()
+    k.dat.buffer.duplicate(copy=True)
 
     # state tracking checks
     assert f.dat.buffer.state[host] == 1  # modified once

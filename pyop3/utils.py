@@ -14,7 +14,6 @@ from typing import Any
 
 import cachetools
 import numpy as np
-import cupy as cp
 import pytools
 from immutabledict import immutabledict
 from mpi4py import MPI
@@ -26,6 +25,13 @@ from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
 from pyop3.mpi import collective
+
+ndarray_types = [np.ndarray,]
+try: 
+    import cupy as cp
+    ndarray_types = [np.ndarray, cp.ndarray]
+except ImportError:
+    pass
 
 
 class UniqueNameGenerator(pytools.UniqueNameGenerator):
@@ -170,7 +176,7 @@ def is_sequence(item):
 
 def flatten(iterable):
     """Recursively flatten a nested iterable."""
-    if isinstance(iterable, np.ndarray):
+    if isinstance(iterable, tuple(ndarray_types)):
         return iterable.flatten()
     if not isinstance(iterable, (list, tuple)):
         return (iterable,)
@@ -587,8 +593,12 @@ def pretty_type(obj: Any) -> str:
 
 
 def safe_equals(a, b, /) -> bool:
-    if any(isinstance(x, np.ndarray) for x in [a, b]):
+    if any(isinstance(x, tuple(ndarray_types)) for x in [a, b]):
         return (a == b).all()
+    if any(isinstance(x, dict) for x in [a, b]):
+        if a.keys() != b.keys(): 
+            return False 
+        return all(safe_equals(a[k], b[k]) for k in a)
     else:
         return bool(a == b)
 

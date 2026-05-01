@@ -11,7 +11,6 @@ from functools import cached_property
 from typing import Any, ClassVar, Hashable
 
 import numpy as np
-import cupy as cp
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -25,7 +24,8 @@ from pyop3.device import (
     Device,
     CUDAGPU,
     CPU,
-    HOST_DEVICE
+    HOST_DEVICE,
+    _current_device
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -259,17 +259,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(self, data: np.ndarray | cp.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
 
-        data_mapping = {}
-        if isinstance(data, np.ndarray):
-            data_mapping[pyop3.HOST_DEVICE] = data
-        elif isinstance(data, cp.ndarray):
-            ctx = self.get_context()
-            # TODO: Raise custom exception if no Device context 
-            if not isinstance(ctx, Device):
-                raise NotImplementedError
-
-            data_mapping[ctx] = data 
-
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -279,10 +268,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        # TODO: CuPy has no support for `writeable` flag 
-        if constant:
-            data.flags.writeable = False
-            
+        ctx = self.get_context()
+        data_mapping = {}
+        data_mapping[ctx] = ctx.asarray(data)
+
         self._lazy_data = data_mapping 
         self.sf = sf
         self._name = name
@@ -293,8 +282,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._last_updated_device = self.get_context()
 
         # NOTE: Connor and I don't like defaultdict, unsure how to change it atm 
-        # TODO: Not acknowledging if created whilst in device context
-        self._state = collections.defaultdict(int, [(self.get_context(), 0)]) 
+        self._state = collections.defaultdict(int, [(ctx, 0)]) 
+
+        # TODO: CuPy has no support for `writeable` flag 
+        if constant and isinstance(self._data, np.ndarray):
+            self._data.flags.writeable = False
+
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -303,7 +296,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             assert self.constant
         if self.ordered:
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
-        if self.constant:
+        if self.constant and isinstance(self._data, np.ndarray):
             assert not self._data.flags.writeable
 
     # }}}
@@ -336,22 +329,21 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._state[ctx] += 1
         self._last_updated_device = ctx
 
-    # NOTE: Why is this using _lazy_data instead of _data?
     # TODO: Either adjust for _lazy_data mapping or switch to _data
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
         if copy:
-            data = self._lazy_data.copy()
+            data = {obj: arr.copy() for obj, arr in self._lazy_data.items()}
         else:
-            data = np.zeros_like(self._lazy_data)
+            data = {obj: obj.zeros_like(arr) for obj, arr in self._lazy_data.items()}
         return self.__record_init__(_name=name, _lazy_data=data)
 
     is_nested: ClassVar[bool] = False
     
     def get_context(self) -> Device:
-        return Device.current()
+        return _current_device.get()
 
     @property
     def handle(self) -> np.ndarray:
@@ -625,29 +617,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
     
-    # TODO: Consider whether to make these asynchronous and group with a sync
-    # NOTE: Perhaps it is easier to allow user to make it non/blocking
     def sync_devices(self, current_device: Device):
         last_updated_device = self._last_updated_device
 
         self._lazy_data[current_device] = current_device.asarray(self._lazy_data[last_updated_device])
-
-        # if isinstance(current_device, CUDAGPU):
-        #     self._lazy_data[current_device] = cp.asarray(self._lazy_data[last_updated_device])
-        # elif isinstance(current_device, CPU):
-        #     if isinstance(last_updated_device, CUDAGPU):
-        #         self._lazy_data[current_device] = cp.asnumpy(self._lazy_data[last_updated_device])
-        #     elif isinstance(last_updated_device, CPU):
-        #         self._lazy_data[current_device] = np.array(self._lazy_data[last_updated_device])
-        # else:
-        #     raise NotImplementedError 
-        
         self._state[current_device] = self._state[last_updated_device]
 
-    def _is_data_available(self, device: Device):
+        # NOTE: Current fix for CuPy having no `writeable support` or maintaining flags
+        if self.constant and isinstance(self._lazy_data[current_device], np.ndarray):
+            self._lazy_data[current_device].flags.writeable = False 
+
+    def _is_data_available(self, device: Device) -> bool:
         return device in self._lazy_data
 
-    def _is_data_synced(self, device: Device):
+    def _is_data_synced(self, device: Device) -> bool:
         return self.state[device] == max(self.state.values())
 
 class MatBufferSpec(abc.ABC):
