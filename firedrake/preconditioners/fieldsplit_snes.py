@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_appctx as get_snesctx
 
 __all__ = ("FieldsplitSNES",)
 
@@ -16,19 +16,20 @@ class FieldsplitSNES(SNESBase):
     @PETSc.Log.EventDecorator()
     def initialize(self, snes):
         from firedrake import (  # circular import if we do this at file level
-            NonlinearVariationalSolver, Function)
+            NonlinearVariationalSolver, Function, Cofunction, replace)
+        from pyop2 import MixedDat
 
-        ctx = get_appctx(snes.dm)
+        ctx = get_snesctx(snes.dm)
 
-        self.sol = ctx._x
-        W = self.sol.function_space()
+        self.u = ctx._x
+        W = self.u.function_space()
 
         # buffer to save solution to outer problem during solve
-        self.sol_outer = Function(W)
+        self.u_outer = Function(W)
 
         # buffers for shuffling solutions during solve
-        self.sol_current = Function(W)
-        self.sol_new = Function(W)
+        self.uk = Function(W)
+        self.uk1 = Function(W)
 
         # options for setting up the fieldsplit are "snes_fieldsplit_option"
         outer_prefix = snes.getOptionsPrefix() or ""
@@ -44,7 +45,18 @@ class FieldsplitSNES(SNESBase):
                 ' "additive" or "multiplicative"')
 
         self.fields = self._get_fields(snes_options, len(W))
+
+        self.Gk = replace(ctx.F, {ctx._x: self.uk})
+        self.b = Cofunction(W.dual())
+
         field_ctxs = ctx.split(self.fields)
+        for field_ctx, fields in zip(field_ctxs, self.fields):
+            V = field_ctx._x.function_space()
+            if len(V) == 1:
+                val = self.b.dat[fields[0]]
+            else:
+                val = MixedDat(self.b.dat[i] for i in fields)
+            field_ctx.F -= Cofunction(V.dual(), val=val)
 
         # The solution for each split context views the data
         # of the relevant components of the solution of the
@@ -96,48 +108,56 @@ class FieldsplitSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
+        from firedrake.assemble import assemble
 
         # store current value of outer solution to restore
         # later in case it isn't the same as x.
-        self.sol_outer.assign(self.sol)
+        self.u_outer.assign(self.u)
 
-        # make sure that self.sol in the full form in
+        # make sure that self.u in the full form in
         # ctx has the most up to date solution u^{k}.
-        with self.sol.dat.vec_wo as vec:
+        with self.u.dat.vec_wo as vec:
             x.copy(vec)
 
         # save u^{k}
-        self.sol_current.assign(self.sol)
+        self.uk.assign(self.u)
 
-        # The current snes solution x is held in sol_current, and we
-        # will place the new solution in sol_new.
-        # The field_solvers evaluate forms containing sol, so for each
-        # splitting type sol needs to hold:
-        #   - additive: all fields need to hold sol_current values
-        #   - multiplicative: fields need to hold sol_current before
-        #       they are are solved for, and keep the updated sol_new
+        assemble(self.Gk, tensor=self.b)
+
+        # Grab F for solving Gk1 - (Gk - Fk)
+        with self.b.dat.vec_wo as vec:
+            vec -= f
+
+        # The current snes solution x is held in uk, and we
+        # will place the new solution in uk1.
+        # The field_solvers evaluate forms containing u, so for each
+        # splitting type u needs to hold:
+        #   - additive: all fields need to hold uk values
+        #   - multiplicative: fields need to hold uk before
+        #       they are are solved for, and keep the updated uk1
         #       values afterwards.
-        uk = self.sol_current.subfunctions
-        uk1 = self.sol_new.subfunctions
-        usol = self.sol.subfunctions
-        for solver, fields, in zip(self.field_solvers, self.fields):
+        uks = self.uk.subfunctions
+        uk1s = self.uk1.subfunctions
+        us = self.u.subfunctions
+        for solver, fields in zip(self.field_solvers, self.fields):
+
             solver.solve()
 
             # update the uk1 buffer
             for i in fields:
-                uk1[i].assign(usol[i])
+                uk1s[i].assign(us[i])
 
             # reset the values in this field
             if self.fieldsplit_type == 'additive':
                 for i in fields:
-                    usol[i].assign(uk[i])
+                    us[i].assign(uks[i])
 
-        with self.sol_new.dat.vec_ro as vec:
+        with self.uk1.dat.vec_ro as vec:
             vec.copy(y)
             y.aypx(-1, x)
 
         # restore outer solution
-        self.sol.assign(self.sol_outer)
+        self.u.assign(self.u_outer)
 
     def view(self, snes, viewer=None):
         super().view(snes, viewer)
