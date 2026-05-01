@@ -15,18 +15,18 @@
 import sys
 
 
-def stdout(msg: str) -> None:
+def stdout(msg: str, **kwargs) -> None:
     """Write to stdout."""
-    print(msg, file=sys.stdout)
+    print(msg, file=sys.stdout, **kwargs)
 
 
-def stderr(msg: str) -> None:
+def stderr(msg: str, **kwargs) -> None:
     """Write to stderr.
 
     To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
 
     """
-    print(f"ERROR: {msg}", file=sys.stderr)
+    print(f"ERROR: {msg}", file=sys.stderr, **kwargs)
 
 
 def abort() -> None:
@@ -207,7 +207,7 @@ Please see https://firedrakeproject.org/install for more information."""
                 "please install them manually"
             )
             abort()
-        print(" ".join(SYSTEM_PACKAGES[package_manager, arch, gpu_arch]), end="")
+        stdout(" ".join(SYSTEM_PACKAGES[package_manager, arch, gpu_arch]), end="")
     elif args.show_minimal_system_packages:
         if package_manager is None:
             stderr(
@@ -215,16 +215,16 @@ Please see https://firedrakeproject.org/install for more information."""
                 "please install them manually"
             )
             abort()
-        print(" ".join(MINIMAL_SYSTEM_PACKAGES[package_manager]), end="")
+        stdout(" ".join(MINIMAL_SYSTEM_PACKAGES[package_manager]), end="")
     elif args.show_petsc_configure_options:
-        print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch, gpu_arch]), end="")
+        stdout(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch, gpu_arch]), end="")
     elif args.show_petsc_version:
-        print(SUPPORTED_PETSC_VERSION, end="")
+        stdout(SUPPORTED_PETSC_VERSION, end="")
     elif args.show_extra_repo_pkg_url:
-        print(EXTRA_LINUX_APT_PKG_URL[gpu_arch], end="")
+        stdout(EXTRA_LINUX_APT_PKG_URL[gpu_arch], end="")
     else:
         assert args.show_env
-        print(" ".join(ENVIRONMENT_VARS[package_manager, arch, gpu_arch]), end="")
+        stdout(" ".join(ENVIRONMENT_VARS[package_manager, arch, gpu_arch]), end="")
 
 
 def sniff_package_manager() -> Optional[PackageManager]:
