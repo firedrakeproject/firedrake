@@ -5,15 +5,27 @@ from typing import Any
 from typing import Hashable, Mapping
 
 import numpy as np
+from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 import pyop3
 
 
+IntType = PETSc.IntType
 
 
 KwargsT = Mapping[str, Any]
 PetscSizeT = tuple[int|None, int|None]
+
+# {{{ tree types
+
+LabelT = Hashable
+NodeLabelT = LabelT
+NodeComponentLabelT = LabelT
+PathT = Mapping[NodeLabelT, NodeComponentLabelT]
+ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
+
+# }}}
 
 
 # {{{ axis tree types

@@ -71,7 +71,7 @@ class ScalarBufferExpression(BufferExpression):
     _buffer: AbstractBuffer
 
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet({self._buffer})
+        return visitor(self._buffer)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self._buffer))
@@ -169,7 +169,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     layout: Any
 
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet({self._buffer}) | visitor(self.layout)
+        return visitor(self._buffer) | visitor(self.layout)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
@@ -234,7 +234,14 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     layouts: idict
 
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet({self._buffer}).union(*(map(visitor, layouts.values()))) 
+        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        layouts_key = {}
+        for path, layout in self.layouts.items():
+            layouts_key[visitor.relabel_path(path)] = visitor(layout)
+        layouts_key = idict(layouts_key)
+        return (type(self), visitor(self._buffer), layouts_key)
 
     def __post_init__(self) -> None:
         from pyop3.expr.visitors import check_valid_layout
@@ -298,6 +305,17 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     row_layout: ExprT
     column_layout: ExprT
 
+    def collect_buffers(self, visitor):
+        return visitor(self._buffer).union(visitor(self.row_layout), visitor(self.column_layout))
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._buffer),
+            visitor(self.row_layout),
+            visitor(self.column_layout),
+        )
+
     def __init__(self, buffer, row_layout, column_layout):
         object.__setattr__(self, "_buffer", buffer)
         object.__setattr__(self, "row_layout", row_layout)
@@ -346,6 +364,23 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     _buffer: AbstractBuffer
     row_layouts: idict
     column_layouts: idict
+
+    def collect_buffers(self, visitor) -> OrderedFrozenSet:
+        return visitor(self._buffer).union(
+            *(map(visitor, self.row_layouts.values())),
+            *(map(visitor, self.column_layouts.values())),
+        )
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        row_layouts_key = idict({
+            visitor.relabel_path(path): visitor(layout)
+            for path, layout in self.row_layouts.items()
+        })
+        column_layouts_key = idict({
+            visitor.relabel_path(path): visitor(layout)
+            for path, layout in self.column_layouts.items()
+        })
+        return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)
 
     def __init__(self, buffer, row_layouts, column_layouts) -> None:
         object.__setattr__(self, "_buffer", buffer)

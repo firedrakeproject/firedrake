@@ -12,7 +12,6 @@ from typing import Any, Hashable
 import numpy as np
 from petsc4py import PETSc
 from immutabledict import immutabledict as idict
-from loopy.tools import LoopyKeyBuilder
 
 from pyop3.cache import memory_cache
 import pyop3.expr
@@ -732,6 +731,7 @@ class InstructionCacheKeyGetter(NodeVisitor):
 class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 
     def __init__(self) -> None:
+        raise NotImplementedError("DONT DO THIS HERE")
         counter = itertools.count()
         self._buffer_arg_counter = collections.defaultdict(lambda: next(counter))
         super().__init__()

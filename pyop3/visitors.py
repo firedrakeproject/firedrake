@@ -1,13 +1,21 @@
+from __future__ import annotations
+
 import functools
 import numbers
 import types
+import typing
 from collections.abc import Hashable
 from typing import Any
+
+from immutabledict import immutabledict as idict
 
 import pyop3.node
 import pyop3.obj
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
+
+if typing.TYPE_CHECKING:
+    import pyop3.types
 
 
 class BufferCollector(pyop3.node.NodeCollector):
@@ -84,28 +92,11 @@ class DiskCacheKeyGetter(pyop3.node.NodeVisitor):
     def _(self, obj: pyop3.obj.Pyop3Object, /) -> Hashable:
         return obj.get_disk_cache_key(self)
 
-    # @process.register(pyop3.insn.StandaloneCalledFunction)
-    # def _(self, func: pyop3.insn.StandaloneCalledFunction) -> Hashable:
-    #     from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-    #
-    #     loopy_key = LoopyKeyBuilder()(func.function)
-    #     return (
-    #         type(func),
-    #         loopy_key,
-    #         *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
-    #     )
-    #
-    # @process.register(pyop3.insn.Exscan)
-    # def _(self, exscan: pyop3.insn.Exscan) -> Hashable:
-    #     from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-    #
-    #     return (
-    #         type(exscan),
-    #         get_expr_disk_cache_key(exscan.assignee, self._renamer),
-    #         get_expr_disk_cache_key(exscan.expression, self._renamer),
-    #         exscan.scan_type,
-    #     )
-
+    def relabel_path(self, path: pyop3.types.ConcretePathT) -> pyop3.types.ConcretePathT:
+        return idict({
+            self.renamer.add(axis, "Axis"): component
+            for axis, component in path.items()
+        })
 
 def get_disk_cache_key(obj: pyop3.obj.Pyop3Object) -> Hashable:
     return DiskCacheKeyGetter()(obj)

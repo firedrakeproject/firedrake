@@ -16,6 +16,7 @@ from typing import Any, ClassVar, Iterable, Tuple
 
 from immutabledict import immutabledict as idict
 import loopy as lp
+import loopy.tools
 import numpy as np
 from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
 import pytools
@@ -301,8 +302,17 @@ class FunctionArgument(abc.ABC):
 class Function:
     """A callable function."""
 
+    # {{{ instance attrs
+
     code: Any
     _access_descrs: tuple[Intent, ...]
+
+    def disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            loopy.tools.LoopyKeyBuilder()(self.code),
+            self._access_descrs,
+        )
 
     def __init__(self, loopy_kernel, access_descrs):
         lpy_args = loopy_kernel.default_entrypoint.args
@@ -319,6 +329,8 @@ class Function:
 
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)
+
+    # }}}
 
     @classmethod
     def from_c_string(
@@ -522,17 +534,28 @@ class CalledFunction(AbstractCalledFunction):
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
 
+    # {{{ instance attrs
+
     _function: Function
     _arguments: Iterable[FunctionArgument]
 
-    function: ClassVar[property] = property(lambda self: self._function)
-    arguments: ClassVar[property] = property(lambda self: self._arguments)
+    def get_disk_cache_key(self, visitor):
+        return (
+            type(self),
+            visitor(self._function),
+            tuple(map(visitor, self._arguments)),
+        )
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
 
         object.__setattr__(self, "_function", function)
         object.__setattr__(self, "_arguments", arguments)
+
+    # }}}
+
+    function: ClassVar[property] = property(lambda self: self._function)
+    arguments: ClassVar[property] = property(lambda self: self._arguments)
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE

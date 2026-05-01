@@ -18,6 +18,7 @@ import pyop3.obj
 import pyop3.record
 import pyop3.sf
 from pyop3 import utils
+from pyop3.collections import OrderedFrozenSet
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
@@ -146,6 +147,12 @@ class NullBuffer(AbstractArrayBuffer):
     _max_value: np.number | None
     _ordered: bool
 
+    def collect_buffers(self, visitor) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), self._size, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
+
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._size, self._dtype, self._ordered, buffer_counter[self])
 
@@ -244,6 +251,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
     def get_disk_cache_key(self, visitor):
         return (type(self), visitor.renamer.add(self.name, "ArrayBuffer"))
 
@@ -276,8 +286,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        if self.name == "array_276":
-            breakpoint()
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size
@@ -660,6 +668,12 @@ class PetscMatBuffer(ConcreteBuffer):
     mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
     _name: str
     _constant: bool
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor.renamer.add(self.name, "PetscMatBuffer"))
 
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (

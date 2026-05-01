@@ -790,48 +790,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
     def regionless(self):
         return self.__record_init__(components=tuple(c.regionless() for c in self.components))
 
-    def component_offset(self, component):
-        cidx = self.component_index(component)
-        return self._component_offsets[cidx]
-
     @cached_property
     def _tree(self):
         return AxisTree(self)
-
-    @cached_property
-    def _component_offsets(self):
-        return (0,) + tuple(np.cumsum([c.count for c in self.components], dtype=int))
-
-    @cached_property
-    def _default_to_applied_numbering(self):
-        return tuple(np.arange(c.count, dtype=IntType) for c in self.components)
-
-        # renumbering = [np.empty(c.count, dtype=IntType) for c in self.components]
-        # counters = [itertools.count() for _ in range(self.degree)]
-        # for pt in self.numbering.data_ro:
-        #     cidx = self._axis_number_to_component_index(pt)
-        #     old_cpt_pt = pt - self._component_offsets[cidx]
-        #     renumbering[cidx][old_cpt_pt] = next(counters[cidx])
-        # assert all(next(counters[i]) == c.count for i, c in enumerate(self.components))
-        # return tuple(renumbering)
-
-    @cached_property
-    def _default_to_applied_permutation(self):
-        # is this right?
-        return self._applied_to_default_numbering
-
-    # same as the permutation...
-    @cached_property
-    def _applied_to_default_numbering(self):
-        return self._default_to_applied_numbering
-        # return tuple(invert(num) for num in self._default_to_applied_numbering)
-
-    def _axis_number_to_component_index(self, number):
-        off = self._component_offsets
-        for i, (min_, max_) in enumerate(zip(off, off[1:])):
-            if min_ <= number < max_:
-                return i
-        raise ValueError(f"{number} not found")
 
     @staticmethod
     def _parse_components(components):
@@ -1290,18 +1251,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             blocked_tree = AxisTree(node_map)
         return tuple(indices)
 
-    # {{{ parallel
-
-    # TODO: cached method
-    def lgmap(self, block_shape: tuple[int, ...] = ()) -> PETSc.LGMap:
-        assert False, "old code I think"
-        blocked_axes = self.blocked(block_shape)
-        indices = blocked_axes.global_numbering
-        bsize = np.prod(block_shape, dtype=int)
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
-
-    # }}}
-
 
 @pyop3.record.frozenrecord()
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
@@ -1316,11 +1265,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def get_disk_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
         for path, axis in self._node_map.items():
-            relabeled_path = idict({
-                visitor.renamer.add(axis_label, "Axis"): component_label
-                for axis_label, component_label in path.items()
-            })
-            node_map_key[relabeled_path] = visitor(axis)
+            node_map_key[visitor.relabel_path(path)] = visitor(axis)
         node_map_key = idict(node_map_key)
         return (type(self), node_map_key)
 
