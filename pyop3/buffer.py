@@ -71,10 +71,6 @@ class AbstractBuffer(DistributedObject, pyop3.obj.Pyop3Object, metaclass=abc.ABC
 
     # {{{ abstract methods
 
-    @abc.abstractmethod
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        pass
-
     @property
     @abc.abstractmethod
     def name(self) -> str:
@@ -255,12 +251,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return OrderedFrozenSet([self])
 
     def get_disk_cache_key(self, visitor):
-        return (type(self), visitor.renamer.add(self.name, "ArrayBuffer"))
+        return (type(self), visitor.renamer.add(self._name, "ArrayBuffer"))
 
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        return (
-            type(self), self._constant, self._rank_equal, self._ordered, 
-            self.dtype, buffer_counter[self])
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return visitor.buffer_counter.add(self)
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()

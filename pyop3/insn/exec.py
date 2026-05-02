@@ -255,7 +255,7 @@ class InstructionExecutionContext:
 
     @cached_property
     def _executor_cache_key(self) -> Hashable:
-        from pyop3.insn.visitors import get_instruction_executor_cache_key
+        from pyop3.visitors import get_instruction_executor_cache_key
 
         return get_instruction_executor_cache_key(self.root_insn)
 

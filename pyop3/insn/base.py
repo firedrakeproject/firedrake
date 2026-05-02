@@ -145,6 +145,13 @@ class Loop(Instruction):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.index),
+            tuple(map(visitor, self.statements)),
+        )
+
     def __init__(
         self,
         index: LoopIndex,
@@ -684,6 +691,14 @@ class ArrayAssignment(AbstractAssignment):
     _assignee: Any
     _expression: Any
     _assignment_type: AssignmentType
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._assignee),
+            visitor(self._expression),
+            self._assignment_type,
+        )
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)

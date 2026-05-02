@@ -53,10 +53,6 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     # {{{ abstract methods
 
-    @abc.abstractmethod
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        pass
-
     @property
     @abc.abstractmethod
     def name(self) -> str:

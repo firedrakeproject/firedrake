@@ -72,13 +72,12 @@ class Dat(Tensor):
     _name: str
     _transform: TensorTransform | None = None
 
-    def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
-        transform_key = self.transform.instruction_executor_cache_key(buffer_counter) if self._transform else None
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            self.axes,
-            self.buffer.instruction_executor_cache_key(buffer_counter),
-            transform_key,
+            visitor(self.axes),
+            visitor(self._buffer),
+            visitor(self._transform),
         )
 
     def __init__(

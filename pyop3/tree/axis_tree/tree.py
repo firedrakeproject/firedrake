@@ -1269,6 +1269,11 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         node_map_key = idict(node_map_key)
         return (type(self), node_map_key)
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # We don't recurse into axis trees for instruction executors, if the axis
+        # trees aren't exactly the same then we miss cache.
+        return self
+
     def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
 
