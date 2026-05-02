@@ -14,46 +14,31 @@ import sys
 import time
 
 
-def stdout(msg: str, **kwargs) -> None:
-    """Write to stdout."""
-    print(msg, file=sys.stdout, **kwargs)
-
-
-def pipe(msg: str, **kwargs) -> None:
+def print_and_stop(msg: str) -> None:
     """Print a message to stdout and stop the script."""
-    stdout(msg, **kwargs)
+    print(msg, file=sys.stdout, end="")
     exit(0)
 
 
-def stderr(msg: str, **kwargs) -> None:
-    """Write to stderr."""
-    print(msg, file=sys.stderr, **kwargs)
+def error(msg: str):
+    """Print an error message to stderr and stop the script.
 
+    To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
 
-def abort() -> None:
-    """Terminate the script."""
+    """
+    print(f"ERROR: {msg}", file=sys.stderr)
+    # wait so users have a chance to see the message before it gets swamped by stdout
+    time.sleep(3)
     exit(1)
 
 
-def error(msg: str, **kwargs):
-    """Print an error message to stderr and stop the script.
+def warn(msg: str):
+    """Print a warning message to stderr.
 
-    To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
-
-    """
-    stderr(f"ERROR: {msg}", **kwargs)
-    # wait so users have a chance to see the message before it gets swamped by stdout
-    time.sleep(3)
-    abort()
-
-
-def warn(msg: str, **kwargs):
-    """Print an error message to stderr and stop the script.
-
-    To make it distinct in the terminal output, messages are prefixed with 'ERROR: '.
+    To make it distinct in the terminal output, messages are prefixed with 'WARNING: '.
 
     """
-    stderr(f"WARNING: {msg}", **kwargs)
+    print(f"WARNING: {msg}", file=sys.stderr)
     # wait so users have a chance to see the message before it gets swamped by stdout
     time.sleep(1)
 
@@ -82,6 +67,52 @@ SUPPORTED_CUDA_VERSION = "13.0"
 
 
 def main():
+    parser = make_parser()
+    args = parser.parse_args()
+
+    if args.no_package_manager:
+        warn(
+            "Passing '--no-package-manager' is deprecated, please set '--os unknown' instead"
+        )
+        args.os = OS.UNKNOWN
+    os_ = args.os if args.os else detect_os()
+
+    if args.gpu_arch != GPUPlatform.NO_GPU and os_ == OS.MACOS_ARM64:
+        error(
+            "GPU-compatible PETSc builds are currently only supported"
+            "on Linux"
+        )
+
+    arch_key = (os_, args.scalar_type, args.gpu_arch)
+
+    if arch_key in OFFICIAL_ARCHS:
+        arch = OFFICIAL_ARCHS[arch_key]
+    elif arch_key in COMMUNITY_ARCHS:
+        arch = COMMUNITY_ARCHS[arch_key]
+        warn(
+            "You have selected a community-maintained Firedrake configuration, "
+            f"if you encounter issues please contact {arch.maintainer}"
+        )
+    else:
+        error(
+            f"Firedrake configuration not found for option set {arch_key}, "
+            "please consider passing '--os unknown' or building manually"
+        )
+
+    if args.show_system_packages:
+        arch.show_system_packages()
+    elif args.show_petsc_configure_options:
+        arch.show_petsc_configure_options()
+    elif args.show_petsc_version:
+        print_and_stop(SUPPORTED_PETSC_VERSION)
+    elif args.show_extra_repo_pkg_url:
+        arch.show_url()
+    else:
+        assert args.show_env
+        arch.show_env()
+
+
+def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="""\
 Print out the configuration options needed to install Firedrake.
@@ -97,39 +128,47 @@ that are used inside PETSc 'configure' instead of building from source.
 
 Please see https://firedrakeproject.org/install for more information."""
     )
+
     package_manager_group = parser.add_mutually_exclusive_group()
     package_manager_group.add_argument(
-        "--package-manager",
-        choices=[os_.value for os_ in OS],
+        "--os",
+        "--package-manager",  # old alias
+        choices=list(OS),
+        type=OS,
         required=False,
-        help="The system package manager, if not provided 'firedrake-configure' "
+        help="The operating system, if not provided 'firedrake-configure' "
         "will attempt to guess it.",
     )
+    # old alias for '--os unknown'
     package_manager_group.add_argument(
         "--no-package-manager",
         action="store_true",
         required=False,
-        help="Do not attempt to use a system package manager.",
+        help="(Deprecated) Equivalent to '--os unknown'.",
     )
+
     parser.add_argument(
-        "--arch",
-        choices=[arch.value for arch in ScalarType],
+        "--scalar-type",
+        "--arch",  # old alias
+        choices=list(ScalarType),
+        type=ScalarType,
         default=ScalarType.DEFAULT,
-        help="The target configuration to install.",
+        help="PETSc scalar type.",
     )
     parser.add_argument(
         "--gpu-arch",
-        choices=[arch.value for arch in GPUPlatform],
+        choices=list(GPUPlatform),
+        type=GPUPlatform,
         default="none",
         help=(
             "Target GPU architecture. WARNING: This is an experimental feature. "
             "GPU support in Firedrake is currently very limited."
         ),
     )
+
     cmd_group = parser.add_mutually_exclusive_group(required=True)
     cmd_group.add_argument(
         "--show-system-packages",
-        "--sysdeps",  # alias
         action="store_true",
         help=(
             "Print out the system packages Firedrake needs including those "
@@ -138,76 +177,67 @@ Please see https://firedrakeproject.org/install for more information."""
     )
     cmd_group.add_argument(
         "--show-petsc-configure-options",
-        "--petscconf",  # alias
         action="store_true",
         help="Print out arguments to pass to PETSc configure.",
     )
     cmd_group.add_argument(
         "--show-petsc-version",
-        "--petscver",  # alias
         action="store_true",
         help="Print out the officially supported PETSc version tag.",
     )
     cmd_group.add_argument(
         "--show-env",
-        "--env",  # alias
         action="store_true",
         help="Print out the environment variables that need to be exported to install Firedrake.",
     )
+    # TODO: This is specific to particular archs, probably not the right design
+    # choice to enable for all.
     cmd_group.add_argument(
         "--show-extra-repo-pkg-url",
-        "--repopkgurl",
         action="store_true",
         help="Print out the URL of any package required to enable non-OS repo access for this build",
     )
 
-    args = parser.parse_args()
-    if args.package_manager is not None:
-        assert not args.no_package_manager
-        os_ = OS(args.package_manager)
-    elif args.no_package_manager:
-        os_ = OS.UNKNOWN
+    return parser
+
+
+def detect_os() -> "OS":
+    if platform.system() == "Linux":
+        if has_apt():
+            if platform.machine() == "x86_64":
+                return OS.UBUNTU_2404_X86_64
+            elif platform.machine() == "aarch64":
+                return OS.UBUNTU_2404_AARCH64
+    elif platform.system() == "Darwin":
+        if has_homebrew():
+            if platform.machine() == "arm64":
+                return OS.MACOS_ARM64
+    error(
+        "Cannot identify operating system, if you want to configure Firedrake "
+        "without any system packages please pass '--os unknown'"
+    )
+
+
+def has_apt() -> bool:
+    try:
+        subprocess.run(["apt", "--version"], capture_output=True)
+    except FileNotFoundError:
+        return False
+    except:  # noqa: E722
+        error("Unexpected error occurred searching for apt")
     else:
-        os_ = sniff_package_manager()
-    scalar_type = ScalarType(args.arch)
+        return True
 
-    gpu_platform = GPUPlatform(args.gpu_arch)
-    if gpu_platform != GPUPlatform.NO_GPU and os_ == OS.MACOS_ARM64:
-        error(
-            "GPU-compatible PETSc builds are currently only supported"
-            "on Linux"
-        )
-        abort()
 
-    arch_id = (os_, scalar_type, gpu_platform)
-
-    # TODO: clean up this logic
-    if arch_id in SUPPORTED_ARCHS:
-        arch = SUPPORTED_ARCHS[arch_id]
-    elif arch_id in COMMUNITY_ARCHS:
-        raise NotImplementedError("TODO")
-    elif os_ == OS.UNKNOWN:
-        arch = UNKNOWN_ARCHS[arch_id]
+def has_homebrew() -> bool:
+    try:
+        subprocess.run(["brew", "--version"], capture_output=True)
+    except FileNotFoundError:
+        return False
+    except:  # noqa: E722
+        error("Unexpected error occurred searching for homebrew")
     else:
-        error("arch not found")
-
-    if args.show_system_packages:
-        # TODO: Move into the arch itself?
-        if os_ == OS.UNKNOWN:
-            error(
-                "Cannot install Firedrake dependencies without a package manager, "
-                "please install them manually"
-            )
-        arch.show_system_packages()
-    elif args.show_petsc_configure_options:
-        arch.show_petsc_configure_options()
-    elif args.show_petsc_version:
-        pipe(SUPPORTED_PETSC_VERSION, end="")
-    elif args.show_extra_repo_pkg_url:
-        arch.show_url()
-    else:
-        assert args.show_env
-        arch.show_env()
+        return True
 
 
 class OS(enum.Enum):
@@ -230,7 +260,7 @@ class GPUPlatform(enum.Enum):
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Arch:
     name: str
-    system_packages: Sequence[str] = ()
+    system_packages: Sequence[str] | None = None
     extra_petsc_configure_options: Sequence[str] = ()
     cflags: Sequence[str] = ()
     cxxflags: Sequence[str] = ()
@@ -252,7 +282,13 @@ class Arch:
     ]
 
     def show_system_packages(self) -> None:
-        pipe(" ".join(self.system_packages), end="")
+        if self.system_packages is None:
+            error(
+                "Don't know what system dependencies to install on this platform, "
+                "please install them manually"
+            )
+        else:
+            print_and_stop(" ".join(self.system_packages))
 
     def show_petsc_configure_options(self) -> None:
         include_dirs = [f"-I{idir}" for idir in self.include_dirs]
@@ -268,11 +304,11 @@ class Arch:
             *self.common_petsc_configure_options,
             *self.extra_petsc_configure_options,
         ]
-        pipe(" ".join(opts), end="")
+        print_and_stop(" ".join(opts))
 
     def show_url(self) -> None:
         assert self.extra_url
-        pipe(self.extra_url, end="")
+        print_and_stop(self.extra_url)
 
     def show_env(self) -> None:
         # TODO: inspect the current directory and error if PETSc isn't found
@@ -289,14 +325,20 @@ class Arch:
         }
         env |= self.extra_env_vars
         env_str = " ".join(f"{name}={replace_petsc_vars(value)}" for name, value in env.items())
-        pipe(env_str, end="")
+        print_and_stop(env_str)
 
 
-ArchID = tuple[OS, ScalarType, GPUPlatform]
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class CommunityArch(Arch):
+    maintainer: str
+    """Name of the person or team maintaining a particular arch."""
+    last_modified: str
 
+
+ArchKey = tuple[OS, ScalarType, GPUPlatform]
 
 # Configurations with official support that are tested in CI
-SUPPORTED_ARCHS: Mapping[ArchID, Arch] = {
+OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Ubuntu 24.04 x86
 
@@ -734,33 +776,8 @@ SUPPORTED_ARCHS: Mapping[ArchID, Arch] = {
         fflags=["-O3"],
         extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
     ),
-}
 
-
-# 'Best effort' configurations that are not tested in CI
-
-# TODO
-# class CommunityArch(Arch):
-#     maintainer: str
-#     last_modified: str
-#     ...
-
-
-# COMMUNITY_ARCHS: Mapping[ArchID, CommunityArch] = {}
-COMMUNITY_ARCHS = {}
-
-
-# TODO
-# class UnknownArch(Arch):
-#     def show_system_packages(self):
-#         error("no")
-
-
-# Sane default configurations for unknown platforms
-
-# maybe the key should just be scalartype, gpu?
-# UNKNOWN_ARCHS: Mapping[ArchID, UnknownArch] = {
-UNKNOWN_ARCHS: Mapping[ArchID, Arch] = {
+    # Sane default configurations for unknown platforms
 
     (OS.UNKNOWN, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
         name="arch-firedrake-default",
@@ -813,44 +830,8 @@ UNKNOWN_ARCHS: Mapping[ArchID, Arch] = {
 }
 
 
-def sniff_package_manager() -> OS:
-    if platform.system() == "Linux":
-        if has_apt():
-            if platform.machine() == "x86_64":
-                return OS.UBUNTU_2404_X86_64
-            elif platform.machine() == "aarch64":
-                return OS.UBUNTU_2404_AARCH64
-    elif platform.system() == "Darwin":
-        if has_homebrew():
-            if platform.machine() == "arm64":
-                return OS.MACOS_ARM64
-    error(
-        "No package manager detected, if you want to configure Firedrake without "
-        "any system packages please pass '--no-package-manager'"
-    )
-    abort()
-
-
-def has_apt() -> bool:
-    try:
-        subprocess.run(["apt", "--version"], capture_output=True)
-    except FileNotFoundError:
-        return False
-    except:  # noqa: E722
-        error("Unexpected error occurred searching for apt")
-    else:
-        return True
-
-
-def has_homebrew() -> bool:
-    try:
-        subprocess.run(["brew", "--version"], capture_output=True)
-    except FileNotFoundError:
-        return False
-    except:  # noqa: E722
-        error("Unexpected error occurred searching for homebrew")
-    else:
-        return True
+# 'Best effort' configurations that are not tested in CI
+COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {}
 
 
 if __name__ == "__main__":
