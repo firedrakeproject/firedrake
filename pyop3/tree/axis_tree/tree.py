@@ -335,6 +335,8 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.size), self.label)
 
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
 
@@ -481,6 +483,8 @@ class AxisComponent(LabelledNodeComponent):
         return (
             type(self), tuple(map(visitor, self.regions)), visitor(self._size), self.label
         )
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(
         self,
@@ -650,6 +654,8 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self._label, "Axis"))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(
         self,
@@ -832,6 +838,8 @@ class AxisTarget(pyop3.obj.Pyop3Object):
             self.component,
             visitor(self.expr),
         )
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     # }}}
 
@@ -1269,10 +1277,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         node_map_key = idict(node_map_key)
         return (type(self), node_map_key)
 
-    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        # We don't recurse into axis trees for instruction executors, if the axis
-        # trees aren't exactly the same then we miss cache.
-        return self
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
@@ -1402,14 +1407,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         }
         return type(self)(node_map)
 
-    @cached_property
-    def paths_and_exprs(self):
-        """
-        Return the possible paths represented by this tree.
-        """
-        assert False, "old code"
-        return frozenset({self._source_path_and_exprs})
-
     def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path.
 
@@ -1503,6 +1500,13 @@ class IndexedAxisTree(AbstractAxisTree):
         return buffers
 
     def get_disk_cache_key(self, visitor) -> Hashable:
+        # When we disk cache things we have already pushed any symbolic
+        # information in the targets into the actual expressions. We
+        # therefore only care about the shape of things as that affects
+        # loop extents.
+        return visitor(self.materialize())
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
         for path, axis in self._node_map.items():
             relabeled_path = idict({

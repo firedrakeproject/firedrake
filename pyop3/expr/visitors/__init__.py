@@ -27,7 +27,6 @@ from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
 from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
-from pyop3.tree.axis_tree.visitors import canonicalize_labels as canonicalize_axis_labels
 from pyop3.dtypes import IntType
 
 from pyop3.insn.base import ArrayAccessType, loop_
@@ -1616,100 +1615,100 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
         return tensor, insns
 
 
-class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
-    def __init__(self, relabeler):
-        # TODO: relabeler could be some over-arching caching object so we don't
-        # need to fully traverse everything
-        self._relabeler = relabeler
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /) -> ExpressionT:
-        return super().process(obj)
-
-    @process.register(numbers.Number)
-    @process.register(pyop3.expr.NaN)
-    @process.register(pyop3.expr.Operator)
-    @process.register(pyop3.expr.OpaqueTerminal)
-    def _(self, expr: ExpressionT, /) -> ExpressionT:
-        return self.reuse_if_untouched(expr)
-
-    @process.register(pyop3.expr.AxisVar)
-    def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
-        relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
-        return axis_var.__record_init__(axis=relabeled_axis)
-
-    @process.register(pyop3.expr.LoopIndexVar)
-    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
-        relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
-        relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
-        relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
-        return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
-
-    @process.register(pyop3.expr.Scalar)
-    @process.register(pyop3.expr.ScalarBufferExpression)
-    def _(self, scalar: ExpressionT, /) -> ExpressionT:
-        return scalar
-
-    @process.register(pyop3.expr.Dat)
-    def _(self, dat: pyop3.expr.Dat, /) -> pyop3.expr.Dat:
-        relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
-        if dat.transform is not None:
-            if isinstance(dat.transform, ReshapeTensorTransform):
-                relabeled_axis_trees = tuple(
-                    canonicalize_axis_labels(tree, self._relabeler) for tree in dat.transform.axis_trees
-                )
-                if dat.transform.prev is not None:
-                    relabeled_prev = self(dat.transform.prev)
-                else:
-                    relabeled_prev = None
-                relabeled_transform = dat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-            else:
-                raise NotImplementedError
-        else:
-            relabeled_transform = None
-        return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
-
-    @process.register(pyop3.expr.AggregateDat)
-    def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
-        relabeled_axis = canonicalize_axis_labels(agg_dat.axis, self._relabeler)
-        relabeled_subdats = np.asarray(
-            [self(subdat) for subdat in agg_dat.subdats], dtype=object
-        )
-        return agg_dat.__record_init__(subdats=relabeled_subdats, axis=relabeled_axis)
-
-    @process.register(pyop3.expr.Mat)
-    def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
-        relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
-        relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
-        if mat.transform is not None:
-            if isinstance(mat.transform, ReshapeTensorTransform):
-                relabeled_axis_trees = tuple(
-                    canonicalize_axis_labels(tree, self._relabeler) for tree in mat.transform.axis_trees
-                )
-                if mat.transform.prev is not None:
-                    relabeled_prev = self(mat.transform.prev)
-                else:
-                    relabeled_prev = None
-                relabeled_transform = mat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-            else:
-                raise NotImplementedError
-        else:
-            relabeled_transform = None
-        return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
-
-    @process.register(pyop3.expr.LinearDatBufferExpression)
-    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
-        relabeled_layout = self(dat_expr.layout)
-        return dat_expr.__record_init__(layout=relabeled_layout)
-
-    @process.register(pyop3.expr.NonlinearDatBufferExpression)
-    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
-        relabeled_layouts = idict({
-            path: self(layout) for path, layout in dat_expr.layouts.items()
-        })
-        return dat_expr.__record_init__(layouts=relabeled_layouts)
-
-
-def canonicalize_labels(expr: ExpressionT, relabeler: Renamer) -> ExpressionT:
-    return LabelCanonicalizer(relabeler)(expr)
+# class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
+#     def __init__(self, relabeler):
+#         # TODO: relabeler could be some over-arching caching object so we don't
+#         # need to fully traverse everything
+#         self._relabeler = relabeler
+#         super().__init__()
+#
+#     @functools.singledispatchmethod
+#     def process(self, obj: ExpressionT, /) -> ExpressionT:
+#         return super().process(obj)
+#
+#     @process.register(numbers.Number)
+#     @process.register(pyop3.expr.NaN)
+#     @process.register(pyop3.expr.Operator)
+#     @process.register(pyop3.expr.OpaqueTerminal)
+#     def _(self, expr: ExpressionT, /) -> ExpressionT:
+#         return self.reuse_if_untouched(expr)
+#
+#     @process.register(pyop3.expr.AxisVar)
+#     def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
+#         relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
+#         return axis_var.__record_init__(axis=relabeled_axis)
+#
+#     @process.register(pyop3.expr.LoopIndexVar)
+#     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
+#         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
+#         relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
+#         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
+#         return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
+#
+#     @process.register(pyop3.expr.Scalar)
+#     @process.register(pyop3.expr.ScalarBufferExpression)
+#     def _(self, scalar: ExpressionT, /) -> ExpressionT:
+#         return scalar
+#
+#     @process.register(pyop3.expr.Dat)
+#     def _(self, dat: pyop3.expr.Dat, /) -> pyop3.expr.Dat:
+#         relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
+#         if dat.transform is not None:
+#             if isinstance(dat.transform, ReshapeTensorTransform):
+#                 relabeled_axis_trees = tuple(
+#                     canonicalize_axis_labels(tree, self._relabeler) for tree in dat.transform.axis_trees
+#                 )
+#                 if dat.transform.prev is not None:
+#                     relabeled_prev = self(dat.transform.prev)
+#                 else:
+#                     relabeled_prev = None
+#                 relabeled_transform = dat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+#             else:
+#                 raise NotImplementedError
+#         else:
+#             relabeled_transform = None
+#         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
+#
+#     @process.register(pyop3.expr.AggregateDat)
+#     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
+#         relabeled_axis = canonicalize_axis_labels(agg_dat.axis, self._relabeler)
+#         relabeled_subdats = np.asarray(
+#             [self(subdat) for subdat in agg_dat.subdats], dtype=object
+#         )
+#         return agg_dat.__record_init__(subdats=relabeled_subdats, axis=relabeled_axis)
+#
+#     @process.register(pyop3.expr.Mat)
+#     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
+#         relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
+#         relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
+#         if mat.transform is not None:
+#             if isinstance(mat.transform, ReshapeTensorTransform):
+#                 relabeled_axis_trees = tuple(
+#                     canonicalize_axis_labels(tree, self._relabeler) for tree in mat.transform.axis_trees
+#                 )
+#                 if mat.transform.prev is not None:
+#                     relabeled_prev = self(mat.transform.prev)
+#                 else:
+#                     relabeled_prev = None
+#                 relabeled_transform = mat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+#             else:
+#                 raise NotImplementedError
+#         else:
+#             relabeled_transform = None
+#         return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
+#
+#     @process.register(pyop3.expr.LinearDatBufferExpression)
+#     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
+#         relabeled_layout = self(dat_expr.layout)
+#         return dat_expr.__record_init__(layout=relabeled_layout)
+#
+#     @process.register(pyop3.expr.NonlinearDatBufferExpression)
+#     def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
+#         relabeled_layouts = idict({
+#             path: self(layout) for path, layout in dat_expr.layouts.items()
+#         })
+#         return dat_expr.__record_init__(layouts=relabeled_layouts)
+#
+#
+# def canonicalize_labels(expr: ExpressionT, relabeler: Renamer) -> ExpressionT:
+#     return LabelCanonicalizer(relabeler)(expr)

@@ -76,8 +76,7 @@ class ScalarBufferExpression(BufferExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self._buffer))
 
-    def instruction_executor_cache_key(self, renamer):
-        return (type(self), self._buffer.instruction_executor_cache_key(renamer))
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, buffer) -> None:
         object.__setattr__(self, "_buffer", buffer)
@@ -172,11 +171,9 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         return visitor(self._buffer) | visitor(self.layout)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            visitor(self._buffer),
-            visitor(self.layout),
-        )
+        return (type(self), visitor(self._buffer), visitor(self.layout))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, buffer, layout):
         object.__setattr__(self, "_buffer", buffer)

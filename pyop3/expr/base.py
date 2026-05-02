@@ -175,6 +175,8 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     def get_disk_cache_key(self, visitor):
         return (type(self), visitor(self.a))
 
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     # }}}
 
     # {{{ interface impls
@@ -232,6 +234,8 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     def get_disk_cache_key(self, visitor):
         return (type(self), visitor(self.a), visitor(self.b))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     # }}}
 
@@ -403,6 +407,8 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
     def get_disk_cache_key(self, visitor):
         return (type(self), visitor(self.a), visitor(self.b), visitor(self.c))
 
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     # }}}
 
     # {{{ interface impls
@@ -504,6 +510,8 @@ class AxisVar(TerminalExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.axis))
 
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
         assert axis.component.sf is None
@@ -574,6 +582,8 @@ class LoopIndexVar(TerminalExpression):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.loop_index), visitor(self.axis))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, loop_index, axis) -> None:
         from pyop3 import LoopIndex

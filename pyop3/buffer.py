@@ -238,6 +238,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
+    # now unused?
     _max_value: np.number | None = None
 
     _state: int = 0
@@ -250,11 +251,31 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
 
-    def get_disk_cache_key(self, visitor):
-        return (type(self), visitor.renamer.add(self._name, "ArrayBuffer"))
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            self.dtype,
+            visitor.renamer.add(self._name, "ArrayBuffer"),
+            self._constant,
+            self._rank_equal,
+            self._ordered,
+        )
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        return visitor.buffer_counter.add(self)
+        # we can hit buffers in multiple places...
+        # on the outside these are allowed to differ but inside they aren't
+        if visitor.outer:
+            return (
+                type(self),
+                self.dtype,
+                visitor.renamer.add(self._name, "ArrayBuffer"),
+                self._constant,
+                self._rank_equal,
+                self._ordered,
+            )
+        else:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()

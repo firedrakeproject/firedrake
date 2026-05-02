@@ -24,7 +24,6 @@ import pyop3.expr
 import pyop3.insn.base
 import pyop3.pyop2_utils
 from pyop3.cache import cached_method, memory_cache
-from pyop3.insn.visitors import canonicalize_labels
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -120,7 +119,6 @@ class InstructionExecutionContext:
     """Class that coordinates the compilation and execution of an instruction."""
 
     def __init__(self, root_insn: Instruction, compiler_parameters) -> None:
-        root_insn = canonicalize_labels(root_insn)
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         self.root_insn = root_insn

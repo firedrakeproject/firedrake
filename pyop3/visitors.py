@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import functools
 import itertools
 import numbers
@@ -75,11 +76,20 @@ def collect_buffers(obj) -> OrderedFrozenSet:
     return BufferCollector()(obj)
 
 
-class DiskCacheKeyGetter(pyop3.node.NodeVisitor):
+class CacheKeyGetter(pyop3.node.NodeVisitor):
 
     def __init__(self) -> None:
         self.renamer = utils.Renamer2()
         super().__init__()
+
+    def relabel_path(self, path: pyop3.types.ConcretePathT) -> pyop3.types.ConcretePathT:
+        return idict({
+            self.renamer.add(axis, "Axis"): component
+            for axis, component in path.items()
+        })
+
+
+class DiskCacheKeyGetter(CacheKeyGetter):
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> Hashable:
@@ -94,11 +104,6 @@ class DiskCacheKeyGetter(pyop3.node.NodeVisitor):
     def _(self, obj: pyop3.obj.Pyop3Object, /) -> Hashable:
         return obj.get_disk_cache_key(self)
 
-    def relabel_path(self, path: pyop3.types.ConcretePathT) -> pyop3.types.ConcretePathT:
-        return idict({
-            self.renamer.add(axis, "Axis"): component
-            for axis, component in path.items()
-        })
 
 
 # TODO: This cache key is slightly too restrictive. For instance an axis tree and
@@ -108,11 +113,21 @@ def get_disk_cache_key(obj: pyop3.obj.Pyop3Object) -> Hashable:
     return DiskCacheKeyGetter()(obj)
 
 
-class InstructionExecutorCacheKeyGetter(pyop3.node.NodeVisitor):
+class InstructionExecutorCacheKeyGetter(CacheKeyGetter):
 
-    def __init__(self) -> None:
-        self.buffer_counter = utils.Renamer()
+    def __init__(self):
+        # Flag that tells us what to do about buffers, do we consider
+        # them replaceable or not?
+        # TODO: awful name
+        self.outer = True
         super().__init__()
+
+    @contextlib.contextmanager
+    def inside(self):
+        prev_outer = self.outer
+        self.outer = False
+        yield
+        self.outer = prev_outer
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> Hashable:

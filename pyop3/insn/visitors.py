@@ -27,8 +27,6 @@ from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTen
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
-from pyop3.tree.axis_tree.visitors import canonicalize_labels as canonicalize_axis_labels
-from pyop3.expr.visitors import canonicalize_labels as canonicalize_expr_labels
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer
 
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -775,61 +773,61 @@ def insert_literals(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
 
 # TODO: This class is very similar to the disk cache key getter one, if we do this
 # first can we drop the relabeling there?
-class LabelCanonicalizer(NodeTransformer):
-
-    def __init__(self):
-        self._relabeler = utils.Renamer2()
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: Any, /) -> pyop3.insn.Instruction:
-        return super().process(obj)
-
-    @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop:
-        self._relabeler.add(loop.index.id, "loop")
-        relabeled_iterset = canonicalize_axis_labels(loop.index.iterset, self._relabeler)
-        relabeled_index = LoopIndex(relabeled_iterset, id=self._relabeler[loop.index.id])
-        relabeled_stmts = tuple(self(stmt) for stmt in loop.statements)
-        return loop.__record_init__(index=relabeled_index, statements=relabeled_stmts)
-
-    @process.register(pyop3.insn.CalledFunction)
-    def _(self, func: pyop3.insn.CalledFunction, /) -> pyop3.insn.CalledFunction:
-        relabeled_arguments = tuple(
-            canonicalize_expr_labels(arg, self._relabeler) for arg in func.arguments
-        )
-        return func.__record_init__(_arguments=relabeled_arguments)
-
-    @process.register(pyop3.insn.Exscan)
-    def _(self, exscan: pyop3.insn.Exscan, /) -> pyop3.insn.Exscan:
-        relabeled_assignee = canonicalize_expr_labels(exscan.assignee, self._relabeler)
-        relabeled_expression = canonicalize_expr_labels(exscan.expression, self._relabeler)
-        relabeled_scan_axis = canonicalize_axis_labels(exscan.scan_axis, self._relabeler)
-        return exscan.__record_init__(
-            assignee=relabeled_assignee,
-            expression=relabeled_expression,
-            scan_axis=relabeled_scan_axis,
-        )
-
-    @process.register(pyop3.insn.ArrayAssignment)
-    def _(self, assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.ArrayAssignment:
-        relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
-        relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
-        return assignment.__record_init__(
-            _assignee=relabeled_assignee, _expression=relabeled_expression
-        )
-
-    @process.register(pyop3.insn.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.ArrayAssignment:
-        relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
-        relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
-        relabeled_axis_trees = tuple(
-            canonicalize_axis_labels(tree, self._relabeler) for tree in assignment.axis_trees
-        )
-        return assignment.__record_init__(
-            _assignee=relabeled_assignee, _expression=relabeled_expression, _axis_trees=relabeled_axis_trees
-        )
-
-
-def canonicalize_labels(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
-    return LabelCanonicalizer()(insn)
+# class LabelCanonicalizer(NodeTransformer):
+#
+#     def __init__(self):
+#         self._relabeler = utils.Renamer2()
+#         super().__init__()
+#
+#     @functools.singledispatchmethod
+#     def process(self, obj: Any, /) -> pyop3.insn.Instruction:
+#         return super().process(obj)
+#
+#     @process.register(pyop3.insn.Loop)
+#     def _(self, loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop:
+#         self._relabeler.add(loop.index.id, "loop")
+#         relabeled_iterset = canonicalize_axis_labels(loop.index.iterset, self._relabeler)
+#         relabeled_index = LoopIndex(relabeled_iterset, id=self._relabeler[loop.index.id])
+#         relabeled_stmts = tuple(self(stmt) for stmt in loop.statements)
+#         return loop.__record_init__(index=relabeled_index, statements=relabeled_stmts)
+#
+#     @process.register(pyop3.insn.CalledFunction)
+#     def _(self, func: pyop3.insn.CalledFunction, /) -> pyop3.insn.CalledFunction:
+#         relabeled_arguments = tuple(
+#             canonicalize_expr_labels(arg, self._relabeler) for arg in func.arguments
+#         )
+#         return func.__record_init__(_arguments=relabeled_arguments)
+#
+#     @process.register(pyop3.insn.Exscan)
+#     def _(self, exscan: pyop3.insn.Exscan, /) -> pyop3.insn.Exscan:
+#         relabeled_assignee = canonicalize_expr_labels(exscan.assignee, self._relabeler)
+#         relabeled_expression = canonicalize_expr_labels(exscan.expression, self._relabeler)
+#         relabeled_scan_axis = canonicalize_axis_labels(exscan.scan_axis, self._relabeler)
+#         return exscan.__record_init__(
+#             assignee=relabeled_assignee,
+#             expression=relabeled_expression,
+#             scan_axis=relabeled_scan_axis,
+#         )
+#
+#     @process.register(pyop3.insn.ArrayAssignment)
+#     def _(self, assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.ArrayAssignment:
+#         relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
+#         relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
+#         return assignment.__record_init__(
+#             _assignee=relabeled_assignee, _expression=relabeled_expression
+#         )
+#
+#     @process.register(pyop3.insn.ConcretizedNonEmptyArrayAssignment)
+#     def _(self, assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.ArrayAssignment:
+#         relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
+#         relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
+#         relabeled_axis_trees = tuple(
+#             canonicalize_axis_labels(tree, self._relabeler) for tree in assignment.axis_trees
+#         )
+#         return assignment.__record_init__(
+#             _assignee=relabeled_assignee, _expression=relabeled_expression, _axis_trees=relabeled_axis_trees
+#         )
+#
+#
+# def canonicalize_labels(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
+#     return LabelCanonicalizer()(insn)

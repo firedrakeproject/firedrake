@@ -151,126 +151,126 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
     return tuple(block_shape)
 
 
-class LabelCanonicalizer(LabelledTreeVisitor):
-
-    EMPTY = None
-
-    def __init__(self, relabeler):
-        self._relabeler = relabeler
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: Any, path: ConcretePathT, /) -> Hashable:
-        return super().process(obj)
-
-    @process.register(op3_tree.Axis)
-    def _(self, axis: op3_tree.Axis, path: ConcretePathT) -> Hashable:
-        relabeled_axis = canonicalize_labels(axis, self._relabeler)
-        node_map = {idict(): relabeled_axis}
-        for component in relabeled_axis.components:
-            path_ = path | idict({axis.label: component.label})
-            relabeled_path = idict({relabeled_axis.label: component.label})
-            if self._tree.node_map[path_]:
-                subnode_map = self._call(path_)
-                for subpath, subaxis in subnode_map.items():
-                    node_map[relabeled_path | subpath] = subaxis
-            else:
-                node_map[relabeled_path] = None
-        return idict(node_map)
-
-
-@functools.singledispatch
-def canonicalize_labels(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
-    raise TypeError
-
-@canonicalize_labels.register(op3_tree.AxisTree)
-def _(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
-    node_map = LabelCanonicalizer(relabeler)(axis_tree)
-    return axis_tree.__record_init__(_node_map=node_map)
-
-@canonicalize_labels.register(op3_tree.IndexedAxisTree)
-def _(axes: op3_tree.IndexedAxisTree, relabeler):
-    node_map = LabelCanonicalizer(relabeler)(axes)
-    unindexed = canonicalize_labels(axes.unindexed, relabeler)
-    targets = _canonicalize_target_labels(axes.targets, relabeler)
-    return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
-
-@canonicalize_labels.register(op3_tree._UnitAxisTree)
-def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
-    return axes
-
-@canonicalize_labels.register(op3_tree.AxisForest)
-def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
-    return type(axes)([canonicalize_labels(t, relabeler) for t in axes.trees])
-
-@canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
-def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
-    unindexed = canonicalize_labels(axes.unindexed, relabeler)
-    targets = _canonicalize_target_labels(axes.targets, relabeler)
-    return axes.__record_init__(unindexed=unindexed, _targets=targets)
-
-
-@canonicalize_labels.register(op3_tree.ContextSensitiveAxisTree)
-def _(axes: op3_tree.ContextSensitiveAxisTree, relabeler):
-    relabeled_trees = {}
-    for ctx, tree in axes.trees.items():
-        relabeled_ctx = {}
-        for loop_id, path in ctx.items():
-            relabeled_loop_id = relabeler.add(loop_id, "loop")
-            relabeled_path = idict({
-                relabeler.add(axis, "axis"): component
-                for axis, component in path.items()
-            })
-            relabeled_ctx[relabeled_loop_id] = relabeled_path
-        relabeled_ctx = idict(relabeled_ctx)
-
-        relabeled_tree = canonicalize_labels(tree, relabeler)
-        relabeled_trees[relabeled_ctx] = relabeled_tree
-    relabeled_trees = idict(relabeled_trees)
-    return axes.__record_init__(trees=relabeled_trees)
-
-
-def _canonicalize_target_labels(targets, relabeler):
-    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
-
-    relabeled_targets = {}
-    for path, axis_targetss in targets.items():
-        relabeled_path = idict({
-            relabeler[axis_label]: component_label
-            for axis_label, component_label in path.items()
-        })
-        relabeled_axis_targetss = []
-        for axis_targets in axis_targetss:
-             relabeled_axis_targetss.append(
-                tuple(
-                    axis_target.__record_init__(axis=relabeler.add(axis_target.axis, "axis"), expr=relabel_expr(axis_target.expr, relabeler))
-                    for axis_target in axis_targets
-                )
-            )
-        relabeled_targets[relabeled_path] = tuple(relabeled_axis_targetss)
-    return idict(relabeled_targets)
-
-
-@canonicalize_labels.register(op3_tree.Axis)
-def _(axis, relabeler):
-    relabeled_label = relabeler.add(axis.label, "axis")
-    relabeled_components = tuple(canonicalize_labels(c, relabeler) for c in axis.components)
-    return axis.__record_init__(_label=relabeled_label, components=relabeled_components)
-
-@canonicalize_labels.register(op3_tree.AxisComponent)
-def _(component: op3_tree.AxisComponent, relabeler) -> tuple:
-    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
-
-    relabeled_regions = tuple(canonicalize_labels(r, relabeler) for r in component.regions)
-    if component._size is not None:
-        relabeled_size = relabel_expr(component._size, relabeler)
-    else:
-        relabeled_size = None
-    return component.__record_init__(regions=relabeled_regions, _size=relabeled_size)
-
-
-@canonicalize_labels.register(op3_tree.AxisComponentRegion)
-def _(region: op3_tree.AxisComponent, relabeler) -> tuple:
-    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
-
-    return region.__record_init__(size=relabel_expr(region.size, relabeler))
+# class LabelCanonicalizer(LabelledTreeVisitor):
+#
+#     EMPTY = None
+#
+#     def __init__(self, relabeler):
+#         self._relabeler = relabeler
+#         super().__init__()
+#
+#     @functools.singledispatchmethod
+#     def process(self, obj: Any, path: ConcretePathT, /) -> Hashable:
+#         return super().process(obj)
+#
+#     @process.register(op3_tree.Axis)
+#     def _(self, axis: op3_tree.Axis, path: ConcretePathT) -> Hashable:
+#         relabeled_axis = canonicalize_labels(axis, self._relabeler)
+#         node_map = {idict(): relabeled_axis}
+#         for component in relabeled_axis.components:
+#             path_ = path | idict({axis.label: component.label})
+#             relabeled_path = idict({relabeled_axis.label: component.label})
+#             if self._tree.node_map[path_]:
+#                 subnode_map = self._call(path_)
+#                 for subpath, subaxis in subnode_map.items():
+#                     node_map[relabeled_path | subpath] = subaxis
+#             else:
+#                 node_map[relabeled_path] = None
+#         return idict(node_map)
+#
+#
+# @functools.singledispatch
+# def canonicalize_labels(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
+#     raise TypeError
+#
+# @canonicalize_labels.register(op3_tree.AxisTree)
+# def _(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
+#     node_map = LabelCanonicalizer(relabeler)(axis_tree)
+#     return axis_tree.__record_init__(_node_map=node_map)
+#
+# @canonicalize_labels.register(op3_tree.IndexedAxisTree)
+# def _(axes: op3_tree.IndexedAxisTree, relabeler):
+#     node_map = LabelCanonicalizer(relabeler)(axes)
+#     unindexed = canonicalize_labels(axes.unindexed, relabeler)
+#     targets = _canonicalize_target_labels(axes.targets, relabeler)
+#     return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
+#
+# @canonicalize_labels.register(op3_tree._UnitAxisTree)
+# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+#     return axes
+#
+# @canonicalize_labels.register(op3_tree.AxisForest)
+# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+#     return type(axes)([canonicalize_labels(t, relabeler) for t in axes.trees])
+#
+# @canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
+# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+#     unindexed = canonicalize_labels(axes.unindexed, relabeler)
+#     targets = _canonicalize_target_labels(axes.targets, relabeler)
+#     return axes.__record_init__(unindexed=unindexed, _targets=targets)
+#
+#
+# @canonicalize_labels.register(op3_tree.ContextSensitiveAxisTree)
+# def _(axes: op3_tree.ContextSensitiveAxisTree, relabeler):
+#     relabeled_trees = {}
+#     for ctx, tree in axes.trees.items():
+#         relabeled_ctx = {}
+#         for loop_id, path in ctx.items():
+#             relabeled_loop_id = relabeler.add(loop_id, "loop")
+#             relabeled_path = idict({
+#                 relabeler.add(axis, "axis"): component
+#                 for axis, component in path.items()
+#             })
+#             relabeled_ctx[relabeled_loop_id] = relabeled_path
+#         relabeled_ctx = idict(relabeled_ctx)
+#
+#         relabeled_tree = canonicalize_labels(tree, relabeler)
+#         relabeled_trees[relabeled_ctx] = relabeled_tree
+#     relabeled_trees = idict(relabeled_trees)
+#     return axes.__record_init__(trees=relabeled_trees)
+#
+#
+# def _canonicalize_target_labels(targets, relabeler):
+#     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
+#
+#     relabeled_targets = {}
+#     for path, axis_targetss in targets.items():
+#         relabeled_path = idict({
+#             relabeler[axis_label]: component_label
+#             for axis_label, component_label in path.items()
+#         })
+#         relabeled_axis_targetss = []
+#         for axis_targets in axis_targetss:
+#              relabeled_axis_targetss.append(
+#                 tuple(
+#                     axis_target.__record_init__(axis=relabeler.add(axis_target.axis, "axis"), expr=relabel_expr(axis_target.expr, relabeler))
+#                     for axis_target in axis_targets
+#                 )
+#             )
+#         relabeled_targets[relabeled_path] = tuple(relabeled_axis_targetss)
+#     return idict(relabeled_targets)
+#
+#
+# @canonicalize_labels.register(op3_tree.Axis)
+# def _(axis, relabeler):
+#     relabeled_label = relabeler.add(axis.label, "axis")
+#     relabeled_components = tuple(canonicalize_labels(c, relabeler) for c in axis.components)
+#     return axis.__record_init__(_label=relabeled_label, components=relabeled_components)
+#
+# @canonicalize_labels.register(op3_tree.AxisComponent)
+# def _(component: op3_tree.AxisComponent, relabeler) -> tuple:
+#     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
+#
+#     relabeled_regions = tuple(canonicalize_labels(r, relabeler) for r in component.regions)
+#     if component._size is not None:
+#         relabeled_size = relabel_expr(component._size, relabeler)
+#     else:
+#         relabeled_size = None
+#     return component.__record_init__(regions=relabeled_regions, _size=relabeled_size)
+#
+#
+# @canonicalize_labels.register(op3_tree.AxisComponentRegion)
+# def _(region: op3_tree.AxisComponent, relabeler) -> tuple:
+#     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
+#
+#     return region.__record_init__(size=relabel_expr(region.size, relabeler))

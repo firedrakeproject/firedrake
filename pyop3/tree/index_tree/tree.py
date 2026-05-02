@@ -390,8 +390,11 @@ class LoopIndex(Index):
         return (type(self), visitor(self.iterset), visitor.renamer.add(self.id, "LoopIndex"))
 
     def get_instruction_executor_cache_key(self, visitor):
-        breakpoint()  # what about the loop index? need to think
-        return (type(self), visitor(iterset))
+        return (
+            type(self),
+            visitor(self.iterset),
+            visitor.renamer.add(self.id, "LoopIndex"),
+        )
 
     def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
         id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
