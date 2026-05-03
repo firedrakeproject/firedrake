@@ -52,7 +52,6 @@ import weakref
 from pyop3.config import config
 from pyop3.exceptions import CompilationException
 from pyop3.log import debug, LOGGER, DEBUG
-from pyop3.pyop2_utils import trim
 
 
 __all__ = (
@@ -161,12 +160,11 @@ class PyOP2CommError(ValueError):
 
 if config.spmd_strict:
     def collective(fn):
-        extra = trim("""
-        This function is logically collective over MPI ranks, it is an
-        error to call it on fewer than all the ranks in MPI communicator.
-        PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
-        guarded by a barrier where possible.
-        """)
+        extra = """\
+This function is logically collective over MPI ranks, it is an
+error to call it on fewer than all the ranks in MPI communicator.
+PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
+guarded by a barrier where possible."""
 
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -205,17 +203,16 @@ if config.spmd_strict:
                 comm.Barrier()
             return value
 
-        wrapper.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        wrapper.__doc__ = f"{fn.__doc__}\n\n{extra}" if fn.__doc__ else extra
         return wrapper
 else:
     def collective(fn):
-        extra = trim("""
-        This function is logically collective over MPI ranks, it is an
-        error to call it on fewer than all the ranks in MPI communicator.
-        You can set PYOP2_SPMD_STRICT=1 in your environment to try and catch
-        non-collective calls.
-        """)
-        fn.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        extra = """\
+This function is logically collective over MPI ranks, it is an
+error to call it on fewer than all the ranks in MPI communicator.
+You can set PYOP2_SPMD_STRICT=1 in your environment to try and catch
+non-collective calls."""
+        fn.__doc__ = f"{fn.__doc__}\n\n{extra}" if fn.__doc__ else extra
         return fn
 
 

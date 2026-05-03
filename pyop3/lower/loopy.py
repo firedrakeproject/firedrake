@@ -28,7 +28,7 @@ from immutabledict import immutabledict as idict
 import pyop3.cache
 import pyop3.dtypes
 import pyop3.expr
-from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
+from pyop3 import utils, mpi
 from pyop3.cache import memory_and_disk_cache
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
@@ -729,7 +729,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
-    assert isinstance(expr, op3_expr.BufferExpression)
+    assert isinstance(expr, pyop3.expr.BufferExpression)
     array_buffer = expr.buffer
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
@@ -771,7 +771,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     layout_exprs = []
     for layout in [mat.row_layout, mat.column_layout]:
         subst_sublayout = layout.layouts[idict()]
-        subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        subst_layout = pyop3.expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
         layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
         layout_exprs.append(layout_expr)
     irow, icol = layout_exprs
@@ -965,42 +965,42 @@ def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
-@_lower_expr.register(op3_expr.Add)
-def _(add: op3_expr.Add, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Add)
+def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.Sub)
-def _(sub: op3_expr.Sub, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Sub)
+def _(sub: pyop3.expr.Sub, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(sub.a, *args, **kwargs) - _lower_expr(sub.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.Mul)
-def _(mul: op3_expr.Mul, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Mul)
+def _(mul: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.Modulo)
-def _(mod: op3_expr.Mul, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Modulo)
+def _(mod: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.Or)
-def _(or_: op3_expr.Or, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Or)
+def _(or_: pyop3.expr.Or, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
 
 
-@_lower_expr.register(op3_expr.Neg)
-def _(neg: op3_expr.Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Neg)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
     return -_lower_expr(neg.a, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.FloorDiv)
-def _(neg: op3_expr.Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.FloorDiv)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.Comparison)
+@_lower_expr.register(pyop3.expr.Comparison)
 def _(cond, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.Comparison(
         _lower_expr(cond.a, *args, **kwargs),
@@ -1009,49 +1009,49 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
     )
 
 
-@_lower_expr.register(op3_expr.AxisVar)
-def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     return utils.just_one(iname_maps)[axis_var.axis.label]
 
 
-@_lower_expr.register(op3_expr.LoopIndexVar)
-def _(loop_var: op3_expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 
-@_lower_expr.register(op3_expr.Scalar)
-def _(scalar: op3_expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Scalar)
+def _(scalar: pyop3.expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
     buffer_ref = scalar.buffer
     name_in_kernel = context.add_buffer(buffer_ref, intent)
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
 
-@_lower_expr.register(op3_expr.ScalarBufferExpression)
-def _(expr: op3_expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.ScalarBufferExpression)
+def _(expr: pyop3.expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [0], iname_maps, loop_indices, context, intent=intent)
 
 
-@_lower_expr.register(op3_expr.LinearDatBufferExpression)
-def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
 
 
-@_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
-def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
+def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = utils.just_one(paths)
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
-@_lower_expr.register(op3_expr.MatPetscMatBufferExpression)
-def _(mat_expr: op3_expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
+def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (mat_expr.row_layout.linearize(row_path), mat_expr.column_layout.linearize(column_path))
     return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
-@_lower_expr.register(op3_expr.MatArrayBufferExpression)
-def _(expr: op3_expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
+def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
@@ -1097,8 +1097,8 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
     return indices
 
 
-@_lower_expr.register(op3_expr.Conditional)
-def _(cond: op3_expr.Conditional, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(pyop3.expr.Conditional)
+def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
 
 
@@ -1112,8 +1112,8 @@ def _(num: numbers.Integral, *args, **kwargs):
     return num
 
 
-@register_extent.register(op3_expr.Expression)
-def _(expr: op3_expr.Expression, inames, loop_indices, context):
+@register_extent.register(pyop3.expr.Expression)
+def _(expr: pyop3.expr.Expression, inames, loop_indices, context):
     pym_expr = lower_expr(expr, [inames], loop_indices, context)
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym_expr)

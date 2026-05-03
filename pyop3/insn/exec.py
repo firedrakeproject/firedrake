@@ -22,7 +22,6 @@ import pyop3.collections
 import pyop3.compile
 import pyop3.expr
 import pyop3.insn.base
-import pyop3.pyop2_utils
 from pyop3.cache import cached_method, memory_cache
 
 
