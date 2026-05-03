@@ -617,7 +617,7 @@ class CompiledCodeExecutor:
 
 # TODO: prefer generate_code?
 def compile(op, compiler_parameters=None):
-    from pyop3.ir.lower import _compile_static
+    from pyop3.lower.loopy import _compile_static
 
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
