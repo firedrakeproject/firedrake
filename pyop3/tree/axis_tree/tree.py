@@ -219,11 +219,13 @@ class _UnitAxisTree(pyop3.obj.Pyop3Object):
 
     # {{{ instance attrs (there aren't any)
 
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return type(self)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     def collect_buffers(self, visitor):
         return OrderedFrozenSet()
-
-    def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self),)
 
     # }}}
 
@@ -1500,11 +1502,15 @@ class IndexedAxisTree(AbstractAxisTree):
         return buffers
 
     def get_disk_cache_key(self, visitor) -> Hashable:
+        raise AssertionError(
+            "Indexed axis trees should not be present when we disk cache"
+        )
+        # below is old
         # When we disk cache things we have already pushed any symbolic
         # information in the targets into the actual expressions. We
         # therefore only care about the shape of things as that affects
         # loop extents.
-        return visitor(self.materialize())
+        # return visitor(self.materialize())
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
@@ -1805,6 +1811,21 @@ class UnitIndexedAxisTree(DistributedObject, pyop3.obj.Pyop3Object):
     def collect_buffers(self, visitor):
         raise NotImplementedError
         return visitor(self.unindexed)
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        targets_key = {}
+        for path, targetss in self._targets.items():
+            relabeled_path = idict({
+                visitor.renamer.add(axis_label, "Axis"): component_label
+                for axis_label, component_label in path.items()
+            })
+            targets_key[relabeled_path] = tuple(
+                tuple(visitor(target) for target in targets)
+                for targets in targetss
+            )
+        targets_key = idict(targets_key)
+
+        return (type(self), visitor(self.unindexed), targets_key)
 
     def __init__(
         self,
@@ -2185,14 +2206,27 @@ class AxisForest(DistributedObject):
 
 
 @pyop3.record.frozenrecord()
-class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
+class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterable):
 
     # {{{ instance attrs
 
     trees: idict  # context to tree
 
-    def __init__(self, trees):
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        trees_key = {}
+        for path, tree in self.trees.items():
+            trees_key[visitor.relabel_path(path)] = visitor(tree)
+        trees_key = idict(trees_key)
+        return (type(self), trees_key)
+
+    def __init__(self, trees: Mapping):
+        trees = idict(trees)
+
         object.__setattr__(self, "trees", trees)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert isinstance(self.trees, Hashable)
 
     # }}}
 

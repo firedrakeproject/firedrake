@@ -581,7 +581,13 @@ class LoopIndexVar(TerminalExpression):
         return visitor(self.loop_index) | visitor(self.axis)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self.loop_index), visitor(self.axis))
+        # Loop index vars are just pointers to some outer loop. We don't
+        # need to recurse here, just make sure that the labels match.
+        return (
+            type(self),
+            visitor.renamer.add(self.loop_index.id, "LoopIndex"),
+            visitor.renamer.add(self.axis.label, "Axis"),
+        )
 
     get_instruction_executor_cache_key = get_disk_cache_key
 

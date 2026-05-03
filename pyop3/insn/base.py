@@ -197,14 +197,13 @@ class InstructionList(Instruction):
 
     instructions: tuple[Instruction]
 
+    def get_disk_cache_key(self, visitor):
+        return (type(self), tuple(visitor(insn) for insn in self.instructions))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet().union(*(visitor(insn) for insn in self.instructions))
-
-    def disk_cache_key(self, visitor):
-        return (type(self), tuple(visitor(insn) for insn in self.instructions))
-
-    def instruction_executor_cache_key(self, visitor):
-        return (type(self), tuple(visitor(insn) for insn in self.instructions))
+        return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
     def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
@@ -306,7 +305,7 @@ class FunctionArgument(abc.ABC):
 
 
 @pyop3.record.frozenrecord()
-class Function:
+class Function(pyop3.obj.Pyop3Object):
     """A callable function."""
 
     # {{{ instance attrs
@@ -314,12 +313,14 @@ class Function:
     code: Any
     _access_descrs: tuple[Intent, ...]
 
-    def disk_cache_key(self, visitor) -> Hashable:
+    def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             loopy.tools.LoopyKeyBuilder()(self.code),
             self._access_descrs,
         )
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, loopy_kernel, access_descrs):
         lpy_args = loopy_kernel.default_entrypoint.args
@@ -499,6 +500,13 @@ class CalledFunction(AbstractCalledFunction):
     _function: Function
     _arguments: tuple[Any]
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._function),
+            tuple(map(visitor, self._arguments)),
+        )
+
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
 
@@ -552,6 +560,9 @@ class StandaloneCalledFunction(AbstractCalledFunction):
             visitor(self._function),
             tuple(map(visitor, self._arguments)),
         )
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
@@ -879,6 +890,8 @@ class Exscan(TerminalInstruction):
             self.scan_type,
             visitor(self.scan_axis),
         )
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     # }}}
 

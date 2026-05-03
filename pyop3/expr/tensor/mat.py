@@ -54,14 +54,17 @@ class Mat(Tensor):
     _name: str
     _transform: TensorTransform | None
 
-    def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
-        transform_key = self._transform.instruction_executor_cache_key(buffer_counter) if self._transform else None
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # buffers in the axis trees aren't allowed to change
+        with visitor.inside():
+            row_axes_key = visitor(self.row_axes)
+            column_axes_key = visitor(self.column_axes)
         return (
             type(self),
-            self.row_axes,
-            self.column_axes,
-            self._buffer.instruction_executor_cache_key(buffer_counter),
-            transform_key,
+            row_axes_key,
+            column_axes_key,
+            visitor(self._buffer),
+            visitor(self._transform),
         )
 
     def __init__(

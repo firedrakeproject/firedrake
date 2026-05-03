@@ -688,15 +688,24 @@ class PetscMatBuffer(ConcreteBuffer):
         return OrderedFrozenSet([self])
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor.renamer.add(self.name, "PetscMatBuffer"))
-
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (
             type(self),
-            self._mat_spec_instruction_executor_cache_key,
+            visitor.renamer.add(self.name, "PetscMatBuffer"),
             self._constant,
-            buffer_counter[self],
         )
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # we can hit buffers in multiple places...
+        # on the outside these are allowed to differ but inside they aren't
+        if visitor.outer:
+            return (
+                type(self),
+                visitor.renamer.add(self._name, "PetscMatBuffer"),
+                self._constant,
+            )
+        else:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
 
     def __init__(
         self,

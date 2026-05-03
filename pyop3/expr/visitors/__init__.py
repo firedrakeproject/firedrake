@@ -421,6 +421,14 @@ def _(op: pyop3.expr.BinaryOperator, /, *args, **kwargs) -> pyop3.expr.BinaryOpe
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
+# no, not doing this here
+# @concretize_layouts.register
+# def _(loop_index_var: pyop3.expr.LoopIndexVar, /, *args, **kwargs) -> Any:
+#     # TODO: put into a generic handler for LoopIndex
+#     loop_index = loop_index_var.loop_index
+#     new_loop_index = loop_index.__record_init__(iterset=loop_index.iterset.materialize())
+#     return loop_index_var.__record_init__(loop_index=new_loop_index)
+
 
 @concretize_layouts.register(Scalar)
 def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.ScalarBufferExpression:
