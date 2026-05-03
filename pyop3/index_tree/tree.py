@@ -25,7 +25,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.record
 from pyop3.constants import PYOP3_DECIDE
-from pyop3.tree.axis_tree import (
+from pyop3.axis_tree import (
     Axis,
     AxisComponent,
     AxisComponentRegion,
@@ -33,7 +33,7 @@ from pyop3.tree.axis_tree import (
     AxisForest,
     LoopIterable,
 )
-from pyop3.tree.axis_tree.tree import (
+from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
     complete_axis_targets,
     AbstractAxisTree,
@@ -460,7 +460,7 @@ class LoopIndex(Index):
     # I think this can be resolved by considering axes[p] and axes as "iterset"
     # and handling that separately.
     def with_context(self, context, *args) -> LoopIndex:
-        from pyop3.tree.index_tree.parse import _as_context_free_indices
+        from pyop3.index_tree.parse import _as_context_free_indices
         return utils.just_one(_as_context_free_indices(self, context))
 
 
@@ -781,7 +781,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         # return ContextSensitiveMultiArray(array_per_context)
 
     def iter(self, *, eager=False) -> LoopIndex:
-        from pyop3.tree.index_tree.parse import as_index_forests
+        from pyop3.index_tree.parse import as_index_forests
 
         if eager:
             raise NotImplementedError

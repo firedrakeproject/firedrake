@@ -24,7 +24,7 @@ from pyop3.tree import (
     AxisTree,
     merge_axis_trees,
 )
-from pyop3.tree.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
+from pyop3.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
 
 from .size import compute_axis_tree_component_size
 

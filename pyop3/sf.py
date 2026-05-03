@@ -17,7 +17,7 @@ from pyop3.dtypes import get_mpi_dtype, IntType
 
 
 if typing.TYPE_CHECKING:
-    from pyop3.tree.axis_tree import AxisComponentRegionSizeT
+    from pyop3.axis_tree import AxisComponentRegionSizeT
 
 
 from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401

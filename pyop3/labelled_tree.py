@@ -651,7 +651,7 @@ class MutableLabelledTreeMixin:
             return self
 
         # TODO: breaks abstraction
-        from pyop3.tree.axis_tree.tree import _UnitAxisTree
+        from pyop3.axis_tree.tree import _UnitAxisTree
         if isinstance(subtree, _UnitAxisTree):
             return self
 

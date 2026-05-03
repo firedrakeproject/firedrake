@@ -13,8 +13,8 @@ from immutabledict import immutabledict as idict
 import pyop3.record
 from pyop3 import utils
 from pyop3.node import Node, Terminal
-from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
-from pyop3.tree.axis_tree.tree import MissingVariableException
+from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
+from pyop3.axis_tree.tree import MissingVariableException
 
 
 class Expression(Node, abc.ABC):

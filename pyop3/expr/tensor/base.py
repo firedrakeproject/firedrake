@@ -18,8 +18,8 @@ from pyop3.expr.base import ExpressionT
 import pyop3.record
 from pyop3 import utils
 from pyop3.sf import DistributedObject
-from pyop3.tree.axis_tree import ContextAware
-from pyop3.tree.axis_tree.tree import AbstractAxisTree
+from pyop3.axis_tree import ContextAware
+from pyop3.axis_tree.tree import AbstractAxisTree
 from pyop3.expr import TerminalExpression
 from pyop3.exceptions import InvalidIndexCountException
 

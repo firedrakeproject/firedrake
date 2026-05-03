@@ -41,7 +41,7 @@ from pyop3.expr.tensor import (  # noqa: F401
     RowDatPythonMatContext, ColumnDatPythonMatContext, OutOfPlaceCallableTensorTransform
 )
 from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NAN
-from pyop3.tree.axis_tree import (  # noqa: F401
+from pyop3.axis_tree import (  # noqa: F401
     Axis,
     AxisForest,
     AxisTarget,
@@ -55,7 +55,7 @@ from pyop3.buffer import (  # noqa: F401
     ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, PetscMatBuffer
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
-from pyop3.tree.index_tree import (  # noqa: F401
+from pyop3.index_tree import (  # noqa: F401
     AffineSliceComponent,
     Index,
     IndexTree,
@@ -89,6 +89,6 @@ from pyop3.insn import (  # noqa: F401
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
-from pyop3.tree.index_tree.parse import as_index_forest
+from pyop3.index_tree.parse import as_index_forest
 from pyop3.tree import accumulate_path
 from pyop3.ir import LOOPY_TARGET, LOOPY_LANG_VERSION

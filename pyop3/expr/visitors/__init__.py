@@ -19,14 +19,14 @@ from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTen
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ConcreteBuffer, NullBuffer
-from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
+from pyop3.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 
 import pyop3.expr
 from pyop3 import utils
 from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
 from pyop3.tree import is_subpath
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 
 from pyop3.insn.base import ArrayAccessType, loop_
@@ -36,7 +36,7 @@ from pyop3.expr.tensor import Dat, Mat
 from .evaluate_arraywise import evaluate_arraywise
 
 if typing.TYPE_CHECKING:
-    from pyop3.tree.axis_tree import AxisLabelT
+    from pyop3.axis_tree import AxisLabelT
 
     AxisVarMapT = Mapping[AxisLabelT, int]
     LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
@@ -1135,67 +1135,6 @@ def min_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Num
         return pyop3.expr.Conditional(pyop3.expr.LessThan(a, b), a, b)
 
 
-# class DiskCacheKeyGetter(ExpressionVisitor):
-#
-#     def __init__(self, renamer=None, tree_getter=None):
-#         if renamer is None:  # TODO: unsure about this
-#             renamer = Renamer()
-#         self._renamer = renamer
-#         # self._lazy_tree_getter = tree_getter
-#         self._lazy_tree_getter = None
-#         super().__init__()
-#
-#     @functools.singledispatchmethod
-#     def process(self, obj: ExpressionT, /) -> Hashable:
-#         return super().process(obj)
-#
-#     @process.register(numbers.Number)
-#     @process.register(pyop3.expr.NaN)
-#     def _(self, obj: ExpressionT, /) -> Hashable:
-#         return (obj,)
-#
-#     @process.register(pyop3.expr.Operator)
-#     @postorder
-#     def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
-#         return (type(op), visited)
-#
-#
-#     @process.register(pyop3.expr.LoopIndexVar)
-#     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> Hashable:
-#         return (
-#             type(loop_var),
-#             self._renamer.add(loop_var.loop_index),
-#             self._get_tree_disk_cache_key(loop_var.loop_index.iterset),
-#             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
-#         )
-#
-#     @process.register(pyop3.expr.OpaqueTerminal)
-#     @process.register(pyop3.expr.BufferExpression)
-#     @postorder
-#     def _(self, expr: pyop3.expr.BufferExpression, visited: Mapping, /) -> Hashable:
-#         return (
-#             type(expr),
-#             self._add_buffer(expr.buffer),
-#             visited,
-#         )
-#
-#     def _add_buffer(self, buffer):
-#         buffer_name = self._renamer.add(buffer)
-#         if isinstance(buffer, NullBuffer):
-#             return (type(buffer), buffer_name, buffer.size, buffer.dtype)
-#         else:
-#             assert isinstance(buffer, ConcreteBuffer)
-#             return (type(buffer), buffer_name, buffer.dtype)
-#
-#     def _get_tree_disk_cache_key(self, tree):
-#         from pyop3.tree.axis_tree.visitors import DiskCacheKeyGetter as TreeDiskCacheKeyGetter
-#
-#         if self._lazy_tree_getter is None:
-#             self._lazy_tree_getter = TreeDiskCacheKeyGetter(self._renamer, self)
-#
-#         return self._lazy_tree_getter._safe_call(tree)
-
-
 class ArgumentCollector(NodeCollector):
 
     @classmethod
@@ -1329,7 +1268,7 @@ class BufferCollector(NodeCollector):
             )
 
     def _collect_tree(self, axis_tree) -> OrderedFrozenSet:
-        from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
+        from pyop3.axis_tree.visitors import BufferCollector as TreeBufferCollector
 
         if self._lazy_tree_collector is None:
             self._lazy_tree_collector = TreeBufferCollector(self)

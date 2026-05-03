@@ -10,7 +10,7 @@ from mpi4py import MPI
 
 import pyop3.record
 from pyop3 import dtypes, exceptions as exc, utils
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE
 from .base import Tensor
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf

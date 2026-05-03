@@ -29,8 +29,8 @@ from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
 from pyop3.node import Node, Terminal
-from pyop3.tree.axis_tree import AxisTree
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
+from pyop3.axis_tree import AxisTree
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
 from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
 from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits

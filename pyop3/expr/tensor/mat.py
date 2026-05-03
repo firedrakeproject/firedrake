@@ -21,7 +21,7 @@ from pyop3 import utils
 from pyop3.cache import cached_method
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
-from pyop3.tree.axis_tree import (
+from pyop3.axis_tree import (
     AbstractAxisTree,
     AxisForest,
     AxisTree,
@@ -29,7 +29,7 @@ from pyop3.tree.axis_tree import (
     ContextSensitiveAxisTree,
     as_axis_tree_type,
 )
-from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
+from pyop3.axis_tree import as_axis_tree, as_axis_forest
 from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import ScalarType
 from pyop3.utils import (

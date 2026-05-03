@@ -916,8 +916,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractAxisTree | AxisForest | ContextSensitiveAxisTree:
-        from pyop3.tree.index_tree.parse import as_index_forests
-        from pyop3.tree.index_tree import index_axes
+        from pyop3.index_tree.parse import as_index_forests
+        from pyop3.index_tree import index_axes
 
         if utils.is_ellipsis_type(indices):
             return self
@@ -987,7 +987,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def sf(self) -> StarForest:
-        from pyop3.tree.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+        from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
 
         has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
         if has_sfs:
@@ -1127,7 +1127,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":
-        from pyop3.tree.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
+        from pyop3.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
         region_labels = set(region_labels)
 
@@ -2257,7 +2257,7 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
         # return ContextSensitiveAxisTree(new_context_map)
 
     def index(self) -> LoopIndex:
-        from pyop3.tree.index_tree import LoopIndex
+        from pyop3.index_tree import LoopIndex
 
         return LoopIndex(self)
 

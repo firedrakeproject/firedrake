@@ -8,12 +8,12 @@ from typing import Any, Hashable
 
 from immutabledict import immutabledict as idict
 
+import pyop3.axis_tree
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
 from pyop3.node import Visitor, LabelledTreeVisitor, postorder
 from pyop3.tree.labelled_tree import parent_path
-import pyop3.tree.axis_tree as op3_tree  # TODO: import directly
 
 from .layout import compute_layouts  # noqa: F401
 from .size import compute_axis_tree_size, compute_axis_tree_component_size  # noqa: F401
@@ -35,9 +35,9 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
     def process(self, obj: Any, path: ConcretePathT, /) -> Hashable:
         return super().process(obj)
 
-    # @process.register(op3_tree.Axis)
+    # @process.register(pyop3.axis_tree.Axis)
     # @postorder
-    # def _(self, axis: op3_tree.Axis, path: ConcretePathT, /, visited) -> Hashable:
+    # def _(self, axis: pyop3.axis_tree.Axis, path: ConcretePathT, /, visited) -> Hashable:
     #     new_label = self._renamer.add(axis)
     #     key = [type(axis), new_label]
     #     for component in axis.components:
@@ -61,12 +61,12 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
 
 
 # @functools.singledispatch
-# def get_disk_cache_key(axis_tree: op3_tree.AxisTree, renamer=None) -> Hashable:
+# def get_disk_cache_key(axis_tree: pyop3.axis_tree.AxisTree, renamer=None) -> Hashable:
 #     return DiskCacheKeyGetter(renamer)(axis_tree)
 
 
-# @get_disk_cache_key.register(op3_tree.AxisComponent)
-# def _(component: op3_tree.AxisComponent, renamer=None) -> tuple:
+# @get_disk_cache_key.register(pyop3.axis_tree.AxisComponent)
+# def _(component: pyop3.axis_tree.AxisComponent, renamer=None) -> tuple:
 #     if renamer is None:
 #         renamer = Renamer()
 #     return component.disk_cache_key(renamer)
@@ -75,8 +75,8 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
     # return (component.label, expr_renamer(component.size))
 
 
-# @get_disk_cache_key.register(op3_tree.AxisComponentRegion)
-# def _(component: op3_tree.AxisComponent, renamer) -> tuple:
+# @get_disk_cache_key.register(pyop3.axis_tree.AxisComponentRegion)
+# def _(component: pyop3.axis_tree.AxisComponent, renamer) -> tuple:
 #     from pyop3.expr.visitors import DiskCacheKeyGetter as ExprDiskCacheKeyGetter
 #     expr_renamer = ExprDiskCacheKeyGetter(renamer)
 #     return (component.label, expr_renamer(component.size))
@@ -106,9 +106,9 @@ class BufferCollector(LabelledTreeVisitor):
     def process(self, obj: Any, /, path: ConcretePathT) -> OrderedFrozenSet:
         return super().process(obj)
 
-    @process.register(op3_tree.Axis)
+    @process.register(pyop3.axis_tree.Axis)
     @postorder
-    def _(self, axis: op3_tree.Axis, /, path: ConcretePathT, visited: tuple[OrderedFrozenSet, ...]) -> OrderedFrozenSet:
+    def _(self, axis: pyop3.axis_tree.Axis, /, path: ConcretePathT, visited: tuple[OrderedFrozenSet, ...]) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(
             *(self._collect_expr_buffers(c.size) for c in axis.components),
             *visited,
@@ -163,8 +163,8 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #     def process(self, obj: Any, path: ConcretePathT, /) -> Hashable:
 #         return super().process(obj)
 #
-#     @process.register(op3_tree.Axis)
-#     def _(self, axis: op3_tree.Axis, path: ConcretePathT) -> Hashable:
+#     @process.register(pyop3.axis_tree.Axis)
+#     def _(self, axis: pyop3.axis_tree.Axis, path: ConcretePathT) -> Hashable:
 #         relabeled_axis = canonicalize_labels(axis, self._relabeler)
 #         node_map = {idict(): relabeled_axis}
 #         for component in relabeled_axis.components:
@@ -180,38 +180,38 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #
 #
 # @functools.singledispatch
-# def canonicalize_labels(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
+# def canonicalize_labels(axis_tree: pyop3.axis_tree.AxisTree, relabeler: Renamer) -> AxisTree:
 #     raise TypeError
 #
-# @canonicalize_labels.register(op3_tree.AxisTree)
-# def _(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
+# @canonicalize_labels.register(pyop3.axis_tree.AxisTree)
+# def _(axis_tree: pyop3.axis_tree.AxisTree, relabeler: Renamer) -> AxisTree:
 #     node_map = LabelCanonicalizer(relabeler)(axis_tree)
 #     return axis_tree.__record_init__(_node_map=node_map)
 #
-# @canonicalize_labels.register(op3_tree.IndexedAxisTree)
-# def _(axes: op3_tree.IndexedAxisTree, relabeler):
+# @canonicalize_labels.register(pyop3.axis_tree.IndexedAxisTree)
+# def _(axes: pyop3.axis_tree.IndexedAxisTree, relabeler):
 #     node_map = LabelCanonicalizer(relabeler)(axes)
 #     unindexed = canonicalize_labels(axes.unindexed, relabeler)
 #     targets = _canonicalize_target_labels(axes.targets, relabeler)
 #     return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
 #
-# @canonicalize_labels.register(op3_tree._UnitAxisTree)
-# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+# @canonicalize_labels.register(pyop3.axis_tree._UnitAxisTree)
+# def _(axes: pyop3.axis_tree.UnitIndexedAxisTree, relabeler):
 #     return axes
 #
-# @canonicalize_labels.register(op3_tree.AxisForest)
-# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+# @canonicalize_labels.register(pyop3.axis_tree.AxisForest)
+# def _(axes: pyop3.axis_tree.UnitIndexedAxisTree, relabeler):
 #     return type(axes)([canonicalize_labels(t, relabeler) for t in axes.trees])
 #
-# @canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
-# def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+# @canonicalize_labels.register(pyop3.axis_tree.UnitIndexedAxisTree)
+# def _(axes: pyop3.axis_tree.UnitIndexedAxisTree, relabeler):
 #     unindexed = canonicalize_labels(axes.unindexed, relabeler)
 #     targets = _canonicalize_target_labels(axes.targets, relabeler)
 #     return axes.__record_init__(unindexed=unindexed, _targets=targets)
 #
 #
-# @canonicalize_labels.register(op3_tree.ContextSensitiveAxisTree)
-# def _(axes: op3_tree.ContextSensitiveAxisTree, relabeler):
+# @canonicalize_labels.register(pyop3.axis_tree.ContextSensitiveAxisTree)
+# def _(axes: pyop3.axis_tree.ContextSensitiveAxisTree, relabeler):
 #     relabeled_trees = {}
 #     for ctx, tree in axes.trees.items():
 #         relabeled_ctx = {}
@@ -251,14 +251,14 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #     return idict(relabeled_targets)
 #
 #
-# @canonicalize_labels.register(op3_tree.Axis)
+# @canonicalize_labels.register(pyop3.axis_tree.Axis)
 # def _(axis, relabeler):
 #     relabeled_label = relabeler.add(axis.label, "axis")
 #     relabeled_components = tuple(canonicalize_labels(c, relabeler) for c in axis.components)
 #     return axis.__record_init__(_label=relabeled_label, components=relabeled_components)
 #
-# @canonicalize_labels.register(op3_tree.AxisComponent)
-# def _(component: op3_tree.AxisComponent, relabeler) -> tuple:
+# @canonicalize_labels.register(pyop3.axis_tree.AxisComponent)
+# def _(component: pyop3.axis_tree.AxisComponent, relabeler) -> tuple:
 #     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
 #
 #     relabeled_regions = tuple(canonicalize_labels(r, relabeler) for r in component.regions)
@@ -269,8 +269,8 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #     return component.__record_init__(regions=relabeled_regions, _size=relabeled_size)
 #
 #
-# @canonicalize_labels.register(op3_tree.AxisComponentRegion)
-# def _(region: op3_tree.AxisComponent, relabeler) -> tuple:
+# @canonicalize_labels.register(pyop3.axis_tree.AxisComponentRegion)
+# def _(region: pyop3.axis_tree.AxisComponent, relabeler) -> tuple:
 #     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
 #
 #     return region.__record_init__(size=relabel_expr(region.size, relabeler))

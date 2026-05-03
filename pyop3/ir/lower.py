@@ -32,7 +32,7 @@ from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
 from pyop3.cache import memory_and_disk_cache
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType

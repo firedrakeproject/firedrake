@@ -21,15 +21,15 @@ from pyop3 import utils
 from ..base import LoopIndexVar
 from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
 from pyop3.mpi import collective
-from pyop3.tree.axis_tree import (
+from pyop3.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
     collect_unindexed_axis_trees,
     as_axis_tree_type,
 )
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
-from pyop3.tree.index_tree import LoopIndex, ScalarIndex
+from pyop3.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
+from pyop3.index_tree import LoopIndex, ScalarIndex
 from pyop3.expr.base import Terminal
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType

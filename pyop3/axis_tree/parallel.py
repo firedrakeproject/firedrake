@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import numpy as np
 from immutabledict import immutabledict
 from mpi4py import MPI
-from pyop3.tree.axis_tree.tree import AbstractAxisTree
+from pyop3.axis_tree.tree import AbstractAxisTree
 
 from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype

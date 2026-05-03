@@ -25,12 +25,12 @@ from pyop3 import utils
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
-from pyop3.tree.axis_tree import AxisTree, AxisForest
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
+from pyop3.axis_tree import AxisTree, AxisForest
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer
 
-from pyop3.tree.index_tree.tree import LoopIndex
-from pyop3.tree.index_tree.parse import _as_context_free_indices
+from pyop3.index_tree.tree import LoopIndex
+from pyop3.index_tree.parse import _as_context_free_indices
 import pyop3.insn
 from pyop3.insn.base import (
     INC,
