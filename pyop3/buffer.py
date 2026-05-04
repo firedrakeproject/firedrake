@@ -268,6 +268,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
+        data = data.flatten()
         ctx = self.get_context()
         data_mapping = {ctx: ctx.asarray(data)}
 
