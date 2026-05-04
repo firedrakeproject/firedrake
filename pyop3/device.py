@@ -22,7 +22,7 @@ class Device(metaclass=ABCMeta):
         return self._device_index
 
     @abstractmethod
-    def asarray(self, arr):
+    def asarray(self, arr, *, constant=False):
         pass
 
     @abstractmethod
@@ -43,13 +43,18 @@ class CPU(Device):
         self._registered_arrays = set()
         self._device_index = device_index
 
-    def asarray(self, arr):
+    def asarray(self, arr, *, constant=False):
         # NOTE: Better logic needed if we switch from just NumPy/CuPy
+        output = arr
         if not isinstance(arr, np.ndarray):
             import cupy as cp
-            return cp.asnumpy(arr)
-    
-        return np.array(arr)
+            output = cp.asnumpy(arr)
+        else:
+            output = np.array(output) 
+
+        if constant:
+            output.flags.writeable = False
+        return output
 
     def zeros_like(self, arr):
         return np.zeros_like(arr)
@@ -70,7 +75,7 @@ class CUDAGPU(Device):
             # TODO: Raise No GPU exception
             raise NotImplementedError 
 
-    def asarray(self, arr):
+    def asarray(self, arr, *, constant=False):
         import cupy as cp
         return cp.asarray(arr)
     

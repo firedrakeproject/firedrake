@@ -268,11 +268,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        data = data.flatten()
         curr_dev = get_current_device()
-        data_mapping = {curr_dev: curr_dev.asarray(data)}
 
-        self._lazy_data = data_mapping 
         self.sf = sf
         self._name = name
         self._constant = constant
@@ -281,11 +278,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._ordered = ordered
         self._last_updated_device = curr_dev 
 
-        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
+        data = data.flatten()
+        data_mapping = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
+        self._lazy_data = data_mapping 
 
-        # TODO: CuPy has no support for `writeable` flag 
-        if constant and isinstance(self._data, np.ndarray):
-            self._data.flags.writeable = False
+        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
 
         self.__post_init__()
 
@@ -615,12 +612,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def sync_devices(self, current_device: Device):
         last_updated_device = self._last_updated_device
 
-        self._lazy_data[current_device] = current_device.asarray(self._lazy_data[last_updated_device])
+        self._lazy_data[current_device] = current_device.asarray(self._lazy_data[last_updated_device], constant=self.constant)
         self._state[current_device] = self._state[last_updated_device]
-
-        # NOTE: Current fix for CuPy having no `writeable support` or maintaining flags
-        if self.constant and isinstance(self._lazy_data[current_device], np.ndarray):
-            self._lazy_data[current_device].flags.writeable = False 
 
     def _is_data_available(self, device: Device) -> bool:
         return device in self._lazy_data
