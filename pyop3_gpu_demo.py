@@ -37,9 +37,9 @@ assert isinstance(g.dat.data_ro, np.ndarray)
 
 # state tracking checks, .buffer.state is now device-specific
 assert f.dat.buffer.state[host] == 1  # modified once
-assert f.dat.buffer.state[gpu] == 0  # untouched
+assert f.dat.buffer.state[gpu] == -1  # not created
 assert g.dat.buffer.state[host] == 0  # untouched
-assert g.dat.buffer.state[gpu] == 0  # untouched
+assert g.dat.buffer.state[gpu] == -1  # not created
 
 with op3.offloading(gpu):
     # Getting the .data attribute on the GPU should give us back a GPU array type
@@ -62,7 +62,7 @@ with op3.offloading(gpu):
     assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
-    assert k.dat.buffer.state[host] == 0  # modified once
+    assert k.dat.buffer.state[host] == -1 # not created 
     assert k.dat.buffer.state[gpu] == 1  # modified once
 
 # print(f"{g.dat.buffer._lazy_data=}")

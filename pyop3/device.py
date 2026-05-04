@@ -95,3 +95,6 @@ HOST_DEVICE = CPU()
 
 # NOTE: Use contextvars to act as a bridge between buffer and manager
 _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
+
+def get_current_device():
+    return _current_device.get()

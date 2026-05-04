@@ -25,7 +25,7 @@ from pyop3.device import (
     CUDAGPU,
     CPU,
     HOST_DEVICE,
-    _current_device
+    get_current_device
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -269,8 +269,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise ValueError
 
         data = data.flatten()
-        ctx = self.get_context()
-        data_mapping = {ctx: ctx.asarray(data)}
+        curr_dev = get_current_device()
+        data_mapping = {curr_dev: curr_dev.asarray(data)}
 
         self._lazy_data = data_mapping 
         self.sf = sf
@@ -279,9 +279,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._last_updated_device = ctx 
+        self._last_updated_device = curr_dev 
 
-        self._state = collections.defaultdict(int, [(ctx, 0)]) 
+        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
 
         # TODO: CuPy has no support for `writeable` flag 
         if constant and isinstance(self._data, np.ndarray):
@@ -324,9 +324,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        ctx = self.get_context()
-        self._state[ctx] += 1
-        self._last_updated_device = ctx
+        curr_dev = get_current_device() 
+        self._state[curr_dev] += 1
+        self._last_updated_device = curr_dev
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
@@ -340,9 +340,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     is_nested: ClassVar[bool] = False
     
-    def get_context(self) -> Device:
-        return _current_device.get()
-
     @property
     def handle(self) -> np.ndarray:
         return self._data
@@ -490,10 +487,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def _data(self):
-        ctx = self.get_context()
+        curr_dev = get_current_device() 
 
-        if not self._is_data_available(ctx) or not self._is_data_synced(ctx):
-            self.sync_devices(ctx)
+        if not self._is_data_available(curr_dev) or not self._is_data_synced(curr_dev):
+            self.sync_devices(curr_dev)
         
         # NOTE: If data is None, set to zeros? 
         # if self._lazy_data is None:
@@ -501,7 +498,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         if self.name == "array_247_buffer":
             breakpoint()
-        return self._lazy_data[ctx]
+        return self._lazy_data[curr_dev]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
