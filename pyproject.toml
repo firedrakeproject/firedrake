@@ -160,7 +160,7 @@ requires = [
   "mpi4py; python_version < '3.13'",
   "numpy",
   # TODO RELEASE
-  # "petsc4py==3.24.5",
+  # "petsc4py==3.25.0",
   "petsctools",
   "pkgconfig",
   "pybind11",
