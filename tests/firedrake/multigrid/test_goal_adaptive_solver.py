@@ -51,7 +51,7 @@ def test_goal_adaptive_poisson():
         "max_iterations": 8,
         "use_adjoint_residual": False,
         "dual_low_method": "interpolate",
-        "write_solution": None,
+        "write_solution": False,
         "verbose": False,
     }
 

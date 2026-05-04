@@ -76,10 +76,6 @@ class GoalAdaptiveOptions:
         that the remainder term is instead quadratic in the errors
         z - z_h and u - u_h.
         Defaults to ``False``.
-    uniform_refinement
-        If ``True``, mark all cells for refinement at every iteration instead
-        of using Dörfler marking.  Useful for convergence-rate comparisons.
-        Defaults to ``False``.
     primal_low_method
         How to obtain the low-degree primal solution when
         ``use_adjoint_residual=True``.  Options:
@@ -103,16 +99,10 @@ class GoalAdaptiveOptions:
           estimate.
     write_solution
         Controls when primal and dual solutions are written to VTK files.
-        Options:
 
-        * ``"all"`` (default) – write at every iteration.
-        * ``"first_and_last"`` – write only at the first and last iterations.
-        * ``None`` – never write.
-
-        See also ``write_solution_frequency``.
-    write_solution_frequency
-        If set to a positive integer ``k``, write output every ``k`` iterations
-        (overrides ``write_solution`` when set).  Defaults to ``None``.
+        * ``False`` (default) – never write.
+        * ``True`` – write at every iteration.
+        * A positive integer ``k`` – write every ``k`` iterations.
     verbose
         If ``True`` (the default), print progress information at each
         iteration via :func:`PETSc.Sys.Print`.
@@ -128,11 +118,9 @@ class GoalAdaptiveOptions:
                  cell_residual_extra_degree: int = 1,
                  facet_residual_extra_degree: int = 1,
                  use_adjoint_residual: bool = False,
-                 uniform_refinement: bool = False,
                  primal_low_method: str = "interpolate",
                  dual_low_method: str = "interpolate",
-                 write_solution: str = "all",
-                 write_solution_frequency: int | None = None,
+                 write_solution: bool | int = False,
                  verbose: bool = True,
                  ):
         self.dorfler_alpha = dorfler_alpha
@@ -144,11 +132,9 @@ class GoalAdaptiveOptions:
         self.cell_residual_extra_degree = cell_residual_extra_degree
         self.facet_residual_extra_degree = facet_residual_extra_degree
         self.use_adjoint_residual = use_adjoint_residual
-        self.uniform_refinement = uniform_refinement
         self.primal_low_method = primal_low_method
         self.dual_low_method = dual_low_method
         self.write_solution = write_solution
-        self.write_solution_frequency = write_solution_frequency
         self.verbose = verbose
 
     # Solver parameters
@@ -543,15 +529,6 @@ class GoalAdaptiveNonlinearVariationalSolver:
             m.dat.data_wo[e.dat.data_ro > threshold] = 1
         return markers
 
-    def set_uniform_cell_markers(self):
-        """Uniform marking for comparison tests"""
-        V = self.problem.u.function_space()
-        mesh = V.mesh().unique()
-        markers_space = FunctionSpace(mesh, "DG", 0)
-        markers = Function(markers_space)
-        markers.assign(1)
-        return markers
-
     def refine_problem(self, markers):
         """Adaptively refine the mesh and rediscretise the problem on the refined mesh"""
         for marker in markers.subfunctions:
@@ -620,14 +597,10 @@ class GoalAdaptiveNonlinearVariationalSolver:
             self.print(f"Maximum iteration ({self.options.max_iterations}) reached. Exiting.")
             raise StopIteration
         # MARK
-        if self.options.uniform_refinement:
-            self.print("Refining uniformly")
-            markers = self.set_uniform_cell_markers()
-        else:
-            self.print("Computing local refinement indicators eta_K ...")
-            eta_cell = self.compute_error_indicators(u_err, z_lo, z_err)
-            self.compute_efficiency_indices(eta_cell, eta_h, eta)
-            markers = self.set_adaptive_cell_markers(eta_cell)
+        self.print("Computing local refinement indicators eta_K ...")
+        eta_cell = self.compute_error_indicators(u_err, z_lo, z_err)
+        self.compute_efficiency_indices(eta_cell, eta_h, eta)
+        markers = self.set_adaptive_cell_markers(eta_cell)
         # REFINE
         self.print("Transferring problem to new mesh ...")
         self.refine_problem(markers)
@@ -638,18 +611,15 @@ class GoalAdaptiveNonlinearVariationalSolver:
             PETSc.Sys.Print(*args, **kwargs)
 
     def write_solution(self, it):
-        should_write = False
-        write_solution = self.options.write_solution
-        if write_solution == "all":
+        ws = self.options.write_solution
+        if ws is False:
+            return
+        elif ws is True:
             should_write = True
-        elif write_solution == "first_and_last":
-            if it == 0 or it == self.options.max_iterations:
-                should_write = True
-        elif self.options.write_solution_frequency is not None:
-            freq = int(self.options.write_solution_frequency)
-            if freq <= 0:
-                raise ValueError("write_solution_frequency must be a positive integer")
-            should_write = (it % freq == 0)
+        elif isinstance(ws, int):
+            should_write = (it % ws == 0)
+        else:
+            raise ValueError(f"write_solution must be False, True, or a positive integer, got {ws!r}")
         if should_write:
             output_dir = self.options.output_dir
             run_name = self.options.run_name
