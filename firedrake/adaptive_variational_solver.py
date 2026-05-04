@@ -24,6 +24,100 @@ __all__ = ["GoalAdaptiveNonlinearVariationalSolver"]
 
 
 class GoalAdaptiveOptions:
+    """Options for :class:`GoalAdaptiveNonlinearVariationalSolver`.
+
+    Parameters
+    ----------
+    dorfler_alpha
+        Threshold parameter for Dörfler (bulk) marking: cells whose local error
+        indicator exceeds ``dorfler_alpha * max_indicator`` are marked for
+        refinement.  Must lie in ``(0, 1]``.  Larger values mark fewer cells and
+        produce more targeted (but potentially slower-converging) refinement.
+        Defaults to ``0.5``.
+    max_iterations
+        Maximum number of SOLVE–ESTIMATE–MARK–REFINE cycles.  The loop also
+        terminates early if the error estimate falls below the requested tolerance.
+        Defaults to ``10``.
+    output_dir
+        Directory into which VTK output files are written.
+        Defaults to ``"./output"``.
+    run_name
+        Label prepended to output filenames, e.g.
+        ``<output_dir>/<run_name>/<run_name>_solution_<it>.pvd``.
+        Defaults to ``"default"``.
+    primal_extra_degree
+        Extra polynomial degree used when solving the primal problem in an
+        enriched space (only relevant when ``use_adjoint_residual=True``).
+        The enriched-space degree is ``degree + primal_extra_degree``.
+        Defaults to ``1``.
+    dual_extra_degree
+        Extra polynomial degree used when solving the dual (adjoint) problem
+        in an enriched space.  The enriched-space degree is
+        ``degree + dual_extra_degree``.  Defaults to ``1``.
+    cell_residual_extra_degree
+        Extra polynomial degree for the DG space used to represent cell
+        residuals during error indicator computation.  The DG space degree is
+        ``degree + cell_residual_extra_degree``.  Defaults to ``1``.
+    facet_residual_extra_degree
+        Extra polynomial degree for the broken facet-bubble space used to
+        represent facet residuals during error indicator computation.
+        The space degree is ``degree + facet_residual_extra_degree``.
+        Defaults to ``1``.
+    use_adjoint_residual
+        If ``True``, both the primal residual
+        :math:`\\rho(u_h; z - z_h)` and the adjoint residual
+        :math:`\\rho^*(z_h; u - u_h)` are used to form the error estimate
+        :math:`\\frac{1}{2}(\\rho + \\rho^*)`, which gives a remainder term
+        that is cubic in the errors z - z_h and u - u_h.
+        This requires four PDE solves per iteration (primal and dual each at two degrees).
+        If ``False`` (the default), only the primal residual is used, requiring
+        only two PDE solves per iteration (primal at degree :math:`p` and dual
+        at degree :math:`p + \\text{dual\\_extra\\_degree}`). This means
+        that the remainder term is instead quadratic in the errors
+        z - z_h and u - u_h.
+        Defaults to ``False``.
+    uniform_refinement
+        If ``True``, mark all cells for refinement at every iteration instead
+        of using Dörfler marking.  Useful for convergence-rate comparisons.
+        Defaults to ``False``.
+    primal_low_method
+        How to obtain the low-degree primal solution when
+        ``use_adjoint_residual=True``.  Options:
+
+        * ``"interpolate"`` (default) – nodally interpolate the enriched-space
+          solution into the base space.
+        * ``"project"`` – :math:`L^2`-project the enriched-space solution into
+          the base space.
+        * ``"solve"`` – solve the primal problem independently in the base
+          space; the enriched-space solution is used only for the error estimate.
+    dual_low_method
+        How to obtain the low-degree dual solution used in the error estimate.
+        Options:
+
+        * ``"interpolate"`` (default) – nodally interpolate the enriched-space
+          dual solution into the base space.
+        * ``"project"`` – :math:`L^2`-project the enriched-space dual solution
+          into the base space.
+        * ``"solve"`` – solve the dual problem independently in the base space;
+          this is the most expensive option but produces the most accurate solver-error
+          estimate.
+    write_solution
+        Controls when primal and dual solutions are written to VTK files.
+        Options:
+
+        * ``"all"`` (default) – write at every iteration.
+        * ``"first_and_last"`` – write only at the first and last iterations.
+        * ``None`` – never write.
+
+        See also ``write_solution_frequency``.
+    write_solution_frequency
+        If set to a positive integer ``k``, write output every ``k`` iterations
+        (overrides ``write_solution`` when set).  Defaults to ``None``.
+    verbose
+        If ``True`` (the default), print progress information at each
+        iteration via :func:`PETSc.Sys.Print`.
+    """
+
     def __init__(self,
                  dorfler_alpha: float = 0.5,
                  max_iterations: int = 10,
@@ -41,7 +135,7 @@ class GoalAdaptiveOptions:
                  write_solution_frequency: int | None = None,
                  verbose: bool = True,
                  ):
-        self.dorfler_alpha = dorfler_alpha  # Dorfler marking threshold
+        self.dorfler_alpha = dorfler_alpha
         self.max_iterations = max_iterations
         self.output_dir = output_dir
         self.run_name = run_name
@@ -49,11 +143,11 @@ class GoalAdaptiveOptions:
         self.dual_extra_degree = dual_extra_degree
         self.cell_residual_extra_degree = cell_residual_extra_degree
         self.facet_residual_extra_degree = facet_residual_extra_degree
-        self.use_adjoint_residual = use_adjoint_residual  # For switching between primal and primal + adjoint residuals
+        self.use_adjoint_residual = use_adjoint_residual
         self.uniform_refinement = uniform_refinement
         self.primal_low_method = primal_low_method
         self.dual_low_method = dual_low_method
-        self.write_solution = write_solution  # options: "all", "first_and_last", "by iteration", None
+        self.write_solution = write_solution
         self.write_solution_frequency = write_solution_frequency
         self.verbose = verbose
 
