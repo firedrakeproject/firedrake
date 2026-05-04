@@ -98,6 +98,11 @@ class AuxiliaryOperatorSNES(SNESBase):
         A\\delta u^{k} = - F(u^{k})
 
         u^{k+1} = u^{k} + \\delta u^{k}
+
+    See Also
+    --------
+    ~firedrake.preconditioners.fieldsplit_snes.FieldsplitSNES
+    ~firedrake.preconditioners.patch.PatchSNES
     """
 
     _prefix = "aux_"
