@@ -237,6 +237,10 @@ class GoalAdaptiveNonlinearVariationalSolver:
         self.u_high = None
 
     def solve_primal(self):
+        """
+        Solve the primal problem or problems (i.e. with higher polynomial degree)
+        and return the estimate for the error in the primal solution.
+        """
         F = self.problem.F
         u = self.problem.u
         bcs = self.problem.bcs
@@ -291,6 +295,11 @@ class GoalAdaptiveNonlinearVariationalSolver:
         return u_err
 
     def solve_dual(self):
+        """
+        Solve the dual problem or problems (i.e. with higher polynomial degree)
+        and return the low-order dual solution and the estimate for the error in
+        the dual solution.
+        """
 
         def solve_zh(z):
             bcs = self.problem.bcs
