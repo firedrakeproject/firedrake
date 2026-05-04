@@ -13,14 +13,6 @@ class Pyop3Object(abc.ABC):
 
     """
 
-    # NOTE: this isn't currently used but would be cool for cache checks
-    def weak_equals(self, other) -> bool:
-        return type(other) is type(self) and other.canonicalized == self.canonicalized
-
-    @cached_property
-    def canonicalized(self) -> Pyop3Object:
-        """A relabeled version of ``self``."""
-
     # Could just be asserted by the visitor
     def collect_buffers(self, visitor):
         raise NotImplementedError(
