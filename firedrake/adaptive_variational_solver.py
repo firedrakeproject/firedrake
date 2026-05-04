@@ -174,7 +174,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
     primal_solver_kwargs
         Keyword arguments for the primal :class:`~.NonlinearVariationalSolver`
     dual_solver_kwargs
-        Keyword arguments for the primal :class:`~.LinearVariationalSolver`
+        Keyword arguments for the dual :class:`~.LinearVariationalSolver`
     exact_solution
         The exact solution to the problem (optional).
         If supplied, it is used to calculate the efficiency of the error estimate
