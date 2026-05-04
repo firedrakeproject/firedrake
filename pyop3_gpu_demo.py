@@ -55,20 +55,27 @@ with op3.offloading(gpu):
     k.dat.buffer.duplicate()
     k.dat.buffer.duplicate(copy=True)
 
+    k.dat.data_wo[...] = 1
+
     # state tracking checks
     assert f.dat.buffer.state[host] == 1  # modified once
     assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
+    assert k.dat.buffer.state[host] == 0  # modified once
+    assert k.dat.buffer.state[gpu] == 1  # modified once
 
 # print(f"{g.dat.buffer._lazy_data=}")
 # print(f"{f.dat.buffer._lazy_data=}")
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 assert (g.dat.data_ro == 23).all()
+assert (k.dat.data_ro == 1).all()
 
 # state tracking checks
 assert f.dat.buffer.state[host] == 1  # modified once
 assert f.dat.buffer.state[gpu] == 1  # matches host
 assert g.dat.buffer.state[host] == 1  # matches device
 assert g.dat.buffer.state[gpu] == 1  # modified once
+assert k.dat.buffer.state[host] == 1  # modified once
+assert k.dat.buffer.state[gpu] == 1  # modified once
