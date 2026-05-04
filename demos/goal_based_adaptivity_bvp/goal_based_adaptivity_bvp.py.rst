@@ -78,8 +78,6 @@ appropriately, as discussed below. ::
         "primal_low_method": "solve",
         "dorfler_alpha": 0.5,
         "dual_extra_degree": 1,
-        "run_name": "p-laplace",
-        "output_dir": "./output",
     }
 
 We then solve the problem, passing the goal functional :math:`J` and our specified tolerance. We also pass the exact solution, so that

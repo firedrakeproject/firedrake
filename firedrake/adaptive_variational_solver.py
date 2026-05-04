@@ -18,6 +18,7 @@ from finat.ufl import BrokenElement, FiniteElement
 from ufl import avg, dx, ds, dS, inner, as_vector, replace
 import ufl
 import numpy as np
+from numbers import Integral
 
 
 __all__ = ["GoalAdaptiveNonlinearVariationalSolver"]
@@ -616,7 +617,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
             return
         elif ws is True:
             should_write = True
-        elif isinstance(ws, int):
+        elif isinstance(ws, Integral):
             should_write = (it % ws == 0)
         else:
             raise ValueError(f"write_solution must be False, True, or a positive integer, got {ws!r}")
