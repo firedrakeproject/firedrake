@@ -29,9 +29,9 @@ def trim_util(T):
     Trim zeros from a connectivity array T.
     """
     if Version(np.__version__) >= Version("2.2"):
-        T = np.trim_zeros(T, "b", axis=1).astype(np.int32) - 1
+        T = np.trim_zeros(T, "b", axis=1).astype(PETSc.IntType) - 1
     else:
-        T = (np.array([list(np.trim_zeros(a, "b")) for a in list(T)], dtype=np.int32) - 1)
+        T = (np.array([list(np.trim_zeros(a, "b")) for a in list(T)], dtype=PETSc.IntType) - 1)
     return T
 
 
@@ -160,7 +160,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     rdm.removeLabel("pyop2_ghost")
     logger.info(f"\t\t\t[{time.time()}]Mapping the mesh to Netgen mesh")
     tic = time.time()
-    mapping = MeshMapping(rdm, geo=ngmesh.GetGeometry())
+    mapping = MeshMapping(rdm, geo=ngmesh)
     toc = time.time()
     logger.info(f"\t\t\t[{time.time()}]Mapped the mesh to Netgen. Time taken: {toc-tic}")
     return (rdm, mapping.ngMesh)
@@ -274,12 +274,10 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     lgmaps.append((no, o))
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
-    ngmesh = mesh.netgen_mesh
+    base_ngmesh = mesh.netgen_mesh
     comm = mesh.comm
     for l in range(1, levs+1):
-        # Straighten the mesh
-        ngmesh.Curve(1)
-        rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
+        rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
         cdm = rdm
         if optMoves:
             # Optimises the mesh, for example smoothing
