@@ -337,22 +337,11 @@ def map_when(func, when_func, iterable):
         else:
             yield item
 
-
-@functools.singledispatch
-def readonly(array: Any) -> Any:
-    raise UnsupportedArrayException 
-
-@readonly.register
-def _(array: np.ndarray) -> np.ndarray:
-    """Return a readonly view of a numpy array."""
+def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
+    """Return a readonly view of a numpy/cupy array."""
     view = array.view()
-    view.setflags(write=False)
-    return view
-
-@readonly.register
-def _(array: cp.ndarray) -> cp.ndarray:
-    """ Return a view of a CuPy array."""
-    view = array.view()
+    if isinstance(array, np.ndarray):
+        view.setflags(write=False)
     return view
 
 def debug_assert(predicate, msg=None):
