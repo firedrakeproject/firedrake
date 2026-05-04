@@ -7,19 +7,10 @@ import warnings
 import numpy as np
 
 class Device(metaclass=ABCMeta):
-    _name: str
-    _device_index: int | None
+    name: str
 
-    def __init__(self, device_index: int | None = None):
+    def __init__(self):
         pass
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def device_index(self):
-        return self._device_index
 
     @abstractmethod
     def asarray(self, arr, *, constant=False):
@@ -30,18 +21,16 @@ class Device(metaclass=ABCMeta):
         pass
 
     def __repr__(self):
-        return self._name
+        return self.name
         
     def __str__(self):
-        return self._name
+        return self.name
 
 class CPU(Device):
+    name = "CPU"
 
-    def __init__(self, device_index: int | None = None):
+    def __init__(self):
         super().__init__()
-        self._name = "cpu"
-        self._registered_arrays = set()
-        self._device_index = device_index
 
     def asarray(self, arr, *, constant=False):
         # NOTE: Better logic needed if we switch from just NumPy/CuPy
@@ -60,13 +49,10 @@ class CPU(Device):
         return np.zeros_like(arr)
 
 class CUDAGPU(Device):
+    name = "CudaGPU"
     
-    def __init__(self, device_index: int | None = None):
+    def __init__(self):
         super().__init__()
-        self._name = "CudaGPU"
-        self._registered_arrays = set()
-        self._token = None
-        self._device_index = device_index
 
         try:
             import cupy as cp
@@ -83,6 +69,9 @@ class CUDAGPU(Device):
         import cupy as cp
         return cp.zeros_like(arr)
 
+HOST_DEVICE = CPU() 
+_current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
+
 @contextlib.contextmanager
 def offloading(dev: Device):
     # TODO: Not Device exception
@@ -94,12 +83,6 @@ def offloading(dev: Device):
         yield
     finally:
         _current_device.reset(token)
-
-# NOTE: Should this const variable be here? 
-HOST_DEVICE = CPU() 
-
-# NOTE: Use contextvars to act as a bridge between buffer and manager
-_current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
 
 def get_current_device():
     return _current_device.get()
