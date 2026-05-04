@@ -240,7 +240,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    # TODO: Should this be a defaultdict?
+    # TODO: Connor and I both dislike defaultdict but I can't think of an alternative atm 
     _state: collections.defaultdict[Device, int]
     _last_updated_device: Device
 
@@ -269,8 +269,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise ValueError
 
         ctx = self.get_context()
-        data_mapping = {}
-        data_mapping[ctx] = ctx.asarray(data)
+        data_mapping = {ctx: ctx.asarray(data)}
 
         self._lazy_data = data_mapping 
         self.sf = sf
@@ -279,9 +278,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._last_updated_device = self.get_context()
+        self._last_updated_device = ctx 
 
-        # NOTE: Connor and I don't like defaultdict, unsure how to change it atm 
         self._state = collections.defaultdict(int, [(ctx, 0)]) 
 
         # TODO: CuPy has no support for `writeable` flag 
