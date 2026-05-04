@@ -242,10 +242,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # TODO: Connor and I both dislike defaultdict but I can't think of an alternative atm 
     _state: collections.defaultdict[Device, int]
-    _last_updated_device: Device
-
     _max_value: np.number | None = None
-
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
@@ -257,7 +254,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             type(self), self._constant, self._rank_equal, self._ordered, 
             self.dtype, buffer_counter[self])
 
-    def __init__(self, data: np.ndarray | cp.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
+    def __init__(self, data: np.ndarray | cp.ndarray | None, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
+
+        data = data.flatten()
+        curr_dev = get_current_device()
 
         if sf is None:
             sf = NullStarForest(data.size)
@@ -268,20 +268,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        curr_dev = get_current_device()
-
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._last_updated_device = curr_dev 
-
-        data = data.flatten()
-        data_mapping = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
-        self._lazy_data = data_mapping 
-
+        self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
         self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
 
         self.__post_init__()
@@ -320,19 +313,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def dtype(self) -> np.dtype:
         return self._data.dtype
 
+    @property
+    def _last_updated_device(self) -> Device:
+        return max(self.state, key=self.state.get)
+
     def inc_state(self) -> None:
         curr_dev = get_current_device() 
         self._state[curr_dev] += 1
-        self._last_updated_device = curr_dev
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
+        curr_dev = get_current_device()
         if copy:
-            data = {obj: arr.copy() for obj, arr in self._lazy_data.items()}
+            data = {curr_dev: self._lazy_data[curr_dev]}
         else:
-            data = {obj: obj.zeros_like(arr) for obj, arr in self._lazy_data.items()}
+            data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
         return self.__record_init__(_name=name, _lazy_data=data)
 
     is_nested: ClassVar[bool] = False
@@ -493,8 +490,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # if self._lazy_data is None:
         #    self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
 
-        if self.name == "array_247_buffer":
-            breakpoint()
         return self._lazy_data[curr_dev]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
