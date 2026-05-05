@@ -26,7 +26,7 @@ class FieldsplitSNES(SNESBase):
       Defaults to the default options for :class:`~firedrake.variational_solver.NonlinearVariationalSolver`.
 
     FieldsplitSNES is used for solving nonlinear problems with multiple
-    components.  There are two types, which are each defined below for
+    components. There are two types, which are each defined below for
     the following problem with two components:
 
     .. math ::
@@ -35,7 +35,7 @@ class FieldsplitSNES(SNESBase):
         w = (u, v) \\in W = U \\times V
 
         \\textrm{Subject to: }
-        F(w) = 0 \\quad \\forall \\; dw = (du, dv) \\in W
+        F(w; dw) = 0 \\quad \\forall \\; dw = (du, dv) \\in W
 
         \\textrm{Where: }F(w) =
         \\begin{pmatrix}
@@ -83,14 +83,13 @@ class FieldsplitSNES(SNESBase):
     can be controlled via the ``-snes_fieldsplit_%d_fields`` options,
     identically to with PCFIELDSPLIT.
 
-    If a component of the mixed function space has been given a name then the
-    prefix for the corresponding split will be ``-fieldsplit_splitname_``
-    instead of ``-fieldsplit_%d_``.
+    If a component subspace of the mixed function space has been given
+    a name then the prefix for the corresponding split will be
+    ``-fieldsplit_splitname_`` instead of ``-fieldsplit_%d_``.
 
     See Also
     --------
     ~firedrake.preconditioners.auxiliary_snes.AuxiliaryOperatorSNES
-    ~firedrake.preconditioners.patch.PatchSNES
     """
 
     _prefix = "fieldsplit_"

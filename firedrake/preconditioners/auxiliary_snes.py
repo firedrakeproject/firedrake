@@ -12,7 +12,7 @@ class AuxiliaryOperatorSNES(SNESBase):
     """
     Solve a residual form :math:`F(u) = 0` using a nonlinear Richardson
     iteration preconditioned with an auxiliary form :math:`G(u)`.
-    This is usually used to create nonlinear preconditioners for
+    This may be used to create nonlinear preconditioners for
     iterative methods such as Anderson acceleration or NGMRES.
 
     The `k`-th nonlinearly preconditioned Richardson iteration is:
@@ -51,9 +51,7 @@ class AuxiliaryOperatorSNES(SNESBase):
             "aux": {
                 "snes_rtol": 1e-4,
                 "snes_type": "newtonls",
-                "mat_type": "aij",
-                "ksp_type": "preonly",
-                "pc_type": "lu"
+                ...
             }
         }
 
@@ -72,24 +70,21 @@ class AuxiliaryOperatorSNES(SNESBase):
             "npc_aux": {
                 "snes_rtol": 1e-4,
                 "snes_type": "newtonls",
-                "mat_type": "aij",
-                "ksp_type": "preonly",
-                "pc_type": "lu"
+                ...
             }
         }
 
-    Although using ``"npc_"`` to specifying the parameters is more
-    verbose than the original, it allows for a wider variety of methods.
-    For example, by changing the outer ``"snes_type"`` to ``"anderson"``,
+    Although using ``"npc_"`` to specify the parameters is more verbose
+    than the original, it allows for a wider variety of methods. For
+    example, by changing the outer ``"snes_type"`` to ``"anderson"``,
     we can use preconditioned Anderson acceleration
     (`<https://petsc.org/release/manualpages/SNES/SNESANDERSON/>`_)
 
     Notes
     -----
-
     If the auxiliary form is linear, i.e. :math:`G(u)=Au`, with
     :math:`A\\approx\\nabla F` approximating the Jacobian of the
-    outer residual then the iteration is an inexact Newton method:
+    outer residual, then the iteration is an inexact Newton method:
 
     .. math ::
 
@@ -102,7 +97,6 @@ class AuxiliaryOperatorSNES(SNESBase):
     See Also
     --------
     ~firedrake.preconditioners.fieldsplit_snes.FieldsplitSNES
-    ~firedrake.preconditioners.patch.PatchSNES
     """
 
     _prefix = "aux_"
@@ -194,17 +188,14 @@ class AuxiliaryOperatorSNES(SNESBase):
         """Return the auxiliary residual form and boundary conditions.
         Subclasses should override this method.
 
-        The returned form is :math:`G(u^{k+1})` in the Richardson
-        iteration. The forcing term :math:`G(u^{k})` is generated from
-        the user provided :math:`G(u^{k+1})` using UFL manipulation, and
-        the forcing term :math:`F(u^{k})` is provided by the outer SNES.
+        The returned form is :math:`G(u^{k+1})` in the Richardson iteration.
 
         Defaults to returning a copy of :math:`F(u)`, i.e.
         :math:`G(u^{k+1})=F(u^{k+1})`.
         This means that ``AuxiliaryOperatorSNES`` can be used similarly
         to :class:`.AssembledPC`, in that it can be used to specify
-        an alternative ``snes_type``, ``mat_type``, ``ksp_type`` etc.
-        for solving the same residual form as the outer ``SNES``.
+        an alternative ``snes_type`` for solving the same residual form
+        as the outer ``SNES``.
 
         Parameters
         ----------
@@ -219,7 +210,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Returns
         -------
-        F : :class:`ufl.Form` | :class:`ufl.BaseForm`
+        G : :class:`ufl.Form` | :class:`ufl.BaseForm`
             The preconditioning residual form.
         bcs : Iterable[:class:`~.firedrake.bcs.DirichletBC`] | None
             The boundary conditions.
