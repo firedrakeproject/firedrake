@@ -45,7 +45,10 @@ class AssembledPC(PCBase):
 
         (a, bcs) = self.form(pc, test, trial)
 
-        form_assembler = get_assembler(a, bcs=bcs, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
+        form_assembler = get_assembler(a, bcs=bcs, form_compiler_parameters=fcp,
+                                       mat_type=mat_type,
+                                       sub_mat_type=sub_mat_type,
+                                       options_prefix=options_prefix)
         self.P = form_assembler.allocate()
         self._assemble_P = form_assembler.assemble
         self._assemble_P(tensor=self.P)
