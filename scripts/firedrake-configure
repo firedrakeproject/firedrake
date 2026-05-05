@@ -200,16 +200,23 @@ Please see https://firedrakeproject.org/install for more information."""
 
 
 def detect_os() -> "OS":
-    os_info = platform.freedesktop_os_release()
-    if os_info["NAME"] == "Ubuntu":
-        if os_info["VERSION_ID"] == "24.04":
-            if platform.machine() == "x86_64":
-                return OS.UBUNTU_2404_X86_64
-            elif platform.machine() == "aarch64":
-                return OS.UBUNTU_2404_AARCH64
+    if platform.system() == "Linux":
+        try:
+            os_info = platform.freedesktop_os_release()
+        except OSError:
+            pass
+        else:
+            if os_info["NAME"] == "Ubuntu":
+                if os_info["VERSION_ID"] == "24.04":
+                    if platform.machine() == "x86_64":
+                        return OS.UBUNTU_2404_X86_64
+                    elif platform.machine() == "aarch64":
+                        return OS.UBUNTU_2404_AARCH64
+
     elif platform.system() == "Darwin":
         if platform.machine() == "arm64":
             return OS.MACOS_ARM64
+
     error(
         "Cannot identify operating system, if you want to configure Firedrake "
         "without any system packages please pass '--os unknown'"
