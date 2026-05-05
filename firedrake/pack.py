@@ -7,6 +7,7 @@ import loopy as lp
 import numpy as np
 import pyop3 as op3
 import ufl
+import finat
 from immutabledict import immutabledict as idict
 
 from firedrake import utils
@@ -482,7 +483,7 @@ def _requires_orientation(space: WithGeometry) -> bool:
     return space.finat_element.fiat_equivalent.dual.entity_permutations is not None
 
 
-def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, var_list: list[str]) -> str:
+def construct_switch_statement(space, mats: dict, n: int, idx: int, args: list, var_list: list[str]) -> str:
     string = []
     string += f"a{idx} = iden; \n "
     string += "\nswitch (dim) { \n"
@@ -490,11 +491,11 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
     var_list += ["iden"]
     args += [lp.TemporaryVariable("iden", initializer=np.identity(n), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
 
-    closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
+    closure_sizes = space._mesh._closure_sizes[space._mesh.cell_dimension()]
     closure_size_acc = 0
     indent = 0
-    for dim in range(len(closure_sizes) - 1):
-        string += f"case {dim}:\n "
+    for dim_i, dim in enumerate(list(closure_sizes.keys())[:-1]):
+        string += f"case {dim_i}:\n "
         indent += 1
         string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
         string += [indent*"\t" + "switch (i) { \n"]
@@ -525,7 +526,7 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
             string += indent*"\t" + "default: break;}break;\n"
             indent -= 1
         string += indent*"\t" + "default: break; }break;\n"
-        closure_size_acc += dim
+        closure_size_acc += closure_sizes[dim]
         indent -= 1
 
     string += "default: break; }\n"
@@ -607,11 +608,62 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
     return matmuls + [set_knl, zero_knl], all_elems
 
 
+@functools.singledispatch
+def check_fuse(element):
+    """Handler for checking if UFL elements have an underlying FUSE definition
+       Returns three bools and two dicts:
+         - Defined by FUSE
+         - FUSE elements has matrix definitions
+         - FUSE element has apply_matrices attribute set
+         - the transformation matrices
+         - the reversed transformation matrices
+         """
+    raise ValueError("No handler provided %s" % type(element))
+
+
+@check_fuse.register(finat.ufl.FiniteElement)
+def check_fuse_nonfuse(element):
+    return False, False, False, None, None
+
+
+@check_fuse.register(finat.ufl.mixedelement.VectorElement)
+def check_fuse_vector(element):
+    fuse, matrix, apply, mats, reversed_mats = zip(*[check_fuse(component) for component in element.sub_elements])
+    if any(mat is not None for mat in mats):
+        raise NotImplementedError("FUSE matrix combination for Vector elements")
+    return any(fuse), any(matrix), any(apply), None, None
+
+
+@check_fuse.register(finat.ufl.hdivcurl.HDivElement)
+@check_fuse.register(finat.ufl.hdivcurl.HCurlElement)
+def check_fuse_hdivcurl(element):
+    "Transformation of matrices is handled within FUSE"
+    fuse, matrix, apply, mats, reversed_mats = zip(*[check_fuse(element._element)])
+    return any(fuse), any(matrix), any(apply), mats[0], reversed_mats[0]
+
+
+@check_fuse.register(finat.ufl.fuseelement.FuseElement)
+def check_fuse_standard(element):
+    if hasattr(element.triple, "matrices"):
+        return True, True, element.triple.apply_matrices, element.triple.matrices, element.triple.reversed_matrices
+    return True, False, False, None, None
+
+
+@check_fuse.register(finat.ufl.tensorproductelement.TensorProductElement)
+def check_fuse_tensor_prod(element):
+    fuse, matrix, apply, mat, reversed_mat = zip(*[check_fuse(component) for component in element.factor_elements])
+    if hasattr(element, "_triple") and hasattr(element._triple, "matrices"):
+        return True, True, element._triple.apply_matrices, element._triple.matrices, element._triple.reversed_matrices
+    elif any(matrix):
+        raise NotImplementedError("Tensor matrices should be combined at a fuse level")
+    return any(fuse), any(matrix), any(apply), None, None
+
+
+
+
 def fuse_orientations(spaces: list[WithGeometry]):
-    fuse_defined_spaces = [hasattr(space.ufl_element(), "triple") for space in spaces]
-    fuse_matrix_spaces = [hasattr(spaces[i].ufl_element().triple, "matrices") if fuse_defined_spaces[i] else False for i in range(len(spaces))]
-    fuse_needs_matrices = [spaces[i].ufl_element().triple.apply_matrices if fuse_defined_spaces[i] else False for i in range(len(spaces))]
-    
+    fuse_defined_spaces, fuse_matrix_spaces, fuse_needs_matrices, mat_list, reversed_mat_list = list(zip(*[check_fuse(space.ufl_element()) for space in spaces]))
+
     if not all(fuse_defined_spaces):
         return None, None
 
@@ -623,21 +675,21 @@ def fuse_orientations(spaces: list[WithGeometry]):
         ns = tuple()
         for i, space in enumerate(spaces):
             fs = space
-            #mats += [space.ufl_element().triple.matrices]
-            #reversed_mats += [space.ufl_element().triple.reversed_matrices]
             if i == 0:
-                mats += [space.ufl_element().triple.matrices]
-                reversed_mats += [space.ufl_element().triple.reversed_matrices]
+                mats += [mat_list[i]]
+                reversed_mats += [reversed_mat_list[i]]
             elif i == 1:
-                mats += [space.ufl_element().triple.reversed_matrices]
-                reversed_mats += [space.ufl_element().triple.matrices]
-            t_dim = space.ufl_element().cell._tdim
+                mats += [reversed_mat_list[i]]
+                reversed_mats += [mat_list[i]]
+            # breakpoint()
+            t_dim = space._mesh.cell_dimension()
+            # t_dim = space.ufl_element().cell._tdim
             os = mats[-1][t_dim][0]
             ns += (os[next(iter(os.keys()))].shape[0],)
-        closures_dict = mesh._closure_sizes[fs._mesh.dimension]
+        closures_dict = mesh._closure_sizes[fs._mesh.cell_dimension()]
         closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
 
-        utilities, all_elems = get_utility_kernels(ns) 
+        utilities, all_elems = get_utility_kernels(ns)
         args = [lp.ValueArg("d", dtype=utils.IntType),
                 lp.ValueArg("closure_size_acc", dtype=utils.IntType),
                 lp.ValueArg("o_val", dtype=utils.IntType)] + [lp.GlobalArg(f"o{i}", dtype=utils.IntType, shape=(sum(closures)), is_input=True) for i in range(len(ns))] + [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
@@ -679,7 +731,7 @@ def fuse_orientations(spaces: list[WithGeometry]):
                          b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, {o_list}, {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
                         for i in range(num_switch)]
             return lp.make_function(
-                f"{{[dim]:{0} <= dim <= {mesh.dimension - 1}}}",
+                f"{{[dim]:{0} <= dim <= {len(closures) - 1}}}",
                 ["d = closure_sizes[dim] {id=closure}"] + switches +
                 [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}, inames=dim}}"],
                 name=f"{direction}_loop_over_dims",
@@ -728,6 +780,7 @@ def fuse_orientations(spaces: list[WithGeometry]):
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
         transform_in = op3.Function(in_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
         transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
         print("not matrix space")
