@@ -17,7 +17,6 @@ class AssembledPC(PCBase):
     _prefix = "assembled_"
 
     def initialize(self, pc):
-        from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
 
         if pc.type != "python":
@@ -50,10 +49,8 @@ class AssembledPC(PCBase):
                                           sub_mat_type=sub_mat_type,
                                           options_prefix=options_prefix)
 
-        form_assembler = get_assembler(a, bcs=bcs, form_compiler_parameters=fcp,
-                                       mat_type=self._ctx_ref.mat_type,
-                                       sub_mat_type=self._ctx_ref.sub_mat_type,
-                                       options_prefix=options_prefix)
+        form_assembler = self._ctx_ref._assembler_jac
+
         self.P = form_assembler.allocate()
         self._assemble_P = form_assembler.assemble
         self._assemble_P(tensor=self.P)
