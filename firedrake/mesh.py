@@ -3929,18 +3929,16 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
             parent_cell_nums_local, parent_mesh.layers
         )
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
-        # numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            base_parent_cell_nums, -1
+        # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+        plex_parent_cell_nums = np.full_like(base_parent_cell_nums, -1)
+        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            base_parent_cell_nums[visible_idxs], -1
         ]
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        # Fancy-index only the visible rows: parent_cell_nums_local has
-        # -1 sentinels for query points with no owning cell on this rank,
-        # which crash the indexing on ranks whose cell_closure is shape
-        # (0, k). Sentinel rows are discarded by [visible_idxs] below.
+        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
         plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
         plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
             parent_cell_nums_local[visible_idxs], -1

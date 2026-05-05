@@ -349,13 +349,9 @@ def test_submesh_interpolate_adjoint(fe_fesub):
 
 
 @pytest.mark.parallel(nprocs=8)
-def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
-    # Regression test for an IndexError in firedrake.mesh._pic_swarm_in_mesh
-    # when interpolating a function defined on a Submesh of an exterior facet
-    # onto its parent mesh in parallel: ranks that own zero cells of the
-    # Submesh hit ``IndexError: index -1 is out of bounds for axis 0 with
-    # size 0`` because parent_cell_nums_local contains -1 sentinels and
-    # cell_closure has shape (0, k) on those ranks.
+def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_8_processes():
+    # Regression test: ranks with zero Submesh cells crashed with IndexError
+    # in _pic_swarm_in_mesh (-1 sentinels invalid on empty-rank cell_closure).
     mesh = UnitCubeMesh(2, 2, 2)
     x, y, z = SpatialCoordinate(mesh)
     V_marker = FunctionSpace(mesh, "HDiv Trace", 0)
@@ -379,3 +375,22 @@ def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
     assert np.allclose(
         f_parent.dat.data_with_halos, expected.dat.data_with_halos
     )
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_interpolate_3Dcell_extruded_empty_rank_8_processes():
+    # Regression test for the same IndexError in the extruded branch of
+    # _pic_swarm_in_mesh: ExtrudedMesh(UnitSquareMesh(1,1), layers=3) has 6
+    # cells, so with nprocs=8 at least two ranks own zero extruded cells.
+    base = UnitSquareMesh(1, 1)
+    ext = ExtrudedMesh(base, layers=3)
+    xe, ye, ze = SpatialCoordinate(ext)
+    V_ext = FunctionSpace(ext, "CG", 1)
+    f_ext = Function(V_ext).interpolate(xe + ye + ze)
+    mesh = UnitCubeMesh(2, 2, 2)
+    xt, yt, zt = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    f.interpolate(f_ext, allow_missing_dofs=True)
+    expected = Function(V).interpolate(xt + yt + zt)
+    assert np.allclose(f.dat.data_with_halos, expected.dat.data_with_halos)
