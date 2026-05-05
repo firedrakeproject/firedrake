@@ -1,24 +1,38 @@
 import ufl
 import firedrake
-from ufl.domain import as_domain
+from ufl.domain import extract_domains
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 
 
+def _extract_meshes(expr):
+    try:
+        return tuple(extract_domains(expr))
+    except AttributeError:
+        return ()
+
+
+def _extract_unique_mesh_for_constant(expr):
+    meshes = _extract_meshes(expr)
+    if len(meshes) != 1:
+        raise NotImplementedError(
+            "Differentiating an assembled multi-domain/Submesh form with respect "
+            "to a Constant is not implemented yet: cannot choose a unique mesh "
+            "for the Constant adjoint function space."
+        )
+    return meshes[0]
+
+
 class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        try:
-            mesh = as_domain(form)
-        except AttributeError:
-            mesh = None
-
-        if mesh and not isinstance(self.form, ufl.Interpolate):
+        if not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
-            self.add_dependency(mesh)
+            for mesh in _extract_meshes(form):
+                self.add_dependency(mesh, no_duplicates=True)
 
         for c in self.form.coefficients():
             self.add_dependency(c, no_duplicates=True)
@@ -104,7 +118,7 @@ class AssembleBlock(Block):
         arity_form = len(form.arguments())
 
         if isconstant(c):
-            mesh = as_domain(self.form)
+            mesh = _extract_unique_mesh_for_constant(self.form)
             space = c._ad_function_space(mesh)
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
@@ -162,7 +176,7 @@ class AssembleBlock(Block):
         c1_rep = block_variable.saved_output
 
         if isconstant(c1):
-            mesh = as_domain(form)
+            mesh = _extract_unique_mesh_for_constant(form)
             space = c1._ad_function_space(mesh)
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
