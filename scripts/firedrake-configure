@@ -77,14 +77,7 @@ def main():
         args.os = OS.UNKNOWN
     os_ = args.os if args.os else detect_os()
 
-    if args.gpu_arch != GPUPlatform.NO_GPU and os_ == OS.MACOS_ARM64:
-        error(
-            "GPU-compatible PETSc builds are currently only supported"
-            "on Linux"
-        )
-
     arch_key = (os_, args.scalar_type, args.gpu_arch)
-
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
     elif arch_key in COMMUNITY_ARCHS:
@@ -100,7 +93,13 @@ def main():
         )
 
     if args.show_system_packages:
-        arch.show_system_packages()
+        try:
+            arch.show_system_packages()
+        except InvalidConfigurationError:
+            error(
+                "Don't know what system dependencies to install for this arch "
+                f"{arch_key}, please install them manually"
+            )
     elif args.show_petsc_configure_options:
         arch.show_petsc_configure_options()
     elif args.show_petsc_version:
@@ -202,42 +201,20 @@ Please see https://firedrakeproject.org/install for more information."""
 
 
 def detect_os() -> "OS":
-    if platform.system() == "Linux":
-        if has_apt():
+    os_info = platform.freedesktop_os_release()
+    if os_info["NAME"] == "Ubuntu":
+        if os_info["VERSION_ID"] == "24.04":
             if platform.machine() == "x86_64":
                 return OS.UBUNTU_2404_X86_64
             elif platform.machine() == "aarch64":
                 return OS.UBUNTU_2404_AARCH64
     elif platform.system() == "Darwin":
-        if has_homebrew():
-            if platform.machine() == "arm64":
-                return OS.MACOS_ARM64
+        if platform.machine() == "arm64":
+            return OS.MACOS_ARM64
     error(
         "Cannot identify operating system, if you want to configure Firedrake "
         "without any system packages please pass '--os unknown'"
     )
-
-
-def has_apt() -> bool:
-    try:
-        subprocess.run(["apt", "--version"], capture_output=True)
-    except FileNotFoundError:
-        return False
-    except:  # noqa: E722
-        error("Unexpected error occurred searching for apt")
-    else:
-        return True
-
-
-def has_homebrew() -> bool:
-    try:
-        subprocess.run(["brew", "--version"], capture_output=True)
-    except FileNotFoundError:
-        return False
-    except:  # noqa: E722
-        error("Unexpected error occurred searching for homebrew")
-    else:
-        return True
 
 
 class OS(enum.Enum):
@@ -257,17 +234,39 @@ class GPUPlatform(enum.Enum):
     CUDA = "cuda"
 
 
+class InvalidConfigurationError(Exception):
+    pass
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Arch:
     name: str
+    """Name of the configuration.
+
+    This will be prefixed by 'arch-firedrake-' when generating the PETSc arch name.
+
+    """
     system_packages: Sequence[str] | None = None
+    """System packages."""
     extra_petsc_configure_options: Sequence[str] = ()
+    """Extra options passed to PETSc configure."""
     cflags: Sequence[str] = ()
+    """CFLAGS used to compile PETSc and external packages."""
     cxxflags: Sequence[str] = ()
+    """CXXFLAGS used to compile PETSc and external packages."""
     fflags: Sequence[str] = ()
+    """FFLAGS used to compile PETSc and external packages."""
     include_dirs: Sequence[str] = ()
+    """Extra include directories used during PETSc configure and install"""
     library_dirs: Sequence[str] = ()
+    """Extra library directories used during PETSc configure and install"""
     extra_env_vars: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    """Extra environment variables that need setting during Firedrake install.
+
+    If the special strings '$PETSC_DIR', '$PETSC_ARCH' or '$PATH' are used then
+    these will be replaced.
+
+    """
     extra_url: str | None = None
     """The URL to a deb package that will enable vendor-specific software development
     repositories, or None if not required.
@@ -283,10 +282,7 @@ class Arch:
 
     def show_system_packages(self) -> None:
         if self.system_packages is None:
-            error(
-                "Don't know what system dependencies to install on this platform, "
-                "please install them manually"
-            )
+            raise InvalidConfigurationError
         else:
             print_and_stop(" ".join(self.system_packages))
 
@@ -297,7 +293,7 @@ class Arch:
         cxxflags = " ".join((*self.cxxflags, *include_dirs, *library_dirs))
         fflags = " ".join((*self.fflags, *include_dirs, *library_dirs))
         opts = [
-            f"PETSC_ARCH={self.name}",
+            f"PETSC_ARCH=arch-firedrake-{self.name}",
             f"--COPTFLAGS='{cflags}'",
             f"--CXXOPTFLAGS='{cxxflags}'",
             f"--FOPTFLAGS='{fflags}'",
@@ -313,10 +309,7 @@ class Arch:
     def show_env(self) -> None:
         # TODO: inspect the current directory and error if PETSc isn't found
         petsc_dir = f"{os.getcwd()}/petsc"
-        petsc_arch = self.name
-
-        def replace_petsc_vars(value: str):
-            return value.replace("$PETSC_DIR", petsc_dir).replace("$PETSC_ARCH", petsc_arch)
+        petsc_arch = f"arch-firedrake-{self.name}"
 
         env = {
             "PETSC_DIR": petsc_dir,
@@ -324,7 +317,19 @@ class Arch:
             "HDF5_MPI": "ON",
         }
         env |= self.extra_env_vars
-        env_str = " ".join(f"{name}={replace_petsc_vars(value)}" for name, value in env.items())
+
+        replace_mapping = {
+            "$PETSC_DIR", petsc_dir,
+            "$PETSC_ARCH", petsc_arch,
+            "$PATH", os.environ.get("PATH", ""),
+        }
+
+        def replace_vars(value: str):
+            for from_, to in replace_mapping.items():
+                value = value.replace(from_, to)
+            return value.replace(
+
+        env_str = " ".join(f"{name}={replace_vars(value)}" for name, value in env.items())
         print_and_stop(env_str)
 
 
@@ -343,7 +348,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     # Ubuntu 24.04 x86
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-default",
+        name="default",
         system_packages=[
             "bison",
             "build-essential",
@@ -404,7 +409,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
-        name="arch-firedrake-default-cuda",
+        name="firedrake-default-cuda",
         system_packages=[
             "bison",
             "build-essential",
@@ -478,13 +483,13 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
         extra_env_vars={
-            "PATH": f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}",
+            "PATH": f"/usr/local/cuda/bin:$PATH",
         },
         extra_url="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb",
     ),
 
     (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-complex",
+        name="complex",
         system_packages=[
             "bison",
             "build-essential",
@@ -547,7 +552,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     # Ubuntu 24.04 aarch64
 
     (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-default",
+        name="default",
         system_packages=[
             "bison",
             "build-essential",
@@ -608,7 +613,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 
     (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-complex",
+        name="complex",
         system_packages=[
             "bison",
             "build-essential",
@@ -671,7 +676,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     # macOS arm64
 
     (OS.MACOS_ARM64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-default",
+        name="default",
         system_packages=[
             "autoconf",
             "automake",
@@ -724,7 +729,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 
     (OS.MACOS_ARM64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-complex",
+        name="complex",
         system_packages=[
             "autoconf",
             "automake",
@@ -780,7 +785,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     # Sane default configurations for unknown platforms
 
     (OS.UNKNOWN, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-default",
+        name="default",
         extra_petsc_configure_options=[
             "--download-bison",
             "--download-fftw",
@@ -804,7 +809,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 
     (OS.UNKNOWN, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="arch-firedrake-complex",
+        name="complex",
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",
             "--download-bison",
