@@ -96,8 +96,7 @@ class FieldsplitSNES(SNESBase):
     _prefix = "fieldsplit_"
 
     # TODO:
-    #   -fieldsplit_ Allow setting default splits for unspecified fields
-    #   -snes_fieldsplit_default Allow setting default options for all splits
+    #   -fieldsplit_default Allow setting default options for all splits
 
     @PETSc.Log.EventDecorator()
     def initialize(self, snes):
