@@ -45,9 +45,14 @@ class AssembledPC(PCBase):
 
         (a, bcs) = self.form(pc, test, trial)
 
+        self._ctx_ref = self.new_snes_ctx(opc, a, bcs, mat_type,
+                                          fcp=fcp,
+                                          sub_mat_type=sub_mat_type,
+                                          options_prefix=options_prefix)
+
         form_assembler = get_assembler(a, bcs=bcs, form_compiler_parameters=fcp,
-                                       mat_type=mat_type,
-                                       sub_mat_type=sub_mat_type,
+                                       mat_type=self._ctx_ref.mat_type,
+                                       sub_mat_type=self._ctx_ref.sub_mat_type,
                                        options_prefix=options_prefix)
         self.P = form_assembler.allocate()
         self._assemble_P = form_assembler.assemble
@@ -65,11 +70,6 @@ class AssembledPC(PCBase):
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. multigrid or patch solves.
         dm = opc.getDM()
-        self._ctx_ref = self.new_snes_ctx(opc, a, bcs, mat_type,
-                                          fcp=fcp,
-                                          sub_mat_type=sub_mat_type,
-                                          options_prefix=options_prefix)
-
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
         pc.setOperators(A, self.P.petscmat)
