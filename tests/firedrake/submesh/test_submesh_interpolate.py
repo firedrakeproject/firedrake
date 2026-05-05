@@ -365,6 +365,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
     facet_value = 999
     mesh = RelabeledMesh(mesh, [facet_indicator], [facet_value])
     subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
+    subm.tolerance = 0.1
     x, y, z = SpatialCoordinate(mesh)
     xs, ys, zs = SpatialCoordinate(subm)
     V_sub = FunctionSpace(subm, "CG", 1)
