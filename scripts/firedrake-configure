@@ -55,7 +55,6 @@ import dataclasses
 import enum
 import os
 import platform
-import subprocess
 from collections.abc import Mapping, Sequence
 
 
@@ -327,7 +326,7 @@ class Arch:
         def replace_vars(value: str):
             for from_, to in replace_mapping.items():
                 value = value.replace(from_, to)
-            return value.replace(
+            return value
 
         env_str = " ".join(f"{name}={replace_vars(value)}" for name, value in env.items())
         print_and_stop(env_str)
@@ -483,7 +482,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
         extra_env_vars={
-            "PATH": f"/usr/local/cuda/bin:$PATH",
+            "PATH": "/usr/local/cuda/bin:$PATH",
         },
         extra_url="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb",
     ),
