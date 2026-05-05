@@ -348,7 +348,7 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     assert np.isclose(result_0, expected)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(nprocs=8)
 def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
     # Regression test for an IndexError in firedrake.mesh._pic_swarm_in_mesh
     # when interpolating a function defined on a Submesh of an exterior facet
