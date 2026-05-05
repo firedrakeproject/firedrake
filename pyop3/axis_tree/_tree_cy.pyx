@@ -6,6 +6,7 @@ from petsctools.cpetsc cimport CHKERR
 
 
 def apply_constraints(section: cpetsc.PetscSection_py, sizes: np.ndarray, constrained: np.ndarray):
+    assert False, "old code"
     cdef:
         cpetsc.PetscInt point
         cpetsc.PetscInt *constrained_idxs_c = NULL

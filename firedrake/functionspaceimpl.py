@@ -665,7 +665,10 @@ class AbstractFunctionSpace:
             (axes.owned.local_size, axes.global_size),
             bsize=self.block_size,
         )
-        vec.setUp()
+        try:
+            vec.setUp()
+        except:
+            breakpoint()
         return vec
 
     @cached_method()

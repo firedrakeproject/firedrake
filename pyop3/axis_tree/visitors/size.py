@@ -33,13 +33,10 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
     if axis is None:
         return 1
 
-    # The size of an axis tree is simply the product of the sizes of the
-    # different nested subaxes. This remains the case even for ragged
-    # inner axes.
-    tree_size = 0
-    for component in axis.components:
-        tree_size += compute_axis_tree_component_size(axis_tree, path, component.label)
-    return tree_size
+    return sum(
+        compute_axis_tree_component_size(axis_tree, path, component.label)
+        for component in axis.components
+    )
 
 
 # TODO: just be a cached method? Or globally cache?
@@ -129,15 +126,32 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
         component_size = replace(component_size, axis_to_loop_var_replace_map)
         subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
+        # if "{constrained" in str(axis_tree):
+        #      import pyop3.debug
+        #      pyop3.debug.enable_conditional_breakpoints()
+
         Loop(i,
             component_size.iassign(subtree_size_expr)
         )()
+
+        # if "{constrained" in str(axis_tree):
+        #      import pyop3.debug
+        #      pyop3.debug.disable_conditional_breakpoints()
 
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this
             # gets passed up
             mysize = utils.just_one(component_size.buffer._data)
+            try:
+                assert mysize >= 0 and mysize <= 10000
+            except:
+                import pyop3.debug
+                pyop3.debug.enable_conditional_breakpoints()
+                Loop(i,
+                    component_size.iassign(subtree_size_expr)
+                )()
+                breakpoint()
             if not isinstance(subtree_size, numbers.Integral):
                 sbuf = ArrayBuffer.from_scalar(mysize, constant=True)
                 mysize = ScalarBufferExpression(sbuf)

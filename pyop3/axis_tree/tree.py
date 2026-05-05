@@ -358,7 +358,10 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):
-            assert self.size.value >= 0
+            try:
+                assert self.size.value >= 0
+            except:
+                breakpoint()
 
     # }}}
 
@@ -1339,6 +1342,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def comm(self):
         return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
+    # TODO: rename to local_section
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat, loop
@@ -1348,8 +1352,37 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         axis = self.node_map[path]
         component = utils.just_one(c for c in axis.components if c.label == component_label)
 
+        # IMPORTANT: If the tree contains constraints then the *local* section
+        # is incorrect. This is because constrained DoFs are pushed to the back
+        # of the array via axis component regions and therefore
+        # 'section.getOffset(constrained_pt)' will give the wrong answer. At
+        # present this doesn't seem to be causing any problems because we always
+        # constrain all DoFs associated with a point and I would also guess that the
+        # local section isn't actually used anywhere.
+        # Since sections are not capable of handling interleaved layouts the answer
+        # is either that the local section should be NULL or determined in a custom
+        # way, but that the global section resulting from the 'invalid' section here
+        # should be correct. This currently fails consistency checks inside PETSc.
+        # --- UPDATE
+        # This approach doesn't seem to work. I think we have to take the approach
+        # of disregarding constrained DoFs in the local section. This means only
+        # considering DoFs that live in the initial region.
+        # if "constrained" in subtree._all_region_labels:
+        #     cdat = Dat.zeros(self.regionless(), dtype=IntType)
+        #     loop(
+        #         p := self.with_region_label("constrained").iter(),
+        #         cdat[p].assign(1),
+        #         eager=True,
+        #     )
+        #     constrained = cdat.data_ro
+        #     apply_constraints(section, sizes, constrained)
+
+        # TODO: This is a hacky way to do this, better to just take the first region
+        # set
         subpath = path | {axis.label: component_label}
         subtree = self.subtree(subpath)
+        if "constrained" in subtree._all_region_labels:
+            subtree = subtree.with_region_label("unconstrained")
 
         if subpath in self.leaf_paths:
             size_expr = 1
@@ -1365,30 +1398,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         for point in range(component.local_size):
             section.setDof(point, sizes[point])
 
-        # IMPORTANT: If the tree contains constraints then the *local* section
-        # is incorrect. This is because constrained DoFs are pushed to the back
-        # of the array via axis component regions and therefore
-        # 'section.getOffset(constrained_pt)' will give the wrong answer. At
-        # present this doesn't seem to be causing any problems because we always
-        # constrain all DoFs associated with a point and I would also guess that the
-        # local section isn't actually used anywhere.
-        # Since sections are not capable of handling interleaved layouts the answer
-        # is either that the local section should be NULL or determined in a custom
-        # way, but that the global section resulting from the 'invalid' section here
-        # should be correct. This currently fails consistency checks inside PETSc.
-        if "constrained" in subtree._all_region_labels:
-            cdat = Dat.zeros(self.regionless(), dtype=IntType)
-            loop(
-                p := self.with_region_label("constrained").iter(),
-                cdat[p].assign(1),
-                eager=True,
-            )
-            constrained = cdat.data_ro
-            apply_constraints(section, sizes, constrained)
-
-        else:
-            section.setUp()
-
+        section.setUp()
         return section
 
     # }}}

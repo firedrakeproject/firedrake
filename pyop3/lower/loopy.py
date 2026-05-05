@@ -179,9 +179,6 @@ class LoopyCodegenContext(CodegenContext):
         if buffer.is_nested:
             raise NotImplementedError("Currently handle nesting outside the generated code")
 
-        if buffer.name == "array_276":
-            breakpoint()
-
         buffer_key = (buffer.name, buffer.nest_indices)
         if isinstance(buffer, NullBuffer):
             assert not buffer.nest_indices

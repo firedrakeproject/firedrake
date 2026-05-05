@@ -313,16 +313,6 @@ def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
         CHKERR(PetscSectionSetDof(new_section.sec, pnew, n))
         CHKERR(PetscSectionGetOffset(section.sec, p, &n))
         CHKERR(PetscSectionSetOffset(new_section.sec, pnew, n))
-        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &n))
-        CHKERR(PetscSectionSetConstraintDof(new_section.sec, pnew, n))
-
-    # Set up the BC section for the constraints, this call is needed to
-    # allocate space for the constraint indices
-    CHKERR(PetscSectionSetUpBC(new_section.sec))
-    for p in range(p_start, p_end):
-        pnew = permvals[p]
-        CHKERR(PetscSectionGetConstraintIndices(section.sec, p, &cidxs))
-        CHKERR(PetscSectionSetConstraintIndices(new_section.sec, pnew, cidxs))
 
     return new_section
 

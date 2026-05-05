@@ -70,7 +70,9 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
         if component.sf is not None:
             # do not recurse further
             if path_ in axis_tree.node_map:
-                section = axis_tree.section(path, component)
+                # By default the section will drop values for all but the
+                # first region, here we don't want this to happen
+                section = axis_tree.regionless().section(path, component)
                 petsc_sf = create_petsc_section_sf(component.sf.sf, section)
                 _check_sf(petsc_sf)
             else:
