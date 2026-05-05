@@ -356,7 +356,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
     # Submesh hit ``IndexError: index -1 is out of bounds for axis 0 with
     # size 0`` because parent_cell_nums_local contains -1 sentinels and
     # cell_closure has shape (0, k) on those ranks.
-    mesh = UnitCubeMesh(8, 8, 8)
+    mesh = UnitCubeMesh(2, 2, 2)
     x, y, z = SpatialCoordinate(mesh)
     V_marker = FunctionSpace(mesh, "HDiv Trace", 0)
     facet_indicator = Function(V_marker).interpolate(
