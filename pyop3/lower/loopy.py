@@ -36,7 +36,7 @@ from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent,
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
-from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
+from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
     Intent,
     INC,

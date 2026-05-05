@@ -224,9 +224,9 @@ def extensions():
         **(mpi_ + petsc_ + numpy_)
     ))
     cython_list.append(Extension(
-        name="pyop3.tree.axis_tree._tree_cy",
+        name="pyop3.axis_tree._tree_cy",
         language="c",
-        sources=[os.path.join("pyop3", "tree", "axis_tree", "_tree_cy.pyx")],
+        sources=[os.path.join("pyop3", "axis_tree", "_tree_cy.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
 

@@ -19,7 +19,7 @@ from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
 from pyop3.expr.base import NAN, get_loop_tree, loopified_shape
 from pyop3.insn import exscan, loop_
-from pyop3.tree import (
+from pyop3.axis_tree import (
     Axis,
     AxisTree,
     merge_axis_trees,

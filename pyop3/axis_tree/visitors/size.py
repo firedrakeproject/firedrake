@@ -12,8 +12,8 @@ from pyop3.dtypes import IntType
 from pyop3.expr import Dat, AxisVar, LoopIndexVar, ScalarBufferExpression
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
 from pyop3.insn import Loop
-from pyop3.tree import AbstractAxisTree, AxisTree, UNIT_AXIS_TREE
-from pyop3.tree.labelled_tree import as_path
+from pyop3.axis_tree import AbstractAxisTree, AxisTree, UNIT_AXIS_TREE
+from pyop3.labeled_tree import as_path
 
 if typing.TYPE_CHECKING:
     from pyop3.types import *

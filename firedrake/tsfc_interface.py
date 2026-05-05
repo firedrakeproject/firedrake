@@ -132,7 +132,7 @@ class TSFCKernel:
 
             ast = kernel.ast
             if parameters.get("add_likwid_markers", False):
-                from pyop3.ir.transform import add_likwid_markers
+                from pyop3.lower.transform import add_likwid_markers
 
                 ep = add_likwid_markers(ast.default_entrypoint)
                 ast = ast.with_kernel(ep)

@@ -37,7 +37,7 @@ from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
-from pyop3.tree.labelled_tree import (
+from pyop3.labeled_tree import (
     as_node_map,
     LabelledNodeComponent,
     LabelledTree,

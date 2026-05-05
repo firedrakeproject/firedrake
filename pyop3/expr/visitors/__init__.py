@@ -25,7 +25,7 @@ import pyop3.expr
 from pyop3 import utils
 from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
-from pyop3.tree import is_subpath
+from pyop3.labeled_tree import is_subpath
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 

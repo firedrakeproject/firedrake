@@ -47,7 +47,7 @@ from pyop3.axis_tree.tree import (
 )
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
-from pyop3.tree.labelled_tree import (
+from pyop3.labeled_tree import (
     as_node_map,
     LabelledNodeComponent,
     LabelledTree,

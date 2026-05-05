@@ -24,7 +24,7 @@ from gem import impero_utils
 from itertools import chain
 
 from pyop3.mpi import COMM_WORLD
-from pyop3.ir.lower import SolveCallable, INVCallable
+from pyop3.lower import SolveCallable, INVCallable
 from pyop3.cache import memory_and_disk_cache
 
 import firedrake.slate.slate as slate

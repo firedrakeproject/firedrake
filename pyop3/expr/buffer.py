@@ -10,7 +10,7 @@ from typing import ClassVar
 import pyop3.record
 from pyop3 import utils
 from pyop3.node import NodeVisitor
-from pyop3.tree import is_subpath
+from pyop3.labeled_tree import is_subpath
 from pyop3.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
