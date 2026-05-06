@@ -607,6 +607,22 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
     )
     return matmuls + [set_knl, zero_knl], all_elems
 
+def combine_matrices(matrices):
+    """ Combine matrix dictionaries for Vector Matrices
+        Assumes they all have the same dictionary structure."""
+    n = len(matrices)
+    new_matrices = {}
+    if any([m is None for m in matrices]):
+        raise NotImplementedError("Vector Functions must be either fully FUSE or fully FIAT.")
+    assert all([matrices[0].keys() == matrices[i].keys() for i in range(n)])
+    for dim in matrices[0].keys():
+        new_matrices[dim] = {}
+        assert all([matrices[0][dim].keys() == matrices[i][dim].keys() for i in range(n)])
+        for ent in matrices[0][dim].keys():
+            new_matrices[dim][ent] = {}
+            assert all([matrices[0][dim][ent].keys() == matrices[i][dim][ent].keys() for i in range(n)])
+            for o in matrices[0][dim][ent].keys():
+                new_matrices[dim][ent][o] = np.block([[matrices[i][dim][ent][o] if i == j else np.zeros((matrices[i][dim][ent][o].shape[0],matrices[j][dim][ent][o].shape[1])) for i in range(n)] for j in range(n)])
 
 @functools.singledispatch
 def check_fuse(element):
@@ -629,6 +645,8 @@ def check_fuse_nonfuse(element):
 @check_fuse.register(finat.ufl.mixedelement.VectorElement)
 def check_fuse_vector(element):
     fuse, matrix, apply, mats, reversed_mats = zip(*[check_fuse(component) for component in element.sub_elements])
+    if all([element.sub_elements[0] == se for se in element.sub_elements]) and any(mat is not None for mat in mats):
+        return any(fuse), any(matrix), any(apply), combine_matrices(mats), combine_matrices(reversed_mats)
     if any(mat is not None for mat in mats):
         raise NotImplementedError("FUSE matrix combination for Vector elements")
     return any(fuse), any(matrix), any(apply), None, None
