@@ -116,7 +116,7 @@ in dense format. ::
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
 submatrices for each patch from the already-assembled global stiffness matrix.
 
-The ``tinyasm`` backend uses LAPACK to invert all the patch operators, which is ideal
+The `"tinyasm"` backend uses LAPACK to invert all the patch operators, which is ideal
 for low-order discretizations ::
 
   tinyasm_relax = mg_params({
@@ -128,7 +128,7 @@ If the backend option is not specified, PETSc's ASM framework will set up a KSP 
 This can be useful when the patches become larger and one wants to use a sparse
 direct solver or a Krylov iteration on each one.
 
-Moreover, the option ``use_coloring`` applies a mesh coloring to combine
+Moreover, the option `"use_coloring"` applies a mesh coloring to combine
 subsets of non-overlapping patches into sparse block-diagonal matrices. This
 results in a mathematically equivalent preconditioner, while reducing the
 overhead costs of calling the sparse factorization library many times. ::
