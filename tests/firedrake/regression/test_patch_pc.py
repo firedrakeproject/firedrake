@@ -97,3 +97,80 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)
+
+
+def _patch_pc_exterior_facets_problem(a, L):
+    """Helper: solve with ASMStarPC and PatchPC, return iteration counts."""
+    V = a.arguments()[0].function_space()
+
+    u_star = Function(V)
+    problem = LinearVariationalProblem(a, L, u_star)
+    star_solver = LinearVariationalSolver(
+        problem,
+        solver_parameters={
+            "mat_type": "aij",
+            "ksp_type": "gmres",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+            "pc_star_construct_dim": 0,
+            "ksp_rtol": 1e-12,
+        },
+    )
+    star_solver.snes.ksp.setConvergenceHistory()
+    star_solver.solve()
+    star_its = len(star_solver.snes.ksp.getConvergenceHistory())
+
+    u_patch = Function(V)
+    problem_patch = LinearVariationalProblem(a, L, u_patch)
+    patch_solver = LinearVariationalSolver(
+        problem_patch,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "gmres",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_construct_type": "star",
+            "patch_pc_patch_construct_dim": 0,
+            "patch_pc_patch_save_operators": True,
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            "ksp_rtol": 1e-12,
+        },
+    )
+    patch_solver.snes.ksp.setConvergenceHistory()
+    patch_solver.solve()
+    patch_its = len(patch_solver.snes.ksp.getConvergenceHistory())
+
+    return star_its, patch_its
+
+
+@pytest.mark.parallel([1, 3])
+def test_patch_pc_exterior_facets_dx_ds():
+    """Test that PatchPC correctly handles exterior facet integrals (ds)
+    in both serial and parallel, by asserting it takes the same number
+    of iterations as ASMStarPC."""
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(4, 4, distribution_parameters=distribution)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(u, v) * ds
+    L = inner(Constant(1.0), v) * dx
+    star_its, patch_its = _patch_pc_exterior_facets_problem(a, L)
+    assert star_its == patch_its
+
+
+def test_patch_pc_exterior_facets_dx_dS_ds():
+    """Test that PatchPC correctly handles exterior (ds) and interior (dS)
+    facet integrals together, by asserting it takes the same number of
+    iterations as ASMStarPC."""
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(4, 4, distribution_parameters=distribution)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(avg(u), avg(v)) * dS + inner(u, v) * ds
+    L = inner(Constant(1.0), v) * dx
+    star_its, patch_its = _patch_pc_exterior_facets_problem(a, L)
+    assert star_its == patch_its
