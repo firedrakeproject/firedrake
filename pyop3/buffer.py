@@ -61,8 +61,10 @@ def not_in_flight(func):
 def record_modified(func):
     def wrapper(self, *args, **kwargs):
         assert not self.constant
-        self.inc_state()
-        return func(self, *args, **kwargs)
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            self.inc_state()
     return wrapper
 
 
@@ -314,7 +316,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def inc_state(self) -> None:
         curr_dev = get_current_device() 
-        self._state[curr_dev] += 1
+        self.state[curr_dev] = self.state.get(curr_dev, 0) + 1
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy

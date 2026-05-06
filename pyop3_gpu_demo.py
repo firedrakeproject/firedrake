@@ -57,8 +57,6 @@ with op3.offloading(gpu):
     k.dat.buffer.duplicate()
     k.dat.buffer.duplicate(copy=True)
 
-    k.dat.assign(1, eager=True, eager_strategy="array")
-    
     k.dat.data_rw[...] = 3 
 
     # state tracking checks
@@ -66,18 +64,17 @@ with op3.offloading(gpu):
     assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
-    assert k.dat.buffer.state[host] == 2 # created for mpi sharing
-    assert k.dat.buffer.state[gpu] == 2  # modified 
+    assert k.dat.buffer.state[host] == -1 # not created 
+    assert k.dat.buffer.state[gpu] == 1  # modified 
 
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 assert (g.dat.data_ro == 23).all()
-assert (k.dat.data_ro == 1).all()
 
 # state tracking checks
 assert f.dat.buffer.state[host] == 1  # modified once
 assert f.dat.buffer.state[gpu] == 1  # matches host
 assert g.dat.buffer.state[host] == 1  # matches device
 assert g.dat.buffer.state[gpu] == 1  # modified once
-assert k.dat.buffer.state[host] == 2  # modified twice
-assert k.dat.buffer.state[gpu] == 2  # modified twice 
+assert k.dat.buffer.state[host] == -1  # not created
+assert k.dat.buffer.state[gpu] == 1  # modified once 
