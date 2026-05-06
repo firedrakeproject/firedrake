@@ -89,7 +89,8 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      image: ubuntu:latest
+      # TODO: set to 'ubuntu:latest'
+      image: ubuntu:noble
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
     env:
@@ -477,7 +478,8 @@ jobs:
     name: Build and test Firedrake (Linux CUDA)
     runs-on: [self-hosted, Linux, gpu]
     container:
-      image: ubuntu:latest
+      # TODO: set to 'ubuntu:latest'
+      image: ubuntu:noble
       options: --gpus all
     if: inputs.test_gpu
     env:
