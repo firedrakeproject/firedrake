@@ -84,5 +84,16 @@ def offloading(dev: Device):
     finally:
         _current_device.reset(token)
 
+def on_host(func):
+
+    def wrapper(*args, **kwargs):
+        token = _current_device.set(HOST_DEVICE)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _current_device.reset(token)
+
+    return wrapper 
+
 def get_current_device():
     return _current_device.get()

@@ -22,10 +22,8 @@ from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
     Device,
-    CUDAGPU,
-    CPU,
-    HOST_DEVICE,
-    get_current_device
+    get_current_device,
+    on_host
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -224,9 +222,6 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-
-# NOTE: When GPU support is added, the host-device awareness and
-# copies should live in this class.
 @pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
@@ -520,6 +515,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         }
 
     @not_in_flight
+    @on_host
     def reduce_leaves_to_roots(self):
         self.reduce_leaves_to_roots_begin()
         self.reduce_leaves_to_roots_end()
@@ -548,6 +544,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._finalizer = None
 
     @not_in_flight
+    @on_host
     def broadcast_roots_to_leaves(self):
         self.broadcast_roots_to_leaves_begin()
         self.broadcast_roots_to_leaves_end()

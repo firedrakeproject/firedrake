@@ -517,7 +517,7 @@ class CompiledCodeExecutor:
 
     try:
         import cupy as cp
-        @_as_exec_argument.register
+        @_as_exec_argument.register(cp.ndarray)
         def _(self, handle: cp.ndarray) -> int:
             return handle.data.ptr
     except ImportError:
