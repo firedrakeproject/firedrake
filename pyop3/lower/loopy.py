@@ -416,12 +416,14 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
     return (op.disk_cache_key, compiler_parameters, config)
 
 
-# @memory_and_disk_cache(  # FIXME: debugging things
-@pyop3.cache.memory_cache(
+# NOTE: Some of this code is not specific to loopy, could be refactored
+# This is generally a bit nasty and abstraction breaking because it relies on attrs
+# of the InstructionExecutionContext
+@pyop3.cache.memory_and_disk_cache(
     hashkey=_compile_static_hashkey,
     get_comm=lambda op, *args, **kwargs: op.comm,
 )
-def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> tuple:
+def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
@@ -432,8 +434,7 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
     datamap
 
     """
-    insn = op._preprocess
-    # function_name = insn.name
+    insn = op.preprocess()
     function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
     if isinstance(insn, InstructionList):
@@ -504,12 +505,11 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
     for kernel_arg in entrypoint.args:
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         buffer_ref = context.global_buffers[buffer_key]
-        buffer_index = op.buffers.index(buffer_ref)
+        buffer_index = op.preprocessed_buffers.index(buffer_ref)
         intent = context.global_buffer_intents[buffer_key]
         buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
 
-    # return translation_unit, buffer_index_map, len(op.buffers)
-    return translation_unit, buffer_index_map, op
+    return translation_unit, buffer_index_map
 
 
 

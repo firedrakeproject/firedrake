@@ -265,7 +265,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # we can hit buffers in multiple places...
         # on the outside these are allowed to differ but inside they aren't
         if visitor.outer:
-            breakpoint()
             return (
                 type(self),
                 self.dtype,

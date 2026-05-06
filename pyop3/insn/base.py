@@ -106,6 +106,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
     #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
     # it is everything that gets passed in
     # TODO: Call 'named_terminals'? because that's the type that we have...
+    # exec_arguments?
     @property
     @abc.abstractmethod
     def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
@@ -128,6 +129,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
 
 
+# TODO not a useful thing to have any more
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
@@ -146,9 +148,11 @@ class Loop(Instruction):
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        with visitor.inside():
+            index_key = visitor(self.index)
         return (
             type(self),
-            visitor(self.index),
+            index_key,
             tuple(map(visitor, self.statements)),
         )
 

@@ -124,7 +124,9 @@ class InstructionExecutionContext:
         self.compiler_parameters = compiler_parameters
 
         # Flag for detecting whether or not we hit cache
+        # TODO: rename to 'preprocess_called'?
         self._has_called_compile = False
+        self._preprocessed = None
 
     @property
     def comm(self) -> MPI.Comm:
@@ -134,17 +136,21 @@ class InstructionExecutionContext:
         executable = self.compile()
 
         new_buffers = {}
-        if kwargs:
-            for arg_name, new_arg in kwargs.items():
-                buffer_names = self._argument_name_to_buffer_name_map[arg_name]
-                buffers = self._extract_buffers(new_arg)
-                for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
-                    new_buffers[buffer_name] = buffer
+        for arg_name, new_arg in kwargs.items():
+            buffer_names = self._argument_name_to_buffer_name_map[arg_name]
+            buffers = self._extract_buffers(new_arg)
+            for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
+                new_buffers[buffer_name] = buffer
+
+        # We shouldn't be calling preprocess() if we are hitting cache, this is
+        # an important performance check. Perform the check at the last second
+        # to make sure we're not calling it anywhere.
+        if not self._has_called_compile:
+            assert self._preprocessed is None
 
         executable(**new_buffers)
 
-    @cached_property
-    def _preprocess(self) -> Instruction:
+    def preprocess(self) -> Instruction:
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
@@ -154,23 +160,26 @@ class InstructionExecutionContext:
             insert_literals,
         )
 
-        insn = self.root_insn
-        insn = expand_loop_contexts(insn)
+        if self._preprocessed is None:
+            insn = self.root_insn
+            insn = expand_loop_contexts(insn)
 
-        # bad name, this expands all transformations and pack/unpacks for called functions
-        # 'flatten?'
-        # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
-        old_insn = insn
-        insn = expand_transforms(insn)
-        while insn != old_insn:
+            # bad name, this expands all transformations and pack/unpacks for called functions
+            # 'flatten?'
+            # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
             old_insn = insn
             insn = expand_transforms(insn)
+            while insn != old_insn:
+                old_insn = insn
+                insn = expand_transforms(insn)
 
-        insn = concretize_layouts(insn)
-        insn = insert_literals(insn)
-        insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
+            insn = concretize_layouts(insn)
+            insn = insert_literals(insn)
+            insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
-        return insn
+            self._preprocessed = insn
+
+        return self._preprocessed
 
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
@@ -210,18 +219,38 @@ class InstructionExecutionContext:
         heavy=True,
     )
     def _compile(self) -> CompiledCodeExecutor:
+        from pyop3.lower.loopy import _compile_static
+
+        # Preprocess the instruction. This is an expensive operation so we
+        # want to avoid doing it if at all possible.
+        self.preprocess()
+
         assert not self._has_called_compile
         self._has_called_compile = True
-        executor = compile(self, compiler_parameters=self.compiler_parameters)
+
+        compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
+
+        loopy_code, buffer_index_map = _compile_static(self, self.compiler_parameters)
+        executable = Executable(loopy_code, compiler_parameters, self.comm)
+
+        # TODO: The handling of nest indices here is very confused
+        sorted_buffers = {}
+        for kernel_arg_name, buffer_info in buffer_index_map.items():
+            buffer_index, nest_indices, intent = buffer_info
+            global_buffer = self.preprocessed_buffers[buffer_index]
+            sorted_buffers[kernel_arg_name] = (global_buffer, intent)
+
+        executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)
 
         return executor, self._argument_index_to_buffer_name_map
 
     @cached_property
-    def buffers(self) -> OrderedFrozenSet:
-        """The buffers (global data) that are present in the operation."""
+    def preprocessed_buffers(self) -> OrderedFrozenSet:
+        """Data structures that are arguments to the compiled code."""
         from pyop3.visitors import collect_buffers
 
-        return collect_buffers(self._preprocess)
+        assert self._preprocessed is not None
+        return collect_buffers(self._preprocessed)
 
     @cached_property
     def disk_cache_key(self) -> Hashable:
@@ -233,7 +262,8 @@ class InstructionExecutionContext:
         """
         from pyop3.visitors import get_disk_cache_key
 
-        return get_disk_cache_key(self._preprocess)
+        assert self._preprocessed is not None
+        return get_disk_cache_key(self._preprocessed)
 
 
     @cached_property
@@ -293,6 +323,7 @@ class InstructionExecutionContext:
         return tuple(buf for subdat in agg_dat.subdats for buf in self._extract_buffers(subdat))
 
 
+# TODO: This class is a bit redundant and can/should probably be folded into CompiledCodeExecutor
 class Executable:
     def __init__(self, code: lp.TranslationUnit, compiler_parameters: Mapping, comm: Pyop3Comm):
         self.code = code
@@ -301,8 +332,56 @@ class Executable:
 
     @cached_property
     def callable(self):
-        return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
+        """build a shared library and return a function pointer from it.
 
+        :arg jitmodule: the jit module which can generate the code to compile, or
+            the string representing the source code.
+        :arg extension: extension of the source file (c, cpp)
+        :arg fn_name: the name of the function to return from the resulting library
+        :arg cppargs: a tuple of arguments to the c compiler (optional)
+        :arg ldargs: a tuple of arguments to the linker (optional)
+        :arg argtypes: A list of ctypes argument types matching the arguments of
+             the returned function (optional, pass ``None`` for ``void``). This is
+             only used when string is passed in instead of JITModule.
+        :arg restype: The return type of the function (optional, pass
+             ``None`` for ``void``).
+        :kwarg comm: Optional communicator to compile the code on (only
+            rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
+        """
+        code = lp.generate_code_v2(self.code).device_code()
+        argtypes = [
+            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.default_entrypoint.args
+        ]
+        restype = None
+
+        # ideally move this logic somewhere else
+        cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+        ldargs = (
+            petsctools.get_petsc_dirs(prefix="-L", subdir="lib")
+            + petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib")
+            + ("-lpetsc", "-lm")
+        )
+
+        # NOTE: no - instead of this inspect the compiler parameters!!!
+        # TODO: Make some sort of function in config.py
+        if "LIKWID_MODE" in os.environ:
+            cppargs += ("-DLIKWID_PERFMON",)
+            ldargs += ("-llikwid",)
+
+        dll = pyop3.compile.load(code, "c", cppargs, ldargs, comm=self.comm)
+
+        if self.compiler_parameters.add_petsc_event:
+            # Create the event in python and then set in the shared library to avoid
+            # allocating memory over and over again in the C kernel.
+            event_name = self.code.default_entrypoint.name
+            ctypes.c_int.in_dll(dll, f"id_{event_name}").value = PETSc.Log.Event(event_name).id
+
+        func = getattr(dll, self.code.default_entrypoint.name)
+        func.argtypes = argtypes
+        func.restype = restype
+        return func
+
+    # TODO: this should live on the executor class
     def __call__(self, *args) -> None:
         # if len(self.code.callables_table) > 1 and "expression" in str(self.code):
         #     breakpoint()
@@ -387,7 +466,15 @@ class Executable:
 
 
 class CompiledCodeExecutor:
-    """
+    """Class that executes compiled code.
+
+    Parameters
+    ----------
+    executable
+        The compiled operation.
+    buffer_map
+        Mapping between argument names in the compiled code and actual data buffers.
+
     Notes
     -----
     This class has a large number of cached properties to reduce overhead when it
@@ -612,83 +699,6 @@ class CompiledCodeExecutor:
                 buffer._pending_reduction = intent
 
         return tuple(initializers), tuple(reductions), tuple(broadcasts)
-
-
-# TODO: prefer generate_code?
-def compile(op, compiler_parameters=None):
-    from pyop3.lower.loopy import _compile_static
-
-    compiler_parameters = parse_compiler_parameters(compiler_parameters)
-
-    loopy_code, buffer_index_map, orig_op = _compile_static(op, compiler_parameters)
-    assert len(op.buffers) == len(orig_op.buffers), "huh, bad cache hit?"
-    executable = Executable(loopy_code, compiler_parameters, op.comm)
-
-    # TODO: The handling of nest indices here is very confused
-    sorted_buffers = {}
-    for kernel_arg_name, buffer_info in buffer_index_map.items():
-        buffer_index, nest_indices, intent = buffer_info
-        global_buffer = op.buffers[buffer_index]
-        sorted_buffers[kernel_arg_name] = (global_buffer, intent)
-
-    return CompiledCodeExecutor(executable, sorted_buffers, op.comm)
-
-
-# NOTE: A lot of this is more generic than just loopy, try to refactor
-def compile_loopy(translation_unit, *, compiler_parameters, comm):
-    """Build a shared library and return a function pointer from it.
-
-    :arg jitmodule: The JIT Module which can generate the code to compile, or
-        the string representing the source code.
-    :arg extension: extension of the source file (c, cpp)
-    :arg fn_name: The name of the function to return from the resulting library
-    :arg cppargs: A tuple of arguments to the C compiler (optional)
-    :arg ldargs: A tuple of arguments to the linker (optional)
-    :arg argtypes: A list of ctypes argument types matching the arguments of
-         the returned function (optional, pass ``None`` for ``void``). This is
-         only used when string is passed in instead of JITModule.
-    :arg restype: The return type of the function (optional, pass
-         ``None`` for ``void``).
-    :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
-    """
-    code = lp.generate_code_v2(translation_unit).device_code()
-    argtypes = [
-        cast_loopy_arg_to_ctypes_type(arg) for arg in translation_unit.default_entrypoint.args
-    ]
-    restype = None
-
-    # ideally move this logic somewhere else
-    cppargs = (
-        petsctools.get_petsc_dirs(prefix="-I", subdir="include")
-        # + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
-        # + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
-    )
-    ldargs = (
-        petsctools.get_petsc_dirs(prefix="-L", subdir="lib")
-        + petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib")
-        + ("-lpetsc", "-lm")
-        # + tuple(self.local_kernel.ldargs)
-    )
-
-    # NOTE: no - instead of this inspect the compiler parameters!!!
-    # TODO: Make some sort of function in config.py
-    if "LIKWID_MODE" in os.environ:
-        cppargs += ("-DLIKWID_PERFMON",)
-        ldargs += ("-llikwid",)
-
-    dll = pyop3.compile.load(code, "c", cppargs, ldargs, comm=comm)
-
-    if compiler_parameters.add_petsc_event:
-        # Create the event in python and then set in the shared library to avoid
-        # allocating memory over and over again in the C kernel.
-        event_name = translation_unit.default_entrypoint.name
-        ctypes.c_int.in_dll(dll, f"id_{event_name}").value = PETSc.Log.Event(event_name).id
-
-    func = getattr(dll, translation_unit.default_entrypoint.name)
-    func.argtypes = argtypes
-    func.restype = restype
-    return func
 
 
 @functools.singledispatch
