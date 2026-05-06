@@ -86,19 +86,19 @@ source/team.rst: source/team2.py
 
 source/apt_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--package-manager ubuntu24.04-x86_64 \
+		--os ubuntu24.04-x86_64 \
 		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
 source/homebrew_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--package-manager macos-arm64 \
+		--os macos-arm64 \
 		--show-system-packages > source/homebrew_deps.tmp
 	mv source/homebrew_deps.tmp source/homebrew_deps.txt
 
 source/petsc_configure_options.txt:
 	python3 ../scripts/firedrake-configure \
-		--no-package-manager \
+		--os unknown \
 		--show-petsc-configure-options > source/petsc_configure_options.tmp
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 

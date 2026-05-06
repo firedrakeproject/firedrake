@@ -77,6 +77,7 @@ def main():
     os_ = args.os if args.os else detect_os()
 
     arch_key = (os_, args.scalar_type, args.gpu_arch)
+    arch_key_str = f"({', '.join(f'{k.__class__.__name__}: {k.name}' for k in arch_key)})"
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
     elif arch_key in COMMUNITY_ARCHS:
@@ -87,7 +88,7 @@ def main():
         )
     else:
         error(
-            f"Firedrake configuration not found for option set {arch_key}, "
+            f"Firedrake configuration not found for option set '{arch_key_str}', "
             "please consider passing '--os unknown' or building manually"
         )
 
@@ -97,7 +98,7 @@ def main():
         except InvalidConfigurationError:
             error(
                 "Don't know what system dependencies to install for this arch "
-                f"{arch_key}, please install them manually"
+                f"'{arch_key_str}', please install them manually"
             )
     elif args.show_petsc_configure_options:
         arch.show_petsc_configure_options()
@@ -415,7 +416,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
-        name="firedrake-default-cuda",
+        name="default-cuda",
         system_packages=[
             "bison",
             "build-essential",
