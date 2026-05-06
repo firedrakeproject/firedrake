@@ -325,9 +325,9 @@ class Arch:
         env |= self.extra_env_vars
 
         replace_mapping = {
-            "$PETSC_DIR", petsc_dir,
-            "$PETSC_ARCH", petsc_arch,
-            "$PATH", os.environ.get("PATH", ""),
+            "$PETSC_DIR": petsc_dir,
+            "$PETSC_ARCH": petsc_arch,
+            "$PATH": os.environ.get("PATH", ""),
         }
 
         def replace_vars(value: str):
