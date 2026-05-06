@@ -21,6 +21,8 @@ import numpy as np
 from firedrake import *
 import pyop3 as op3
 
+from pyop3.device import on_host
+
 
 # made up API, we need some way to identify the device
 host = op3.HOST_DEVICE  # or similar
@@ -55,18 +57,18 @@ with op3.offloading(gpu):
     k.dat.buffer.duplicate()
     k.dat.buffer.duplicate(copy=True)
 
-    k.dat.data_wo[...] = 1
+    k.dat.assign(1, eager=True, eager_strategy="array")
+    
+    k.dat.data_rw[...] = 3 
 
     # state tracking checks
     assert f.dat.buffer.state[host] == 1  # modified once
     assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
-    assert k.dat.buffer.state[host] == -1 # not created 
-    assert k.dat.buffer.state[gpu] == 1  # modified once
+    assert k.dat.buffer.state[host] == 2 # created for mpi sharing
+    assert k.dat.buffer.state[gpu] == 2  # modified 
 
-# print(f"{g.dat.buffer._lazy_data=}")
-# print(f"{f.dat.buffer._lazy_data=}")
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 assert (g.dat.data_ro == 23).all()
@@ -77,5 +79,5 @@ assert f.dat.buffer.state[host] == 1  # modified once
 assert f.dat.buffer.state[gpu] == 1  # matches host
 assert g.dat.buffer.state[host] == 1  # matches device
 assert g.dat.buffer.state[gpu] == 1  # modified once
-assert k.dat.buffer.state[host] == 1  # modified once
-assert k.dat.buffer.state[gpu] == 1  # modified once
+assert k.dat.buffer.state[host] == 2  # modified twice
+assert k.dat.buffer.state[gpu] == 2  # modified twice 
