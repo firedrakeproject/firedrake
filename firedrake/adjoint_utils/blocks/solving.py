@@ -12,24 +12,6 @@ from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 
 
-def _extract_meshes(expr):
-    try:
-        return tuple(extract_domains(expr))
-    except AttributeError:
-        return ()
-
-
-def _extract_unique_mesh_for_constant(expr):
-    meshes = _extract_meshes(expr)
-    if len(meshes) != 1:
-        raise NotImplementedError(
-            "Differentiating a multi-domain/Submesh solve with respect to a "
-            "Constant is not implemented yet: cannot choose a unique mesh for "
-            "the Constant adjoint function space."
-        )
-    return meshes[0]
-
-
 def extract_subfunction(u, V):
     """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
     if V.index is not None:
@@ -93,11 +75,17 @@ class GenericSolveBlock(Block):
         for bc in self.bcs:
             self.add_dependency(bc, no_duplicates=True)
 
-        for mesh in _extract_meshes(self.lhs):
-            self.add_dependency(mesh, no_duplicates=True)
-        if isinstance(self.rhs, ufl.Form):
-            for mesh in _extract_meshes(self.rhs):
+        try:  # add all meshes as dependency
+            for mesh in tuple(extract_domains(self.lhs)):
                 self.add_dependency(mesh, no_duplicates=True)
+        except AttributeError:
+            pass
+
+        if isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
+            # add all meshes as dependency
+            for mesh in tuple(extract_domains(self.rhs)):
+                self.add_dependency(mesh, no_duplicates=True)
+
         self._init_solver_parameters(args, kwargs)
 
     def _init_solver_parameters(self, args, kwargs):
@@ -265,9 +253,8 @@ class GenericSolveBlock(Block):
         c_rep = block_variable.saved_output
 
         if isconstant(c):
-            mesh = _extract_unique_mesh_for_constant(F_form)
             trial_function = firedrake.TrialFunction(
-                c._ad_function_space(mesh)
+                c.function_space()
             )
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
@@ -477,8 +464,7 @@ class GenericSolveBlock(Block):
             return [tmp_bc]
 
         if isconstant(c_rep):
-            mesh = _extract_unique_mesh_for_constant(F_form)
-            W = c._ad_function_space(mesh)
+            W = c_rep.function_space()
         elif isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
@@ -781,7 +767,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            mesh = _extract_unique_mesh_for_constant(F_form)
+            mesh = extract_domains(F_form)[0]  # I don't like this
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )

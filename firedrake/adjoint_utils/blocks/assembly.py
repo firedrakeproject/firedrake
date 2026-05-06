@@ -7,31 +7,18 @@ from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 
 
-def _extract_meshes(expr):
-    try:
-        return tuple(extract_domains(expr))
-    except AttributeError:
-        return ()
-
-
-def _extract_unique_mesh_for_constant(expr):
-    meshes = _extract_meshes(expr)
-    if len(meshes) != 1:
-        raise NotImplementedError(
-            "Differentiating an assembled multi-domain/Submesh form with respect "
-            "to a Constant is not implemented yet: cannot choose a unique mesh "
-            "for the Constant adjoint function space."
-        )
-    return meshes[0]
-
-
 class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        if not isinstance(self.form, ufl.Interpolate):
+        try:  # form can have multiple meshes
+            meshes = tuple(extract_domains(form))
+        except AttributeError:
+            meshes = None
+
+        if meshes and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
-            for mesh in _extract_meshes(form):
+            for mesh in meshes:  # add all meshes as dependency
                 self.add_dependency(mesh, no_duplicates=True)
 
         for c in self.form.coefficients():
@@ -118,8 +105,7 @@ class AssembleBlock(Block):
         arity_form = len(form.arguments())
 
         if isconstant(c):
-            mesh = _extract_unique_mesh_for_constant(self.form)
-            space = c._ad_function_space(mesh)
+            space = c.function_space()
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
         elif isinstance(c, firedrake.MeshGeometry):
@@ -176,8 +162,7 @@ class AssembleBlock(Block):
         c1_rep = block_variable.saved_output
 
         if isconstant(c1):
-            mesh = _extract_unique_mesh_for_constant(form)
-            space = c1._ad_function_space(mesh)
+            space = c1.function_space()
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
         elif isinstance(c1, firedrake.MeshGeometry):
