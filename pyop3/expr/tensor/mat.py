@@ -353,6 +353,8 @@ class Mat(Tensor):
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
+    from pyop3.axis_tree.visitors.layout import _collect_regions
+
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
         comm = utils.common_comm((row_axes, column_axes), "comm")
 
@@ -361,8 +363,16 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             column_spec = column_axes
             # return row_spec, column_spec
         else:
-            nrows = row_axes.unindexed.owned.local_size
-            ncolumns = column_axes.unindexed.owned.local_size
+            # we only care about the first region, all others aren't 'real' unknowns
+            region_selector = _collect_regions(row_axes.unindexed)[0]
+            if isinstance(region_selector, str):  # clean this up
+                region_selector = frozenset({region_selector})
+            nrows = row_axes.unindexed.with_region_labels(region_selector).local_size
+
+            region_selector = _collect_regions(column_axes.unindexed)[0]
+            if isinstance(region_selector, str):  # clean this up
+                region_selector = frozenset({region_selector})
+            ncolumns = column_axes.unindexed.with_region_labels(region_selector).local_size
 
             row_block_shape, column_block_shape = partial_spec.block_shape
             if row_block_shape:
@@ -377,8 +387,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_block_size = np.prod(row_block_shape, dtype=pyop3.dtypes.IntType)
             column_block_size = np.prod(column_block_shape, dtype=pyop3.dtypes.IntType)
 
-            row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos, bsize=row_block_size, comm=comm)
-            column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos, bsize=column_block_size, comm=comm)
+            row_lgmap = PETSc.LGMap().create(blocked_row_axes.materialize().global_numbering.data_ro_with_halos, bsize=row_block_size, comm=comm)
+            column_lgmap = PETSc.LGMap().create(blocked_column_axes.materialize().global_numbering.data_ro_with_halos, bsize=column_block_size, comm=comm)
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)

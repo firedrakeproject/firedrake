@@ -173,7 +173,8 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self._buffer), visitor(self.layout))
 
-    get_instruction_executor_cache_key = get_disk_cache_key
+    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+        return (type(self), visitor(self._buffer), visitor(self.layout, inside=True))
 
     def __init__(self, buffer, layout):
         object.__setattr__(self, "_buffer", buffer)
@@ -181,9 +182,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        from pyop3.expr.visitors import check_valid_layout
-
-        check_valid_layout(self.layout)
+        pass
 
     # }}}
 

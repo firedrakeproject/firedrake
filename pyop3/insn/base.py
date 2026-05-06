@@ -148,11 +148,9 @@ class Loop(Instruction):
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        with visitor.inside():
-            index_key = visitor(self.index)
         return (
             type(self),
-            index_key,
+            visitor(self.index, inside=True),
             tuple(map(visitor, self.statements)),
         )
 
@@ -895,7 +893,14 @@ class Exscan(TerminalInstruction):
             visitor(self.scan_axis),
         )
 
-    get_instruction_executor_cache_key = get_disk_cache_key
+    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.assignee),
+            visitor(self.expression),
+            self.scan_type,
+            visitor(self.scan_axis, inside=True),
+        )
 
     # }}}
 

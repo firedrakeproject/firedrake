@@ -1260,6 +1260,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 start, stop, step = slice_component.with_size(target_component._size)
                 component_size = (stop-start) // step
 
+            elif isinstance(slice_component, RegionSliceComponent):
+                region_index = target_component.region_labels.index(slice_component.region)
+                component_size = target_component.regions[region_index].size
+
+            if component_size is not None:
+                component_size = replace_terminals(component_size, seen_target_exprs)
+
         component = AxisComponent(indexed_regions, label=component_label, sf=sf, size=component_size)
         components.append(component)
 

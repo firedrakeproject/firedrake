@@ -476,6 +476,8 @@ class Dat(Tensor):
                 f"must be '{PETSc.ScalarType}'"
             )
 
+        # NOTE: We only return a vec containing the owned and unconstrained values
+
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
         is_view = isinstance(self.axes.owned._buffer_indices, slice)
@@ -492,12 +494,12 @@ class Dat(Tensor):
         block_size = np.prod(block_shape, dtype=int) 
         if self._work_vec is None:
             array = self.data_ro
-            size = (array.size, None)
+            sizes = self.axes.template_vec(block_shape).sizes
             if is_view:
-                vec = PETSc.Vec().createWithArray(array, size, block_size, self.comm)
+                vec = PETSc.Vec().createWithArray(array, sizes, block_size, self.comm)
             else:
                 vec = PETSc.Vec().create(self.comm)
-                vec.setSizes(size, block_size)
+                vec.setSizes(sizes, block_size)
             self._work_vec = vec
         else:
             # The block size may change between invocations

@@ -233,7 +233,8 @@ class InstructionExecutionContext:
         loopy_code, buffer_index_map = _compile_static(self, self.compiler_parameters)
         executable = Executable(loopy_code, compiler_parameters, self.comm)
 
-        # TODO: The handling of nest indices here is very confused
+        # TODO: We don't do anything with nest indices yet because we have always already
+        # unpacked things
         sorted_buffers = {}
         for kernel_arg_name, buffer_info in buffer_index_map.items():
             buffer_index, nest_indices, intent = buffer_info
@@ -383,10 +384,10 @@ class Executable:
 
     # TODO: this should live on the executor class
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "expression" in str(self.code):
+        # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
         #     breakpoint()
-        import pyop3.debug
-        pyop3.debug.maybe_breakpoint()
+        # import pyop3.debug
+        # pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
@@ -491,6 +492,12 @@ class CompiledCodeExecutor:
         self.buffer_map = buffer_map
         self.comm = comm
 
+        if any(
+            buf.name == "dat_1_buffer"
+            for buf, intent in buffer_map.values()
+        ):
+            breakpoint()
+
     @cached_property
     def _buffer_refs(self) -> tuple[BufferRef]:  # BufferRef is gone
         return tuple(ref for ref, _ in self.buffer_map.values())
@@ -536,6 +543,7 @@ class CompiledCodeExecutor:
             lambda: all(arg is not None for arg in exec_arguments),
             "Attempting to pass a null pointer to the executable",
         )
+
         self.executable(*exec_arguments)
 
     def __str__(self) -> str:

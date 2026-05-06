@@ -1264,6 +1264,29 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             blocked_tree = AxisTree(node_map)
         return tuple(indices)
 
+    @cached_method()
+    def template_vec(self, block_shape: tuple[int, ...]) -> PETSc.Vec:
+        """Dummy PETSc Vec of the right size for this set of axes."""
+        vec = PETSc.Vec().create(comm=self.comm)
+        axes = self.materialize()  # discard parent information
+
+        # As far as PETSc is concerned, the only DoFs that it knows about are those
+        # held in the first region (which is 'owned' + 'unconstrained').
+        from pyop3.axis_tree.visitors.layout import _collect_regions
+        region_selector = _collect_regions(axes)[0]
+        if isinstance(region_selector, str):  # clean this up
+            region_selector = frozenset({region_selector})
+
+        block_size = np.prod(block_shape, dtype=int)
+        vec.setSizes(
+            # (axes.owned.unconstrained.local_size, axes.unconstrained.global_size),
+            (axes.with_region_labels(region_selector).local_size, None),
+            bsize=block_size,
+        )
+        vec.setUp()
+        return vec
+
+
 
 @pyop3.record.frozenrecord()
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
@@ -1401,6 +1424,22 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         section.setUp()
         return section
 
+    @cached_method()
+    def section_sf(self, path: PathT, component: ComponentT) -> PETSc.Section:
+        # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
+        from pyop3 import Dat, loop
+
+        path = as_path(path)
+        component_label = as_component_label(component)
+        axis = self.node_map[path]
+        component = utils.just_one(c for c in axis.components if c.label == component_label)
+
+        section = self.section(path, component)
+        petsc_sf = create_petsc_section_sf(component.sf.sf, section)
+        sf = pyop3.sf.StarForest(petsc_sf, component.sf.comm)
+
+        breakpoint()
+
     # }}}
 
     @cached_method()
@@ -1475,17 +1514,25 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         assert isinstance(self.local_size, numbers.Integral)
         return slice(self.local_size)
 
+    # This is a PETSc-specific attribute
     @cached_property
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        with temp_internal_comm(self.sf.comm) as icomm:
-            start = self.sf.comm.exscan(self.owned.local_size) or 0
+        from pyop3.axis_tree.visitors.layout import _collect_regions
+
+        region_selector = _collect_regions(self)[0]
+        if isinstance(region_selector, str):
+            region_selector = frozenset({region_selector})
+        unconstrained = self.with_region_labels(region_selector)
+
+        with temp_internal_comm(self.comm) as icomm:
+            start = icomm.exscan(unconstrained.local_size) or 0
         numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
-        # set ghost entries to -1 to make sure they are overwritten
+        # set ghost+constrained entries to -1 to make sure they are overwritten
         # TODO: if config.debug:
-        numbering[self.owned.local_size:] = -1
+        numbering[unconstrained.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         debug_assert(lambda: (numbering >= 0).all())
         return Dat(self.localize(), data=numbering)
@@ -1802,6 +1849,8 @@ class IndexedAxisTree(AbstractAxisTree):
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
+        assert False, "does this work? is it valid?"
+
         return Dat(self.localize(), buffer=self.unindexed.global_numbering.buffer)
 
     # }}}
@@ -2039,7 +2088,8 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
     return utils.freeze(matching_target)
 
 
-class AxisForest(DistributedObject):
+@pyop3.record.frozenrecord()
+class AxisForest(pyop3.obj.Pyop3Object):
     """A collection of equivalent axis trees.
 
     Axis forests are useful to describe circumstances where there are multiple
@@ -2049,6 +2099,14 @@ class AxisForest(DistributedObject):
     other and so must coexist.
 
     """
+
+    # {{{ instance attrs
+
+    trees: tuple
+
+    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+        return (type(self), tuple(map(visitor, self.trees)))
+
     def __init__(self, trees: Sequence[AbstractAxisTree]) -> None:
         # TODO: Should check the trees for compatibility (e.g. do they have the same SF?)
         trees = tuple(trees)
@@ -2056,16 +2114,9 @@ class AxisForest(DistributedObject):
         if not all(isinstance(tree, (AbstractAxisTree, UnitIndexedAxisTree, _UnitAxisTree)) for tree in trees):
             raise TypeError
 
-        self.trees = trees
+        object.__setattr__(self, "trees", trees)
 
-    def __eq__(self, /, other: Any) -> bool:
-        return type(other) is type(self) and other.trees == self.trees
-
-    def __hash__(self) -> int:
-        return hash((type(self), self.trees))
-
-    def __repr__(self) -> str:
-        return f"AxisForest(({', '.join(repr(tree) for tree in self.trees)}))"
+    # }}}
 
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
@@ -2142,6 +2193,9 @@ class AxisForest(DistributedObject):
 
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
+
+    def template_vec(self, block_shape):
+        return self.trees[0].template_vec(block_shape)
 
     def localize(self) -> AxisForest:
         return type(self)((tree.localize() for tree in self.trees))

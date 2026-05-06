@@ -656,20 +656,9 @@ class AbstractFunctionSpace:
         return self.section
 
     @cached_property
-    @_with_mesh_heavy_cache
-    def template_vec(self) -> PETSc.Vec:
-        """Dummy PETSc Vec of the right size for this set of axes."""
-        vec = PETSc.Vec().create(comm=self.comm)
-        axes = self.layout_axes.materialize()  # discard parent information
-        vec.setSizes(
-            (axes.owned.local_size, axes.global_size),
-            bsize=self.block_size,
-        )
-        try:
-            vec.setUp()
-        except:
-            breakpoint()
-        return vec
+    @deprecated("axes.template_vec")
+    def template_vec(self):
+        return self.layout_axes.template_vec(self.shape)
 
     @cached_method()
     def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
@@ -689,6 +678,13 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
+        from pyop3.axis_tree.visitors.layout import _collect_regions
+
+        # region_selector = _collect_regions(self.axes)[0]
+        # if isinstance(region_selector, str):
+        #     region_selector = frozenset({region_selector})
+
+        # lgmap_axes = self.axes.with_region_labels(region_selector).materialize()
         lgmap_axes = self.axes.materialize()
         if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
@@ -1131,8 +1127,8 @@ class FunctionSpace(AbstractFunctionSpace):
 
         num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(self._mesh, ndofs_array, self.block_size, self.boundary_set)
 
-        unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
-        constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
+        unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs, buffer_kwargs={"constant": True})
+        constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs, buffer_kwargs={"constant": True})
         unconstrained_dofs_expr = op3.as_linear_buffer_expression(unconstrained_dofs_dat)
 
         # TODO: ideally do this earlier but we have to do it here because we renumber inside

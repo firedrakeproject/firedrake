@@ -351,6 +351,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     is_nested: ClassVar[bool] = False
 
+    # TODO: is this safe? might want to split by intent
     @property
     def handle(self) -> np.ndarray:
         return self._data
@@ -399,46 +400,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return cls(data, **kwargs)
 
     # }}}
-
-    # @property
-    # @not_in_flight
-    # @deprecated(".data_rw")
-    # def data(self):
-    #     return self.data_rw
-
-    # @property
-    # @record_modified
-    # @not_in_flight
-    # def data_rw(self):
-    #     if not self._roots_valid:
-    #         self.reduce_leaves_to_roots()
-    #
-    #     # modifying owned values invalidates ghosts
-    #     self._leaves_valid = False
-    #     return self._owned_data
-
-    # @property
-    # @not_in_flight
-    # def data_ro(self):
-    #     if not self._roots_valid:
-    #         self.reduce_leaves_to_roots()
-    #     return readonly(self._owned_data)
-
-    # @property
-    # @record_modified
-    # @not_in_flight
-    # def data_wo(self):
-    #     """
-    #     Have to be careful. If not setting all values (i.e. subsets) should call
-    #     `reduce_leaves_to_roots` first.
-    #
-    #     When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-    #     can be dropped.
-    #     """
-    #     # pending writes can be dropped
-    #     self._pending_reduction = None
-    #     self._leaves_valid = False
-    #     return self._owned_data
 
     @property
     @not_in_flight
@@ -500,12 +461,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _data(self):
         if self._lazy_data is None:
             self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-        if self.name == "array_247_buffer":
-            breakpoint()
         return self._lazy_data
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
-    # axis tree. Here we can just consider the array.
+    # axis tree. Here we can just consider the array. Ah, but maybe we want to
+    # avoid halo exchanges
     # @property
     # def _owned_data(self):
     #     if self.sf and self.sf.nleaves > 0:

@@ -122,6 +122,14 @@ class InstructionExecutorCacheKeyGetter(CacheKeyGetter):
         self.outer = True
         super().__init__()
 
+    def __call__(self, obj, *, inside=None):
+        if inside is not None:
+            assert inside == True
+            with self.inside():
+                return super().__call__(obj)
+        else:
+            return super().__call__(obj)
+
     @contextlib.contextmanager
     def inside(self):
         prev_outer = self.outer

@@ -1074,20 +1074,6 @@ class ParloopFormAssembler(FormAssembler):
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
-            # TODO: move this elsewhere, or avoid entirely?
-            # this is now done inside Instruction.__call__
-            # if isinstance(subtensor, op3.Mat):
-            #     if subtensor.buffer.mat_type == "nest":
-            #         breakpoint()
-            #         subtensor = ...
-            #     elif subtensor.buffer.mat_type == "python":
-            #         subtensor = subtensor.buffer.mat.getPythonContext().dat
-
-                # if isinstance(self, ExplicitMatrixAssembler) and tensor.M.buffer.mat_type == "nest":
-                #     tensor_name[local_kernel] = (subtensor.buffer.name, (local_kernel.indices,))
-                # else:
-                #     tensor_name[local_kernel] = (subtensor.buffer.name, ())
-
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                     parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
