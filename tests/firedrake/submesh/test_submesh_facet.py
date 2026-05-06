@@ -122,3 +122,15 @@ def test_submesh_facet_corner_case_2():
     facet_value = 999
     mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
     _ = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
+
+
+def test_submesh_facet_all_facets():
+    mesh = UnitCubeMesh(2, 2, 2)
+    submesh1 = Submesh(mesh, mesh.topological_dimension - 1)
+
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_function = Function(V).assign(1)
+    facet_value = 999
+    rmesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    submesh2 = Submesh(rmesh, mesh.topological_dimension - 1, facet_value)
+    assert submesh2.cell_set.size == submesh1.cell_set.size

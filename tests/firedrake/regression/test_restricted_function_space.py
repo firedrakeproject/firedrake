@@ -488,13 +488,22 @@ def test_restrict_python_pc():
     assert errornorm(u_exact, u) < 1E-10
 
 
-def test_restrict_multigrid():
+@pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
+def test_restrict_multigrid(degree, relax):
+    if relax == "asm":
+        relax_params = {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+        }
+    else:
+        relax_params = {"pc_type": relax}
+
     base = UnitSquareMesh(2, 2)
     refine = 2
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", degree)
     u = Function(V)
     test = TestFunction(V)
 
@@ -514,7 +523,7 @@ def test_restrict_multigrid():
         "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
+        "mg_levels": relax_params,
         "mg_coarse_pc_type": "lu"})
     solver.solve()
 

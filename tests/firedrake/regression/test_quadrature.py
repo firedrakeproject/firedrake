@@ -20,6 +20,25 @@ def test_hand_specified_quadrature(mesh):
     assert not np.allclose(a_q0.dat.data, a_q2.dat.data)
 
 
+def test_hand_specified_max_quadrature():
+    mesh = UnitIntervalMesh(1)
+
+    x, = SpatialCoordinate(mesh)
+    a = (x**4)*dx
+
+    # These should be the same because we only need degree=4 for exact integration.
+    x4 = assemble(a)
+    x4_maxquad5 = assemble(a, form_compiler_parameters={"max_quadrature_degree": 5})
+
+    assert np.isclose(x4, x4_maxquad5)
+
+    # These should be the same because degree=2 will limit the quadrature
+    x4_quad2 = assemble(a, form_compiler_parameters={"quadrature_degree": 2})
+    x4_maxquad2 = assemble(a, form_compiler_parameters={"max_quadrature_degree": 2})
+
+    assert np.isclose(x4_quad2, x4_maxquad2)
+
+
 @pytest.mark.parametrize("diagonal", [False, True])
 @pytest.mark.parametrize("mat_type", ["matfree", "aij"])
 @pytest.mark.parametrize("family", ["Quadrature", "Boundary Quadrature"])

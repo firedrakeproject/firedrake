@@ -28,10 +28,9 @@ def assert_local_equality(A, Asub, V, Vsub):
 @pytest.mark.parametrize("reorder", [False, True])
 @pytest.mark.parametrize("ignore_halo", [False, True])
 def test_create_submesh_comm_self(reorder, ignore_halo):
-    subdomain_id = None
     nx = 4
     mesh = UnitSquareMesh(nx, nx, quadrilateral=True, reorder=reorder, distribution_parameters={"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)})
-    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=ignore_halo, reorder=reorder, comm=COMM_SELF)
+    submesh = Submesh(mesh, ignore_halo=ignore_halo, reorder=reorder, comm=COMM_SELF)
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
     # Submesh on COMM_SELF should not have halo
@@ -49,13 +48,12 @@ def test_create_submesh_comm_self(reorder, ignore_halo):
 @pytest.mark.parametrize("family,degree", [("DG", 0), ("CG", 1)])
 @pytest.mark.parametrize("reorder", [False, True])
 def test_assemble_submesh_comm_self(family, degree, reorder):
-    subdomain_id = None
     nx = 6
     ny = 5
     px = -np.cos(np.linspace(0, np.pi, nx))
     py = -np.cos(np.linspace(0, np.pi, ny))
     mesh = TensorRectangleMesh(px, py, reorder=reorder)
-    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=True, reorder=reorder, comm=COMM_SELF)
+    submesh = Submesh(mesh, ignore_halo=True, reorder=reorder, comm=COMM_SELF)
 
     Vsub = FunctionSpace(submesh, family, degree)
     Asub = assemble(inner(TrialFunction(Vsub), TestFunction(Vsub))*dx)

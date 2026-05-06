@@ -192,9 +192,20 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         return self
 
     @PETSc.Log.EventDecorator()
+    def __isub__(self, other):
+        self += -1*other
+        return self
+
+    @PETSc.Log.EventDecorator()
     def __add__(self, other):
         new = self.copy()
         new += other
+        return new
+
+    @PETSc.Log.EventDecorator()
+    def __sub__(self, other):
+        new = self.copy()
+        new -= other
         return new
 
     @PETSc.Log.EventDecorator()
@@ -205,13 +216,18 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     @PETSc.Log.EventDecorator()
     def __rmul__(self, other):
+        new = self.copy()
         if type(other) is type(self):
-            for us, uo in zip(self.subfunctions, other.subfunctions):
-                us.assign(us*uo)
+            for un, uo in zip(new.subfunctions, other.subfunctions):
+                un.assign(uo*un)
         else:
-            for us in self.subfunctions:
-                us *= other
-        return self
+            for un in new.subfunctions:
+                un.assign(other*un)
+        return new
+
+    @PETSc.Log.EventDecorator()
+    def __neg__(self):
+        return (-1)*self
 
     @contextmanager
     def vec(self):

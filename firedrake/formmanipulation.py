@@ -15,7 +15,6 @@ from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Coargument
-from firedrake.matrix import AssembledMatrix
 
 
 def subspace(V, indices):
@@ -49,7 +48,19 @@ class ExtractSubBlock(MultiFunction):
                     return ListTensor(*(child[i] for i in indices))
             return self.expr(o, child, multiindex)
 
-    index_inliner = IndexInliner()
+    @property
+    def index_inliner(self):
+        """Return an IndexInliner multifunction.
+
+        This is a property so that the IndexInliner is not created on import.
+        This is a workaround for issues in Irksome caused by the UFL typecode
+        system.
+        """
+        try:
+            return self._index_inliner
+        except AttributeError:
+            type(self)._index_inliner = self.IndexInliner()
+        return self._index_inliner
 
     def _subspace_argument(self, a):
         return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
@@ -161,6 +172,7 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
     def matrix(self, o):
+        from firedrake.matrix import AssembledMatrix
         ises = []
         args = []
         for a in o.arguments():
@@ -180,8 +192,7 @@ class ExtractSubBlock(MultiFunction):
             args.append(asplit)
 
         submat = o.petscmat.createSubMatrix(*ises)
-        bcs = ()
-        return AssembledMatrix(tuple(args), bcs, submat)
+        return AssembledMatrix(tuple(args), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))

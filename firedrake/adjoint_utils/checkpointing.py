@@ -234,7 +234,6 @@ class DiskCheckpointer(TapePackageData):
                 self._local_tmpdir = tempfile.TemporaryDirectory(
                     prefix="firedrake_adjoint_checkpoint_cc_",
                     dir=base_dir,
-                    delete=cleanup,
                     ignore_cleanup_errors=True,
                 )
                 local_path = self._local_tmpdir.name
@@ -250,6 +249,12 @@ class DiskCheckpointer(TapePackageData):
         # the tape (always shared, used by checkpointable_mesh).
         self.init_checkpoint_file = self._new_shared_checkpoint_file()
         self.current_checkpoint_file = self._new_checkpoint_file()
+
+    def __del__(self):
+        """Cleanup TemporaryDirectory if one was created"""
+        if self.cleanup:
+            if self._local_tmpdir is not None:
+                self._local_tmpdir.cleanup()
 
     def _new_shared_checkpoint_file(self):
         """Set up a shared disk checkpointing file (all ranks use same file)."""

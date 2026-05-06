@@ -116,16 +116,27 @@ in dense format. ::
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
 submatrices for each patch from the already-assembled global stiffness matrix.
 
+The `"tinyasm"` backend uses LAPACK to invert all the patch operators, which is ideal
+for low-order discretizations ::
 
-The tinyasm backend uses LAPACK to invert all the patch operators.  If this option
-is not specified, PETSc's ASM framework will set up a small KSP for each patch.
-This can be useful when the patches become larger and one wants to use a sparse
-direct solver or a Krylov iteration on each one. ::
-
-  asm_relax = mg_params({
+  tinyasm_relax = mg_params({
       "pc_type": "python",
       "pc_python_type": "firedrake.ASMStarPC",
       "pc_star_backend": "tinyasm"})
+
+If the backend option is not specified, PETSc's ASM framework will set up a KSP for each patch.
+This can be useful when the patches become larger and one wants to use a sparse
+direct solver or a Krylov iteration on each one.
+
+Moreover, the option `"use_coloring"` applies a mesh coloring to combine
+subsets of non-overlapping patches into sparse block-diagonal matrices. This
+results in a mathematically equivalent preconditioner, while reducing the
+overhead costs of calling the sparse factorization library many times. ::
+
+  color_relax = mg_params({
+      "pc_type": "python",
+      "pc_python_type": "firedrake.ASMStarPC",
+      "pc_star_use_coloring": True})
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
@@ -134,7 +145,8 @@ latter options do the same operations, just via different code paths. ::
 
   names = {"Jacobi": jacobi_relax,
            "Patch": patch_relax,
-           "ASM Star": asm_relax}
+           "Tiny ASM": tinyasm_relax,
+           "Color ASM": color_relax}
 
   for name, method in names.items():
       print(name)
@@ -158,7 +170,7 @@ For Jacobi, we expect output such as
    7         19
 ======== ================
 
-While for either :class:`~.PatchPC` or :class:`~.ASMStarPC`, we expect
+While for either :class:`~.PatchPC` or :class:`~.ASMStarPC` (with dense inversion or with coloring + sparse factorization), we expect
 
 ======== ================
  Degree    Iterations

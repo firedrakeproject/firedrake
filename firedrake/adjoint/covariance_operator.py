@@ -71,7 +71,7 @@ class NoiseBackendBase:
                  seed: int | None = None):
         self._V = V
         self._Vb = V.broken_space()
-        self._rng = rng or RandomGenerator(PCG64(seed=seed))
+        self._rng = rng or RandomGenerator(PCG64(seed=seed, comm=V.comm))
 
     @abc.abstractmethod
     def sample(self, *, rng=None,
@@ -323,7 +323,7 @@ class VOMNoiseBackend(NoiseBackendBase):
 
         b = rng.standard_normal(self.function_space)
 
-        if apply_riesz:
+        if not apply_riesz:
             b = b.riesz_representation(self.riesz_map)
 
         if tensor:
@@ -517,7 +517,7 @@ class CovarianceOperatorBase:
     AutoregressiveCovariance
     CovarianceMatCtx
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
 
     @abc.abstractmethod
@@ -620,6 +620,84 @@ class CovarianceOperatorBase:
             " also want to implement apply_inverse.")
 
 
+class MixedCovarianceOperator(CovarianceOperatorBase):
+    """
+    A block-diagonal covariance operator that acts component-wise on a mixed function space.
+
+    The norm, sample, action, and inverse methods of this covariance operator will
+    apply the corresponding methods of each subcovariance operator to each component of the mixed space.
+
+    Parameters
+    ----------
+    W :
+        The MixedFunctionSpace that this covariance operator acts on.
+    subcovariances :
+        The covariance operators for each component of W.
+
+    See Also
+    --------
+    CovarianceOperatorBase
+    CovarianceMat
+    ~firedrake.preconditioners.covariance.CovariancePC
+    """
+    def __init__(self, W: WithGeometry, subcovariances: Iterable[CovarianceOperatorBase]):
+        if len(subcovariances) != len(W.subspaces):
+            raise ValueError(
+                "Need one covariance operator per component of mixed space")
+        if not all(isinstance(cov, CovarianceOperatorBase)
+                   for cov in subcovariances):
+            raise TypeError(
+                "All covariance operators must be a CovarianceOperatorBase")
+        if not all(cov.function_space() == Wsub
+                   for cov, Wsub in zip(subcovariances, W.subspaces)):
+            raise ValueError(
+                "Covariance function spaces must match W subspaces")
+
+        self._W = W
+        self._subcovariances = subcovariances
+        self._rngs = [cov.rng() for cov in self.subcovariances]
+
+    def function_space(self):
+        return self._W
+
+    @property
+    def subcovariances(self):
+        """The covariance operators for each component of the mixed space."""
+        return self._subcovariances
+
+    def rng(self):
+        return self._rngs
+
+    def sample(self, rng=None, tensor=None):
+        tensor = tensor or Function(self.function_space)
+        for cov, tsub, rsub in zip(self.subcovariances,
+                                   tensor.subfunctions,
+                                   rng or self.rng()):
+            cov.sample(rng=rsub, tensor=tsub)
+        return tensor
+
+    def norm(self, x):
+        return sum(cov.norm(xsub)
+                   for cov, xsub in zip(self.subcovariances,
+                                        x.subfunctions))
+
+    def apply_inverse(self, x, tensor=None):
+        tensor = tensor or Cofunction(self.function_space().dual())
+        for cov, xsub, tsub in zip(self.subcovariances,
+                                   x.subfunctions,
+                                   tensor.subfunctions):
+            cov.apply_inverse(xsub, tensor=tsub)
+        return tensor
+
+    def apply_action(self, x, tensor=None):
+        tensor = tensor or Function(self.function_space())
+        for cov, xsub, tsub in zip(self.subcovariances,
+                                   x.subfunctions,
+                                   tensor.subfunctions):
+            cov.apply_action(xsub, tensor=tsub)
+        return tensor
+
+
 class AutoregressiveCovariance(CovarianceOperatorBase):
     r"""
     An m-th order autoregressive covariance operator using an implicit diffusion operator.
@@ -673,6 +751,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         :func:`.diffusion_form` will be used to generate the diffusion
         form. Otherwise assumed to be a ufl.Form on ``V``.
         Defaults to ``AutoregressiveCovariance.DiffusionForm.CG``.
+    weight :
+        Weighting to normalise the diffusion operator into a correlation operator.
+        Defaults to 1. Only used if ``form`` is a ``ufl.Form``.
     bcs :
         Boundary conditions for the diffusion operator.
     solver_parameters :
@@ -696,7 +777,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     WhiteNoiseGenerator
     CovarianceOperatorBase
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     diffusion_form
     """
 
@@ -714,7 +795,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     def __init__(self, V: WithGeometry, L: float | Constant,
                  sigma: float | Constant = 1., m: int = 2,
                  rng: WhiteNoiseGenerator | None = None,
-                 seed: int | None = None, form=None,
+                 seed: int | None = None,
+                 form=None, weight: Constant | None = None,
                  bcs: BCBase | Iterable[BCBase] | None = None,
                  solver_parameters: dict | None = None,
                  options_prefix: str | None = None,
@@ -741,16 +823,17 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         if self.iterations > 0:
             # Calculate diffusion operator parameters
-            self.kappa = Constant(kappa_m(L, m))
-            self.lambda_m = Constant(lambda_m(L, m))
-            self._weight = Constant(sigma*sqrt(self.lambda_m))
 
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
             if isinstance(form, self.DiffusionForm):
+                self.kappa = Constant(kappa_m(L, m))
+                self.lambda_m = Constant(lambda_m(L, m))
+                self._weight = Constant(sigma*sqrt(self.lambda_m))
                 K = diffusion_form(u, v, self.kappa, formulation=form)
             else:
                 K = form
+                self._weight = weight or Constant(1.0)
 
             M = inner(u, v)*dx
 
@@ -852,7 +935,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
 
 def diffusion_form(u, v, kappa: Constant | Function,
-                   formulation: AutoregressiveCovariance.DiffusionForm):
+                   formulation: AutoregressiveCovariance.DiffusionForm,
+                   cell_size=None):
     """
     Convenience function for common diffusion forms.
 
@@ -873,6 +957,9 @@ def diffusion_form(u, v, kappa: Constant | Function,
         The diffusion coefficient.
     formulation :
         The type of diffusion form.
+    cell_size :
+        The cell size used to calculate the interior penalty stabilisation.
+        Defaults to ``CellSize(mesh)``. Ignored if formulation is ``CG``.
 
     Returns
     -------
@@ -886,6 +973,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
 
     See Also
     --------
+    AutoregressiveCovariance
     AutoregressiveCovariance.DiffusionForm
     """
     if formulation == AutoregressiveCovariance.DiffusionForm.CG:
@@ -894,7 +982,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
     elif formulation == AutoregressiveCovariance.DiffusionForm.IP:
         mesh = v.function_space().mesh()
         n = FacetNormal(mesh)
-        h = CellSize(mesh)
+        h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         alpha_h = Constant(4.0)/h_avg
         return (
@@ -934,7 +1022,7 @@ class CovarianceMatCtx:
     CovarianceOperatorBase
     AutoregressiveCovariance
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     class Operation(Enum):
         """
@@ -945,7 +1033,7 @@ class CovarianceMatCtx:
         CovarianceOperatorBase
         AutoregressiveCovariance
         CovarianceMat
-        CovariancePC
+        ~firedrake.preconditioners.covariance.CovariancePC
         """
         ACTION = 'action'
         INVERSE = 'inverse'
@@ -1014,16 +1102,19 @@ class CovarianceMatCtx:
             viewer.printfASCII(f"    correlation lengthscale: {self.covariance.lengthscale}\n")
             viewer.printfASCII(f"    standard deviation: {self.covariance.stddev}\n")
 
-            if self.operation == self.Operation.ACTION:
-                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
-                ksp = self.covariance.solver.snes.ksp
-            elif self.operation == self.Operation.INVERSE:
-                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
-                ksp = self.covariance.mass_solver.snes.ksp
-            level = ksp.getTabLevel()
-            ksp.setTabLevel(mat.getTabLevel() + 1)
-            ksp.view(viewer)
-            ksp.setTabLevel(level)
+            if viewer.getFormat() == PETSc.Viewer.Format.ASCII_INFO_DETAIL:
+                if self.operation == self.Operation.ACTION:
+                    viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
+                    ksp = self.covariance.solver.snes.ksp
+                elif self.operation == self.Operation.INVERSE:
+                    viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
+                    ksp = self.covariance.mass_solver.snes.ksp
+                viewer.pushASCIITab()
+                ksp.view(viewer)
+                viewer.popASCIITab()
+            else:
+                prefix = mat.getOptionsPrefix() or ""
+                viewer.printfASCII(f"  Use -{prefix}ksp_view ::ascii_info_detail to display information for diffusion or mass solver.\n")
 
 
 def CovarianceMat(covariance: CovarianceOperatorBase,
@@ -1057,7 +1148,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     AutoregressiveCovariance
     CovarianceMatCtx
     CovarianceMatCtx.Operation
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
@@ -1071,109 +1162,3 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
 
 
 CovarianceMat.Operation = CovarianceMatCtx.Operation
-
-
-class CovariancePC(petsctools.PCBase):
-    r"""
-    A python PC context for a covariance operator.
-    Will apply either the action or inverse of the covariance,
-    whichever is the opposite of the Mat operator.
-
-    .. math::
-
-        B: V^{*} \to V
-
-        B^{-1}: V \to V^{*}
-
-    Available options:
-
-    * ``-pc_use_amat`` - use Amat to apply the covariance operator.
-
-    See Also
-    --------
-    CovarianceOperatorBase
-    AutoregressiveCovariance
-    CovarianceMatCtx
-    CovarianceMat
-    """
-    needs_python_pmat = True
-    prefix = "covariance"
-
-    def initialize(self, pc):
-        A, P = pc.getOperators()
-
-        use_amat_prefix = self.parent_prefix + "pc_use_amat"
-        self.use_amat = PETSc.Options().getBool(use_amat_prefix, False)
-        mat = (A if self.use_amat else P).getPythonContext()
-
-        if not isinstance(mat, CovarianceMatCtx):
-            raise TypeError(
-                "CovariancePC needs a CovarianceMatCtx")
-        covariance = mat.covariance
-
-        self.covariance = covariance
-        self.mat = mat
-
-        V = covariance.function_space()
-        primal = Function(V)
-        dual = Function(V.dual())
-
-        # PC does the opposite of the Mat
-        if mat.operation == CovarianceMatCtx.Operation.ACTION:
-            self.operation = CovarianceMatCtx.Operation.INVERSE
-            self.x = primal
-            self.y = dual
-            self._apply_op = covariance.apply_inverse
-        elif mat.operation == CovarianceMatCtx.Operation.INVERSE:
-            self.operation = CovarianceMatCtx.Operation.ACTION
-            self.x = dual
-            self.y = primal
-            self._apply_op = covariance.apply_action
-
-    def apply(self, pc, x, y):
-        """Apply the action or inverse of the covariance operator
-        to x, putting the result in y.
-
-        y is not guaranteed to be zero on entry.
-
-        Parameters
-        ----------
-        pc : PETSc.PC
-            The PETSc preconditioner that self is the python context of.
-        x : PETSc.Vec
-            The vector acted on by the pc.
-        y : PETSc.Vec
-            The result of the pc application.
-        """
-        with self.x.dat.vec_wo as xvec:
-            x.copy(result=xvec)
-
-        self._apply_op(self.x, tensor=self.y)
-
-        with self.y.dat.vec_ro as yvec:
-            yvec.copy(result=y)
-
-    def update(self, pc):
-        pass
-
-    def view(self, pc, viewer=None):
-        """View object. Method usually called by PETSc with e.g. -ksp_view.
-        """
-        if viewer is None:
-            return
-        if viewer.getType() != PETSc.Viewer.Type.ASCII:
-            return
-
-        viewer.printfASCII(f"  firedrake covariance operator preconditioner: {type(self).__name__}\n")
-        viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
-
-        if self.use_amat:
-            viewer.printfASCII("  using Amat matrix\n")
-
-        if (type(self.covariance) is AutoregressiveCovariance) and (self.covariance.iterations > 0):
-            if self.operation == CovarianceMatCtx.Operation.ACTION:
-                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
-                self.covariance.solver.snes.ksp.view(viewer)
-            elif self.operation == CovarianceMatCtx.Operation.INVERSE:
-                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
-                self.covariance.mass_solver.snes.ksp.view(viewer)

@@ -40,13 +40,24 @@ def V(mesh, space, degree):
         return FunctionSpace(mesh, space, degree, variant="integral")
 
 
-@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
-def test_transfer(op, V):
+def expr(V):
+    mesh = V.mesh()
+    x = SpatialCoordinate(mesh)
+    rank = len(V.value_shape)
+    if rank == 0:
+        return sum(x)
+    elif rank == 1:
+        if V.ufl_element().sobolev_space == HCurl and len(x) == 2:
+            return perp(x)
+        else:
+            return x
+    elif rank == 2:
+        return sym(outer(x, Constant([1]*len(x))))
+    else:
+        raise ValueError("Unexpected value shape")
 
-    def expr(V):
-        x = SpatialCoordinate(V.mesh())
-        return {H1: x, HCurl: perp(x), HDiv: x}[V.ufl_element().sobolev_space]
 
+def check_transfer(op, V):
     mh, _ = get_level(V.mesh())
     Vf = V
     Vc = V.reconstruct(mh[0])
@@ -87,8 +98,20 @@ def test_transfer(op, V):
         assert errornorm(expr(Vc), uc) < 1E-13
 
 
+@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
+def test_transfer(op, V):
+    check_transfer(op, V)
+
+
+@pytest.mark.parametrize("family,degree", [("AWc", 3)])
+@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
+def test_transfer_zany(op, mesh, family, degree):
+    V = FunctionSpace(mesh, family, degree)
+    check_transfer(op, V)
+
+
 @pytest.fixture
-def solver_parameters(V):
+def solver_parameters():
     solver_parameters = {
         "mat_type": "aij",
         "snes_type": "ksponly",
@@ -116,22 +139,28 @@ def solver_parameters(V):
     return solver_parameters
 
 
-@pytest.fixture
-def solver(V, space, solver_parameters):
+def make_solver(V, solver_parameters):
     u = Function(V)
     v = TestFunction(V)
-    (x, y) = SpatialCoordinate(V.mesh())
-    f = as_vector([2*y*(1-x**2),
-                   -2*x*(1-y**2)])
+
+    coords = SpatialCoordinate(V.mesh())
+    if len(coords) == 2:
+        (x, y) = coords
+        f = as_vector([2*y*(1-x**2),
+                       -2*x*(1-y**2)])
+    else:
+        x = coords
+        f = x*sum(x)
     if u.ufl_shape == ():
         f = sum(f)
     a = Constant(1)
     b = Constant(100)
-    if space == "RT":
+    space = V.ufl_element().sobolev_space
+    if space == HDiv:
         F = a*inner(u, v)*dx + b*inner(div(u), div(v))*dx - inner(f, v)*dx
-    elif space == "N1curl":
+    elif space == HCurl:
         F = a*inner(u, v)*dx + b*inner(curl(u), curl(v))*dx - inner(f, v)*dx
-    elif space == "CG":
+    elif space == H1:
         F = a*inner(u, v)*dx + b*inner(grad(u), grad(v))*dx - inner(f, v)*dx
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
@@ -140,6 +169,27 @@ def solver(V, space, solver_parameters):
 
 
 @pytest.mark.parallel([1, 3])
-def test_riesz(V, solver):
+def test_riesz(V, solver_parameters):
+    solver = make_solver(V, solver_parameters)
+    solver.solve()
+    assert solver.snes.ksp.getIterationNumber() < 15
+
+
+@pytest.fixture
+def manifold():
+    distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = UnitIcosahedralSphereMesh(refinement_level=0, degree=1,
+                                     distribution_parameters=distribution_parameters)
+    mh = MeshHierarchy(base, refinement_levels=3)
+    for m in mh:
+        m.init_cell_orientations(SpatialCoordinate(m))
+    return mh[-1]
+
+
+@pytest.mark.skipcomplexnoslate
+@pytest.mark.parallel([1, 3])
+def test_riesz_manifold(manifold, solver_parameters):
+    V = FunctionSpace(manifold, "RT", 1)
+    solver = make_solver(V, solver_parameters)
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 15

@@ -3,6 +3,7 @@ import functools
 import ufl
 
 import firedrake.dmhooks as dmhooks
+import pyop2
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -184,10 +185,15 @@ class HybridizationPC(SCBase):
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
             # We zero out the contribution of the trace variables on
-            # the exterior boundary. Extruded cells will have both
-            # horizontal and vertical facets
-            trace_subdomains = ["on_boundary"]
-            if mesh_unique.cell_set._extruded:
+            # the exterior boundary. We don't need to do this for boundary-less
+            # domains (like a sphere).
+            trace_subdomains = []
+            with pyop2.mpi.temp_internal_comm(mesh_unique.comm) as icomm:
+                num_exterior_facets = icomm.allreduce(mesh_unique.exterior_facets.set.size)
+            if num_exterior_facets > 0:
+                trace_subdomains.append("on_boundary")
+            # Extruded cells will have both horizontal and vertical facets
+            if mesh_unique.cell_set._extruded and not mesh_unique.cell_set._extruded_periodic:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 

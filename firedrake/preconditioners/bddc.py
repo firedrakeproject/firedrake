@@ -199,7 +199,7 @@ def create_matis(Amat, local_mat_type, cellwise=False):
             return cache[key]
         except KeyError:
             if mesh.comm.size > 1:
-                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, reorder=False, comm=COMM_SELF)
+                submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
             else:
                 submesh = None
             return cache.setdefault(key, submesh)

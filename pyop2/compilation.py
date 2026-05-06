@@ -50,13 +50,13 @@ from tempfile import gettempdir, mkstemp
 from typing import Hashable
 from random import randint
 
+import petsctools
 
 from pyop2 import mpi
 from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
-from pyop2.utils import get_petsc_variables
 from petsc4py import PETSc
 
 
@@ -73,8 +73,6 @@ _compiler = None
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
-# PETSc Configuration
-petsc_variables = get_petsc_variables()
 
 
 def set_default_compiler(compiler):
@@ -269,11 +267,11 @@ class Compiler(ABC):
 
     @property
     def cc(self):
-        return self._cc or petsc_variables["CC"]
+        return self._cc or petsctools.get_petscvariables()["CC"]
 
     @property
     def cxx(self):
-        return self._cxx or petsc_variables["CXX"]
+        return self._cxx or petsctools.get_petscvariables()["CXX"]
 
     @property
     def ld(self):
@@ -453,9 +451,9 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     else:
         # Sniff compiler from file extension,
         if extension == "cpp":
-            exe = petsc_variables["CXX"]
+            exe = petsctools.get_petscvariables()["CXX"]
         else:
-            exe = petsc_variables["CC"]
+            exe = petsctools.get_petscvariables()["CC"]
         compiler = sniff_compiler(exe, comm)
 
     debug = configuration["debug"]

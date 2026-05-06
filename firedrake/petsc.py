@@ -9,45 +9,12 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyop2 import mpi
 
-from firedrake import utils
 
-
-__all__ = (
-    "PETSc",
-    # TODO: These are all now deprecated
-    "get_petsc_variables",
-    "get_petscconf_h",
-    "get_external_packages"
-)
+__all__ = ("PETSc",)
 
 
 class FiredrakePETScError(Exception):
     pass
-
-
-@utils.deprecated("petsctools.flatten_parameters")
-def flatten_parameters(*args, **kwargs):
-    return petsctools.flatten_parameters(*args, **kwargs)
-
-
-@utils.deprecated("petsctools.get_petscvariables")
-def get_petsc_variables():
-    return petsctools.get_petscvariables()
-
-
-@utils.deprecated("petsctools.get_petscconf_h")
-def get_petscconf_h():
-    return petsctools.get_petscconf_h()
-
-
-@utils.deprecated("petsctools.get_external_packages")
-def get_external_packages():
-    return petsctools.get_external_packages()
-
-
-@utils.deprecated("petsctools.get_blas_library")
-def get_blas_library():
-    return petsctools.get_blas_library()
 
 
 def _extract_comm(obj: Any) -> MPI.Comm | None:

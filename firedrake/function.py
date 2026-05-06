@@ -1,5 +1,5 @@
 import numpy as np
-import rtree
+import firedrake_rtree
 import sys
 import ufl
 import warnings
@@ -12,10 +12,10 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
-from pathlib import Path
 from functools import partial, cached_property
 from typing import Tuple
 
+import petsctools
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
@@ -29,9 +29,10 @@ from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.exceptions import PointNotInDomainError
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -43,7 +44,7 @@ class _CFunction(ctypes.Structure):
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
-                ("sidx", c_void_p)]
+                ("rtree", c_void_p)]
 
 
 class CoordinatelessFunction(ufl.Coefficient):
@@ -544,7 +545,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
-        c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+        c_function.rtree = mesh.rtree and mesh.rtree.ctypes
 
         # Return pointer
         return ctypes.pointer(c_function)
@@ -587,7 +588,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :kwarg tolerance: Tolerence to use when checking if a point is
             in a cell. Default is the ``tolerance`` provided when
             creating the :func:`~.Mesh` the function is defined on.
-            Changing this from default will cause the spatial index to
+            Changing this from default will cause the rtree to
             be rebuilt which can take some time.
         """
         # Shortcut if function space is the R-space
@@ -706,21 +707,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     def __str__(self):
         return ufl2unicode(self)
-
-
-class PointNotInDomainError(Exception):
-    r"""Raised when attempting to evaluate a function outside its domain,
-    and no fill value was given.
-
-    Attributes: domain, point
-    """
-
-    def __init__(self, domain, point):
-        self.domain = domain
-        self.point = point
-
-    def __str__(self):
-        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -850,7 +836,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -877,16 +862,15 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    libspatialindex_so = Path(rtree.core.rt._name).absolute()
-    lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-    ldargs += [str(libspatialindex_so), lsi_runpath]
+    ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
     dll = compilation.load(
         src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+            f"-I{firedrake_rtree.get_include()}",
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ],
         ldargs=ldargs,
         comm=function.comm
     )
