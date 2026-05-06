@@ -515,6 +515,14 @@ class CompiledCodeExecutor:
     def _(self, handle: np.ndarray) -> int:
         return handle.ctypes.data
 
+    try:
+        import cupy as cp
+        @_as_exec_argument.register
+        def _(self, handle: cp.ndarray) -> int:
+            return handle.data.ptr
+    except ImportError:
+        pass
+
     @_as_exec_argument.register
     def _(self, mat: PETSc.Mat) -> int:
         # Sometime the matrix is in an invalid state and we cannot return a handle.
