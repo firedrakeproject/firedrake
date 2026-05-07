@@ -4960,6 +4960,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     )
     # Tag the relabeled mesh with the original distribution parameters
     submesh._distribution_parameters = mesh._distribution_parameters
+    # Store the attributes used in the construction, in case we want to construct a submesh
+    # from refinements of the parent mesh
+    submesh._submesh_label_name = label_name
+    submesh._submesh_label_value = subdomain_id
+    submesh._submesh_ignore_halo = ignore_halo
     return submesh
 
 

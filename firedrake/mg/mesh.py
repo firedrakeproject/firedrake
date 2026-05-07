@@ -11,7 +11,7 @@ from functools import cached_property
 
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
-from .utils import set_level
+from .utils import get_level, set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")
@@ -114,6 +114,22 @@ def MeshHierarchy(mesh, refinement_levels,
     mesh hierarchy.
     """
 
+    if isinstance(mesh, firedrake.MeshSequence):
+        result = []
+        # TODO sort by ancestry
+        for m in mesh:
+            mh = MeshHierarchy(m, refinement_levels,
+                               refinements_per_level=refinements_per_level,
+                               netgen_flags=netgen_flags,
+                               reorder=reorder,
+                               distribution_parameters=distribution_parameters,
+                               callbacks=callbacks,
+                               mesh_builder=mesh_builder)
+            result.append(mh[-1])
+        fine = firedrake.mesh.MeshSequenceGeometry(result)
+        mh, _ = get_level(fine)
+        return mh
+
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
         utils.check_netgen_installed()
         from firedrake.mg.netgen import NetgenHierarchy
@@ -137,23 +153,40 @@ def MeshHierarchy(mesh, refinement_levels,
         before, after = callbacks
     else:
         before = after = lambda dm, i: None
-    for i in range(refinement_levels*refinements_per_level):
-        if i % refinements_per_level == 0:
-            before(cdm, i)
-        rdm = cdm.refine()
-        if i % refinements_per_level == 0:
-            after(rdm, i)
-        dms.append(rdm)
-        cdm = rdm
-        # Fix up coords if refining embedded circle or sphere
-        if hasattr(mesh, '_radius'):
-            # FIXME, really we need some CAD-like representation
-            # of the boundary we're trying to conform to.  This
-            # doesn't DTRT really for cubed sphere meshes (the
-            # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-            scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-            coords *= scale
+    if mesh.submesh_parent is not None:
+        # Deal with Submesh
+        submesh_parents, _ = get_level(mesh.submesh_parent)
+        if submesh_parents is None:
+            raise RuntimeError("Must create the parent hierarchy first")
+        subdim = cdm.getDimension()
+        label_name = mesh._submesh_label_name
+        label_value = mesh._submesh_label_value
+        ignore_halo = mesh._submesh_ignore_halo
+        comm = cdm.comm
+        for submesh_parent in submesh_parents[1:]:
+            parent_dm = submesh_parent.topology_dm
+            subdm = dmcommon.submesh_create(parent_dm, subdim, label_name, label_value, ignore_halo, comm=comm)
+            dms.append(subdm)
+    else:
+        for i in range(refinement_levels*refinements_per_level):
+            if i % refinements_per_level == 0:
+                before(cdm, i)
+            rdm = cdm.refine()
+            if i % refinements_per_level == 0:
+                after(rdm, i)
+            dms.append(rdm)
+            cdm = rdm
+            # Fix up coords if refining embedded circle or sphere
+            if hasattr(mesh, '_radius'):
+                # FIXME, really we need some CAD-like representation
+                # of the boundary we're trying to conform to.  This
+                # doesn't DTRT really for cubed sphere meshes (the
+                # refined meshes are no longer gnonomic).
+                coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
+                scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
+                coords *= scale
+        submesh_parents = [None]*len(dms)
+
     lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
     parameters = {}
     if distribution_parameters is not None:
@@ -168,8 +201,9 @@ def MeshHierarchy(mesh, refinement_levels,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,
+            submesh_parent=submesh_parent,
         )
-        for dm in dms[1:]
+        for dm, submesh_parent in zip(dms[1:], submesh_parents[1:])
     ]
     lgmaps_with_overlap = []
     for i, m in enumerate(meshes):
