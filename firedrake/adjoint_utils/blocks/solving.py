@@ -767,9 +767,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            mesh = extract_domains(F_form)[0]  # I don't like this
             trial_function = firedrake.TrialFunction(
-                c._ad_function_space(mesh)
+                c.function_space()
             )
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = c.reconstruct(

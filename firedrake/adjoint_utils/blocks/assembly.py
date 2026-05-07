@@ -19,7 +19,7 @@ class AssembleBlock(Block):
         if meshes and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
             for mesh in meshes:  # add all meshes as dependency
-                self.add_dependency(mesh, no_duplicates=True)
+                self.add_dependency(mesh)
 
         for c in self.form.coefficients():
             self.add_dependency(c, no_duplicates=True)
