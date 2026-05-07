@@ -7,6 +7,7 @@ import math
 import cython
 import numpy as np
 import firedrake
+from collections.abc import Sequence
 from firedrake.petsc import PETSc
 from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
@@ -2203,11 +2204,11 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
 
 def _get_periodicity(dm: PETSc.DM) -> tuple[tuple[bool, bool], ...]:
     """Return mesh periodicity information.
-    
+
     This function returns a 2-tuple of bools per dimension where the first entry indicates
     whether the mesh is periodic in that dimension, and the second indicates whether the
     mesh is single-cell periodic in that dimension.
-    
+
     """
     cdef:
         const PetscReal *maxCell, *L
@@ -3971,7 +3972,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
 def submesh_create(PETSc.DM dm,
                    PetscInt subdim,
                    label_name,
-                   PetscInt label_value,
+                   subdomain_id,
                    PetscBool ignore_label_halo,
                    comm=None):
     """Create submesh.
@@ -3984,8 +3985,8 @@ def submesh_create(PETSc.DM dm,
         Topological dimension of the submesh
     label_name : str
         Name of the label
-    label_value : int
-        Value in the label
+    subdomain_id : int | Sequence
+        Values in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
     comm : PETSc.Comm | None
@@ -3995,9 +3996,41 @@ def submesh_create(PETSc.DM dm,
     cdef:
         PETSc.DMLabel label, temp_label
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
-        PetscInt pStart, pEnd, p, i, stratum_size
+        PetscInt pStart, pEnd, p, i, stratum_size, label_value
         PETSc.PetscIS stratum_is = NULL
         const PetscInt *stratum_indices = NULL
+
+    # Parse non-integer subdomain_id into a single value
+    if isinstance(subdomain_id, str):
+        if subdomain_id == "on_boundary":
+            label_name = "exterior_facets"
+            label_value = 1
+        else:
+            raise ValueError(f"Submesh construction got invalid subdomain_id {subdomain_id}.")
+    elif isinstance(subdomain_id, Sequence):
+        label = dm.getLabel(label_name)
+
+        def get_label_points(sub):
+            if sub == "on_boundary":
+                return dm.getStratumIS("exterior_facets", 1)
+            elif isinstance(sub, str):
+                raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+            else:
+                return label.getStratumIS(sub)
+
+        # Take the union of the labels in the list
+        iset = PETSc.IS().createGeneral([], comm=dm.comm)
+        for sub in subdomain_id:
+            iset = iset.union(get_label_points(sub))
+
+        # Create a temporary label
+        label_name = "firedrake_composite_subdomain_label"
+        dm.createLabel(label_name)
+        label_value = 1 + dm.getLabelIdIS(label_name).getSize()
+        label = dm.getLabel(label_name)
+        label.setStratumIS(label_value, iset)
+    else:
+        label_value = subdomain_id
 
     label = dm.getLabel(label_name)
     # Create temp_label that contains no lower-dimensional points.

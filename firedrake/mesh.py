@@ -4881,10 +4881,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     subdim : int | None
         Topological dimension of the submesh.
         Defaults to ``mesh.topological_dimension``.
-    subdomain_id : int | None
+    subdomain_id : int | Sequence | None
         Subdomain ID representing the submesh.
-        If `None` the submesh will cover the entire domain.
-        This is useful to obtain a codim-1 submesh over all facets or
+        If multiple subdomain IDs are provided, their union is taken.
+        If `None` the submesh will cover the entire domain,
+        this is useful to obtain a codim-1 submesh over all facets or
         a submesh over a different communicator.
     label_name : str | None
         Name of the label to search ``subdomain_id`` in.
@@ -4927,6 +4928,47 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     ridges to be contained in the quad mesh are shared by at most two
     facets to make the quad mesh orientation algorithm work.
 
+    Examples
+    --------
+    >>> mesh = UnitSquareMesh(4, 4)
+    >>> x, y = SpatialCoordinate(mesh)
+    >>> DG = FunctionSpace(mesh, "DG", 0)
+    >>> DGT = FunctionSpace(mesh, "DGT", 0)
+
+    Mark a cell subdomain and construct a codim-0 submesh from all cells in the subdomain
+
+    >>> cell_marker = assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG))
+    >>> mesh.mark_entities(cell_marker, 111)
+    >>> submesh = Submesh(mesh, subdomain_id=111)
+
+    Mark a facet subdomain and construct a codim-1 submesh from all facets in the subdomain
+
+    >>> facet_marker = assemble(interpolate(conditional(lt(abs(x-0.5), 1E-12), 1, 0), DGT))
+    >>> mesh.mark_entities(facet_marker, 222)
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=222)
+
+    Construct a codim-0 submesh of the union of multiple subdomains by passing a list
+
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG)), 1)
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(y, 0.5), 1, 0), DG)), 2)
+    >>> submesh = Submesh(mesh, subdomain_id=[1, 2])
+
+    Construct a codim-1 submesh of all the facets (the skeleton mesh)
+
+    >>> submesh = Submesh(mesh, subdim=1)
+
+    Construct a codim-1 submesh of the entire boundary
+
+    >>> submesh = Submesh(mesh, subdomain_id="on_boundary")
+
+    Construct a codim-1 submesh of the union of multiple boundaries
+
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=[1, 2, 3])
+
+    Construct a codim-0 submesh of the part of the mesh owned by each MPI rank
+
+    >>> submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
+
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
@@ -4934,6 +4976,18 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+
+    if subdomain_id == "on_boundary":
+        if subdim is None:
+            subdim = mesh.topological_dimension - 1
+        elif subdim != mesh.topological_dimension - 1:
+            raise ValueError('subdomain_id="on_boundary" requires subdim=dim-1')
+        if label_name is None:
+            label_name = "exterior_facets"
+        elif label_name != "exterior_facets":
+            raise ValueError('subdomain_id="on_boundary" requires label_name="exterior_facets"')
+        subdomain_id = 1
+
     if subdim is None:
         subdim = mesh.topological_dimension
     plex = mesh.topology_dm
@@ -4959,7 +5013,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
     if reorder is None:
-        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
 
     submesh = Mesh(
@@ -4972,6 +5026,10 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     )
     # Tag the relabeled mesh with the original distribution parameters
     submesh._distribution_parameters = mesh._distribution_parameters
+    # Store the construction parameters in case we need to reconstruct this Submesh
+    submesh._submesh_label_name = label_name
+    submesh._submesh_subdomain_id = subdomain_id
+    submesh._submesh_ignore_halo = ignore_halo
     return submesh
 
 
