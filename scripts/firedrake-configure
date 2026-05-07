@@ -424,7 +424,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
         extra_env_vars={
-            "CFLAGS": "-Wnoincompatible-pointer-types",
+            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
+            "CFLAGS": "-Wno-incompatible-pointer-types",
         },
     ),
 
@@ -504,8 +505,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
         extra_env_vars={
-            "CFLAGS": "-Wnoincompatible-pointer-types",
             "PATH": "/usr/local/cuda/bin:$PATH",
+            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
+            "CFLAGS": "-Wno-incompatible-pointer-types",
         },
         extra_url="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-keyring_1.1-1_all.deb",
     ),
@@ -571,7 +573,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
         extra_env_vars={
-            "CFLAGS": "-Wnoincompatible-pointer-types",
+            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
+            "CFLAGS": "-Wno-incompatible-pointer-types",
         },
     ),
 
