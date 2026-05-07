@@ -609,10 +609,6 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_method()
     def localize(self) -> AxisComponent:
-        new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
-        return self.__record_init__(regions=(new_region,), sf=None)
-
-        # below is old impl
         # Region labels are ("owned", "ghost)
         # Want to combine them into a single unlabelled region
         # TODO: implementation is simplified if region labels are always frozensets
@@ -622,15 +618,22 @@ class AxisComponent(LabelledNodeComponent):
 
         # Region labels are ({"owned", "X"}, {"owned", "Y"}, {"ghost", "X"}, {"ghost", "Y"})
         # Want to combine them into two regions ("X", "Y")
-        # Ah, but this isn't possible because they might not be contiguous, try dropping
-        # everything and renaming localize() to regionless()
         elif utils.strictly_all(
             isinstance(label, frozenset)
             and (OWNED_REGION_LABEL in label or GHOST_REGION_LABEL in label)
             for label in self.region_labels
         ):
-            new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
-            return self.__record_init__(regions=(new_region,), sf=None)
+            split_regions = collections.defaultdict(list)
+            for region in self.regions:
+                new_label = region.label - {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+                split_regions[new_label].append(region)
+
+            new_regions = [] 
+            for new_label, regions in split_regions.items():
+                new_region = AxisComponentRegion(sum(r.size for r in regions), label=new_label)
+                new_regions.append(new_region)
+            new_regions = tuple(new_regions)
+            return self.__record_init__(regions=new_regions, sf=None)
 
         else:
             assert self.sf is None
@@ -1424,22 +1427,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         section.setUp()
         return section
 
-    @cached_method()
-    def section_sf(self, path: PathT, component: ComponentT) -> PETSc.Section:
-        # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
-        from pyop3 import Dat, loop
-
-        path = as_path(path)
-        component_label = as_component_label(component)
-        axis = self.node_map[path]
-        component = utils.just_one(c for c in axis.components if c.label == component_label)
-
-        section = self.section(path, component)
-        petsc_sf = create_petsc_section_sf(component.sf.sf, section)
-        sf = pyop3.sf.StarForest(petsc_sf, component.sf.comm)
-
-        breakpoint()
-
     # }}}
 
     @cached_method()
@@ -1730,20 +1717,52 @@ class IndexedAxisTree(AbstractAxisTree):
         )
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
-        raise AssertionError("Not needed/implemented for indexed axis trees")
-
-        from pyop3 import Dat
+        # NOTE: This is the same as axistree but offsets are known not to increase linearly
+        # clean this up once we know if works
+        from pyop3 import Dat, loop
 
         path = as_path(path)
         component_label = as_component_label(component)
         axis = self.node_map[path]
         component = utils.just_one(c for c in axis.components if c.label == component_label)
 
+        # IMPORTANT: If the tree contains constraints then the *local* section
+        # is incorrect. This is because constrained DoFs are pushed to the back
+        # of the array via axis component regions and therefore
+        # 'section.getOffset(constrained_pt)' will give the wrong answer. At
+        # present this doesn't seem to be causing any problems because we always
+        # constrain all DoFs associated with a point and I would also guess that the
+        # local section isn't actually used anywhere.
+        # Since sections are not capable of handling interleaved layouts the answer
+        # is either that the local section should be NULL or determined in a custom
+        # way, but that the global section resulting from the 'invalid' section here
+        # should be correct. This currently fails consistency checks inside PETSc.
+        # --- UPDATE
+        # This approach doesn't seem to work. I think we have to take the approach
+        # of disregarding constrained DoFs in the local section. This means only
+        # considering DoFs that live in the initial region.
+        # if "constrained" in subtree._all_region_labels:
+        #     cdat = Dat.zeros(self.regionless(), dtype=IntType)
+        #     loop(
+        #         p := self.with_region_label("constrained").iter(),
+        #         cdat[p].assign(1),
+        #         eager=True,
+        #     )
+        #     constrained = cdat.data_ro
+        #     apply_constraints(section, sizes, constrained)
+
+        # TODO: This is a hacky way to do this, better to just take the first region
+        # set
         subpath = path | {axis.label: component_label}
+        subtree = self.materialize().subtree(subpath)
+        if "constrained" in subtree._all_region_labels:
+            subtree = subtree.with_region_label("unconstrained")
+
         if subpath in self.leaf_paths:
             size_expr = 1
         else:
-            size_expr = self.materialize().subtree(subpath).local_size
+            size_expr = subtree.size
+
         offset_expr = self.subst_layouts()[subpath]
 
         size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
@@ -1845,13 +1864,16 @@ class IndexedAxisTree(AbstractAxisTree):
 
     # {{{ parallel
 
-    @cached_property
-    def global_numbering(self) -> Dat[IntType]:
-        from pyop3 import Dat
+    # does this work?
+    global_numbering = AxisTree.global_numbering
 
-        assert False, "does this work? is it valid?"
-
-        return Dat(self.localize(), buffer=self.unindexed.global_numbering.buffer)
+    # @cached_property
+    # def global_numbering(self) -> Dat[IntType]:
+    #     from pyop3 import Dat
+    #
+    #     assert False, "does this work? is it valid?"
+    #
+    #     return Dat(self.localize(), buffer=self.unindexed.global_numbering.buffer)
 
     # }}}
 

@@ -658,7 +658,10 @@ class AbstractFunctionSpace:
     @cached_property
     @deprecated("axes.template_vec")
     def template_vec(self):
-        return self.layout_axes.template_vec(self.shape)
+        if len(self) > 1:
+            return self.layout_axes.template_vec(())
+        else:
+            return self.layout_axes.template_vec(self.shape)
 
     @cached_method()
     def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
@@ -680,18 +683,13 @@ class AbstractFunctionSpace:
         """
         from pyop3.axis_tree.visitors.layout import _collect_regions
 
-        # region_selector = _collect_regions(self.axes)[0]
-        # if isinstance(region_selector, str):
-        #     region_selector = frozenset({region_selector})
-
-        # lgmap_axes = self.axes.with_region_labels(region_selector).materialize()
-        lgmap_axes = self.axes.materialize()
+        lgmap_axes = self.axes
         if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
             block_size = numpy.prod(self.shape)
-        lgmap_dat = lgmap_axes.materialize().global_numbering
+        lgmap_dat = lgmap_axes.global_numbering
 
         # track which BCs are used so we can warn if any are missed
         unused_bcs = set(bcs)

@@ -1782,11 +1782,12 @@ def facet_closure_nodes(V, sub_domain):
         with the given marker.
     """
     cdef:
-        PETSc.Section sec = V.dm.getSection()
         PETSc.DM dm = V.mesh().topology_dm
         PetscInt nnodes, p, i, dof, offset, n, j, d
         np.ndarray points
         np.ndarray nodes
+
+    # Identify the facets we want to mark
     if sub_domain == "on_boundary":
         if V.extruded:
             pointss = (dm.getStratumIS("base_exterior_facets", 1),)
@@ -1801,6 +1802,14 @@ def facet_closure_nodes(V, sub_domain):
 
     if all(not pts or pts.size == 0 for pts in pointss):
         return np.empty(0, dtype=IntType)
+
+    sec: PETSc.Section
+    # The sections of restricted function spaces do not see constrained DoFs
+    # so we have to use the unrestricted section instead.
+    if V.boundary_set:
+        sec = V.function_space.dm.getSection()
+    else:
+        sec = V.dm.getSection()
 
     nnodes = 0
     for points_is in pointss:
