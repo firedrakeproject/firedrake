@@ -76,14 +76,14 @@ class GenericSolveBlock(Block):
             self.add_dependency(bc, no_duplicates=True)
 
         try:  # add all meshes as dependency
-            for mesh in tuple(extract_domains(self.lhs)):
+            for mesh in extract_domains(self.lhs):
                 self.add_dependency(mesh, no_duplicates=True)
         except AttributeError:
             pass
 
         if isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
             # add all meshes as dependency
-            for mesh in tuple(extract_domains(self.rhs)):
+            for mesh in extract_domains(self.rhs):
                 self.add_dependency(mesh, no_duplicates=True)
 
         self._init_solver_parameters(args, kwargs)
