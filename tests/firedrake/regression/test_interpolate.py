@@ -741,3 +741,15 @@ def test_interpolate_form_mixed():
 
     res3 = assemble(inner(u, q) * dx)  # V x W -> R
     assert mat_equals(res1, res3)
+
+
+def test_interpolation_cell_subset():
+    mesh = UnitIntervalMesh(1)
+
+    ind = Function(FunctionSpace(mesh, "DG", 0)).interpolate(1)
+    mesh = RelabeledMesh(mesh, [ind], [100])
+
+    a = Constant(1)
+    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
+
+    assert assemble((u-a)*dx) < 1e-14

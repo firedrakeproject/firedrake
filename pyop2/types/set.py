@@ -1,3 +1,4 @@
+import copy
 import ctypes
 import numbers
 
@@ -437,6 +438,9 @@ class Subset(ExtrudedSet):
     @cached_property
     def _argtypes_(self):
         return self._superset._argtypes_ + (ctypes.c_voidp, )
+
+    def __deepcopy__(self, memo):
+        return type(self)(copy.deepcopy(self._superset, memo), self._indices.copy())
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
