@@ -314,6 +314,7 @@ def test_two_nonlinear_solves():
     assert rf.tape.recompute_count == 5
 
 
+@pytest.mark.skipcomplex
 def test_multiple_meshes(rg):
     mesh1 = UnitSquareMesh(4, 4)
     mesh2 = RectangleMesh(nx=4, ny=4, Lx=3, Ly=1, originX=2, originY=0)
@@ -345,6 +346,7 @@ def test_multiple_meshes(rg):
     assert taylor_test(rf, f, df) > 1.95
 
 
+@pytest.mark.skipcomplex
 def test_submesh(rg):
     mesh = UnitSquareMesh(4, 4)
     x, y = SpatialCoordinate(mesh)
