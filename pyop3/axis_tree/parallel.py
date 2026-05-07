@@ -5,7 +5,7 @@ import numbers
 from collections.abc import Sequence
 
 import numpy as np
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from pyop3.axis_tree.tree import AbstractAxisTree
 
@@ -56,11 +56,11 @@ def partition_ghost_points(axis, sf):
 
 
 def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
-    return _collect_sf_graphs_rec(axis_tree, immutabledict())
+    return _collect_sf_graphs_rec(axis_tree, idict(), idict())
 
 
 # NOTE: This function does not check for nested SFs
-def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[StarForest, ...]:
+def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT, indices) -> tuple[StarForest, ...]:
     axis = axis_tree.node_map[path]
 
     sfs = []
@@ -72,7 +72,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             if path_ in axis_tree.node_map:
                 # By default the section will drop values for all but the
                 # first region, here we don't want this to happen
-                section = axis_tree.regionless().section(path, component)
+                section = axis_tree.regionless().section(path, component, indices)
                 petsc_sf = create_petsc_section_sf(component.sf.sf, section)
                 _check_sf(petsc_sf)
             else:
@@ -86,7 +86,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             # FIXME: Only need to call the inner bit once and repeatedly add?
             for point in range(component.local_size):
                 sfs.extend(
-                    _collect_sf_graphs_rec(axis_tree, path_)
+                    _collect_sf_graphs_rec(axis_tree, path_, indices | {axis.label: point})
                 )
     return tuple(sfs)
 
@@ -133,32 +133,56 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
             iremote: [[0, 0], [0, 1], [0, 2], [0, 3]]
 
     """
-    total_size = sum(sf.size for sf in star_forests)
+    if len(star_forests) == 1:
+        return star_forests[0]
 
-    local_leaf_indicess = []
-    remote_leaf_indicess = []
-    total_num_owned = sum(sf.num_owned for sf in star_forests)
-    local_leaf_index_start = total_num_owned
-    start = 0
-    for sf in star_forests:
-        size, local_leaf_indices, remote_leaf_indices = sf.graph
-        new_local_leaf_indices = local_leaf_indices - sf.num_owned + local_leaf_index_start
+    elif all(sf.num_ghost == 0 for sf in star_forests):
+        total_size = sum(sf.size for sf in star_forests)
 
-        new_offsets = np.arange(start, start+size, dtype=IntType)
-        sf.broadcast(new_offsets, MPI.REPLACE)
-        new_remote_leaf_indices = new_offsets[sf.num_owned:]
+        size = 0
+        local_leaf_indicess = []
+        remote_leaf_indicess = []
+        for sf in star_forests:
+            sf_size, local_leaf_indices, remote_leaf_indices = sf.graph
+            size += sf_size
+            assert len(local_leaf_indices) == 0, "TODO"
+            assert len(remote_leaf_indices) == 0, "TODO"
+            local_leaf_indicess.append(local_leaf_indices)
+            remote_leaf_indicess.append(remote_leaf_indices)
 
-        # but PETSc expects rank information along with the remote indices
-        new_remote_leaf_indices = np.stack([remote_leaf_indices[:, 0], new_remote_leaf_indices], axis=1)
+        ilocal = np.concatenate(local_leaf_indicess)
+        iremote = np.concatenate(remote_leaf_indicess)
+        comm = utils.single_comm(star_forests, "comm")
+        return StarForest.from_graph(size, ilocal, iremote, comm)
 
-        local_leaf_indicess.append(new_local_leaf_indices)
-        remote_leaf_indicess.append(new_remote_leaf_indices)
 
-        start += sf.num_owned
-        local_leaf_index_start += sf.num_ghost
-    assert start == total_num_owned
-
-    ilocal = np.concatenate(local_leaf_indicess)
-    iremote = np.concatenate(remote_leaf_indicess)
-    comm = utils.single_comm(star_forests, "comm")
-    return StarForest.from_graph(total_size, ilocal, iremote, comm)
+    assert False, "This is old code, I think we can just stick things together..."
+    # total_size = sum(sf.size for sf in star_forests)
+    #
+    # local_leaf_indicess = []
+    # remote_leaf_indicess = []
+    # total_num_owned = sum(sf.num_owned for sf in star_forests)
+    # local_leaf_index_start = total_num_owned
+    # start = 0
+    # for sf in star_forests:
+    #     size, local_leaf_indices, remote_leaf_indices = sf.graph
+    #     new_local_leaf_indices = local_leaf_indices - sf.num_owned + local_leaf_index_start
+    #
+    #     new_offsets = np.arange(start, start+size, dtype=IntType)
+    #     sf.broadcast(new_offsets, MPI.REPLACE)
+    #     new_remote_leaf_indices = new_offsets[sf.num_owned:]
+    #
+    #     # but PETSc expects rank information along with the remote indices
+    #     new_remote_leaf_indices = np.stack([remote_leaf_indices[:, 0], new_remote_leaf_indices], axis=1)
+    #
+    #     local_leaf_indicess.append(new_local_leaf_indices)
+    #     remote_leaf_indicess.append(new_remote_leaf_indices)
+    #
+    #     start += sf.num_owned
+    #     local_leaf_index_start += sf.num_ghost
+    # assert start == total_num_owned
+    #
+    # ilocal = np.concatenate(local_leaf_indicess)
+    # iremote = np.concatenate(remote_leaf_indicess)
+    # comm = utils.single_comm(star_forests, "comm")
+    # return StarForest.from_graph(total_size, ilocal, iremote, comm)

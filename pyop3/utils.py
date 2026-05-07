@@ -256,14 +256,14 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
     try:
         first = next(iterator)
     except StopIteration:
-        raise ValueError("Iterable is empty")
+        raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
     try:
         second = next(iterator)
     except StopIteration:
         return first
     else:
-        raise ValueError("Too many values")
+        raise pyop3.exceptions.NonUnitIterableException("Iterable contains too many values")
 
 
 def popwhen(predicate, iterable):

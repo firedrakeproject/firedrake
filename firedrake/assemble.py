@@ -1633,6 +1633,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 raise RuntimeError("bc space does not match the trial function space")
 
             # for some reason I need to do this first, is this still the case?
+            # kinda, changing accessor - if we used INC instead? it's allowed because
+            # we're setting something we know to be zero
             mat.assemble()
 
             p = V.nodal_axes[bc.node_set].iter()
@@ -1649,9 +1651,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 buffer=expr_buffer,
             )
 
-            op3.loop(
-                p, assignee.assign(expression), eager=True
-            )
+            op3.loop(p, assignee.assign(expression), eager=True)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1844,8 +1844,13 @@ class ParloopBuilder:
         if petscmat.type == PETSc.Mat.Type.PYTHON:
             return None
 
-        row_bcs = [bc for bc in self._bcs if bc.function_space() == row_space]
-        column_bcs = [bc for bc in self._bcs if bc.function_space() == column_space]
+        # filter the bcs to match the subspace
+        def filter_bcs(space, index):
+            bc_space = space[index] if index is not None else space
+            return tuple(bc for bc in self._bcs if bc.function_space() == bc_space)
+
+        row_bcs = filter_bcs(row_space, i)
+        column_bcs = filter_bcs(column_space, j)
 
         return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
 

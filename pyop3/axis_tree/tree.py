@@ -1105,7 +1105,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1369,9 +1369,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # TODO: rename to local_section
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat, loop
+        from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
         component_label = as_component_label(component)
@@ -1413,7 +1414,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         if subpath in self.leaf_paths:
             size_expr = 1
         else:
-            size_expr = subtree.size
+            size_expr = replace_terminals(subtree.size, indices)
 
         size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
         size_dat.assign(size_expr, eager=True, eager_strategy="compile")
@@ -1716,10 +1717,11 @@ class IndexedAxisTree(AbstractAxisTree):
             targets=targets_blocked,
         )
 
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
         from pyop3 import Dat, loop
+        from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
         component_label = as_component_label(component)
@@ -1761,9 +1763,9 @@ class IndexedAxisTree(AbstractAxisTree):
         if subpath in self.leaf_paths:
             size_expr = 1
         else:
-            size_expr = subtree.size
+            size_expr = replace_terminals(subtree.size, indices)
 
-        offset_expr = self.subst_layouts()[subpath]
+        offset_expr = replace_terminals(self.subst_layouts()[subpath], indices)
 
         size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
         offset_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)

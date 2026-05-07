@@ -25,6 +25,14 @@ class UnhashableObjectException(Pyop3Exception, TypeError):
     pass
 
 
+class EmptyIterableException(Pyop3Exception):
+    pass
+
+
+class NonUnitIterableException(Pyop3Exception):
+    pass
+
+
 # {{{ caching
 
 class CacheException(Pyop3Exception):

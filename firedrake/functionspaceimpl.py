@@ -702,7 +702,7 @@ class AbstractFunctionSpace:
                         if bc.function_space().topological == subspace.topological:
                             matching_bcs.append(bc)
                             unused_bcs.discard(bc)
-                    split_bcs.append(((subspace.index,), matching_bcs))
+                    split_bcs.append(((self._labels[subspace.index],), matching_bcs))
             else:
                 matching_bcs = []
                 for bc in bcs:
@@ -718,7 +718,7 @@ class AbstractFunctionSpace:
                 if bc.function_space().topological == subspace.topological:
                     matching_bcs.append(bc)
                     unused_bcs.discard(bc)
-            split_bcs = [((index,), matching_bcs)]
+            split_bcs = [((self._labels[index],), matching_bcs)]
 
         if unused_bcs:
             firedrake.logging.warning(

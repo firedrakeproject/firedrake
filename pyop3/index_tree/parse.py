@@ -280,7 +280,14 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
 
     # match on component label
     else:
-        component = just_one(c for c in axis.components if c.label == num)
+        # try:
+        #     component = just_one(c for c in axis.components if c.label == num)
+        # except:
+        #     breakpoint()
+        try:
+            component = just_one(c for c in axis.components if c.label == num)
+        except pyop3.exceptions.EmptyIterableException as err:
+            raise ValueError(f"Component label '{num}' does not exist in this axis") from err
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
