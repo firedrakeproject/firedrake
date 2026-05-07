@@ -417,8 +417,11 @@ def coarsen(dm, comm):
     """
     from firedrake.mg.utils import get_level
     V = get_function_space(dm)
-    # TODO: Think harder.
-    m, = set(m_ for m_ in V.mesh())
+    mesh = V.mesh()
+    try:
+        m, = set(m_ for m_ in mesh)
+    except ValueError:
+        m = mesh  # multiple distinct meshes (e.g. volume + submesh)
     hierarchy, level = get_level(m)
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")

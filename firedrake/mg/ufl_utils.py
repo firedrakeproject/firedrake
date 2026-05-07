@@ -99,14 +99,18 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = as_domain(it)
+        mesh = it.ufl_domain()
         new_mesh = self(mesh, self)
+        # Coarsen secondary meshes in cross-mesh integrals (e.g. intersect_measures).
+        new_extra_map = {self(d, self): itype
+                         for d, itype in it.extra_domain_integral_type_map().items()}
         if isinstance(integrand, ufl.classes.Zero):
             continue
         if it.subdomain_data() is not None:
             raise CoarseningError("Don't know how to coarsen subdomain data")
         new_itg = it.reconstruct(integrand=integrand,
-                                 domain=new_mesh)
+                                 domain=new_mesh,
+                                 extra_domain_integral_type_map=new_extra_map)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
     return form
