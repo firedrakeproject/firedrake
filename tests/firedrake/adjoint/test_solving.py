@@ -347,10 +347,10 @@ def test_multiple_meshes(rg):
 
 def test_submesh(rg):
     mesh = UnitSquareMesh(4, 4)
-    x,y = SpatialCoordinate(mesh)
+    x, y = SpatialCoordinate(mesh)
 
     DG = FunctionSpace(mesh, "DG", 0)
-    ind = Function(DG).interpolate(conditional(y>0.5, 1, 0))
+    ind = Function(DG).interpolate(conditional(y > 0.5, 1, 0))
     relabeled_mesh = RelabeledMesh(mesh, [ind], [10])
     submesh = Submesh(relabeled_mesh, 2, 10)
     dx_sub = Measure("dx", domain=submesh, intersect_measures=(Measure("dx", relabeled_mesh),))
@@ -378,6 +378,7 @@ def test_submesh(rg):
     df = rg.uniform(V1)
 
     assert taylor_test(rf, f, df) > 1.95
+
 
 def convergence_rates(E_values, eps_values):
     from numpy import log
