@@ -90,7 +90,7 @@ jobs:
     runs-on: [self-hosted, Linux]
     container:
       # TODO: set to 'ubuntu:latest'
-      image: ubuntu:noble
+      image: ubuntu:resolute
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
     env:
