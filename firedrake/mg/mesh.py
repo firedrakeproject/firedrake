@@ -11,7 +11,7 @@ from functools import cached_property
 
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
-from .utils import set_level
+from .utils import get_level, set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")
@@ -114,6 +114,22 @@ def MeshHierarchy(mesh, refinement_levels,
     mesh hierarchy.
     """
 
+    if isinstance(mesh, firedrake.MeshSequence):
+        result = []
+        # TODO sort by ancestry
+        for m in mesh:
+            mh = MeshHierarchy(m, refinement_levels,
+                               refinements_per_level=refinements_per_level,
+                               netgen_flags=netgen_flags,
+                               reorder=reorder,
+                               distribution_parameters=distribution_parameters,
+                               callbacks=callbacks,
+                               mesh_builder=mesh_builder)
+            result.append(mh[-1])
+        fine = firedrake.mesh.MeshSequenceGeometry(result)
+        mh, _ = get_level(fine)
+        return mh
+
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
         utils.check_netgen_installed()
         from firedrake.mg.netgen import NetgenHierarchy
@@ -137,23 +153,40 @@ def MeshHierarchy(mesh, refinement_levels,
         before, after = callbacks
     else:
         before = after = lambda dm, i: None
-    for i in range(refinement_levels*refinements_per_level):
-        if i % refinements_per_level == 0:
-            before(cdm, i)
-        rdm = cdm.refine()
-        if i % refinements_per_level == 0:
-            after(rdm, i)
-        dms.append(rdm)
-        cdm = rdm
-        # Fix up coords if refining embedded circle or sphere
-        if hasattr(mesh, '_radius'):
-            # FIXME, really we need some CAD-like representation
-            # of the boundary we're trying to conform to.  This
-            # doesn't DTRT really for cubed sphere meshes (the
-            # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-            scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-            coords *= scale
+    if mesh.submesh_parent is not None:
+        # Deal with Submesh: re-apply the same label filter to each level of the parent hierarchy
+        submesh_parents, _ = get_level(mesh.submesh_parent)
+        if submesh_parents is None:
+            raise RuntimeError("Must create the parent hierarchy first")
+        subdim = cdm.getDimension()
+        label_name = mesh._submesh_label_name
+        label_value = mesh._submesh_label_value
+        ignore_halo = mesh._submesh_ignore_halo
+        comm = cdm.comm
+        for submesh_parent in submesh_parents[1:]:
+            parent_dm = submesh_parent.topology_dm
+            subdm = dmcommon.submesh_create(parent_dm, subdim, label_name, label_value, ignore_halo, comm=comm)
+            dms.append(subdm)
+        submesh_parents = list(submesh_parents)
+    else:
+        for i in range(refinement_levels*refinements_per_level):
+            if i % refinements_per_level == 0:
+                before(cdm, i)
+            rdm = cdm.refine()
+            if i % refinements_per_level == 0:
+                after(rdm, i)
+            dms.append(rdm)
+            cdm = rdm
+            # Fix up coords if refining embedded circle or sphere
+            if hasattr(mesh, '_radius'):
+                # FIXME, really we need some CAD-like representation
+                # of the boundary we're trying to conform to.  This
+                # doesn't DTRT really for cubed sphere meshes (the
+                # refined meshes are no longer gnonomic).
+                coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
+                scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
+                coords *= scale
+        submesh_parents = [None]*len(dms)
     lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
     parameters = {}
     if distribution_parameters is not None:
@@ -168,8 +201,9 @@ def MeshHierarchy(mesh, refinement_levels,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,
+            submesh_parent=submesh_parent,
         )
-        for dm in dms[1:]
+        for dm, submesh_parent in zip(dms[1:], submesh_parents[1:])
     ]
     lgmaps_with_overlap = []
     for i, m in enumerate(meshes):
@@ -312,78 +346,3 @@ def NonNestedHierarchy(*meshes):
                          nested=False)
 
 
-def _build_submesh_hierarchy_for_level(submesh, parent_mesh, subdim, subdomain_id,
-                                        label_name, ignore_halo, reorder):
-    """Implicitly build a submesh hierarchy when parent_mesh is part of a MeshHierarchy.
-
-    Called by :func:`~firedrake.mesh.Submesh` when the parent mesh already has
-    level info.  Creates submeshes for every level of the parent hierarchy,
-    computes coarse-to-fine cell maps via centroid matching, and wraps everything
-    in a :class:`HierarchyBase` so that ``__level_info__`` is set on all submeshes.
-    """
-    from fractions import Fraction
-    import numpy as np
-    from scipy.spatial import cKDTree
-    from firedrake.mg.utils import get_level, has_level
-    from firedrake.utils import IntType
-    from firedrake.mesh import _create_submesh_raw
-
-    if has_level(submesh):
-        return
-
-    hierarchy, level = get_level(parent_mesh)
-    rpl = hierarchy.refinements_per_level
-    if rpl != 1:
-        raise NotImplementedError(
-            "Implicit submesh hierarchy with refinements_per_level > 1 not yet supported")
-
-    nlevels = len(hierarchy)
-    submeshes = [None] * nlevels
-    submeshes[int(level)] = submesh
-
-    for i in range(nlevels):
-        if i == int(level):
-            continue
-        submeshes[i] = _create_submesh_raw(
-            hierarchy[i], subdim=subdim, subdomain_id=subdomain_id,
-            label_name=label_name, ignore_halo=ignore_halo, reorder=reorder,
-        )
-
-    subdim_actual = submesh.topological_dimension
-    nref_sub = 2 ** subdim_actual
-
-    def cell_centroids(m):
-        coords = m.coordinates.dat.data_ro
-        cell_map = m.coordinates.cell_node_map().values[:m.cell_set.size]
-        return coords[cell_map].mean(axis=1)
-
-    coarse_to_fine_cells = {}
-    fine_to_coarse_cells = {Fraction(0): None}
-
-    for i, (smc, smf) in enumerate(zip(submeshes[:-1], submeshes[1:])):
-        if smc.comm.size > 1:
-            raise NotImplementedError(
-                "Parallel submesh coarse_to_fine_cells not yet implemented")
-        ncoarse = smc.cell_set.size
-        cc = cell_centroids(smc)
-        fc = cell_centroids(smf)
-
-        tree = cKDTree(cc)
-        _, coarse_for_fine = tree.query(fc)
-
-        c2f = np.full((ncoarse, nref_sub), -1, dtype=IntType)
-        f2c = coarse_for_fine.reshape(-1, 1).astype(IntType)
-        slot = np.zeros(ncoarse, dtype=int)
-        for f_idx, c_idx in enumerate(coarse_for_fine):
-            c2f[c_idx, slot[c_idx]] = f_idx
-            slot[c_idx] += 1
-
-        assert np.all(slot == nref_sub), (
-            "Inconsistent submesh coarse-to-fine map: mesh may not be uniformly refined "
-            "or subdomain_id may be inconsistent across levels")
-
-        coarse_to_fine_cells[Fraction(i)] = c2f
-        fine_to_coarse_cells[Fraction(i + 1)] = f2c
-
-    HierarchyBase(submeshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                  refinements_per_level=rpl, nested=True)

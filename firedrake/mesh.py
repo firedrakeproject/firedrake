@@ -4874,62 +4874,6 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def _create_submesh_raw(mesh, subdim=None, subdomain_id=None, label_name=None, name=None,
-                        ignore_halo=False, reorder=None, comm=None):
-    """Create a submesh without any hierarchy-building logic.
-
-    This is the low-level workhorse called by :func:`Submesh` and also by
-    :func:`~firedrake.mg.mesh._build_submesh_hierarchy_for_level` when
-    constructing submeshes for every level of an existing mesh hierarchy.
-    Keeping hierarchy logic out of here prevents infinite recursion.
-    """
-    if not isinstance(mesh, MeshGeometry):
-        raise TypeError("Parent mesh must be a `MeshGeometry`")
-    if isinstance(mesh.topology, ExtrudedMeshTopology):
-        raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
-    elif isinstance(mesh.topology, VertexOnlyMeshTopology):
-        raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
-    if subdim is None:
-        subdim = mesh.topological_dimension
-    plex = mesh.topology_dm
-    dim = plex.getDimension()
-    if subdim not in {dim, dim - 1}:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-    if subdomain_id is None:
-        if label_name is not None:
-            raise ValueError("subdomain_id=None requires label_name=None.")
-        # Select all entities
-        label_name = "depth"
-        subdomain_id = subdim
-    elif label_name is None:
-        if subdim == dim:
-            label_name = dmcommon.CELL_SETS_LABEL
-        elif subdim == dim - 1:
-            label_name = dmcommon.FACE_SETS_LABEL
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
-
-    comm = comm or mesh.comm
-    name = name or _generate_default_submesh_name(mesh.name)
-    subplex.setName(_generate_default_mesh_topology_name(name))
-    if subplex.getDimension() != subdim:
-        raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
-    if reorder is None:
-        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
-        reorder = mesh._did_reordering
-
-    submesh = Mesh(
-        subplex,
-        submesh_parent=mesh,
-        name=name,
-        comm=comm,
-        reorder=reorder,
-        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-    )
-    # Tag the relabeled mesh with the original distribution parameters
-    submesh._distribution_parameters = mesh._distribution_parameters
-    return submesh
-
-
 def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
     """Construct a submesh from a given mesh.
 
@@ -4986,24 +4930,56 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     ridges to be contained in the quad mesh are shared by at most two
     facets to make the quad mesh orientation algorithm work.
 
-    If ``mesh`` is already part of a :func:`~firedrake.mg.mesh.MeshHierarchy`,
-    calling ``Submesh(mesh, ...)`` automatically builds a matching submesh
-    hierarchy for all levels by applying the same ``subdim``/``subdomain_id``
-    to every level of the parent hierarchy.
-
     """
-    submesh = _create_submesh_raw(mesh, subdim=subdim, subdomain_id=subdomain_id,
-                                  label_name=label_name, name=name,
-                                  ignore_halo=ignore_halo, reorder=reorder, comm=comm)
-    from firedrake.mg.utils import has_level
-    if has_level(mesh):
-        from firedrake.mg.mesh import _build_submesh_hierarchy_for_level
-        _build_submesh_hierarchy_for_level(
-            submesh, mesh,
-            subdim=submesh.topological_dimension,
-            subdomain_id=subdomain_id, label_name=label_name,
-            ignore_halo=ignore_halo, reorder=reorder,
-        )
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("Parent mesh must be a `MeshGeometry`")
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
+    elif isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+    if subdim is None:
+        subdim = mesh.topological_dimension
+    plex = mesh.topology_dm
+    dim = plex.getDimension()
+    if subdim not in {dim, dim - 1}:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+    if subdomain_id is None:
+        if label_name is not None:
+            raise ValueError("subdomain_id=None requires label_name=None.")
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
+    elif label_name is None:
+        if subdim == dim:
+            label_name = dmcommon.CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = dmcommon.FACE_SETS_LABEL
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+
+    comm = comm or mesh.comm
+    name = name or _generate_default_submesh_name(mesh.name)
+    subplex.setName(_generate_default_mesh_topology_name(name))
+    if subplex.getDimension() != subdim:
+        raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
+    if reorder is None:
+        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        reorder = mesh._did_reordering
+
+    submesh = Mesh(
+        subplex,
+        submesh_parent=mesh,
+        name=name,
+        comm=comm,
+        reorder=reorder,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+    )
+    # Tag the relabeled mesh with the original distribution parameters
+    submesh._distribution_parameters = mesh._distribution_parameters
+    # Store the attributes used in the construction, in case we want to construct a submesh
+    # from refinements of the parent mesh
+    submesh._submesh_label_name = label_name
+    submesh._submesh_label_value = subdomain_id
+    submesh._submesh_ignore_halo = ignore_halo
     return submesh
 
 

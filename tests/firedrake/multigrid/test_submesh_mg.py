@@ -1,9 +1,9 @@
 """Tests for multigrid on coupled volume+surface PDE problems using Submesh.
 
 Three things are tested:
- 1. Implicit submesh hierarchy construction: Submesh(mh[-1], ...) should
-    automatically tag all levels with __level_info__ so that
-    MixedFunctionSpace([V, sV]) no longer crashes.
+ 1. Explicit submesh hierarchy construction: MeshHierarchy(submesh, nref) should
+    tag all levels with __level_info__ so that MixedFunctionSpace([V, sV])
+    no longer crashes.
  2. GMG on individual fieldsplit blocks (Stage 2).
  3. Monolithic GMG on the full mixed system (Stage 3).
 
@@ -28,10 +28,14 @@ from firedrake.mg.utils import has_level, get_level
 def build_problem(base_n=4, nref=1):
     """Return the problem objects for the coupled Poisson–Helmholtz system."""
     base = UnitSquareMesh(base_n, base_n)
-    mh = MeshHierarchy(base, nref)
-    mesh = mh[-1]
     # marker 3 on UnitSquareMesh is the y=0 edge
-    smesh = Submesh(mesh, subdim=1, subdomain_id=3)
+    base_smesh = Submesh(base, subdim=1, subdomain_id=3)
+
+    mh = MeshHierarchy(base, nref)
+    smh = MeshHierarchy(base_smesh, nref)
+
+    mesh = mh[-1]
+    smesh = smh[-1]
 
     V  = FunctionSpace(mesh,  "CG", 1)
     sV = FunctionSpace(smesh, "CG", 1)
@@ -71,11 +75,15 @@ def build_problem(base_n=4, nref=1):
 # ---------------------------------------------------------------------------
 
 def test_submesh_hierarchy_construction():
-    """Submesh(mh[-1], ...) implicitly tags all levels with __level_info__."""
+    """MeshHierarchy(submesh, nref) tags all levels with __level_info__."""
     base = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(base, 1)
+
+    base_smesh = Submesh(base, subdim=1, subdomain_id=3)
+    smh = MeshHierarchy(base_smesh, 1)
+
     mesh = mh[-1]
-    smesh = Submesh(mesh, subdim=1, subdomain_id=3)
+    smesh = smh[-1]
 
     assert has_level(smesh), "Fine submesh should have level info"
     hierarchy, level = get_level(smesh)
@@ -86,7 +94,10 @@ def test_submesh_hierarchy_construction():
     _, coarse_level = get_level(smesh_coarse)
     assert coarse_level == 0, f"Coarse submesh should be at level 0, got {coarse_level}"
 
-    # The coarse-to-fine map must be non-None (required by prolong/restrict)
+    assert smesh.submesh_parent is not None
+    assert smesh.submesh_parent is mesh
+
+    # coarse_to_fine and fine_to_coarse maps must be non-None
     assert hierarchy.coarse_to_fine_cells[0] is not None
     assert hierarchy.fine_to_coarse_cells[1] is not None
 
@@ -102,14 +113,6 @@ def test_submesh_hierarchy_construction():
 
 def fieldsplit_gmg_params():
     """GMG on individual fieldsplit blocks."""
-    gmg_block = {
-        "ksp_type": "preonly",
-        "pc_type": "mg",
-        "pc_mg_type": "full",
-        "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
-        "mg_levels_ksp_max_it": 2,
-    }
     return {
         "ksp_type": "cg",
         "ksp_rtol": 1e-10,
