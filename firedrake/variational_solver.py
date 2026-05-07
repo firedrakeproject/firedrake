@@ -414,6 +414,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                breakpoint()
             work.copy(u)
         self._setup = True
         if problem.restrict:

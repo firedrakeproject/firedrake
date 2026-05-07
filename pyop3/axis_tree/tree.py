@@ -607,6 +607,7 @@ class AxisComponent(LabelledNodeComponent):
     def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
+    # TODO: not used any more?
     @cached_method()
     def localize(self) -> AxisComponent:
         # Region labels are ("owned", "ghost)
@@ -1523,7 +1524,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         numbering[unconstrained.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         debug_assert(lambda: (numbering >= 0).all())
-        return Dat(self.localize(), data=numbering)
+        # return Dat(self.localize(), data=numbering)
+        return Dat(self, data=numbering)
 
 
 @pyop3.record.frozenrecord()
@@ -2282,7 +2284,8 @@ class AxisForest(pyop3.obj.Pyop3Object):
     def global_numbering(self) -> Dat:
         from pyop3 import Dat
 
-        return Dat(self.localize(), buffer=self.trees[0].global_numbering.buffer)
+        # return Dat(self.localize(), buffer=self.trees[0].global_numbering.buffer)
+        return Dat(self, buffer=self.trees[0].global_numbering.buffer)
 
     @property
     def owned(self) -> AxisForest:

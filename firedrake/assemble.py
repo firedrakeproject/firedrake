@@ -2121,26 +2121,6 @@ class _FormHandler:
             spaces.append(space)
         return tuple(spaces)
 
-    @staticmethod
-    def index_tensor(tensor, form, indices, diagonal):
-        """Return the (indexed) pyop3 data structure tied to ``tensor``."""
-        indices = tuple(i if i is not None else Ellipsis for i in indices)
-
-        rank = len(form.arguments())
-        if rank == 0:
-            assert len(indices) == 0
-            return tensor
-        elif rank == 1 or rank == 2 and diagonal:
-            index, = indices
-            if index is Ellipsis:
-                return tensor.dat
-            else:
-                return tensor.subfunctions[index].dat
-        elif rank == 2:
-            return tensor.M[indices]
-        else:
-            raise AssertionError
-
 
 def _is_real_space(space):
     return space.ufl_element().family() == "Real"
@@ -2159,5 +2139,6 @@ def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
 
     orig_lgmaps = petscmat.getLGMap()
     petscmat.setLGMap(*lgmaps)
+    breakpoint()
     yield
     petscmat.setLGMap(*orig_lgmaps)

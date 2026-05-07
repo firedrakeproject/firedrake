@@ -278,6 +278,7 @@ class Dat(Tensor):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
+    # TODO: not used anymore?
     def localize(self) -> Dat:
         return self._localized
 

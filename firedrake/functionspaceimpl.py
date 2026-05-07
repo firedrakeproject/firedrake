@@ -731,6 +731,7 @@ class AbstractFunctionSpace:
                 component_idx = bc.function_space().component or ()
                 lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
 
+        breakpoint()
         return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
 
     # }}}
