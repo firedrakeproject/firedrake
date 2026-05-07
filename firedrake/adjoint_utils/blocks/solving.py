@@ -1,6 +1,6 @@
 import numpy
 import ufl
-from ufl.domain import extract_domains
+from ufl.domain import extract_domains, extract_unique_domain
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
@@ -767,8 +767,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
+            try:
+                mesh = extract_unique_domain(F_form)
+            except ValueError:
+                raise ValueError("Expecting a single mesh")
             trial_function = firedrake.TrialFunction(
-                c.function_space()
+                c._ad_function_space(mesh)
             )
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = c.reconstruct(
