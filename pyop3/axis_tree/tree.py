@@ -1055,11 +1055,11 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     @cached_property
     def unconstrained(self):
         """Return the unconstrained portion of the axis tree."""
-        return self.with_region_label("unconstrained")
+        return self.with_region_label("unconstrained", allow_missing=True)
 
-    def with_region_label(self, region_label: str) -> IndexedAxisTree:
+    def with_region_label(self, region_label: str, *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
-        return self.with_region_labels({region_label})
+        return self.with_region_labels({region_label}, allow_missing=allow_missing)
 
     def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
