@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
-from pyop3.axis_tree.tree import AbstractAxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 
 from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype
@@ -55,12 +55,12 @@ def partition_ghost_points(axis, sf):
     return component_owned_sizes, numbering
 
 
-def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
+def collect_star_forests(axis_tree: AbstractNonUnitAxisTree) -> tuple[StarForest, ...]:
     return _collect_sf_graphs_rec(axis_tree, idict(), idict())
 
 
 # NOTE: This function does not check for nested SFs
-def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT, indices) -> tuple[StarForest, ...]:
+def _collect_sf_graphs_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT, indices) -> tuple[StarForest, ...]:
     axis = axis_tree.node_map[path]
 
     sfs = []

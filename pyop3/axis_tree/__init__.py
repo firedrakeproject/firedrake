@@ -16,7 +16,7 @@ from .tree import (  # noqa: F401
     IndexedAxisTree,
     LoopIterable,
     AxisForest,
-    AbstractAxisTree,
+    AbstractNonUnitAxisTree,
     UNIT_AXIS_TREE,
     _UnitAxisTree,
     merge_axis_trees,

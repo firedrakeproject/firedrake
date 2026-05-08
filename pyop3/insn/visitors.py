@@ -15,11 +15,11 @@ from immutabledict import immutabledict as idict
 
 from pyop3.cache import memory_cache
 import pyop3.expr
+import pyop3.expr.visitors
 from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
 from pyop3.expr.tensor import mat
 from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
-import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
@@ -97,10 +97,10 @@ class LoopContextExpander(InstructionTransformer):
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
         return func.__record_init__(_arguments=new_arguments)
 
-    @process.register(pyop3.insn.ArrayAssignment)
-    def _(self, assignment: pyop3.insn.ArrayAssignment, /, *, loop_context) -> pyop3.insn.ArrayAssignment:
-        assignee = expr_visitors.restrict_to_context(assignment.assignee, loop_context)
-        expression = expr_visitors.restrict_to_context(assignment.expression, loop_context)
+    @process.register(pyop3.insn.Assignment)
+    def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
+        assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
+        expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
         return assignment.__record_init__(_assignee=assignee, _expression=expression)
 
     @process.register(pyop3.insn.Exscan)  # for now assume we are fine
@@ -147,7 +147,7 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     #     return (assignment,)
 
     @_apply.register
-    def _(self, assignment: pyop3.insn.ArrayAssignment):
+    def _(self, assignment: pyop3.insn.Assignment):
         # I think this is fine...
         return assignment
 
@@ -170,16 +170,16 @@ class ImplicitPackUnpackExpander(NodeTransformer):
                     temporary = Mat.null(arg.row_axes.materialize().regionless(), arg.column_axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
-                    gathers.append(pyop3.insn.ArrayAssignment(temporary, arg, "write"))
+                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    scatters.insert(0, pyop3.insn.ArrayAssignment(arg, temporary, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
                 elif intent == RW:
-                    gathers.append(pyop3.insn.ArrayAssignment(temporary, arg, "write"))
-                    scatters.insert(0, pyop3.insn.ArrayAssignment(arg, temporary, "write"))
+                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
                 else:
                     assert intent == INC
-                    gathers.append(pyop3.insn.ArrayAssignment(temporary, 0, "write"))
-                    scatters.insert(0, pyop3.insn.ArrayAssignment(arg, temporary, "inc"))
+                    gathers.append(pyop3.insn.Assignment(temporary, 0, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "inc"))
 
                 function_arg = LinearDatBufferExpression(temporary.buffer, 0)
             else:
@@ -338,8 +338,8 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
     return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
 
 
-@expand_transforms.register(pyop3.insn.ArrayAssignment)
-def _(assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.InstructionList:
+@expand_transforms.register(pyop3.insn.Assignment)
+def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
     # This function is complete magic and deserves some serious exposition:
     #
     # To begin with, consider the assignment:
@@ -384,7 +384,7 @@ def _(assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.InstructionList:
     #     X += u
     #
     # To make this work we extract the increment by materialising 'u'.
-    bare_expression, expression_insns = expr_visitors.expand_transforms(
+    bare_expression, expression_insns = pyop3.expr.visitors.expand_transforms(
         assignment.expression, ArrayAccessType.READ
     )
 
@@ -393,7 +393,7 @@ def _(assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.InstructionList:
     else:
         assert assignment.assignment_type == AssignmentType.INC
         access_type = ArrayAccessType.INC
-    bare_assignee, assignee_insns = expr_visitors.expand_transforms(
+    bare_assignee, assignee_insns = pyop3.expr.visitors.expand_transforms(
         assignment.assignee, access_type
     )
 
@@ -468,17 +468,30 @@ def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop | pyop3.insn.NullInstruction:
     return loop.__record_init__(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
 
 
-@concretize_layouts.register(pyop3.insn.StandaloneCalledFunction)
+@concretize_layouts.register
 def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
     return func
 
 
-@concretize_layouts.register(pyop3.insn.ArrayAssignment)
-def _(assignment: pyop3.insn.ArrayAssignment, /) -> pyop3.insn.NonEmptyArrayAssignment | pyop3.insn.NullInstruction:
-    assignee = expr_visitors.concretize_layouts(assignment.assignee, assignment.shape)
-    expression = expr_visitors.concretize_layouts(assignment.expression, assignment.shape)
+@concretize_layouts.register
+def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.NonEmptyArrayAssignment | pyop3.insn.NullInstruction:
+    # The assignee may have an axis forest as its shape, but we can only
+    # emit loops for one of them. Try all candidates and hopefully one will match.
+    # For matrices there are two shape axes and so we need to try the product
+    # of all candidates.
+    for axis_trees in itertools.product(*(tree.trees for tree in assignment.shape)):
+        try:
+            assignee = pyop3.expr.visitors.concretize_layouts(assignment.assignee, axis_trees)
+            expression = pyop3.expr.visitors.concretize_layouts(assignment.expression, axis_trees)
+        except pyop3.exceptions.IncompatibleAxisTargetException:
+            continue
+        else:
+            shape = tuple(tree.materialize() for tree in axis_trees)
+            break
+    else:
+        raise pyop3.exceptions.IncompatibleAxisTargetException
 
-    return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.comm)
+    return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, shape, assignment.assignment_type, comm=assignment.comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 3
@@ -603,13 +616,13 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
     # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet().union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
+    composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
-        comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
+        comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
     best_candidate = idict({
-        key: expr_visitors.replace(expr, replace_map)
+        key: pyop3.expr.visitors.replace(expr, replace_map)
         for key, expr in best_candidate.items()
     })
 
@@ -663,7 +676,7 @@ class CandidateIndirectionsCollector(NodeVisitor):
             else:
                 selector_ = None
 
-            per_arg_candidates = expr_visitors.collect_tensor_candidate_indirections(
+            per_arg_candidates = pyop3.expr.visitors.collect_tensor_candidate_indirections(
                 arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress, selector=selector_
             )
             for arg_key, value in per_arg_candidates.items():
@@ -701,7 +714,7 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
     @process.register(pyop3.insn.NonEmptyArrayAssignment)
     def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> pyop3.insn.ConcretizedNonEmptyArrayAssignment:
         assignee, expression = (
-            expr_visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
+            pyop3.expr.visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
             for i, arg in enumerate(assignment.arguments)
         )
         return pyop3.insn.ConcretizedNonEmptyArrayAssignment(

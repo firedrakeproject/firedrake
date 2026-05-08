@@ -13,6 +13,9 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.exceptions
+import pyop3.expr
+from pyop3 import utils
 from pyop3.cache import memory_cache
 from pyop3.config import config
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
@@ -20,13 +23,10 @@ from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ConcreteBuffer, NullBuffer
 from pyop3.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-
-import pyop3.expr
-from pyop3 import utils
 from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
 from pyop3.labeled_tree import is_subpath
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractNonUnitAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 
 from pyop3.insn.base import ArrayAccessType, loop_
@@ -409,25 +409,12 @@ def _(op: pyop3.expr.Operator, /, *args, **kwargs):
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in op.operands))
 
 
-@concretize_layouts.register(pyop3.expr.BinaryOperator)
-def _(op: pyop3.expr.BinaryOperator, /, *args, **kwargs) -> pyop3.expr.BinaryOperator:
-    return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in [op.a, op.b]))
-
-
 @concretize_layouts.register(numbers.Number)
 @concretize_layouts.register(pyop3.expr.AxisVar)
 @concretize_layouts.register(pyop3.expr.LoopIndexVar)
 @concretize_layouts.register(pyop3.expr.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
-
-# no, not doing this here
-# @concretize_layouts.register
-# def _(loop_index_var: pyop3.expr.LoopIndexVar, /, *args, **kwargs) -> Any:
-#     # TODO: put into a generic handler for LoopIndex
-#     loop_index = loop_index_var.loop_index
-#     new_loop_index = loop_index.__record_init__(iterset=loop_index.iterset.materialize())
-#     return loop_index_var.__record_init__(loop_index=new_loop_index)
 
 
 @concretize_layouts.register(Scalar)
@@ -439,14 +426,29 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.Scal
 
 
 @concretize_layouts.register(pyop3.expr.Dat)
-def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.DatBufferExpression:
+def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AbstractNonUnitAxisTree]) -> pyop3.expr.DatBufferExpression:
     axis_tree = utils.just_one(axis_trees)
-    dat_axes = matching_axis_tree(dat.axes, axis_tree)
-    if dat_axes.is_linear:
-        layout = utils.just_one(dat_axes.leaf_subst_layouts.values())
+
+    # the expression needn't exactly match the shape of the assignee, what matters
+    # is that the one of the sets of index expressions emitted by the assignee match the expression
+    # eg assignee[::2].assign(expr) should subst 2*i in the layouts
+    for dat_axis_tree in dat.axes.trees:  # loop over axis forests and only match once
+        try:
+            matching_target = pyop3.axis_tree.tree.match_target(axis_tree, dat_axis_tree, axis_tree.targets)
+        except pyop3.exceptions.IncompatibleAxisTargetException:
+            continue
+        else:
+            subst_layouts = pyop3.axis_tree.tree.subst_layouts(axis_tree, matching_target, dat_axis_tree.subst_layouts())
+            break
+    else:
+        raise pyop3.exceptions.IncompatibleAxisTargetException("No suitable axis tree candidates found")
+    # wow, cant believe that worked...
+    if axis_tree.is_linear:
+        layout = subst_layouts[axis_tree.leaf_path]
         expr = pyop3.expr.LinearDatBufferExpression(dat.buffer, layout)
     else:
-        expr = pyop3.expr.NonlinearDatBufferExpression(dat.buffer, dat_axes.leaf_subst_layouts)
+        layouts = idict({leaf_path: subst_layouts[leaf_path] for leaf_path in axis_tree.leaf_paths})
+        expr = pyop3.expr.NonlinearDatBufferExpression(dat.buffer, layouts)
     return concretize_layouts(expr, axis_trees)
 
 
@@ -995,12 +997,12 @@ def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
 
 @get_shape.register(pyop3.expr.Dat)
 def _(dat: pyop3.expr.Dat, /) -> tuple[AxisTree, ...]:
-    return (dat.axes.materialize(),)
+    return (dat.axes,)
 
 
 @get_shape.register(pyop3.expr.Mat)
 def _(mat: pyop3.expr.Mat, /) -> tuple[AxisTree, ...]:
-    return (mat.row_axes.materialize(), mat.column_axes.materialize())
+    return (mat.row_axes, mat.column_axes)
 
 
 @get_shape.register(pyop3.expr.CompositeDat)

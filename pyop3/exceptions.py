@@ -32,6 +32,12 @@ class EmptyIterableException(Pyop3Exception):
 class NonUnitIterableException(Pyop3Exception):
     pass
 
+# {{{ axis trees
+
+class IncompatibleAxisTargetException(Pyop3Exception):
+    pass
+
+# }}}
 
 # {{{ caching
 

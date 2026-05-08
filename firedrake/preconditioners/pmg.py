@@ -469,10 +469,7 @@ class PMGPC(PCBase, PMGBase):
         return ppc
 
     def apply(self, pc, x, y):
-        print("x", x.array_r)
         self.ppc.apply(x, y)
-        print("y", y.array_r)
-        exit(1)
 
     def applyTranspose(self, pc, x, y):
         return self.ppc.applyTranspose(x, y)

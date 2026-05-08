@@ -28,7 +28,7 @@ from pyop3.axis_tree import (
     collect_unindexed_axis_trees,
     as_axis_tree_type,
 )
-from pyop3.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.index_tree import LoopIndex, ScalarIndex
 from pyop3.expr.base import Terminal
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
@@ -154,7 +154,7 @@ class Dat(Tensor):
     dim = 1
 
     @property
-    def axis_trees(self) -> tuple[AbstractAxisTree]:
+    def axis_trees(self) -> tuple[AbstractNonUnitAxisTree]:
         return (self.axes,)
 
     @property
@@ -422,10 +422,14 @@ class Dat(Tensor):
             case "rw":
                 array = self.buffer.data_rw
 
-        if include_ghosts:
+        if include_ghosts:  # TODO: this is now unclear, really is all constrained DoFs
             indices = self.axes._buffer_indices
         else:
-            indices = self.axes.owned._buffer_indices
+            from pyop3.axis_tree.visitors.layout import _collect_regions
+            region_selector = _collect_regions(self.axes)[0]
+            if isinstance(region_selector, str):
+                region_selector = frozenset({region_selector})
+            indices = self.axes.with_region_labels(region_selector)._buffer_indices
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)
@@ -760,11 +764,11 @@ class AggregateDat:
         return Dat.null(self.axes, dtype=self.dtype)
 
     def assign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "write")
+        return Assignment(self, other, "write")
 
     def iassign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "inc")
+        return Assignment(self, other, "inc")

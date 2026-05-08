@@ -51,9 +51,6 @@ def test_restricted_function_space_square(n, p, redundant_bc):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("into_restricted", (True, False), ids=("into-restricted", "from-restricted"))
 def test_restrict_assign(into_restricted):
-    # assign fixes needed
-    raise NotImplementedError("see https://github.com/firedrakeproject/firedrake/commit/ec6c302e23b140d553026483746f8aa372afea77")
-
     mesh = UnitSquareMesh(3, 3)
 
     V = VectorFunctionSpace(mesh, "RT", 1)

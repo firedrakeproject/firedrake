@@ -176,7 +176,6 @@ def transform_packed_cell_closure_dat(
             packed_dat = packed_dat[dof_perm_slice]
 
         if permutation is not None:
-            print("applying perm")
             # needed because we relabel here... else the labels dont match
             nodal_axis = packed_dat.axes.axes[depth]
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})

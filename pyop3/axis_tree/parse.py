@@ -6,7 +6,7 @@ import numbers
 from typing import Any
 
 from pyop3 import utils
-from .tree import AbstractAxisTree, AxisForest, AxisTree, Axis, _UnitAxisTree, ContextSensitiveAxisTree, IndexedAxisTree, AxisComponent, UnitIndexedAxisTree
+from .tree import AbstractNonUnitAxisTree, AxisForest, AxisTree, Axis, _UnitAxisTree, ContextSensitiveAxisTree, IndexedAxisTree, AxisComponent, UnitIndexedAxisTree
 
 
 @functools.singledispatch
@@ -14,7 +14,7 @@ def as_axis_tree_type(arg: Any) -> AxisTreeT:
     return as_axis_tree_type(as_axis_tree(arg))
 
 
-@as_axis_tree_type.register(AbstractAxisTree)
+@as_axis_tree_type.register(AbstractNonUnitAxisTree)
 @as_axis_tree_type.register(_UnitAxisTree)
 @as_axis_tree_type.register(UnitIndexedAxisTree)
 @as_axis_tree_type.register(ContextSensitiveAxisTree)
@@ -39,7 +39,7 @@ def _(arg):
     return arg
 
 
-@as_axis_forest.register(AbstractAxisTree)
+@as_axis_forest.register(AbstractNonUnitAxisTree)
 @as_axis_forest.register(_UnitAxisTree)
 @as_axis_forest.register(UnitIndexedAxisTree)
 def _(arg):

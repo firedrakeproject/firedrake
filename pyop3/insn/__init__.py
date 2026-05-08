@@ -9,7 +9,7 @@ from .base import (  # noqa: F401
     WRITE,
     Function,
     Loop,
-    ArrayAssignment,
+    Assignment,
     InstructionList,
     Instruction,
     FunctionArgument,

@@ -731,7 +731,7 @@ class AbstractFunctionSpace:
                 component_idx = bc.function_space().component or ()
                 lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
 
-        return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
+        return PETSc.LGMap().create(lgmap_dat.data_ro_with_halos, bsize=block_size, comm=self.comm)
 
     # }}}
 
@@ -1277,6 +1277,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return (
             other.mesh() == self.mesh()
             and other.ufl_element() == self.ufl_element()
+            and other.boundary_set == self.boundary_set
         )
 
     def __hash__(self):

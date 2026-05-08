@@ -53,14 +53,14 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
         return self.buffer.handle(nest_indices=self.buffer.nest_indices)
 
     def assign(self, other) -> ArrayAssignment:
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "write")
+        return Assignment(self, other, "write")
 
     def iassign(self, other) -> ArrayAssignment:
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "inc")
+        return Assignment(self, other, "inc")
 
 
 @pyop3.record.frozenrecord()

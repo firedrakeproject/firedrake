@@ -22,6 +22,7 @@ from pyop3.insn import exscan, loop_
 from pyop3.axis_tree import (
     Axis,
     AxisTree,
+    AxisForest,
     merge_axis_trees,
 )
 from pyop3.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
@@ -322,51 +323,38 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
     return idict(layouts)
 
 
+# region_sets? and attr of tree?
 def _collect_regions(axes: AxisTree):
-    # NOTE: This is now a set, not a mapping
-    """
-    (can think of as some sort of linearisation of the tree, should probably error if orders do not match)
+    if isinstance(axes, AxisForest):
+        return utils.single_valued(map(_collect_regions, axes.trees))
 
-    Examples
-    --------
-
-    Axis({"x": ["A", "B"], "y": ["B"]}, "a") -> [{"a": "A"}, {"a": "B"}]
-
-    Axis({"x": ["A", "B"], "y": ["B", "A"]}, "a") -> [{"a": "A"}, {"a": "B"}]
-
-    Axis({"x": ["A", "B"], "y": ["C"]}, "a") -> [{"a": "A"}, {"a": "B"}, {"a": "C"}]
-
-    nested
-
-    (assumes y is shared)
-    Axis({"x": ["A", "B"]}, "a") / Axis({"y": ["X", "Y"]}, "b")
-
-        ->
-
-    [{"a": "A", "b": "X"}, {"a": "A", "b": "Y"}, {"a": "B", "b": "X"}, {"a": "B", "b": "Y"}]
-
-    (if y is not shared)
-    Axis({"x": ["A", "B"]}, "a") / Axis({"y": ["X", "Y"]}, "b")
-
-        ->
-
-    [{"a": "A", "b": "X"}, {"a": "A", "b": "Y"}, {"a": "B", "b": "X"}, {"a": "B", "b": "Y"}]
-
-    """
-    region_sets = OrderedSet()
+    # First collect the sets of mutually exclusive region labels. For example this could be
+    # '[[{"owned"}, {"ghost"}], [{"unconstrained"}, {"constrained"}]]'.
+    mut_excl_region_label_sets = OrderedSet()
     for axis in axes.axes:
         for component in axis.components:
-            region_labels = [r.label for r in component.regions]
-            if utils.strictly_all(rl is None for rl in region_labels):
+            if utils.strictly_all(rl is None for rl in component.region_labels):
                 continue
-            region_set = [
-                rl if isinstance(rl, frozenset) else frozenset({rl})
-                for rl in  region_labels
-            ]
-            region_sets.add(region_set)
 
+            # TODO: remove ick casting to frozenset by always making
+            # region labels frozensets
+            mut_excl_region_label_set = [
+                frozenset({rl}) if isinstance(rl, str) else rl
+                for rl in  component.region_labels
+            ]
+            mut_excl_region_label_sets.add(mut_excl_region_label_set)
+
+    # Eliminate label sets if they are a strict subset of another set
+    # (e.g. {"owned"} vs {"owned", "constrained"})
+    mut_excl_region_label_sets = [
+        label_set
+        for label_set in mut_excl_region_label_sets
+        if not any(label_set < label_set_ for label_set_ in mut_excl_region_label_sets)
+    ]
+
+    # Now take the product of these mutually exclusive sets to return the actual regions
     merged_regions = []
-    for merged_region in itertools.product(*region_sets):
+    for merged_region in itertools.product(*mut_excl_region_label_sets):
         merged_regions.append(frozenset().union(*merged_region))
     return tuple(merged_regions)
 

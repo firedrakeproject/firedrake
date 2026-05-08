@@ -697,7 +697,7 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
 # TODO: not sure need to specify 'array' here
 @pyop3.record.frozenrecord()
-class ArrayAssignment(AbstractAssignment):
+class Assignment(AbstractAssignment):
 
     # {{{ instance attrs
 
@@ -740,35 +740,38 @@ class ArrayAssignment(AbstractAssignment):
     # NOTE: Wrong type here...
     @property
     def shape(self) -> tuple[AxisTree, ...]:
-        from pyop3.expr.visitors import get_shape
+        return pyop3.expr.visitors.get_shape(self.assignee)
 
-        assignee_shapes = get_shape(self.assignee)
-        expr_shapes = get_shape(self.expression)
-        if expr_shapes == (UNIT_AXIS_TREE,):
-            expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
-
-        # The shape of the assignment is simply the shape of the assignee, nothing else
-        # makes sense. For more complex things loops should be used.
-        # FIXME: This logic is dreadful
-        axis_trees = []
-        for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
-            if isinstance(assignee_shape, AxisForest):
-                if isinstance(expr_shape, AxisForest):
-                    # take the first match
-                    assignee_shape = [
-                            shape
-                            for shape in assignee_shape.trees
-                            if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
-                        ][0]
-                else:
-                    # take the first match
-                    assignee_shape = [
-                            shape
-                            for shape in assignee_shape.trees
-                            if axis_tree_is_valid_subset(expr_shape, shape)
-                        ][0]  
-            axis_trees.append(assignee_shape)
-        return tuple(axis_trees)
+        # assert False, "old code"
+        # from pyop3.expr.visitors import get_shape
+        #
+        # assignee_shapes = get_shape(self.assignee)
+        # expr_shapes = get_shape(self.expression)
+        # if expr_shapes == (UNIT_AXIS_TREE,):
+        #     expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
+        #
+        # # The shape of the assignment is simply the shape of the assignee, nothing else
+        # # makes sense. For more complex things loops should be used.
+        # # FIXME: This logic is dreadful
+        # axis_trees = []
+        # for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
+        #     if isinstance(assignee_shape, AxisForest):
+        #         if isinstance(expr_shape, AxisForest):
+        #             # take the first match
+        #             assignee_shape = [
+        #                     shape
+        #                     for shape in assignee_shape.trees
+        #                     if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
+        #                 ][0]
+        #         else:
+        #             # take the first match
+        #             assignee_shape = [
+        #                     shape
+        #                     for shape in assignee_shape.trees
+        #                     if axis_tree_is_valid_subset(expr_shape, shape)
+        #                 ][0]  
+        #     axis_trees.append(assignee_shape)
+        # return tuple(axis_trees)
 
     # }}}
 

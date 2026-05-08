@@ -15,7 +15,7 @@ from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType
 from pyop3.expr.tensor.dat import Dat
 from pyop3.axis_tree import AxisTree
-from pyop3.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
 from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
@@ -28,7 +28,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> idict:
+def as_index_forests(forest: Any, /, axes: AbstractNonUnitAxisTree | None = None, *, strict: bool = False) -> idict:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -127,7 +127,7 @@ def _(index_tree: IndexTree, /) -> OrderedSet:
 
 @collect_loop_contexts.register(LoopIndex)
 def _(loop_index: LoopIndex, /) -> OrderedSet:
-    if not isinstance(loop_index.iterset, AbstractAxisTree):
+    if not isinstance(loop_index.iterset, AbstractNonUnitAxisTree):
         raise NotImplementedError("Need to think about context-sensitive itersets and add them here")
 
     return OrderedSet({
@@ -525,7 +525,7 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 @_as_context_free_indices.register(EllipsisType)
 @_as_context_free_indices.register(numbers.Integral)
 @_as_context_free_indices.register(UnparsedSlice)
-def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
+def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT) -> tuple[Slice]:
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 

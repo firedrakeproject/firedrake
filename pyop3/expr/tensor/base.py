@@ -19,7 +19,7 @@ import pyop3.record
 from pyop3 import utils
 from pyop3.sf import DistributedObject
 from pyop3.axis_tree import ContextAware
-from pyop3.axis_tree.tree import AbstractAxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.expr import TerminalExpression
 from pyop3.exceptions import InvalidIndexCountException
 
@@ -98,7 +98,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def axis_trees(self) -> tuple[AbstractAxisTree, ...]:
+    def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, ...]:
         pass
 
     # }}}
@@ -136,7 +136,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
-    ) -> pyop3.insn.ArrayAssignment | None:
+    ) -> pyop3.insn.Assignment | None:
         return self._assign(other, "write", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
     @PETSc.Log.EventDecorator()
@@ -148,7 +148,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
-    ) -> pyop3.insn.ArrayAssignment | None:
+    ) -> pyop3.insn.Assignment | None:
         return self._assign(other, "inc", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
     def _assign(
@@ -160,7 +160,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         eager: bool,
         eager_strategy: Literal["array", "compile"] | None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None,
-    ) -> pyop3.insn.ArrayAssignment | None:
+    ) -> pyop3.insn.Assignment | None:
         if compiler_parameters is not None and not eager:
             raise ValueError("Compiler parameters can only be passed to eager operations")
 
@@ -200,17 +200,17 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
             return self._symbolic_assign(other, mode)
 
     @cached_method()
-    def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.ArrayAssignment:
-        from pyop3.insn import ArrayAssignment
+    def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, mode)
+        return Assignment(self, other, mode)
 
     @abc.abstractmethod
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
         pass
 
     @PETSc.Log.EventDecorator()
-    def zero(self, **kwargs) -> pyop3.insn.ArrayAssignment | None:
+    def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
         return self.assign(0, **kwargs)
 
     def duplicate(self, *, copy: bool = False) -> Tensor:

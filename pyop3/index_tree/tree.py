@@ -36,7 +36,7 @@ from pyop3.axis_tree import (
 from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
     complete_axis_targets,
-    AbstractAxisTree,
+    AbstractNonUnitAxisTree,
     AxisTarget,
     ContextSensitiveLoopIterable,
     IndexedAxisTree,
@@ -380,7 +380,7 @@ class LoopIndex(Index):
 
     # {{{ instance attrs
 
-    iterset: AbstractAxisTree
+    iterset: AbstractNonUnitAxisTree
     id: Any
 
     def collect_buffers(self, visitor):
@@ -396,7 +396,7 @@ class LoopIndex(Index):
             visitor.renamer.add(self.id, "LoopIndex"),
         )
 
-    def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
+    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=utils.PYOP3_DECIDE):
         id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
 
         object.__setattr__(self, "iterset", iterset)

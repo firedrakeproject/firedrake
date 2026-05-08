@@ -10,6 +10,7 @@ from petsc4py import PETSc
 warnings.warn(
     "Importing pyop3.debug, this should not happen in released code",
     RuntimeWarning,
+    stacklevel=2,
 )
 
 

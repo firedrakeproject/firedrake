@@ -62,7 +62,7 @@ class AssignExprBuilder(DAGTraverser):
 
         # NOTE: Is it really valid to consider Real a scalar type here? It means that we are
         is_scalar = func.ufl_element().family() == "Real"
-        is_vector = True
+        is_vector = not is_scalar
 
         func_mesh = func.function_space().mesh()
         if func_mesh != self.function_space.mesh():
@@ -75,7 +75,9 @@ class AssignExprBuilder(DAGTraverser):
             raise NotImplementedError("TODO")
 
         if func.function_space() != self.function_space:
-            raise NotImplementedError("RFS? can't be arraywise")
+            # If we have a restricted function space we have different data
+            # layouts so naive array assignment will fail
+            self.array_assign_allowed = False
 
         return func.dat, is_scalar, is_vector
 
@@ -189,29 +191,6 @@ class Assigner:
 
     def __init__(self, assignee, expression, subset=Ellipsis, *, mode: AssignmentMode = AssignmentMode.STANDARD):
         expression = as_ufl(expression)
-        # source_meshes = set()
-        # for coeff in extract_coefficients(expression):
-        #     if isinstance(coeff, (Function, Cofunction)) and coeff.ufl_element().family() != "Real":
-        #         if coeff.ufl_element() != assignee.ufl_element():
-        #             raise ValueError("All functions in the expression must have the same "
-        #                              "element as the assignee")
-        #         source_meshes.add(extract_unique_domain(coeff, expand_mesh_sequence=False))
-        # if len(source_meshes) == 0:
-        #     pass
-        # elif len(source_meshes) == 1:
-        #     target_mesh = extract_unique_domain(assignee, expand_mesh_sequence=False)
-        #     source_mesh, = source_meshes
-        #     if target_mesh == source_mesh:
-        #         pass
-        #     elif target_mesh.submesh_youngest_common_ancestor(source_mesh) is None:
-        #         raise ValueError(
-        #             "All functions in the expression must be defined on a single domain "
-        #             "that is in the same submesh family as domain of the assignee"
-        #         )
-        # else:
-        #     raise ValueError(
-        #         "All functions in the expression must be defined on a single domain"
-        #     )
 
         self._assignee = assignee
         self._expression = expression
@@ -219,7 +198,7 @@ class Assigner:
         self._mode = mode
 
         expr_builder = AssignExprBuilder(assignee.function_space())
-        self._assign_expr, _, _ = expr_builder(expression)
+        self._assign_expr, self._expr_is_scalar, self._expr_is_vector = expr_builder(expression)
         self._array_assign_allowed = expr_builder.array_assign_allowed
 
     @PETSc.Log.EventDecorator()
@@ -239,7 +218,7 @@ class Assigner:
                 "Use Function.assign instead."
             )
 
-        array_assign_allowed = self._array_assign_allowed
+        array_assign_allowed = self._array_assign_allowed and self._subset is Ellipsis
 
         match self._mode:
             case AssignmentMode.STANDARD:
@@ -249,71 +228,23 @@ class Assigner:
             case AssignmentMode.ISUB:
                 expr = self._assignee.dat - self._assign_expr
             case AssignmentMode.IMUL:
+                assert self._expr_is_scalar
                 expr = self._assignee.dat * self._assign_expr
             case AssignmentMode.IDIV:
+                assert self._expr_is_scalar
                 expr = self._assignee.dat / self._assign_expr
             case _:
                 raise NotImplementedError
 
-        if self._subset is not Ellipsis:
-            raise NotImplementedError
-
+        assignee = self._assignee.dat[self._subset]
         if array_assign_allowed:
-            self._assignee.dat.assign(expr, eager=True, eager_strategy="array")
+            # TODO: This is technically less efficient than the compile strategy
+            # for repeated use. This should be exposed to the user.
+            assignee.assign(expr, eager=True, eager_strategy="array")
         else:
             # TODO: cache the expression for faster reuse of the assembler
-            raise NotImplementedError("probably wont work, need expr replace, also subset?")
-            op3.loop(
-                p := self._assignee.dat.axes.iter(),
-                self._assignee.dat[p].assign(expr[p]),
-                eager=True,
-            )
+            assignee.assign(expr, eager=True, eager_strategy="compile")
 
-        return
-
-    #     # To minimize communication during assignment we perform a number of tricks:
-    #     # * If we are not assigning to a subset then we can always write to the
-    #     #   halo. The validity of the original assignee dat halo does not matter
-    #     #   since we are overwriting it entirely.
-    #     # * We can also write to the halo if we are assigning to a subset provided
-    #     #   that the assignee halo is not dirty to start with.
-    #     # * If we are assigning to a subset where the assignee dat has a dirty halo,
-    #     #   then we should only write to the owned values. There is no point in
-    #     #   writing to the halo since a full halo exchange is still required.
-    #     # * If any of the functions in the expression do not have valid halos then
-    #     #   we only write to the owned values in the assignee. Otherwise we might
-    #     #   end up doing a lot of halo exchanges for the expression just to avoid
-    #     #   a single halo exchange for the assignee.
-    #     # * If we do write to the halo then the resulting halo will never be dirty.
-    #     # If mixed, loop over individual components
-    #     lhs_func = self._assignee
-    #     funcs = self._functions
-    #     subset = self._subset
-    #
-    #     # need to check function spaces - if restricted then have to be clever...
-    #     breakpoint()
-    #
-    #     target_mesh = extract_unique_domain(lhs_func)
-    #     target_V = lhs_func.function_space()
-    #     source_meshes = set(extract_unique_domain(f) for f in funcs)
-    #     if len(source_meshes) == 0:
-    #         # Assign constants only.
-    #         single_mesh_assign = True
-    #     elif len(source_meshes) == 1:
-    #         source_mesh, = source_meshes
-    #         if target_mesh is source_mesh:
-    #             # Assign (co)functions from one mesh to the same mesh.
-    #             single_mesh_assign = True
-    #         else:
-    #             # Assign (co)functions between a submesh and the parent or between two submeshes.
-    #             single_mesh_assign = False
-    #     else:
-    #         raise ValueError("All functions in the expression must be defined on a single domain")
-    #     if single_mesh_assign:
-    #         self._assign_single_mesh(lhs_func, subset, funcs, operator)
-    #     else:
-    #         self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
-    #
     # def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
     #     data_ro = operator.attrgetter("data_ro")
     #     # subset_indices = Ellipsis if subset is None else indices(subset)

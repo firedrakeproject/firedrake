@@ -81,7 +81,7 @@ from pyop3.insn import (  # noqa: F401
     WRITE,
     Function,
     Loop,
-    ArrayAssignment,
+    Assignment,
     do_loop,
     loop_ as loop,
     exscan,

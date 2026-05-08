@@ -22,7 +22,7 @@ from pyop3.cache import cached_method
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
 from pyop3.axis_tree import (
-    AbstractAxisTree,
+    AbstractNonUnitAxisTree,
     AxisForest,
     AxisTree,
     Axis,
@@ -279,7 +279,7 @@ class Mat(Tensor):
         return self.row_axes.alloc_size * self.column_axes.alloc_size
 
     @cached_property
-    def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:
+    def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, AbstractNonUnitAxisTree]:
         return (self.row_axes, self.column_axes)
 
     @classmethod
@@ -352,7 +352,7 @@ class Mat(Tensor):
         return tuple(itertools.zip_longest(self.row_axes.nest_labels, self.column_axes.nest_labels))
 
 
-def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
+def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     from pyop3.axis_tree.visitors.layout import _collect_regions
 
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
@@ -646,11 +646,11 @@ class AggregateMat:
         return Mat.null(self.row_axes, self.column_axes, dtype=self.dtype)
 
     def assign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "write")
+        return Assignment(self, other, "write")
 
     def iassign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "inc")
+        return Assignment(self, other, "inc")
