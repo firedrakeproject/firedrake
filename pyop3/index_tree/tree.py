@@ -247,7 +247,10 @@ class RegionSliceComponent(SliceComponent):
     _label: Any
     region: Any
 
-    def __init__(self, component, region: str, *, label=None) -> None:
+    def __init__(self, component, region: Set, *, label=None) -> None:
+        assert not isinstance(region, str), "old API"
+        region = frozenset(region)
+
         object.__setattr__(self, "_component", component)
         object.__setattr__(self, "_label", label)
         object.__setattr__(self, "region", region)
@@ -1214,9 +1217,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             assert isinstance(target_component.local_size, numbers.Integral)
 
             if isinstance(slice_component, RegionSliceComponent):
-                if slice_component.region not in {"owned", "ghost"}:
-                    raise NotImplementedError("Need to have a special type for selecting owned/ghost, what follows assumes that we are only getting 'owned' or 'ghost'")
-
                 region_index = target_component.region_labels.index(slice_component.region)
                 steps = utils.steps([r.local_size for r in target_component.regions], drop_last=False)
                 start, stop = steps[region_index:region_index+2]

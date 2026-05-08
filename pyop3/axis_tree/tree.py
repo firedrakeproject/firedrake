@@ -220,7 +220,7 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
     # {{{ instance attrs
 
     size: AxisComponentRegionSizeT
-    label: frozenset | str | None = None
+    label: frozenset | None = None
 
     def collect_buffers(self, visitor):
         return visitor(self.size)
@@ -232,6 +232,9 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
 
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
+
+        if isinstance(label, str):
+            label = frozenset({label})
 
         # this is a little clumsy
         if isinstance(size, Tensor):
@@ -245,6 +248,8 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
     def __post_init__(self) -> None:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
+
+        assert not isinstance(self.label, str), "old API"
 
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
@@ -339,8 +344,9 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarF
 
 def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
     if initial_region_label is None:
-        return owned_or_ghost
+        return frozenset({owned_or_ghost})
     else:
+        raise NotImplementedError("old code I think")
         # could be a frozenset?
         return (initial_region_label, owned_or_ghost)
 
@@ -497,6 +503,18 @@ class AxisComponent(LabelledNodeComponent):
     @property
     def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
+
+    @property
+    def flat_region_labels(self):
+        flat = set()
+        for l in self.region_labels:
+            if l is None:
+                continue
+            elif isinstance(l, str):
+                flat.add(l)
+            else:
+                flat |= l
+        return flat
 
     # TODO: not used any more?
     @cached_method()
@@ -773,7 +791,25 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     def trees(self) -> tuple[AbstractAxisTree, ...]:
         pass
 
+    @property
+    @abc.abstractmethod
+    def owned(self) -> Self:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def unconstrained(self) -> Self:
+        pass
+
+    @abc.abstractmethod
+    def with_region_labels(self, *args, **kwargs) -> Self:
+        pass
+
     # }}}
+
+    @cached_property
+    def free(self) -> Self:
+        return self.with_region_labels({"owned", "unconstrained"}, allow_missing=True)
 
 
 class AbstractAxisTree(AbstractAxisTreeLike):
@@ -790,6 +826,21 @@ class AbstractAxisTree(AbstractAxisTreeLike):
 
 class AbstractUnitAxisTree(AbstractAxisTree):
     """Base class for 'unit' (1-sized) axis trees."""
+
+    # {{{ interface impls
+
+    @property
+    def owned(self):
+         raise NotImplementedError("unsure what to do here, legal?")
+
+    @property
+    def unconstrained(self):
+         raise NotImplementedError("unsure what to do here, legal?")
+
+    def with_region_labels(self, *args, **kwargs):
+         raise NotImplementedError("unsure what to do here, legal?")
+
+    # }}}
 
     def __str__(self, /) -> str:
         return "<UNIT>"
@@ -1072,7 +1123,6 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
 
         return self[self._region_slice(region_labels)]
 
-    # NOTE: Unsure if this should be a method
     def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":
         from pyop3.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
@@ -1083,13 +1133,14 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
 
         region_label_matches_all_components = True
         region_label_matches_no_components = True
-        matching_label = None
+        matching_labels = None
         slice_components = []
         for component in axis.components:
-            if matching_labels := region_labels & set(component.region_labels):
-                matching_label = utils.just_one(matching_labels)
+            if matching_labels_ := region_labels & set(component.flat_region_labels):
+                matching_labels = matching_labels_
+                new_label = f"{component.label}_{'_'.join(map(str, matching_labels))}"
                 region_label_matches_no_components = False
-                slice_component = RegionSliceComponent(component.label, matching_label, label=f"{component.label}_{matching_label}")
+                slice_component = RegionSliceComponent(component.label, matching_labels, label=new_label)
             else:
                 region_label_matches_all_components = False
                 slice_component = AffineSliceComponent(component.label, label=component.label)
@@ -1097,8 +1148,8 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
 
         # do not change axis label if nothing changes
         if region_label_matches_all_components:
-            assert matching_label is not None
-            axis_label = f"{axis.label}_{matching_label}"
+            assert matching_labels is not None
+            axis_label = f"{axis.label}_{'_'.join(map(str, matching_labels))}"
         elif region_label_matches_no_components:
             axis_label = axis.label
         else:
@@ -1216,15 +1267,9 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
 
         # As far as PETSc is concerned, the only DoFs that it knows about are those
         # held in the first region (which is 'owned' + 'unconstrained').
-        from pyop3.axis_tree.visitors.layout import _collect_regions
-        region_selector = _collect_regions(axes)[0]
-        if isinstance(region_selector, str):  # clean this up
-            region_selector = frozenset({region_selector})
-
         block_size = np.prod(block_shape, dtype=int)
         vec.setSizes(
-            # (axes.owned.unconstrained.local_size, axes.unconstrained.global_size),
-            (axes.with_region_labels(region_selector).local_size, None),
+            (axes.free.local_size, axes.free.global_size),
             bsize=block_size,
         )
         vec.setUp()
@@ -1300,6 +1345,9 @@ class _UnitAxisTree(AbstractUnitAxisTree):
     @property
     def leaf_subst_layouts(self):
         return idict({idict(): 0})
+
+    def subst_layouts(self):
+        return self.leaf_subst_layouts
 
     def path_with_nodes(self, node) -> idict:
         assert node is None
@@ -1546,23 +1594,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        from pyop3.axis_tree.visitors.layout import _collect_regions
-
-        region_selector = _collect_regions(self)[0]
-        if isinstance(region_selector, str):
-            region_selector = frozenset({region_selector})
-        unconstrained = self.with_region_labels(region_selector)
-
         with temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(unconstrained.local_size) or 0
+            start = icomm.exscan(self.free.local_size) or 0
         numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
         # set ghost+constrained entries to -1 to make sure they are overwritten
-        # TODO: if config.debug:
-        numbering[unconstrained.local_size:] = -1
+        numbering[self.free.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         debug_assert(lambda: (numbering >= 0).all())
-        # return Dat(self.localize(), data=numbering)
         return Dat(self, data=numbering)
 
 

@@ -19,6 +19,7 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
+import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
 from pyop3.config import config
 from pyop3.constants import PYOP3_DECIDE, _nothing

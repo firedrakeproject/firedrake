@@ -281,6 +281,19 @@ def restrict_kernel(Vf, Vc):
         for (int i = 0; i < %(ncandidate)d; i++) {
             const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
             double celldist = 2*bestdist;
+
+
+            printf("Xci: ");
+            for (int iii=0; iii<%(Xc_cell_inc)d; iii++) {
+                printf("%%f ", Xci[iii]);
+                }
+            printf("\\n");
+            printf("X: ");
+            for (int iii=0; iii<2; iii++) {
+                printf("%%f ", X[iii]);
+                }
+            printf("\\n");
+
             to_reference_coords_kernel(Xref, X, Xci);
             if (%(inside_cell)s) {
                 cell = i;

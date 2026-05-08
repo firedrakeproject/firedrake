@@ -72,6 +72,8 @@ class AssignExprBuilder(DAGTraverser):
                     "that is in the same submesh family as domain of the assignee"
                 )
 
+            # To get this to work I think that we have to pass a loop
+            # index along. Else we can't use maps.
             raise NotImplementedError("TODO")
 
         if func.function_space() != self.function_space:

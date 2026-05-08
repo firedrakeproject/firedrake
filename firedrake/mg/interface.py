@@ -92,7 +92,7 @@ def prolong(coarse, fine):
             d.dat.buffer.reduce_leaves_to_roots_end()
 
         op3.loop(
-            n := Vf.nodal_axes.blocked(Vf.shape).owned.iter(),
+            n := Vf.nodal_axes.blocked(Vf.shape).owned.unconstrained.iter(),
             kernel(fine.dat[n], coarse.dat[fine_to_coarse(n)], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
             eager=True,
         )
@@ -165,10 +165,13 @@ def restrict(fine_dual, coarse_dual):
         coarse_coords.dat.buffer.reduce_leaves_to_roots()
 
         kernel = kernels.restrict_kernel(Vf, Vc)
+        import pyop3.debug
+        pyop3.debug.enable_conditional_breakpoints()
         op3.loop(
-            n := Vf.nodal_axes.blocked(Vf.shape).owned.iter(),
+            n := Vf.nodal_axes.blocked(Vf.shape).free.iter(),
             kernel(coarse_dual.dat[fine_to_coarse(n)], fine_dual.dat[n], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
             eager=True,
+            compiler_parameters={"optimize": True},  # for debugging
         )
         fine_dual = coarse_dual
     return coarse_dual
@@ -244,7 +247,7 @@ def inject(fine, coarse):
                 d.dat.buffer.reduce_leaves_to_roots_end()
 
             op3.loop(
-                n := Vc.nodal_axes.blocked(Vc.shape).owned.iter(),
+                n := Vc.nodal_axes.blocked(Vc.shape).free.iter(),
                 kernel(coarse.dat[n], fine.dat[coarse_node_to_fine_nodes(n)], node_locations.dat[n], fine_coords.dat[coarse_node_to_fine_coords(n)]),
                 eager=True,
             )

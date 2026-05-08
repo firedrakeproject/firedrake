@@ -385,10 +385,10 @@ class Executable:
     # TODO: this should live on the executor class
     def __call__(self, *args) -> None:
         # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
-        # if "MatSetValues" in str(self.code):
+        if "restrict" in str(self.code):
         #     breakpoint()
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
+            import pyop3.debug
+            pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:

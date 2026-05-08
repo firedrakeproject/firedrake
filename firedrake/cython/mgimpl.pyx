@@ -59,8 +59,9 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
         PetscInt i, j, k, l, m, node, fine
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
 
-    fine_map = Vf.cell_node_map_dat.data_ro
-    coarse_map = Vc.cell_node_map_dat.data_ro
+    raise NotImplementedError
+    fine_map = Vf.cell_dof_map_dat.data_ro
+    coarse_map = Vc.cell_dof_map_dat.data_ro
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
     coarse_cells = coarse_map.shape[0]
@@ -68,10 +69,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     fine_per_cell = fine_map.shape[1]
 
     ndof = fine_per_cell * fine_cell_per_coarse_cell
-    coarse_to_fine_map = np.full((Vc.axes.local_size//Vc.block_size,
-                                  ndof),
-                                 -1,
-                                 dtype=IntType)
+    coarse_to_fine_map = np.full((Vc.axes.local_size,), -1, dtype=IntType)
     for i in range(coarse_cells):
         for j in range(coarse_per_cell):
             node = coarse_map[i, j]
@@ -93,8 +91,9 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
         PetscInt i, j, k, node
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
 
-    fine_map = Vf.cell_node_map_dat.data_ro
-    coarse_map = Vc.cell_node_map_dat.data_ro
+    raise NotImplementedError
+    fine_map = Vf.cell_dof_map_dat.data_ro
+    coarse_map = Vc.cell_dof_map_dat.data_ro
 
     fine_cells = fine_to_coarse_cells.shape[0]
     coarse_per_fine = fine_to_coarse_cells.shape[1]
