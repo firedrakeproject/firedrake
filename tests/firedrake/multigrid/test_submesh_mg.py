@@ -142,6 +142,7 @@ def monolithic_gmg_params():
     }
 
 
+@pytest.mark.parallel([1, 4])
 @pytest.mark.parametrize("solver_type", ["fieldsplit_gmg", "monolithic_gmg"])
 def test_submesh_gmg(solver_type):
     """GMG converges in O(1) iterations and recovers the correct solution."""
@@ -158,8 +159,8 @@ def test_submesh_gmg(solver_type):
     # Good GMG preconditioner should converge in well under 30 iterations for
     # this 2-level hierarchy on a small mesh. Without a working hierarchy the
     # iteration count would be much larger (or the solve would crash).
-    assert ksp_its < 30, (
-        f"Expected < 30 KSP iterations with {solver_type}, got {ksp_its}. "
+    assert ksp_its < 15, (
+        f"Expected < 15 KSP iterations with {solver_type}, got {ksp_its}. "
         "This suggests the multigrid hierarchy or preconditioner is broken."
     )
 
