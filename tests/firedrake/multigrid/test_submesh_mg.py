@@ -102,7 +102,8 @@ def test_submesh_hierarchy_construction():
     # MixedFunctionSpace construction must not crash (this was the original bug)
     V = FunctionSpace(mesh, "CG", 1)
     sV = FunctionSpace(smesh, "CG", 1)
-    MixedFunctionSpace([V, sV])
+    Z = MixedFunctionSpace([V, sV])
+    assert tuple(Z.mesh()) == (mesh, smesh)
 
 
 # ---------------------------------------------------------------------------
