@@ -28,11 +28,9 @@ from firedrake.mg.utils import has_level, get_level
 def build_problem(base_n=4, nref=1):
     """Return the problem objects for the coupled Poisson–Helmholtz system."""
     base = UnitSquareMesh(base_n, base_n)
-    # marker 3 on UnitSquareMesh is the y=0 edge
-    base_smesh = Submesh(base, subdim=1, subdomain_id=3)
-
     mh = MeshHierarchy(base, nref)
-    smh = MeshHierarchy(base_smesh, nref)
+    # marker 3 on UnitSquareMesh is the y=0 edge
+    smh = SubmeshHierarchy(mh, subdim=1, subdomain_id=3)
 
     mesh = mh[-1]
     smesh = smh[-1]
@@ -79,8 +77,8 @@ def test_submesh_hierarchy_construction():
     base = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(base, 1)
 
-    base_smesh = Submesh(base, subdim=1, subdomain_id=3)
-    smh = MeshHierarchy(base_smesh, 1)
+    smh = SubmeshHierarchy(mh, subdim=1, subdomain_id=3)
+    assert len(mh) == len(smh)
 
     mesh = mh[-1]
     smesh = smh[-1]

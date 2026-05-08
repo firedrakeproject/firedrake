@@ -103,28 +103,19 @@ and is swept around the :math:`z`-axis. ::
   ngmesh = OCCGeometry(torus).GenerateMesh(maxh=0.5)
   base_v = Mesh(ngmesh)
 
-Building the submesh for the surface
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The submesh for the surface can be built with the ``Submesh`` class.
-This takes in a subdomain id to indicate which part of the mesh should be
-extracted. In this case we want the entire exterior facet mesh, which we
-can extract by querying the exterior facet markers. ::
-
-  # The exterior facet marker is unique on this closed surface.
-  assert len(base_v.exterior_facets.unique_markers) == 1
-  marker = base_v.exterior_facets.unique_markers[0]
-  base_s = Submesh(base_v, subdim=2, subdomain_id=marker)
-
 Mesh hierarchy and submesh hierarchy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Geometric multigrid requires a hierarchy of uniformly refined meshes.  We
-build the volume and surface hierarchies together. ::
+build the volume and surface hierarchies together. 
+The submesh for the surface can be built with the :func:`~.SubmeshHierarchy` constructor.
+This takes in a subdomain id to indicate which part of the mesh should be
+extracted. In this case we want the entire exterior facet mesh, which we
+can specify directly. ::
 
   nref = 1
   mh_v = MeshHierarchy(base_v, nref)
-  mh_s = MeshHierarchy(base_s, nref)
+  mh_s = SubmeshHierarchy(mh_v, subdim=2, subdomain_id=1, label_name="exterior_facets")
   mesh_v = mh_v[-1]
   mesh_s = mh_s[-1]
 
@@ -136,26 +127,7 @@ collected into a :func:`~.MixedFunctionSpace`. ::
 
   V_v = FunctionSpace(mesh_v, "CG", 1)
   V_s = FunctionSpace(mesh_s, "CG", 1)
-  Z = MixedFunctionSpace([V_v, V_s])
-
-The model parameters are kept simple. ::
-
-  d_L   = Constant(1)    # volume diffusion
-  d_ell = Constant(1)    # surface diffusion
-  lam   = Constant(1)    # transfer rate: volume → surface
-  gam   = Constant(1)    # transfer rate: surface → volume
-
-Integration measures
-~~~~~~~~~~~~~~~~~~~~~
-
-Three measures are needed.  ``dV`` integrates over :math:`\Omega`, ``dA`` over
-:math:`\Gamma`, and ``dC`` is the *cross-mesh measure* that integrates over the
-submesh but also queries degrees of freedom from the parent volume mesh.
-Firedrake computes the intersection automatically with ``intersect_measures``. ::
-
-  dV = Measure("dx", domain=mesh_v)
-  dA = Measure("dx", domain=mesh_s)
-  dC = Measure("dx", domain=mesh_s, intersect_measures=(Measure("ds", mesh_v),))
+  Z = V_v * V_s
 
 Initial data and time-stepping setup
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -179,6 +151,25 @@ We initialise with smooth functions on the torus. ::
   z_old.subfunctions[0].interpolate(2 + sin(X_v[0]) * cos(X_v[1]))
   z_old.subfunctions[1].interpolate(2 + cos(X_s[2]))
   z.assign(z_old)
+
+The model parameters are kept simple. ::
+
+  d_L   = Constant(1)    # volume diffusion
+  d_ell = Constant(1)    # surface diffusion
+  lam   = Constant(1)    # transfer rate: volume → surface
+  gam   = Constant(1)    # transfer rate: surface → volume
+
+Integration measures
+~~~~~~~~~~~~~~~~~~~~~
+
+Three measures are needed.  ``dV`` integrates over :math:`\Omega`, ``dA`` over
+:math:`\Gamma`, and ``dC`` is the *cross-mesh measure* that integrates over the
+submesh but also queries degrees of freedom from the parent volume mesh.
+Firedrake computes the intersection automatically with ``intersect_measures``. ::
+
+  dV = dx(mesh_v)
+  dA = dx(mesh_s)
+  dC = Measure("dx", domain=mesh_s, intersect_measures=[ds(mesh_v)])
 
 The variational form
 ~~~~~~~~~~~~~~~~~~~~~
