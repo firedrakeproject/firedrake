@@ -344,5 +344,3 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
 def NonNestedHierarchy(*meshes):
     return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes],
                          nested=False)
-
-

@@ -37,9 +37,9 @@ def build_problem(base_n=4, nref=1):
     mesh = mh[-1]
     smesh = smh[-1]
 
-    V  = FunctionSpace(mesh,  "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     sV = FunctionSpace(smesh, "CG", 1)
-    Z  = MixedFunctionSpace([V, sV])
+    Z = MixedFunctionSpace([V, sV])
 
     dV = Measure("dx", domain=mesh)
     dA = Measure("dx", domain=smesh)
@@ -48,13 +48,13 @@ def build_problem(base_n=4, nref=1):
     dC = Measure("dx", smesh, intersect_measures=(Measure("ds", mesh),))
 
     x, y = SpatialCoordinate(mesh)
-    xs   = SpatialCoordinate(smesh)[0]   # x-coordinate along Γ = {y=0}
+    xs = SpatialCoordinate(smesh)[0]   # x-coordinate along Γ = {y=0}
 
-    f_u   = Function(V).interpolate(2 * pi**2 * sin(pi * x) * sin(pi * y))
+    f_u = Function(V).interpolate(2 * pi**2 * sin(pi * x) * sin(pi * y))
     f_lam = Function(sV).interpolate((pi**2 + 1) * sin(pi * xs))
 
     u, lam = TrialFunctions(Z)
-    v, mu  = TestFunctions(Z)
+    v, mu = TestFunctions(Z)
     a = (inner(grad(u), grad(v)) * dV
          + inner(u - lam, v) * dC
          + inner(grad(lam), grad(mu)) * dA
@@ -64,7 +64,7 @@ def build_problem(base_n=4, nref=1):
     bcs = [DirichletBC(Z.sub(0), 0, "on_boundary"),
            DirichletBC(Z.sub(1), 0, "on_boundary")]
 
-    u_exact   = Function(V).interpolate(sin(pi * x) * sin(pi * y))
+    u_exact = Function(V).interpolate(sin(pi * x) * sin(pi * y))
     lam_exact = Function(sV).interpolate(sin(pi * xs))
 
     return mesh, smesh, Z, a, L, bcs, u_exact, lam_exact
@@ -102,7 +102,7 @@ def test_submesh_hierarchy_construction():
     assert hierarchy.fine_to_coarse_cells[1] is not None
 
     # MixedFunctionSpace construction must not crash (this was the original bug)
-    V  = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     sV = FunctionSpace(smesh, "CG", 1)
     MixedFunctionSpace([V, sV])
 
@@ -166,5 +166,5 @@ def test_submesh_gmg(solver_type):
     u_h, lam_h = z.subfunctions
     # The discretisation error on an 8×8 mesh is ~O(h²) ≈ 2e-2; the solver
     # error should be negligible relative to this.
-    assert errornorm(u_exact, u_h)    < 5e-2, f"Volume error too large: {errornorm(u_exact, u_h)}"
+    assert errornorm(u_exact, u_h) < 5e-2, f"Volume error too large: {errornorm(u_exact, u_h)}"
     assert errornorm(lam_exact, lam_h) < 5e-2, f"Surface error too large: {errornorm(lam_exact, lam_h)}"
