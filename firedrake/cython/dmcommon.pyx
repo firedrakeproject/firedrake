@@ -7,13 +7,14 @@ import math
 import cython
 import numpy as np
 import firedrake
-from collections.abc import Sequence
 from firedrake.petsc import PETSc
 from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
+from numbers import Integral
+from collections.abc import Sequence
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -3994,52 +3995,32 @@ def submesh_create(PETSc.DM dm,
 
     """
     cdef:
+        PETSc.IS points, subpoints
         PETSc.DMLabel label, temp_label
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
         PetscInt pStart, pEnd, p, i, stratum_size, label_value
-        PETSc.PetscIS stratum_is = NULL
         const PetscInt *stratum_indices = NULL
-
-    # Parse non-integer subdomain_id into a single value
-    if isinstance(subdomain_id, str):
-        if subdomain_id == "on_boundary":
-            label_name = "exterior_facets"
-            label_value = 1
-        else:
-            raise ValueError(f"Submesh construction got invalid subdomain_id {subdomain_id}.")
-    elif isinstance(subdomain_id, Sequence):
-        label = dm.getLabel(label_name)
-
-        def get_label_points(sub):
-            if sub == "on_boundary":
-                return dm.getStratumIS("exterior_facets", 1)
-            elif isinstance(sub, str):
-                raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
-            else:
-                return label.getStratumIS(sub)
-
-        # Take the union of the labels in the list
-        iset = PETSc.IS().createGeneral([], comm=dm.comm)
-        for sub in subdomain_id:
-            iset = iset.union(get_label_points(sub))
-
-        # Create a temporary label
-        label_name = "firedrake_composite_subdomain_label"
-        dm.createLabel(label_name)
-        label_value = 1 + dm.getLabelIdIS(label_name).getSize()
-        label = dm.getLabel(label_name)
-        label.setStratumIS(label_value, iset)
-    else:
-        label_value = subdomain_id
-
+    # Cast subdomain_id into an iterable
+    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
+        subdomain_id = (subdomain_id,)
+    # Take the union of the all the label values
     label = dm.getLabel(label_name)
+    points = PETSc.IS().createGeneral([], comm=dm.comm)
+    for sub in subdomain_id:
+        if isinstance(sub, Integral):
+            subpoints = label.getStratumIS(sub)
+        elif sub == "on_boundary":
+            subpoints = dm.getStratumIS("exterior_facets", 1)
+        else:
+            raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+        points = points.union(subpoints)
     # Create temp_label that contains no lower-dimensional points.
     dm.createLabel(temp_label_name)
     temp_label = dm.getLabel(temp_label_name)
-    CHKERR(DMLabelGetStratumSize(<DMLabel>label.dmlabel, label_value, &stratum_size))
+    label_value = 1
+    CHKERR(ISGetSize(points.iset, &stratum_size))
     if stratum_size > 0:
-        CHKERR(DMLabelGetStratumIS(<DMLabel>label.dmlabel, label_value, &stratum_is))
-        CHKERR(ISGetIndices(stratum_is, &stratum_indices))
+        CHKERR(ISGetIndices(points.iset, &stratum_indices))
         CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
         for i in range(stratum_size):
             p = stratum_indices[i]
@@ -4047,8 +4028,7 @@ def submesh_create(PETSc.DM dm,
             # culling all lower-dimensional points.
             if pStart <= p < pEnd:
                 CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
-        CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
-        CHKERR(ISDestroy(&stratum_is))
+        CHKERR(ISRestoreIndices(points.iset, &stratum_indices))
     # Make submesh using temp_label.
     subdm, ownership_transfer_sf = dm.filter(label=temp_label,
                                              value=label_value,
