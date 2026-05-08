@@ -1046,10 +1046,16 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     @cached_property
     def owned(self):
         """Return the owned portion of the axis tree."""
+        # TODO: can i remove this check and apply universally?
         if self.comm.size == 1:
             return self
         else:
             return self.with_region_label(OWNED_REGION_LABEL)
+
+    @cached_property
+    def unconstrained(self):
+        """Return the unconstrained portion of the axis tree."""
+        return self.with_region_label("unconstrained")
 
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
@@ -1979,11 +1985,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
     def comm(self) -> MPI.Comm:
         return self.unindexed.comm
 
-    @cached_property
-    def outer_loops(self):
-        assert False, "old code"
-        return gather_loop_indices_from_targets(self.targets)
-
     def materialize(self):
         return UNIT_AXIS_TREE
 
@@ -2312,6 +2313,16 @@ class AxisForest(AbstractAxisTreeLike):
     @property
     def owned(self) -> AxisForest:
         return type(self)((tree.owned for tree in self.trees))
+
+    @property
+    def unconstrained(self) -> AxisForest:
+        # TODO: nodal axes have labels like {"owned", "unconstrained"} and {"ghost", "unconstrained"}
+        # and so .unconstrained is ambiguous. Fixing it is tricky though so for now just discard the
+        # rogue axis tree - it will be larger because nothing is getting dropped in the indexing.
+        new_trees = [tree.unconstrained for tree in self.trees]
+        min_size = min(tree.local_size for tree in new_trees)
+        new_trees = [tree for tree in new_trees if tree.local_size == min_size]
+        return type(self)(new_trees)
 
     @property
     def _buffer_indices(self):

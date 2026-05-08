@@ -237,6 +237,8 @@ class RegionSliceComponent(SliceComponent):
     label, and so breaks any recursive cycle where one might have something
     like `axes.owned.buffer_slice` (which accesses `axes.owned.buffer_slice`...).
 
+    Note that 'region' can be a subset of the region label: e.g. "owned" matches {"owned", "unconstrained"}
+
     """
 
     # {{{ instance attrs
