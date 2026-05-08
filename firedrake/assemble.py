@@ -2139,6 +2139,5 @@ def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
 
     orig_lgmaps = petscmat.getLGMap()
     petscmat.setLGMap(*lgmaps)
-    breakpoint()
     yield
     petscmat.setLGMap(*orig_lgmaps)

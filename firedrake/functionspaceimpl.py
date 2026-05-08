@@ -731,7 +731,6 @@ class AbstractFunctionSpace:
                 component_idx = bc.function_space().component or ()
                 lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
 
-        breakpoint()
         return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
 
     # }}}
@@ -879,8 +878,8 @@ class AbstractFunctionSpace:
         #          └──➤ {closure: [{0: 2}, {1: 1}]}
         #               ├──➤ {dof0: 0}
         #               └──➤ {dof1: 1}
-        iterset_axes = loop_info.iterset.materialize().localize()  # outer axis is cells etc
-        map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize().localize())
+        iterset_axes = loop_info.iterset.materialize().regionless()  # outer axis is cells etc
+        map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize().regionless())
         map_plex = op3.Dat.empty(map_plex_axes, dtype=IntType, prefix="map")
 
         op3.loop(
@@ -1063,13 +1062,6 @@ class FunctionSpace(AbstractFunctionSpace):
     @cached_property
     @_mesh_cached
     def layout_axes(self) -> AxisTree:
-        # Actually I think we don't care about the parent here because creating a
-        # data structure on a subspace should have the smaller size
-        # TODO: remove parent from the cache key here
-        # if self.parent:
-        #     field_label = self.parent.field_axis.component_labels[self.index]
-        #     return self.parent.layout_axes[field_label]
-
         # idea is to define this for this and mixed function space etc - this is the
         # *data layout* which is different to .axes (which is always the same for a
         # given space regardless of the data layout).
@@ -1280,12 +1272,11 @@ class FunctionSpace(AbstractFunctionSpace):
     ``None``."""
 
     def __eq__(self, other):
+        # NOTE: For equality checks we consider indexed subspaces to be
+        # equal to the bare, unindexed space
         return (
-            type(other) is type(self)
-            and other.mesh() == self.mesh()
+            other.mesh() == self.mesh()
             and other.ufl_element() == self.ufl_element()
-            and other.component == self.component
-            and other.index == self.index
         )
 
     def __hash__(self):

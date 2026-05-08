@@ -75,6 +75,12 @@ class Expression(Node, abc.ABC):
         else:
             return Mul(other, self)
 
+    def __truediv__(self, other) -> Div | Self:
+        if other == 1:
+            return self
+        else:
+            return Div(self, other)
+
     def __floordiv__(self, other) -> FloorDiv | Self:
         if not isinstance(other, numbers.Integral):
             return NotImplemented
@@ -332,6 +338,12 @@ class Mul(BinaryOperator):
         return get_local_min(self.a) * get_local_min(self.b)
 
     # }}}
+
+
+class Div(BinaryOperator):
+    @property
+    def _symbol(self) -> str:
+        return "/"
 
 
 class FloorDiv(BinaryOperator):

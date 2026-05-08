@@ -476,7 +476,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
-            from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
@@ -507,26 +506,30 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
-        from firedrake.assign import IAddAssigner
-        IAddAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IADD).assign()
         return self
 
     @FunctionMixin._ad_annotate_isub
     def __isub__(self, expr):
-        from firedrake.assign import ISubAssigner
-        ISubAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.ISUB).assign()
         return self
 
     @FunctionMixin._ad_annotate_imul
     def __imul__(self, expr):
-        from firedrake.assign import IMulAssigner
-        IMulAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IMUL).assign()
         return self
 
     @FunctionMixin._ad_annotate_itruediv
     def __itruediv__(self, expr):
-        from firedrake.assign import IDivAssigner
-        IDivAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IDIV).assign()
         return self
 
     def __float__(self):

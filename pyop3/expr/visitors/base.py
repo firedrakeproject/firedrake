@@ -53,15 +53,21 @@ class OverloadedExpressionEvaluator(ExpressionVisitor):
 
     @process.register
     @pyop3.node.postorder
-    def _(self, _: pyop3.expr.Modulo, visited, /, *args, **kwargs) -> Any:
+    def _(self, _: pyop3.expr.Div, visited, /, *args, **kwargs) -> Any:
         a, b = visited.values()
-        return a % b
+        return a / b
 
     @process.register
     @pyop3.node.postorder
     def _(self, _: pyop3.expr.FloorDiv, visited, /, *args, **kwargs) -> Any:
         a, b = visited.values()
         return a // b
+
+    @process.register
+    @pyop3.node.postorder
+    def _(self, _: pyop3.expr.Modulo, visited, /, *args, **kwargs) -> Any:
+        a, b = visited.values()
+        return a % b
 
     @process.register
     @pyop3.node.postorder
