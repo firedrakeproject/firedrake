@@ -3998,14 +3998,15 @@ def submesh_create(PETSc.DM dm,
         PETSc.IS points, subpoints
         PETSc.DMLabel label, temp_label
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
-        PetscInt pStart, pEnd, p, i, stratum_size, label_value
+        PetscInt pStart, pEnd, p, i, stratum_size = 0, label_value = 1
         const PetscInt *stratum_indices = NULL
+
     # Cast subdomain_id into an iterable
     if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
         subdomain_id = (subdomain_id,)
     # Take the union of the all the label values
     label = dm.getLabel(label_name)
-    points = PETSc.IS().createGeneral([], comm=dm.comm)
+    points = PETSc.IS()
     for sub in subdomain_id:
         if isinstance(sub, Integral):
             subpoints = label.getStratumIS(sub)
@@ -4013,12 +4014,15 @@ def submesh_create(PETSc.DM dm,
             subpoints = dm.getStratumIS("exterior_facets", 1)
         else:
             raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
-        points = points.union(subpoints)
+        if points:
+            points = points.union(subpoints)
+        else:
+            points = subpoints
     # Create temp_label that contains no lower-dimensional points.
     dm.createLabel(temp_label_name)
     temp_label = dm.getLabel(temp_label_name)
-    label_value = 1
-    CHKERR(ISGetSize(points.iset, &stratum_size))
+    if points:
+        CHKERR(ISGetSize(points.iset, &stratum_size))
     if stratum_size > 0:
         CHKERR(ISGetIndices(points.iset, &stratum_indices))
         CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
