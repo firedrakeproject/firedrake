@@ -278,47 +278,39 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
 
+    opts = PETSc.Options(context.options_prefix)
+    if opts.getString("snes_type", "") == "fas":
+        solver_prefix = "fas_"
+    else:
+        solver_prefix = "mg_"
     _, level = utils.get_level(problem.u_restrict.function_space().mesh())
     if level == 0:
-        # Use different mat_type on coarsest level
-        opts = PETSc.Options(context.options_prefix)
-        if opts.getString("snes_type", "") == "fas":
-            solver_prefix = "fas_"
-        else:
-            solver_prefix = "mg_"
-
-        coarse_mat_type = opts.getString(f"{solver_prefix}coarse_mat_type", "")
-        if coarse_mat_type == "":
-            coarse_mat_type = context.mat_type
-            default_pmat_type = context.pmat_type
-        else:
-            default_pmat_type = coarse_mat_type
-        coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
-                                          default_pmat_type)
-
-        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type", "")
-        if coarse_sub_mat_type == "":
-            coarse_sub_mat_type = context.sub_mat_type
-            default_sub_pmat_type = context.sub_pmat_type
-        else:
-            default_sub_pmat_type = coarse_sub_mat_type
-        coarse_sub_pmat_type = opts.getString(f"{solver_prefix}coarse_sub_pmat_type",
-                                              default_sub_pmat_type or "") or None
+        levels_prefix = f"{solver_prefix}coarse_"
     else:
-        coarse_mat_type = context.mat_type
-        coarse_pmat_type = context.pmat_type
-        coarse_sub_mat_type = context.sub_mat_type
-        coarse_sub_pmat_type = context.sub_pmat_type
+        levels_prefix = f"{solver_prefix}levels_"
+    current_level_prefix = f"{solver_prefix}levels_{level}_"
+    new_options_prefix = f"{context.options_prefix}{current_level_prefix}"
 
-    coarse = _SNESContext(problem,
-                          mat_type=coarse_mat_type,
-                          pmat_type=coarse_pmat_type,
-                          sub_mat_type=coarse_sub_mat_type,
-                          sub_pmat_type=coarse_sub_pmat_type,
-                          appctx=new_appctx,
-                          options_prefix=context.options_prefix,
-                          transfer_manager=context.transfer_manager,
-                          pre_apply_bcs=context.pre_apply_bcs)
+    new_mat_type = None
+    new_pmat_type = None
+    new_sub_mat_type = None
+    new_sub_pmat_type = None
+    for prefix in (levels_prefix, current_level_prefix):
+        new_mat_type = opts.getString(f"{prefix}mat_type", "") or new_mat_type
+        new_pmat_type = opts.getString(f"{prefix}pmat_type", "") or new_pmat_type
+        new_sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or new_sub_mat_type
+        new_sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or new_sub_pmat_type
+
+    new_pmat_type = new_pmat_type or new_mat_type
+    new_sub_pmat_type = new_sub_pmat_type or new_sub_mat_type
+    coarse = context.reconstruct(problem=problem,
+                                 mat_type=new_mat_type,
+                                 pmat_type=new_pmat_type,
+                                 sub_mat_type=new_sub_mat_type,
+                                 sub_pmat_type=new_sub_pmat_type,
+                                 appctx=new_appctx,
+                                 options_prefix=new_options_prefix,
+                                 )
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
     context._coarse = coarse
