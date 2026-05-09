@@ -23,7 +23,7 @@ get a convergent method.  We refer the reader to other demos.
 We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
-via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 

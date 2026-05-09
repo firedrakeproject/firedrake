@@ -197,6 +197,18 @@ def test_hcurl_extruded_interval():
     assert np.allclose(u.dat.data, u_proj.dat.data)
 
 
+def test_dpc_into_dq_extruded_interval():
+    mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
+    DPC = FunctionSpace(mesh, "DPC", 1)
+    DQ = FunctionSpace(mesh, "DQ", 1)
+    u1 = Function(DPC)
+    u2 = Function(DQ)
+
+    u1.assign(1)
+    u2.interpolate(u1)
+    assert errornorm(u2, u1) < 1E-12
+
+
 # Requires the relevant FInAT or FIAT duals to be defined
 @pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hdiv_2d():
@@ -391,7 +403,8 @@ def test_adjoint_dg():
 
 
 @pytest.mark.parametrize("degree", range(1, 4))
-def test_function_cofunction(degree):
+@pytest.mark.parametrize("cofunc", [True, False])
+def test_zeroform(degree, cofunc):
     mesh = UnitSquareMesh(10, 10)
     Pkp1 = FunctionSpace(mesh, "CG", degree+1)
     Pk = FunctionSpace(mesh, "CG", degree)
@@ -400,7 +413,9 @@ def test_function_cofunction(degree):
     x = SpatialCoordinate(mesh)
     f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1]), Pk))
 
-    fhat = assemble(f*v1*dx)
+    fhat = f * v1 * dx
+    if cofunc:
+        fhat = assemble(fhat)
     norm_i = assemble(interpolate(f, fhat))
     norm = assemble(f*f*dx)
 
@@ -726,3 +741,17 @@ def test_interpolate_form_mixed():
 
     res3 = assemble(inner(u, q) * dx)  # V x W -> R
     assert mat_equals(res1, res3)
+
+
+def test_interpolation_cell_subset():
+    mesh = UnitIntervalMesh(2)
+    x = SpatialCoordinate(mesh)
+
+    ind = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] > 0.5, 1, 0))
+
+    mesh = RelabeledMesh(mesh, [ind], [100])
+
+    a = Constant(1)
+    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
+
+    assert assemble((u-a/2)*dx) < 1e-14

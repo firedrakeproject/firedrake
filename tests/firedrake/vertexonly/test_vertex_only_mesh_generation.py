@@ -354,7 +354,7 @@ def test_point_tolerance():
     m = UnitSquareMesh(1, 1)
     assert m.tolerance == 0.5
     # Make the mesh non-axis-aligned.
-    m.coordinates.dat.data[1, :] = [1.1, 1]
+    m.coordinates.dat.data[2, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
     vm = VertexOnlyMesh(m, coords, tolerance=0.1)
     assert vm.cell_set.size == 1

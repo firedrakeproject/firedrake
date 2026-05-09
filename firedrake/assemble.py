@@ -30,8 +30,9 @@ from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKe
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from functools import cached_property
+
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
-from pyop2.utils import cached_property
 
 
 __all__ = "assemble",
@@ -873,7 +874,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         # If F: V3 x V2 -> R, then
         # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
         # The result is a two-form V3 x V1 -> R.
-        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form) and len(expr.argument_slots()[0].arguments()) == 2:
             form, operand = expr.argument_slots()
             vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
             expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
@@ -1858,9 +1859,12 @@ def _as_global_kernel_arg_coefficient(_, self):
     else:
         index = None
 
-    ufl_element = V.ufl_element()
-    if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((V.value_size,))
+    if V.ufl_element().family() == "Real":
+        # Interior facet integrals double Real coefficients for the
+        # two sides of the facet, matching the TSFC-generated kernel.
+        return op2.GlobalKernelArg(
+            (V.value_size,), double=self._integral_type.startswith("interior_facet")
+        )
     else:
         return self._make_dat_global_kernel_arg(V, index=index)
 

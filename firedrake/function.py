@@ -13,9 +13,10 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 
+import petsctools
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
@@ -109,7 +110,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -117,7 +118,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -306,7 +307,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -314,7 +315,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -514,7 +515,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -539,6 +541,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
@@ -848,7 +851,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -883,8 +885,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+            f"-I{rtree.finder.get_include()}",
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ],
         ldargs=ldargs,
         comm=function.comm
     )

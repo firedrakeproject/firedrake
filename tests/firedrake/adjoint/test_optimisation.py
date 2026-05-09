@@ -12,20 +12,8 @@ import petsctools
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -74,7 +62,7 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
+                                 "tao_gttol": 1.0e-7,
                                  "tao_monitor": None})
     return solver.solve()
 
@@ -86,7 +74,7 @@ def minimize_tao_nls(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
+                                 "tao_gttol": 1.0e-7,
                                  "tao_monitor": None})
     return solver.solve()
 

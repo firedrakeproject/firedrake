@@ -185,19 +185,26 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
-        cctx = get_appctx(coarse)
-        cmapping = cctx._coefficient_mapping
-        if cmapping is None:
-            return
-        for c in cmapping:
-            if is_dual(c):
-                manager.restrict(c, cmapping[c])
-            else:
-                manager.inject(c, cmapping[c])
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
+        while coarse:
+            cctx = get_appctx(coarse)
+            cmapping = cctx._coefficient_mapping
+            if cmapping is None:
+                return
+            for c in cmapping:
+                if is_dual(c):
+                    manager.restrict(c, cmapping[c])
+                else:
+                    manager.inject(c, cmapping[c])
+            # Apply bcs
+            if cctx.pre_apply_bcs:
+                for bc in cctx._problem.dirichlet_bcs():
+                    bc.apply(cctx._x)
+            # When the solution is in the real space
+            # PETSc fails to call this hook on coarse levels.
+            # As a workaround, we inject into all levels.
+            has_real_space = any(Vsub.ufl_element().family() == "Real"
+                                 for Vsub in cctx._x.function_space())
+            coarse = coarse.getCoarseDM() if has_real_space else None
 
     dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):

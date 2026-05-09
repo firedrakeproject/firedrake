@@ -58,9 +58,7 @@ class KernelBuilderBase(KernelInterface):
         kernel_arg = self.coefficient_map[ufl_coefficient]
         domain = extract_unique_domain(ufl_coefficient)
         assert self._domain_integral_type_map[domain] is not None
-        if ufl_coefficient.ufl_element().family() == 'Real':
-            return kernel_arg
-        elif not self._domain_integral_type_map[domain].startswith("interior_facet"):
+        if not self._domain_integral_type_map[domain].startswith("interior_facet"):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
@@ -322,11 +320,20 @@ def set_quad_rule(params, cell, integral_type, functions):
                         if e.family() in {"Quadrature", "Boundary Quadrature"})
         if len(quad_data) == 0:
             quadrature_degree = params["estimated_polynomial_degree"]
-            if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
-                logger.warning("Estimated quadrature degree %s more "
-                               "than tenfold greater than any "
-                               "argument/coefficient degree (max %s)",
-                               quadrature_degree, max_degree([e.degree() for e in elements]))
+            if "max_quadrature_degree" in params:
+                max_allowed_degree = params["max_quadrature_degree"]
+                if quadrature_degree > max_allowed_degree:
+                    logger.info("Estimated quadrature degree %s greater "
+                                "than maximum allowed degree %s. "
+                                "Using maximum degree %s instead.",
+                                quadrature_degree, max_allowed_degree, max_allowed_degree)
+                    quadrature_degree = max_allowed_degree
+            else:
+                if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
+                    logger.warning("Estimated quadrature degree %s more "
+                                   "than tenfold greater than any "
+                                   "argument/coefficient degree (max %s)",
+                                   quadrature_degree, max_degree([e.degree() for e in elements]))
         else:
             try:
                 (quadrature_degree, quad_rule), = quad_data
@@ -339,6 +346,10 @@ def set_quad_rule(params, cell, integral_type, functions):
         finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         if any(c.is_macrocell() for c in fiat_cells):
+            if len(set(c.get_spatial_dimension() for c in fiat_cells)) > 1:
+                dimension = fiat_cell.get_dimension()
+                fiat_cells = [c if c.get_dimension() == dimension else
+                              c.construct_subcomplex(dimension) for c in fiat_cells]
             fiat_cell = max_complex(fiat_cells)
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         quad_rule = fem.get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme)
@@ -495,12 +506,6 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
         GEM expression referring to the Coefficient values.
 
     """
-    if coefficient.ufl_element().family() == 'Real':
-        # Constant
-        value_size = coefficient.ufl_function_space().value_size
-        expression = gem.reshape(gem.Variable(name, (value_size,)),
-                                 coefficient.ufl_shape)
-        return expression
     finat_element = create_element(coefficient.ufl_element())
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)

@@ -8,8 +8,9 @@ from pyop2.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
+from functools import cached_property
+
 from firedrake.petsc import PETSc
-from firedrake.utils import cached_property
 from firedrake.function import Function
 from ufl.form import ZeroBaseForm
 

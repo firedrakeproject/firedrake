@@ -135,7 +135,7 @@ def physical_node_locations(V):
     mesh = V.mesh()
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
-    cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
+    cache = mesh.geometric_shared_data_cache["hierarchy_physical_node_locations"]
     key = (element, V.boundary_set)
     try:
         return cache[key]

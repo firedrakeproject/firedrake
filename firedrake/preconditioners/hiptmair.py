@@ -12,9 +12,9 @@ from firedrake.parameters import parameters
 from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
-import firedrake.utils as utils
 import ufl
 import finat.ufl
+from functools import cached_property
 
 
 __all__ = ("TwoLevelPC", "HiptmairPC")
@@ -79,7 +79,7 @@ class TwoLevelPC(PCBase):
         coarse_space = coarse_operator.arguments()[-1].function_space()
         coarse_dm = coarse_space.dm
         coarse_solver.setDM(coarse_dm)
-        coarse_solver.setDMActive(False)
+        coarse_solver.setDMActive(PETSc.KSP.DMActive.ALL, False)
         pcmg.setDM(pc.getDM())
         pcmg.setFromOptions()
         self.pc = pcmg
@@ -284,6 +284,6 @@ class BCFromNodes(DirichletBC):
         self._nodes = nodes
         super(BCFromNodes, self).__init__(V, g, tuple())
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         return self._nodes

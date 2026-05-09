@@ -23,6 +23,10 @@ on:
         description: Whether to test using macOS
         type: boolean
         default: false
+      test_gpu:
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        default: false
       deploy_website:
         description: Whether to deploy the website
         type: boolean
@@ -54,6 +58,10 @@ on:
         description: Whether to test using macOS
         type: boolean
         default: false
+      test_gpu:
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        default: false
       deploy_website:
         description: Whether to deploy the website
         type: boolean
@@ -81,7 +89,8 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      image: ubuntu:latest
+      # TODO: set to 'ubuntu:latest'
+      image: ubuntu:noble
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
     env:
@@ -91,6 +100,8 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
       PYOP2_SPMD_STRICT: 1
+      # Disable fast math as it exposes compiler bugs
+      PYOP2_CFLAGS: -fno-fast-math
       # NOTE: One should occasionally update test_durations.json by running
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
@@ -177,10 +188,8 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-          : # install of PETSc.
-          pip cache remove petsc4py
-          pip cache remove slepc4py
+          : # Empty the pip cache to ensure that everything is compiled from scratch
+          pip cache purge
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_BUILD_ARGS=''
@@ -246,10 +255,10 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
         timeout-minutes: 10
 
 
@@ -433,14 +442,140 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-          : # install of PETSc. A similar trick may be needed for compiled dependencies
-          : # like h5py or mpi4py if changing HDF5/MPI libraries.
-          pip cache remove petsc4py
+          : # Empty the pip cache to ensure that everything is compiled from scratch
+          pip cache purge
 
-          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
-          echo 'Cython<3.1' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_PIP_FLAGS=''
+          else
+            : # Install build dependencies
+            pip install "$PETSC_DIR"/src/binding/petsc4py
+            pip install -r ./firedrake-repo/requirements-build.txt
+
+            : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_PIP_FLAGS='--no-build-isolation'
+          fi
+
+          pip install --verbose $EXTRA_PIP_FLAGS \
+            --no-binary h5py \
+            './firedrake-repo[check]'
+
+          firedrake-clean
+          pip list
+
+      - name: Run smoke tests
+        run: |
+          . venv/bin/activate
+          firedrake-check
+        timeout-minutes: 10
+
+      - name: Post-run cleanup
+        if: always()
+        run: |
+          find . -delete
+
+  test_gpu:
+    name: Build and test Firedrake (Linux CUDA)
+    runs-on: [self-hosted, Linux, gpu]
+    container:
+      # TODO: set to 'ubuntu:latest'
+      image: ubuntu:noble
+      options: --gpus all
+    if: inputs.test_gpu
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      FIREDRAKE_CI: 1
+      PYOP2_SPMD_STRICT: 1
+      # Disable fast math as it exposes compiler bugs
+      PYOP2_CFLAGS: -fno-fast-math
+      # NOTE: One should occasionally update test_durations.json by running
+      # 'make test_durations' inside a 'firedrake:latest' Docker image.
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
+      PYTEST_MPI_MAX_NPROCS: 8
+      # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
+      PETSC_OPTIONS: -use_gpu_aware_mpi 0
+    steps:
+      - name: Confirm Nvidia GPUs are enabled
+        # The presence of the nvidia-smi command indicates that the Nvidia drivers have
+        # successfully been imported into the container, there is no point continuing
+        # if nvidia-smi is not present
+        run: nvidia-smi
+
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
+
+      # Git is needed for actions/checkout and Python for firedrake-configure
+      # curl needed for adding new deb repositories to ubuntu
+      - name: Install system dependencies (1)
+        run: |
+          apt-get update
+          apt-get -y install git python3 curl
+
+
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Add Nvidia CUDA deb repositories
+        run: |
+          deburl=$( python3 ./firedrake-repo/scripts/firedrake-configure --show-extra-repo-pkg-url --gpu-arch cuda )
+          debfile=$( basename "${deburl}" )
+          curl -fsSLO "${deburl}"
+          dpkg -i "${debfile}"
+          apt-get update
+
+      - name: Install system dependencies (2)
+        run: |
+          apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-system-packages)
+          apt-get -y install python3-venv
+          : # Dependencies needed to run the test suite
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
+
+      - name: Install PETSc
+        env:
+          EXTRA_OPTIONS: -use_gpu_aware_mpi 0
+        run: |
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            git clone --depth 1 \
+              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --gpu-arch cuda --show-petsc-version) \
+              https://gitlab.com/petsc/petsc.git
+          else
+            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          fi
+          cd petsc
+          python3 ../firedrake-repo/scripts/firedrake-configure \
+            --arch default --gpu-arch cuda --show-petsc-configure-options | \
+            xargs -L1 ./configure --with-make-np=4
+          make
+          make check
+          {
+            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
+            echo "PETSC_ARCH=arch-firedrake-default-cuda"
+            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-default-cuda"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-env)
+          python3 -m venv venv
+          . venv/bin/activate
+
+          : # Empty the pip cache to ensure that everything is compiled from scratch
+          pip cache purge
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
@@ -510,20 +645,13 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean
           pip list
 
-      - name: Check bibtex
-        run: make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        if: success() || steps.install.conclusion == 'success'
-        run: make -C firedrake-repo/docs linkcheck
-
       - name: Build documentation
-        if: success() || steps.install.conclusion == 'success'
         id: build_docs
         working-directory: firedrake-repo/docs
         run: |
@@ -532,6 +660,14 @@ jobs:
           make latexpdf
           # : Copy manual to HTML tree
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Check bibtex
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs linkcheck
 
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v3

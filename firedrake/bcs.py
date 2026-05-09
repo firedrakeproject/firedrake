@@ -1,8 +1,10 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 
-from functools import partial, reduce
+from functools import partial, reduce, cached_property
 import itertools
+
+import numpy as np
+from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
@@ -11,15 +13,16 @@ import finat
 
 import pyop2 as op2
 from pyop2 import exceptions
+from pyop2.mpi import temp_internal_comm
 from pyop2.utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix
-import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
@@ -88,7 +91,7 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         # Define facet, edge, vertex using tuples:
@@ -123,7 +126,7 @@ class BCBase(object):
             s.append((ndim - 1 - i, as_tuple(sd[i])))
         return as_tuple(s)
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
@@ -148,7 +151,7 @@ class BCBase(object):
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
         for s in sub_d:
@@ -169,9 +172,17 @@ class BCBase(object):
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        bcnodes = np.concatenate(bcnodes)
 
-    @utils.cached_property
+        with temp_internal_comm(self._function_space.mesh().comm) as icomm:
+            num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
+            if num_global_nodes == 0 and icomm.rank == 0:
+                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                            "Did you choose the right label?")
+
+        return bcnodes
+
+    @cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''

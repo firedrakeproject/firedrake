@@ -34,6 +34,7 @@
 """PyOP2 MPI communicator."""
 
 
+from typing import Any, Callable
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 from itertools import count
@@ -563,6 +564,44 @@ def finalize_safe_debug():
         else:
             debug = lambda string: print(string)
     return debug
+
+
+def safe_noncollective(comm: MPI.Comm, func: Callable[[], Any], *, root: int) -> Any:
+    """Run a function on a single rank of ``comm`` in a deadlock safe way.
+
+    If an exception is raised on the active rank then this is caught and
+    raised collectively.
+
+    Parameters
+    ----------
+    comm
+        The communicator.
+    func
+        The operation to be performed on a single rank. This should be a
+        callable that takes no arguments.
+    root
+        The rank performing the operation.
+
+    Returns
+    -------
+    Any
+        The result of ``func``, broadcasted to all ranks.
+
+    """
+    if comm.rank == root:
+        try:
+            result = func()
+        except BaseException as e:
+            result = e
+    else:
+        result = None
+
+    with temp_internal_comm(comm) as icomm:
+        result = icomm.bcast(result, root=root)
+    if isinstance(result, BaseException):
+        raise result
+    else:
+        return result
 
 
 @atexit.register

@@ -3,6 +3,7 @@ import pkgconfig
 import platform
 import shutil
 import site
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from glob import glob
 from pathlib import Path
@@ -20,8 +21,7 @@ from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
 # Ensure that the PETSc getting linked against is compatible
-# TODO RELEASE set to ">=3.25"
-petsctools.init(version_spec=">=3.23.0")
+petsctools.init(version_spec=">=3.25.0")
 import petsc4py
 
 
@@ -31,17 +31,17 @@ class ExternalDependency:
     that correspond to the keyword arguments of `Extension`. For convenience it
     also implements addition and `**` unpacking.
     '''
-    include_dirs: list[str] = field(default_factory=list, init=True)
-    extra_compile_args: list[str] = field(default_factory=list, init=True)
-    libraries: list[str] = field(default_factory=list, init=True)
-    library_dirs: list[str] = field(default_factory=list, init=True)
-    extra_link_args: list[str] = field(default_factory=list, init=True)
-    runtime_library_dirs: list[str] = field(default_factory=list, init=True)
+    include_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_compile_args: Sequence[str] = field(default_factory=list, init=True)
+    libraries: Sequence[str] = field(default_factory=list, init=True)
+    library_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_link_args: Sequence[str] = field(default_factory=list, init=True)
+    runtime_library_dirs: Sequence[str] = field(default_factory=list, init=True)
 
     def __add__(self, other):
         combined = {}
         for f in self.__dataclass_fields__.keys():
-            combined[f] = getattr(self, f) + getattr(other, f)
+            combined[f] = [*getattr(self, f), *getattr(other, f)]
         return self.__class__(**combined)
 
     def keys(self):
@@ -83,14 +83,14 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dir = petsctools.get_petsc_dir()
-petsc_arch = petsctools.get_petsc_arch()
-petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
-    include_dirs=[petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs],
-    library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
-    runtime_library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
+    include_dirs=[
+        petsc4py.get_include(),
+        *petsctools.get_petsc_dirs(subdir="include"),
+    ],
+    library_dirs=petsctools.get_petsc_dirs(subdir="lib"),
+    runtime_library_dirs=petsctools.get_petsc_dirs(subdir="lib"),
 )
 petscvariables = petsctools.get_petscvariables()
 petsc_hdf5_compile_args = petscvariables.get("HDF5_INCLUDE", "")

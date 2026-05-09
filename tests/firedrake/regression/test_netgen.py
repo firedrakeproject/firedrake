@@ -3,6 +3,37 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_mesh_high_order():
+    from netgen.geom2d import Circle, CSG2d
+    geo = CSG2d()
+    geo.Add(Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle"))
+    ngmesh = geo.GenerateMesh(maxh=0.75)
+
+    # Test that setting the degree in netgen_flags produces a high-order mesh
+    order = 3
+    mesh1 = Mesh(ngmesh, netgen_flags={"degree": order})
+    assert mesh1.coordinates.function_space().ufl_element().degree() == order
+    dim = mesh1.topological_dimension
+    DG0 = FunctionSpace(mesh1, "DG", 0)
+    markers = Function(DG0)
+
+    # Test mesh refinement: 1 refinement
+    markers.assign(1)
+    mesh2 = mesh1.refine_marked_elements(markers)
+    assert FunctionSpace(mesh1, "DG", 0).dim() * 2**dim == FunctionSpace(mesh2, "DG", 0).dim()
+    # Test that refining a high-order mesh gives a high-order mesh
+    assert mesh2.coordinates.function_space().ufl_element().degree() == order
+
+    # Test mesh refinement: 2 refinements
+    markers.assign(2)
+    mesh3 = mesh1.refine_marked_elements(markers)
+    assert FunctionSpace(mesh1, "DG", 0).dim() * 4**dim == FunctionSpace(mesh3, "DG", 0).dim()
+    # Test that refining a high-order mesh gives a high-order mesh
+    assert mesh3.coordinates.function_space().ufl_element().degree() == order
+
+
 def square_geometry(h):
     from netgen.geom2d import SplineGeometry
     geo = SplineGeometry()
@@ -92,7 +123,8 @@ def poisson3D(h, degree=2):
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_Poisson_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_poisson_2d():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -101,17 +133,8 @@ def test_firedrake_Poisson_netgen():
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_Poisson_netgen_parallel():
-    diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
-    print("l2 error norms:", diff)
-    conv = np.log2(diff[:-1] / diff[1:])
-    print("convergence order:", conv)
-    assert (np.array(conv) > 2.8).all()
-
-
-@pytest.mark.skipnetgen
-def test_firedrake_Poisson3D_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_poisson_3d():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -120,7 +143,7 @@ def test_firedrake_Poisson3D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_2D_netgen():
+def test_netgen_csg_2d_integral():
     from netgen.geom2d import SplineGeometry
     import netgen
 
@@ -142,7 +165,7 @@ def test_firedrake_integral_2D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_3D_netgen():
+def test_netgen_csg_3d_integral():
     from netgen.csg import CSGeometry, OrthoBrick, Pnt
     import netgen
 
@@ -167,14 +190,15 @@ def test_firedrake_integral_3D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_ball_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_manifold():
     from netgen.csg import CSGeometry, Pnt, Sphere
     from netgen.meshing import MeshingParameters
     from netgen.meshing import MeshingStep
     import netgen
 
     comm = COMM_WORLD
-    if comm.Get_rank() == 0:
+    if comm.rank == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
         mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
@@ -183,60 +207,69 @@ def test_firedrake_integral_ball_netgen():
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
     msh = Mesh(ngmesh)
+    assert msh.topological_dimension == 2
+    assert msh.geometric_dimension == 3
+
     V = FunctionSpace(msh, "CG", 3)
-    x, y, z = SpatialCoordinate(msh)
-    f = assemble(interpolate(1+0*x, V))
+    f = assemble(interpolate(Constant(1), V))
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_sphere_high_order_netgen():
-    from netgen.csg import CSGeometry, Pnt, Sphere
-    import netgen
+@pytest.mark.parallel([1, 2])
+def test_netgen_occ_manifold():
+    from netgen.occ import Pnt, SplineApproximation, Face, Wire, Axis, OCCGeometry, Z
+    from netgen.meshing import MeshingStep
+    R = 3.0
+    r = 1.5
+    surface_area = R*r*(2*pi)**2
 
-    comm = COMM_WORLD
-    if comm.Get_rank() == 0:
-        geo = CSGeometry()
-        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
-        ngmesh = geo.GenerateMesh(maxh=0.1)
-    else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
+    def Curve(t):
+        return Pnt(0, R+r*np.cos(t), r*np.sin(t))
+
+    n = 100
+    pnts = [Curve(2*np.pi*t/n) for t in range(n+1)]
+
+    spline = SplineApproximation(pnts)
+    f = Face(Wire(spline))
+
+    torus = f.Revolve(Axis((0, 0, 0), Z), 360)
+    geo = OCCGeometry(torus, dim=3)
+    ngmesh = geo.GenerateMesh(maxh=0.5, perfstepsend=MeshingStep.MESHSURFACE)
 
     msh = Mesh(ngmesh)
-    homsh = Mesh(msh.curve_field(4))
-    V = FunctionSpace(homsh, "CG", 4)
-    x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
-    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
+    assert msh.topological_dimension == 2
+    assert msh.geometric_dimension == 3
+
+    V = FunctionSpace(msh, "CG", 3)
+    f = assemble(interpolate(Constant(1), V))
+    assert abs(assemble(f * dx) - surface_area)/surface_area < 5.e-3
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_integral_sphere_high_order_netgen_parallel():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_high_order_integral():
     from netgen.csg import CSGeometry, Pnt, Sphere
     import netgen
 
     comm = COMM_WORLD
-    if comm.Get_rank() == 0:
+    if comm.rank == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
         ngmesh = geo.GenerateMesh(maxh=0.7)
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
-    msh = Mesh(ngmesh)
-    # The default value for location_tol is much too large (see https://github.com/NGSolve/ngsPETSc/issues/76)
-    # TODO: Once the default value is adjusted this can be removed
-    homsh = Mesh(msh.curve_field(2, location_tol=1e-8))
+    homsh = Mesh(ngmesh, netgen_flags={"degree": 2})
     V = FunctionSpace(homsh, "CG", 2)
-    x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
+    f = assemble(interpolate(Constant(1), V))
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-def test_firedrake_Adaptivity_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_occ_adaptivity():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
     from netgen.occ import X, Z
 
@@ -305,81 +338,7 @@ def test_firedrake_Adaptivity_netgen():
         (eta, error_est) = estimate_error(mesh, uh)
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
-        mesh = adapt(mesh, eta)
-    assert error_estimators[-1] < 0.05
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_Adaptivity_netgen_parallel():
-    from netgen.occ import WorkPlane, OCCGeometry, Axes
-    from netgen.occ import X, Z
-
-    def solve_poisson(mesh):
-        V = FunctionSpace(mesh, "CG", 1)
-        uh = Function(V, name="Solution")
-        v = TestFunction(V)
-        bc = DirichletBC(V, 0, "on_boundary")
-        f = Constant(1)
-        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
-        solve(F == 0, uh, bc)
-        return uh
-
-    def estimate_error(mesh, uh):
-        W = FunctionSpace(mesh, "DG", 0)
-        eta_sq = Function(W)
-        w = TestFunction(W)
-        f = Constant(1)
-        h = CellDiameter(mesh)
-        n = FacetNormal(mesh)
-        v = CellVolume(mesh)
-
-        # Compute error indicator cellwise
-        G = inner(eta_sq / v, w)*dx
-        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
-
-        # Each cell is an independent 1x1 solve, so Jacobi is exact
-        sp = {"mat_type": "matfree",
-              "ksp_type": "richardson",
-              "pc_type": "jacobi"}
-        solve(G == 0, eta_sq, solver_parameters=sp)
-        eta = Function(W)
-        eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
-
-        with eta.dat.vec_ro as eta_:
-            error_est = sqrt(eta_.dot(eta_))
-        return (eta, error_est)
-
-    def adapt(mesh, eta):
-        W = FunctionSpace(mesh, "DG", 0)
-        markers = Function(W)
-        with eta.dat.vec_ro as eta_:
-            eta_max = eta_.max()[1]
-
-        theta = 0.5
-        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
-        markers.interpolate(should_refine)
-
-        refined_mesh = mesh.refine_marked_elements(markers)
-        return refined_mesh
-
-    rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
-    rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
-    L = rect1 + rect2
-
-    geo = OCCGeometry(L, dim=2)
-    ngmsh = geo.GenerateMesh(maxh=0.1)
-    mesh = Mesh(ngmsh)
-
-    max_iterations = 10
-    error_estimators = []
-    dofs = []
-    for i in range(max_iterations):
-        uh = solve_poisson(mesh)
-        (eta, error_est) = estimate_error(mesh, uh)
-        error_estimators.append(error_est)
-        dofs.append(uh.function_space().dim())
+        if error_est < 0.05:
+            break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
