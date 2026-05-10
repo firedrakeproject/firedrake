@@ -3,8 +3,6 @@ from firedrake.utils import single_mode
 import pytest
 import numpy as np
 
-_fp32 = single_mode
-
 
 @pytest.fixture(scope='module', params=[False, True])
 def V(request):
@@ -197,7 +195,7 @@ def test_near_nullspace(tmpdir):
         'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
-    _tol = 1e-4 if _fp32 else 1e-7
+    _tol = 1e-4 if single_mode else 1e-7
     assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < _tol
     assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < _tol
 

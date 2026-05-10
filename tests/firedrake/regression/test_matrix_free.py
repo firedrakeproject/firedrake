@@ -6,8 +6,6 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 
-_fp32 = single_mode
-
 
 @pytest.fixture
 def mesh():
@@ -207,7 +205,7 @@ def test_fieldsplitting(mesh, preassembled, parameters, rhs):
     f -= expect
 
     for d in f.dat.data_ro:
-        assert np.allclose(d, 0.0, atol=1e-5 if _fp32 else 1e-8)
+        assert np.allclose(d, 0.0, atol=1e-5 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=4)
