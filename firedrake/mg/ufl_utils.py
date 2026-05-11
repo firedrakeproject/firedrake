@@ -278,7 +278,12 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
 
-    opts = PETSc.Options(context.options_prefix)
+    # Get options prefix for current level
+    parent_context = context
+    while parent_context._fine:
+        parent_context = parent_context._fine
+    parent_prefix = parent_context.options_prefix
+    opts = PETSc.Options(parent_prefix)
     if opts.getString("snes_type", "") == "fas":
         solver_prefix = "fas_"
     else:
@@ -289,7 +294,9 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     else:
         levels_prefix = f"{solver_prefix}levels_"
     current_level_prefix = f"{solver_prefix}levels_{level}_"
+    options_prefix = f"{parent_prefix}{current_level_prefix}"
 
+    # Use different mat_type on each level
     mat_type = None
     pmat_type = None
     sub_mat_type = None
@@ -308,7 +315,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                                  sub_mat_type=sub_mat_type,
                                  sub_pmat_type=sub_pmat_type,
                                  appctx=new_appctx,
-                                 options_prefix=context.options_prefix,
+                                 options_prefix=options_prefix,
                                  )
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context

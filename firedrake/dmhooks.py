@@ -338,7 +338,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     the appropriate subdms as well.
     """
     W = get_function_space(dm)
-    # Don't pass split number if name is not None (this way the
+    # Don't pass split number if name is None (this way the
     # recursively created splits have the names you want)
     names = [s.name for s in W]
     dms = [V.dm for V in W]
