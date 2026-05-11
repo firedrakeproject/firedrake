@@ -824,7 +824,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-fftw",
             "--download-hdf5",
             "--download-hwloc",
-            "--download-hypre",
             "--download-metis",
             "--download-mumps",
             "--download-netcdf",
