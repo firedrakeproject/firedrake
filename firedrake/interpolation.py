@@ -114,14 +114,10 @@ class NestedInterpolateLowerer(DAGTraverser):
         return self.reuse_if_untouched(o)
 
     @process.register(UFLInterpolate)
-    @DAGTraverser.postorder_only_children([0])
+    @DAGTraverser.postorder
     def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
         from firedrake.assemble import assemble
-        return as_ufl(assemble(o._ufl_expr_reconstruct_(operand, v=o.argument_slots()[0])))
-
-
-def lower_nested_interpolates(expr: Expr) -> Expr:
-    return NestedInterpolateLowerer()(expr)
+        return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
 
 
 class Interpolate(UFLInterpolate):
@@ -185,16 +181,18 @@ class Interpolate(UFLInterpolate):
             An appropriate :class:`Interpolator` subclass for this
             interpolation expression.
         """
+        operand, = self.ufl_operands
+        # Check for nested Interpolates first
+        lowered_operand = NestedInterpolateLowerer()(operand)
+        if lowered_operand is not operand:
+            return get_interpolator(self._ufl_expr_reconstruct_(lowered_operand))
+
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
-        if lower_nested_interpolates(self.ufl_operands[0]) is not self.ufl_operands[0]:
-            return NestedInterpolator(self)
         if len(arguments) == 2 and has_mixed_arguments:
             return MixedInterpolator(self)
 
-        operand, = self.ufl_operands
         target_mesh = self.target_space.mesh()
-
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
@@ -1751,21 +1749,3 @@ class MixedInterpolator(Interpolator):
     @property
     def _allowed_mat_types(self):
         return {"aij", "nest", "matfree", None}
-
-
-class NestedInterpolator(Interpolator):
-    """Interpolator wrapper that lowers nested interpolate nodes first."""
-
-    def __init__(self, expr: Interpolate):
-        dual_arg, operand = expr.argument_slots()
-        lowered_operand = lower_nested_interpolates(operand)
-        expr = expr._ufl_expr_reconstruct_(lowered_operand, v=dual_arg)
-        super().__init__(expr)
-        self.interpolator = expr._interpolator
-
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        return self.interpolator._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)
-
-    @property
-    def _allowed_mat_types(self):
-        return self.interpolator._allowed_mat_types

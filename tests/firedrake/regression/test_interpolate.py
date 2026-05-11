@@ -743,9 +743,8 @@ def test_interpolate_form_mixed():
     assert mat_equals(res1, res3)
 
 
-@pytest.mark.parallel([1, 3])
-def test_nested_interpolate_expr():
-    mesh = UnitSquareMesh(2, 2)
+def test_nested_interpolate_expr_vom():
+    mesh = UnitSquareMesh(3, 3)
     x, y = SpatialCoordinate(mesh)
     points = np.array([[0.5, 0.5], [0.6, 0.6]])
     vom = VertexOnlyMesh(mesh, points)
@@ -761,3 +760,26 @@ def test_nested_interpolate_expr():
 
     expected = np.array([[0.5, 1.0], [0.6, 1.2]])
     assert np.allclose(result.dat.data_ro.reshape(-1, 2), expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_nested_interpolate_expr():
+    mesh1 = UnitSquareMesh(3, 3)
+    x1, y1 = SpatialCoordinate(mesh1)
+    mesh2 = UnitSquareMesh(4, 4)
+    x2, y2 = SpatialCoordinate(mesh2)
+    mesh3 = UnitSquareMesh(5, 5)
+    x3, y3 = SpatialCoordinate(mesh3)
+
+    tfs2 = TensorFunctionSpace(mesh1, "CG", 1)
+    tfs3 = TensorFunctionSpace(mesh2, "CG", 2)
+    expr1 = as_tensor([[x1, 0], [0, y1]])
+    expr2 = as_tensor([[x2, 0], [0, y2]])
+
+    inner_expr = interpolate(expr1, tfs3) * interpolate(expr2, tfs3)
+    result = assemble(interpolate(inner_expr, tfs2))
+
+    res1 = assemble(interpolate(expr1, tfs3))
+    res2 = assemble(interpolate(expr2, tfs3))
+    expected = assemble(interpolate(res1 * res2, tfs2))
+    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
