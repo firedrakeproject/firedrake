@@ -150,13 +150,13 @@ Please see https://firedrakeproject.org/install for more information."""
         "--scalar-type",
         "--arch",  # old alias
         choices=[st.value for st in ScalarType],
-        default="default",
+        default=ScalarType.DEFAULT.value,
         help="PETSc scalar type.",
     )
     parser.add_argument(
         "--gpu-arch",
         choices=[gpu_opt.value for gpu_opt in GPUPlatform],
-        default="none",
+        default=GPUPlatform.NONE.value,
         help=(
             "Target GPU architecture. WARNING: This is an experimental feature. "
             "GPU support in Firedrake is currently very limited."
