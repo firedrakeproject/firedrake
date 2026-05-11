@@ -38,12 +38,6 @@ runs:
       # Make sure the current directory is empty
       run: find . -delete
 
-    - uses: actions/checkout@v5
-      shell: bash
-      with:
-        path: firedrake-repo
-        ref: ${{ inputs.source_ref }}
-
     - name: Install system dependencies
       shell: bash
       run: |
@@ -57,6 +51,7 @@ runs:
           brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
         fi
 
+    # TODO: these checks can be a separate workflow
     - name: Validate single source of truth
       shell: bash
       run: ./firedrake-repo/scripts/check-config
