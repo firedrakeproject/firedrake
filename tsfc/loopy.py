@@ -127,11 +127,27 @@ class LoopyContext(object):
         self.name_gen = UniqueNameGenerator()
         self.target = target
         self.loop_priorities = set()  # used to avoid disadvantageous loop interchanges
+        
+        self.temporaries = [] # index arrays as loopy temporary variables 
+        self.index_arrays = {} # numpy array -> pymbolic variable
 
     def fetch_multiindex(self, multiindex):
         indices = []
         for index in multiindex:
-            if isinstance(index, gem.Index):
+            if isinstance(index, gem.ListIndex):
+                if tuple(index.index_array) not in self.index_arrays:
+                    name = f"perm_{len(self.index_arrays)}"
+                    self.temporaries.append(lp.TemporaryVariable(
+                        name, dtype=int, shape=index.index_array.shape, 
+                        initializer=index.index_array, read_only=True, address_space=lp.AddressSpace.LOCAL
+                        )
+                    )
+                    self.index_arrays[tuple(index.index_array)] = p.Variable(name)
+
+                # declare index.index_array as a loopy variable
+                index_array_pym = self.index_arrays[tuple(index.index_array)] # pymbolic variable for perm index array
+                indices.append(index_array_pym[self.active_indices[index.free_index]])
+            elif isinstance(index, gem.Index):
                 indices.append(self.active_indices[index])
             elif isinstance(index, gem.VariableIndex):
                 indices.append(expression(index.expression, self))
@@ -225,6 +241,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     :arg log: bool if the Kernel should be profiled with Log events
     :returns: loopy kernel
     """
+    # breakpoint()
     ctx = LoopyContext(target=target)
     ctx.indices = impero_c.indices
     ctx.index_names = defaultdict(lambda: "i", index_names)
@@ -263,7 +280,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     knl = lp.make_kernel(
         domains,
         instructions,
-        data,
+        data + ctx.temporaries,
         name=kernel_name,
         target=target,
         seq_dependencies=True,
