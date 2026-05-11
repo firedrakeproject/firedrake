@@ -438,6 +438,8 @@ jobs:
         id: install
         run: |
           export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
+          env
+
           python3 -m venv venv
           . venv/bin/activate
 
@@ -569,6 +571,8 @@ jobs:
         id: install
         run: |
           export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-env)
+          env
+
           python3 -m venv venv
           . venv/bin/activate
 
