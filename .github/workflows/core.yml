@@ -160,32 +160,13 @@ jobs:
           : # Dependencies needed to run the test suite
           apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch ${{ matrix.arch }} --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8 --download-slepc
-          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
-          make check
-          {
-            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}"
-            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}"
-          } >> "$GITHUB_ENV"
-
       - name: Install Firedrake
         id: install
         uses: ./firedrake-repo/.github/actions/install
         with:
           target_branch: ${{ inputs.target_branch }}
+          arch: ${{ matrix.arch }}
+          root_dir: /__w/firedrake/firedrake
           deps: ci
 
       - name: Upload sdist (default ARCH only)
@@ -380,32 +361,14 @@ jobs:
         run: |
           brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
 
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch default --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=4
-          make
-          make check
-          {
-            echo "PETSC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-default"
-            echo "SLEPC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc/arch-firedrake-default"
-          } >> "$GITHUB_ENV"
-
       - name: Install Firedrake
         id: install
         uses: ./firedrake-repo/.github/actions/install
         with:
           target_branch: ${{ inputs.target_branch }}
+          arch: default
+          root_dir: /Users/github/actions-runner/_work/firedrake/firedrake
+          np: 4
           deps: check
 
       - name: Run smoke tests

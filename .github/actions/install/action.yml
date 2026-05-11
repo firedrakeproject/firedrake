@@ -5,6 +5,18 @@ inputs:
     description: The target branch (usually 'main' or 'release')
     type: string
     required: true
+  arch:
+    description: Firedrake configuration to build
+    type: string
+    required: true
+  root_dir:
+    description: Base directory
+    type: string
+    required: true
+  np:
+    description: Available parallelism
+    type: string
+    required: true
   deps:
     description: Optional dependencies to install along with Firedrake
     type: string
@@ -13,6 +25,28 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install PETSc
+      shell: bash
+      run: |
+        if [ ${{ inputs.target_branch }} = 'release' ]; then
+          git clone --depth 1 \
+            --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
+            https://gitlab.com/petsc/petsc.git
+        else
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+        fi
+        cd petsc
+        python3 ../firedrake-repo/scripts/firedrake-configure \
+          --arch ${{ inputs.arch }} --show-petsc-configure-options | \
+          xargs -L1 ./configure --with-make-np=${{ inputs.np }} --download-slepc
+        make PETSC_DIR=${{ inputs.root_dir }}/petsc PETSC_ARCH=arch-firedrake-${{ inputs.arch }}
+        make check
+        {
+          echo "PETSC_DIR=${{ inputs.root_dir }}/petsc"
+          echo "PETSC_ARCH=arch-firedrake-${{ inputs.arch }}"
+          echo "SLEPC_DIR=${{ inputs.root_dir }}/petsc/arch-firedrake-${{ inputs.arch }}"
+        } >> "$GITHUB_ENV"
+
     - name: Install Firedrake
       shell: bash
       run: |
