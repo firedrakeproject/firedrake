@@ -3,7 +3,7 @@ import os
 import tempfile
 import abc
 
-from functools import cached_property, partial
+from functools import cached_property, partial, singledispatchmethod
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -15,10 +15,7 @@ from ufl.duals import is_dual
 from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
-
-from ufl.algorithms.replace import Replacer
-from ufl.corealg.map_dag import map_expr_dag
-
+from ufl.corealg.dag_traverser import DAGTraverser
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
@@ -37,7 +34,8 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import MatrixBase, AssembledMatrix
+from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
+from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -51,7 +49,7 @@ from firedrake.exceptions import (
 
 from mpi4py import MPI
 
-from pyadjoint.tape import stop_annotating, no_annotations
+from pyadjoint.tape import no_annotations
 
 __all__ = (
     "interpolate",
@@ -102,6 +100,32 @@ class InterpolateOptions:
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
 
+
+class NestedInterpolateLowerer(DAGTraverser):
+    """Lower nested Interpolate nodes to placeholder Functions."""
+
+    def __init__(self):
+        super().__init__()
+        self.subs = {}  # inner Interpolate node -> placeholder Function
+
+    @singledispatchmethod
+    def process(self, o: Expr) -> Expr:
+        return super().process(o)
+
+    @process.register(Expr)
+    @process.register(BaseForm)
+    def _(self, o: Expr | BaseForm) -> Expr | BaseForm:
+        return self.reuse_if_untouched(o)
+
+    @process.register(UFLInterpolate)
+    @DAGTraverser.postorder
+    def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
+        # from firedrake.assemble import assemble
+        # return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
+        inner_node = o._ufl_expr_reconstruct_(operand)
+        fn = Function(o.ufl_function_space())
+        self.subs[inner_node] = fn
+        return as_ufl(fn)
 
 class Interpolate(UFLInterpolate):
 
@@ -164,30 +188,25 @@ class Interpolate(UFLInterpolate):
             An appropriate :class:`Interpolator` subclass for this
             interpolation expression.
         """
+        operand, = self.ufl_operands
+        # Check for nested Interpolates first
+        lowerer = NestedInterpolateLowerer()
+        lowered_operand = lowerer(operand)
+        if lowered_operand is not operand:
+            return CompositeInterpolator(self._ufl_expr_reconstruct_(lowered_operand), lowerer.subs)
+
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
         if len(arguments) == 2 and has_mixed_arguments:
             return MixedInterpolator(self)
 
-        operand, = self.ufl_operands
-
         target_mesh = self.target_space.mesh()
-
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
-            # raise NotImplementedError(
-            #     "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-            # )
-            
-            # return MixedInterpolator(self)
-
-            # TODO: Detect nested Interpolate nodes in the operand and resolve them first
-            # Build interpolators from inner interpolates and compose their callables.
-            splitter = InterpolateSplitter()
-            single_domain_operand = map_expr_dag(splitter, operand)
-            outer_expr = self._ufl_expr_reconstruct_(single_domain_operand)
-            return CompositeInterpolator(outer_expr, splitter.mapping)
+            raise NotImplementedError(
+                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+            )
 
         try:
             target_mesh = target_mesh.unique()
@@ -270,11 +289,7 @@ class Interpolator(abc.ABC):
         try:
             source_mesh = extract_unique_domain(operand)
         except ValueError:
-            try:
-                source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
-            except ValueError:
-                source_mesh = None # multi-domain expression
-            
+            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
         self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
@@ -358,8 +373,8 @@ class Interpolator(abc.ABC):
             specified. By default None.
         mat_type
             The PETSc matrix type to use when assembling a rank 2 interpolation.
-            For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
-            interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
+            For cross-mesh interpolation, ``"aij"`` and ``"matfree"`` are supported. For same-mesh
+            interpolation, ``"aij"``, ``"baij"``, and ``"matfree"`` are supported. For same/cross mesh interpolation
             between :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
             For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
             ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
@@ -375,7 +390,14 @@ class Interpolator(abc.ABC):
         """
         self._check_mat_type(mat_type)
 
+        if mat_type == "matfree" and self.rank == 2:
+            ctx = ImplicitMatrixContext(
+                self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+            )
+            return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
+
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
+
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
@@ -383,7 +405,8 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            return AssembledMatrix(self.interpolate_args, bcs, result)
+            else:
+                return Matrix(self.ufl_interpolate, result, bcs=bcs)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -599,12 +622,12 @@ class CrossMeshInterpolator(Interpolator):
             def callable() -> PETSc.Mat:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if self.into_quadrature_space:
-                    source_space = self.ufl_interpolate.function_space()
+                    source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
+                        I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
                         return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
-                        I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
                         return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
@@ -675,7 +698,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", None}
+        return {"aij", "matfree", None}
 
 
 class SameMeshInterpolator(Interpolator):
@@ -838,53 +861,144 @@ class SameMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij", None}
+        return {"aij", "baij", "matfree", None}
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
+        if self.source_mesh.input_ordering is self.target_mesh:
+            # The forward interpolation is a star forest reduction
+            self.forward_reduce = True
+            self.original_vom = self.source_mesh
+        elif self.target_mesh.input_ordering is self.source_mesh:
+            # The forward interpolation is a star forest broadcast
+            self.forward_reduce = False
+            self.original_vom = self.target_mesh
+        else:
+            raise ValueError(
+                "The target vom and source vom must be linked by input ordering!"
+            )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
         mat_type = mat_type or "matfree"
-        self.mat = VomOntoVomMat(self, mat_type=mat_type)
+
         if self.rank == 1:
             f = tensor or self._get_tensor(mat_type)
-            # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
-            # data, including the correct data size and dimensional information
-            # (so for vector function spaces in 2 dimensions we might need a
-            # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-            self.mat.mpi_type = _get_mtype(f.dat)[0]
+            self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
 
                 def callable() -> Cofunction:
                     with self.dual_arg.dat.vec_ro as source_vec:
-                        coeff = self.mat.expr_as_coeff(source_vec)
+                        coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh, source_vec)
                         with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                            self.mat.handle.multHermitian(coeff_vec, target_vec)
+                            self.mat.multHermitian(coeff_vec, target_vec)
                     return f
             else:
                 assert isinstance(f, Function)
 
                 def callable() -> Function:
-                    coeff = self.mat.expr_as_coeff()
+                    coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh)
                     with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                        self.mat.handle.mult(coeff_vec, target_vec)
+                        self.mat.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
-            # Create a temporary function to get the correct MPI type
-            temp_source_func = Function(self.interpolate_args[1].function_space())
-            self.mat.mpi_type = _get_mtype(temp_source_func.dat)[0]
+            if mat_type == "matfree":
+                # Create a temporary function to get the correct MPI type
+                temp_source_func = Function(self.interpolate_args[1].function_space())
+                self.mat = self._build_python_mat(_get_mtype(temp_source_func.dat)[0])
+            else:
+                self.mat = self._create_permutation_mat(mat_type)
 
             def callable() -> PETSc.Mat:
-                return self.mat.handle
+                return self.mat
 
         return callable
+
+    def _build_python_mat(self, mpi_type) -> PETSc.Mat:
+        # In this case mat_type="matfree", so we use the SF wrapped as a PETSc Mat
+        # to perform the permutation.
+        source_size, target_size, _, _ = self._get_mat_sizes()
+        ctx = VomOntoVomMatContext(
+            self.original_vom.input_ordering_without_halos_sf,
+            self.forward_reduce,
+            self.target_space,
+            self.source_mesh,
+            self.operand,
+            self.ufl_interpolate.is_adjoint,
+        )
+        ctx.mpi_type = mpi_type
+        mat = PETSc.Mat().create(comm=self.source_mesh.comm)
+        if self.forward_reduce:
+            mat_size = (source_size, target_size)
+        else:
+            mat_size = (target_size, source_size)
+        mat.setSizes(mat_size)
+        mat.setType(mat.Type.PYTHON)
+        mat.setPythonContext(ctx)
+        mat.setUp()
+        return mat
+
+    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
+        """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
+        its input ordering vertex-only mesh.
+
+        Returns
+        -------
+        PETSc.Mat
+            PETSc seqaij matrix
+        """
+        # Get correct local and global sizes for the matrix
+        source_size, target_size, nleaves, local_sizes = self._get_mat_sizes()
+        if mat_type == "baij" and self.target_space.block_size > 1:
+            create = PETSc.Mat().createBAIJ
+        else:
+            create = PETSc.Mat().createAIJ
+        mat = create(
+            size=(target_size, source_size),
+            bsize=self.target_space.block_size,
+            nnz=1,
+            comm=self.source_mesh.comm
+        )
+        mat.setUp()
+        # To create the permutation matrix we broadcast an array of indices which are contiguous
+        # across all ranks and then use these indices to set the values of the matrix directly.
+        start = sum(local_sizes[:self.target_space.comm.rank])
+        end = start + source_size[0]
+        contiguous_indices = numpy.arange(start, end, dtype=IntType)
+        perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
+        sf = self.original_vom.input_ordering_without_halos_sf
+        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        rows = numpy.arange(target_size[0] + 1, dtype=IntType)
+        # Vector and Tensor valued functions are stored in a flattened array, so
+        # we need to space out the column indices according to the block size
+        cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
+        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
+        mat.assemble()
+        if self.forward_reduce and not self.ufl_interpolate.is_adjoint:
+            # The mat we have constructed thus far takes us from the input-ordering VOM to the
+            # immersed VOM. If we're going the other way, then we need to transpose it,
+            # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
+            # are defined assuming we're doing forward interpolation.
+            mat.transpose()
+        return mat
+
+    def _get_mat_sizes(self):
+        nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
+        nleaves = len(leaves)
+        local_sizes = self.target_space.comm.allgather(nroots)
+        source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(local_sizes))
+        target_size = (
+            self.target_space.block_size * nleaves,
+            self.target_space.block_size * self.target_space.comm.allreduce(nleaves, op=MPI.SUM),
+        )
+        return source_size, target_size, nleaves, local_sizes
 
     @property
     def _allowed_mat_types(self):
@@ -1044,7 +1158,7 @@ def _build_interpolation_callables(
         parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
 
     if oriented:
-        co = target_mesh.cell_orientations()
+        co = source_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
 
     if needs_cell_sizes:
@@ -1081,7 +1195,7 @@ def _build_interpolation_callables(
                 target_ref_coords = target_mesh.reference_coordinates
                 m_ = target_ref_coords.cell_node_map()
                 parloop_args.append(target_ref_coords.dat(op2.READ, m_))
-    
+
     parloop = op2.ParLoop(*parloop_args)
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble
@@ -1287,84 +1401,108 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_c
     )
 
 
-class VomOntoVomMat:
+@no_annotations
+def expr_as_coeff(
+        target_space: WithGeometry,
+        operand: Expr,
+        is_adjoint: bool,
+        source_mesh: MeshGeometry,
+        source_vec: PETSc.Vec | None = None,
+) -> Function:
+    """Return a Function that corresponds to the expression used at
+    construction, where the expression has been interpolated into the P0DG
+    function space on the source vertex-only mesh.
+
+    Parameters
+    ----------
+    target_space : WithGeometry
+        The function space on the target mesh which the expression is being
+        interpolated into.
+    operand : Expr
+        The expression being interpolated.
+    is_adjoint : bool
+        Whether the interpolation is an adjoint interpolation.
+    source_mesh : MeshGeometry
+        The source vertex-only mesh on which the expression should be evaluated.
+    source_vec : PETSc.Vec | None, optional
+        Optional vector used to replace arguments in the expression.
+        By default None.
+
+    Returns
+    -------
+    Function
+        A Function representing the expression as a coefficient on the
+        source vertex-only mesh.
+
     """
-    Object that facilitates interpolation between a VertexOnlyMesh and its
-    input_ordering VertexOnlyMesh. This is either a PETSc Star Forest wrapped
-    as a PETSc Mat, or a concrete PETSc Mat, depending on whether
-    `mat_type='matfree` is passed to assemble.
+    # Since we always output a coefficient when we don't have arguments in
+    # the expression, we should evaluate the expression on the source mesh
+    # so its dat can be sent to the target mesh.
+    element = target_space.ufl_element()  # Could be vector/tensor valued
+    # if we have any arguments in the expression we need to replace
+    # them with equivalent coefficients now
+    target_mesh = target_space.mesh()
+    arguments = extract_arguments(operand)
+    if len(arguments):
+        if len(arguments) > 1:
+            raise NotImplementedError("Can only interpolate expressions with one argument!")
+        if source_vec is None:
+            raise ValueError("Need to provide a source dat for the argument!")
+        arg = arguments[0]
+        source_space = arg.function_space()
+        P0DG = FunctionSpace(target_mesh if is_adjoint else source_mesh, element)
+        arg_coeff = Function(target_space if is_adjoint else source_space)
+        arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
+            arg_coeff.dat.data_wo.shape
+        )
+        coeff_expr = replace(operand, {arg: arg_coeff})
+        return Function(P0DG).interpolate(coeff_expr)
+    else:
+        P0DG = FunctionSpace(source_mesh, element)
+        return Function(P0DG).interpolate(operand)
+
+
+class VomOntoVomMatContext:
+    """Object that facilitates matfree interpolation between a VertexOnlyMesh and its
+    input_ordering VertexOnlyMesh. This wraps the star forest representing the permutation
+    between the VOMs and advertises it as a PETSc Mat.
+
+    Parameters
+    ----------
+    sf : PETSc.SF
+        The PETSc Star Forest representing the permutation between the VOMs.
+    forward_reduce : bool
+        True if the forward interpolation is a reduction, False if it is a broadcast.
+    target_space : WithGeometry
+        The FunctionSpace being interpolated into.
+    source_vom : MeshGeometry
+        The VOM being interpolated from.
+    operand : Expr
+        The expression being interpolated.
+    is_adjoint : bool
+        Whether the interpolation is an adjoint interpolation.
+
+    Raises
+    ------
+    ValueError
+        If the source and target vertex-only meshes are not linked by input_ordering.
     """
     def __init__(
             self,
-            interpolator: VomOntoVomInterpolator,
-            mat_type: Literal["aij", "baij", "matfree"],
+            sf: PETSc.SF,
+            forward_reduce: bool,
+            target_space: WithGeometry,
+            source_vom: MeshGeometry,
+            operand: Expr,
+            is_adjoint: bool,
     ):
-        """Initialise the VomOntoVomMat.
 
-        Parameters
-        ----------
-        interpolator : VomOntoVomInterpolator
-            A :class:`VomOntoVomInterpolator` object.
-        mat_type : Literal["aij", "baij", "matfree"] | None, optional
-            The type of PETSc Mat to create. If 'matfree', a
-            matfree PETSc Mat wrapping the SF is created. If 'aij' or 'baij',
-            a concrete PETSc Mat is created.
-
-        Raises
-        ------
-        ValueError
-            If the source and target vertex-only meshes are not linked by input_ordering.
-        """
-        if interpolator.source_mesh.input_ordering is interpolator.target_mesh:
-            self.forward_reduce = True
-            """True if the forward interpolation is a star forest reduction, False if broadcast."""
-            self.original_vom = interpolator.source_mesh
-            """The original VOM from which the SF is constructed."""
-        elif interpolator.target_mesh.input_ordering is interpolator.source_mesh:
-            self.forward_reduce = False
-            self.original_vom = interpolator.target_mesh
-        else:
-            raise ValueError(
-                "The target vom and source vom must be linked by input ordering!"
-            )
-        self.sf = self.original_vom.input_ordering_without_halos_sf
-        """The PETSc Star Forest representing the permutation between the VOMs."""
-        self.target_space = interpolator.target_space
-        """The FunctionSpace being interpolated into."""
-        self.target_vom = interpolator.target_mesh
-        """The VOM being interpolated to."""
-        self.source_vom = interpolator.source_mesh
-        """The VOM being interpolated from."""
-        self.operand = interpolator.operand
-        """The expression in the primal slot of the Interpolate."""
-        self.arguments = extract_arguments(self.operand)
-        """The arguments of the expression being interpolated."""
-        self.is_adjoint = interpolator.ufl_interpolate.is_adjoint
-        """Are we doing the adjoint interpolation?"""
-
-        # Calculate correct local and global sizes for the matrix
-        nroots, leaves, _ = self.sf.getGraph()
-        self.nleaves = len(leaves)
-        """The local number of leaves in the SF."""
-        self._local_sizes = self.target_space.comm.allgather(nroots)
-        """List of local number of roots on each process."""
-        self.source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(self._local_sizes))
-        """Tuple containing the local and global size of the source space."""
-        self.target_size = (
-            self.target_space.block_size * self.nleaves,
-            self.target_space.block_size * self.target_space.comm.allreduce(self.nleaves, op=MPI.SUM),
-        )
-        """Tuple containing the local and global size of the target space."""
-
-        if mat_type == "matfree":
-            # If matfree, we use the SF wrapped as a PETSc Mat
-            # to perform the permutation.
-            self.handle = self._wrap_python_mat()
-        else:
-            # Otherwise we build the concrete permutation
-            # matrix as a PETSc Mat. This is used to build the
-            # cross-mesh interpolation matrix.
-            self.handle = self._create_permutation_mat(mat_type)
+        self.forward_reduce = forward_reduce
+        self.sf = sf
+        self.target_space = target_space
+        self.source_vom = source_vom
+        self.operand = operand
+        self.is_adjoint = is_adjoint
 
     @property
     def mpi_type(self):
@@ -1378,53 +1516,6 @@ class VomOntoVomMat:
     @mpi_type.setter
     def mpi_type(self, val):
         self._mpi_type = val
-
-    def expr_as_coeff(self, source_vec: PETSc.Vec | None = None) -> Function:
-        """Return a Function that corresponds to the expression used at
-        construction, where the expression has been interpolated into the P0DG
-        function space on the source vertex-only mesh.
-
-        Will fail if there are no arguments.
-
-        Parameters
-        ----------
-        source_vec : PETSc.Vec | None, optional
-            Optional vector used to replace arguments in the expression.
-            By default None.
-
-        Returns
-        -------
-        Function
-            A Function representing the expression as a coefficient on the
-            source vertex-only mesh.
-
-        """
-        # Since we always output a coefficient when we don't have arguments in
-        # the expression, we should evaluate the expression on the source mesh
-        # so its dat can be sent to the target mesh.
-        with stop_annotating():
-            element = self.target_space.ufl_element()  # Could be vector/tensor valued
-            # if we have any arguments in the expression we need to replace
-            # them with equivalent coefficients now
-            if len(self.arguments):
-                if len(self.arguments) > 1:
-                    raise NotImplementedError("Can only interpolate expressions with one argument!")
-                if source_vec is None:
-                    raise ValueError("Need to provide a source dat for the argument!")
-
-                arg = self.arguments[0]
-                source_space = arg.function_space()
-                P0DG = FunctionSpace(self.target_vom if self.is_adjoint else self.source_vom, element)
-                arg_coeff = Function(self.target_space if self.is_adjoint else source_space)
-                arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
-                    arg_coeff.dat.data_wo.shape
-                )
-                coeff_expr = replace(self.operand, {arg: arg_coeff})
-                coeff = Function(P0DG).interpolate(coeff_expr)
-            else:
-                P0DG = FunctionSpace(self.source_vom, element)
-                coeff = Function(P0DG).interpolate(self.operand)
-        return coeff
 
     def reduce(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Reduce data in source_vec using the PETSc SF.
@@ -1492,7 +1583,7 @@ class VomOntoVomMat:
         """
         # Need to convert the expression into a coefficient
         # so that we can broadcast/reduce it
-        coeff = self.expr_as_coeff(source_vec)
+        coeff = expr_as_coeff(self.target_space, self.operand, self.is_adjoint, self.source_vom, source_vec)
         with coeff.dat.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
@@ -1544,67 +1635,6 @@ class VomOntoVomMat:
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
-        """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
-        its input ordering vertex-only mesh.
-
-        Returns
-        -------
-        PETSc.Mat
-            PETSc seqaij matrix
-        """
-        if mat_type == "baij" and self.target_space.block_size > 1:
-            create = PETSc.Mat().createBAIJ
-        else:
-            create = PETSc.Mat().createAIJ
-        mat = create(
-            size=(self.target_size, self.source_size),
-            bsize=self.target_space.block_size,
-            nnz=1,
-            comm=self.target_space.comm
-        )
-        mat.setUp()
-        # To create the permutation matrix we broadcast an array of indices which are contiguous
-        # across all ranks and then use these indices to set the values of the matrix directly.
-        start = sum(self._local_sizes[:self.target_space.comm.rank])
-        end = start + self.source_size[0]
-        contiguous_indices = numpy.arange(start, end, dtype=IntType)
-        perm = numpy.zeros(self.nleaves, dtype=IntType)  # result stored in here
-        self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(self.target_size[0] + 1, dtype=IntType)
-        # Vector and Tensor valued functions are stored in a flattened array, so
-        # we need to space out the column indices according to the block size
-        cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
-        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
-        mat.assemble()
-        if self.forward_reduce and not self.is_adjoint:
-            # The mat we have constructed thus far takes us from the input-ordering VOM to the
-            # immersed VOM. If we're going the other way, then we need to transpose it,
-            # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
-            # are defined assuming we're doing forward interpolation.
-            mat.transpose()
-        return mat
-
-    def _wrap_python_mat(self) -> PETSc.Mat:
-        """Wrap this object as a PETSc Mat. Used for matfree interpolation.
-
-        Returns
-        -------
-        PETSc.Mat
-            A PETSc Mat of type python with this object as its context.
-        """
-        mat = PETSc.Mat().create(comm=self.target_space.comm)
-        if self.forward_reduce:
-            mat_size = (self.source_size, self.target_size)
-        else:
-            mat_size = (self.target_size, self.source_size)
-        mat.setSizes(mat_size)
-        mat.setType(mat.Type.PYTHON)
-        mat.setPythonContext(self)
-        mat.setUp()
-        return mat
-
     def duplicate(self, mat: PETSc.Mat | None = None, op: PETSc.Mat.DuplicateOption | None = None) -> PETSc.Mat:
         """Duplicate the matrix. Needed to wrap as a PETSc Python Mat.
 
@@ -1618,9 +1648,9 @@ class VomOntoVomMat:
         Returns
         -------
         PETSc.Mat
-            VomOntoVomMat wrapped as a PETSc Mat of type python.
+            VomOntoVomMatContext wrapped as a PETSc Mat of type python.
         """
-        return self._wrap_python_mat()
+        return self
 
 
 class MixedInterpolator(Interpolator):
@@ -1726,44 +1756,39 @@ class MixedInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "nest", None}
-
-
-class InterpolateSplitter(Replacer):
-    "Replace inner Interpolate nodes with placeholder Functions in one pass."
-
-    def __init__(self):
-        super().__init__({}) # initialize empty mapping
-
-    def interpolate(self, o):
-        # Don't recurse into Interpolate
-        if o not in self.mapping:
-            self.mapping[o] = Function(o.ufl_function_space())
-        return self.mapping[o]
+        return {"aij", "nest", "matfree", None}
 
 
 class CompositeInterpolator(Interpolator):
-    def __init__(self, outer_interp_expr, subs):
-        super().__init__(outer_interp_expr)
-        self._inner_interpolators = [
+    """Interpolator for expressions containing inner Interpolate nodes defined on different meshes.
+
+    Builds inner interpolators for each detected inner Interpolate node and composes
+    their callables with the outer interpolator so that inner nodes are re-evaluated
+    at each step.
+    """
+
+    def __init__(self, outer_expr, subs):
+        super().__init__(outer_expr)
+        self._inner = [
             (get_interpolator(inner_node), fn)
             for inner_node, fn in subs.items()
         ]
-        self._outer_interpolator = get_interpolator(outer_interp_expr)
+        self._outer = get_interpolator(outer_expr)
 
     def _get_callable(self, tensor=None, bcs=None, **kwargs):
         inner_callables = [
             interp._get_callable(tensor=fn)
-            for interp, fn in self._inner_interpolators
-            ]
-        outer_callable = self._outer_interpolator._get_callable(tensor=tensor, bcs=bcs)
-
+            for interp, fn in self._inner
+        ]
+        outer_callable = self._outer._get_callable(tensor=tensor, bcs=bcs)
+        
         def callable():
             for c in inner_callables:
                 c()
             return outer_callable()
+
         return callable
-    
+
     @property
     def _allowed_mat_types(self):
-        return self._outer_interpolator._allowed_mat_types
+        return self._outer._allowed_mat_types
