@@ -170,7 +170,7 @@ jobs:
             git clone --depth 1 https://gitlab.com/petsc/petsc.git
           fi
           cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
+          python3 ../firedrake-repo/scripts/firedrake-configure --os unknown \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=8 --download-slepc
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
@@ -184,7 +184,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env --os unknown)
           python3 -m venv venv
           . venv/bin/activate
 
