@@ -82,9 +82,10 @@ def main():
         arch = OFFICIAL_ARCHS[arch_key]
     elif arch_key in COMMUNITY_ARCHS:
         arch = COMMUNITY_ARCHS[arch_key]
-        warn(
-            "You have selected a community-maintained Firedrake configuration, "
-            f"if you encounter issues please contact {arch.maintainer}"
+        warn(f"""\
+You have selected an untested, community-maintained Firedrake configuration
+(last modified {arch.last_modified}), if you encounter issues please
+contact {arch.maintainer} {arch.contact}"""
         )
     else:
         error(
@@ -351,7 +352,30 @@ class Arch:
 class CommunityArch(Arch):
     maintainer: str
     """Name of the person or team maintaining a particular arch."""
+    contact: str
+    """Contact details for the maintainer.
+
+    The 'maintainer' and 'contact' fields are concatenated together into the
+    message:
+
+        "...if you encounter issues please contact {maintainer} {contact}"
+
+    so make sure the grammar is right! For example:
+
+        "...if you encounter issues please contact the Firedrake team on Slack"
+
+    or:
+
+        "...if you encounter issues please contact My Name at email@email.com"
+
+    """
     last_modified: str
+    """Date the configuration was last modified (YYYY-MM-DD).
+
+    This is useful for judging the age, and hence likelihood to work, of
+    submitted configurations.
+
+    """
 
 
 ArchKey = tuple[OS, ScalarType, GPUPlatform]
@@ -864,7 +888,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
         name="default",
-        maintainer="Firedrake team",
+        maintainer="the Firedrake team",
+        contact="on Slack",
         last_modified="2026-05-07",
         system_packages=[
             "bison",
@@ -927,7 +952,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
         name="complex",
-        maintainer="Firedrake team",
+        maintainer="the Firedrake team",
+        contact="on Slack",
         last_modified="2026-05-07",
         system_packages=[
             "bison",
@@ -990,7 +1016,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): CommunityArch(
         name="default-cuda",
-        maintainer="Firedrake team",
+        maintainer="the Firedrake team",
+        contact="on Slack",
         last_modified="2026-05-07",
         system_packages=[
             "bison",
@@ -1074,7 +1101,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
         name="default",
-        maintainer="Firedrake team",
+        maintainer="the Firedrake team",
+        contact="on Slack",
         last_modified="2026-05-07",
         system_packages=[
             "bison",
@@ -1137,7 +1165,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
         name="complex",
-        maintainer="Firedrake team",
+        maintainer="the Firedrake team",
+        contact="on Slack",
         last_modified="2026-05-07",
         system_packages=[
             "bison",
