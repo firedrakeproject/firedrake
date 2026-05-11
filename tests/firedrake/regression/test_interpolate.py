@@ -741,3 +741,23 @@ def test_interpolate_form_mixed():
 
     res3 = assemble(inner(u, q) * dx)  # V x W -> R
     assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_nested_interpolate_expr():
+    mesh = UnitSquareMesh(2, 2)
+    x, y = SpatialCoordinate(mesh)
+    points = np.array([[0.5, 0.5], [0.6, 0.6]])
+    vom = VertexOnlyMesh(mesh, points)
+
+    tfs = TensorFunctionSpace(vom, "DG", 0)
+    vfs = VectorFunctionSpace(vom, "DG", 0)
+
+    expr = as_tensor([[x, 0], [0, y]])
+    v = Function(vfs).interpolate(as_vector([1.0, 2.0]))
+    inner_expr = interpolate(expr, tfs) * v
+
+    result = assemble(interpolate(inner_expr, vom.coordinates.function_space()))
+
+    expected = np.array([[0.5, 1.0], [0.6, 1.2]])
+    assert np.allclose(result.dat.data_ro.reshape(-1, 2), expected)

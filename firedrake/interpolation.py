@@ -3,7 +3,7 @@ import os
 import tempfile
 import abc
 
-from functools import cached_property, partial
+from functools import cached_property, partial, singledispatchmethod
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -15,6 +15,7 @@ from ufl.duals import is_dual
 from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
+from ufl.corealg.dag_traverser import DAGTraverser
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
@@ -100,6 +101,29 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
+class NestedInterpolateLowerer(DAGTraverser):
+    """Lower nested interpolate nodes to assembled coefficients."""
+
+    @singledispatchmethod
+    def process(self, o: Expr) -> Expr:
+        return super().process(o)
+
+    @process.register(Expr)
+    @process.register(BaseForm)
+    def _(self, o: Expr | BaseForm) -> Expr | BaseForm:
+        return self.reuse_if_untouched(o)
+
+    @process.register(UFLInterpolate)
+    @DAGTraverser.postorder_only_children([0])
+    def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
+        from firedrake.assemble import assemble
+        return as_ufl(assemble(o._ufl_expr_reconstruct_(operand, v=o.argument_slots()[0])))
+
+
+def lower_nested_interpolates(expr: Expr) -> Expr:
+    return NestedInterpolateLowerer()(expr)
+
+
 class Interpolate(UFLInterpolate):
 
     def __init__(self, expr: Expr, V: WithGeometry | BaseForm, **kwargs):
@@ -163,6 +187,8 @@ class Interpolate(UFLInterpolate):
         """
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
+        if lower_nested_interpolates(self.ufl_operands[0]) is not self.ufl_operands[0]:
+            return NestedInterpolator(self)
         if len(arguments) == 2 and has_mixed_arguments:
             return MixedInterpolator(self)
 
@@ -1725,3 +1751,21 @@ class MixedInterpolator(Interpolator):
     @property
     def _allowed_mat_types(self):
         return {"aij", "nest", "matfree", None}
+
+
+class NestedInterpolator(Interpolator):
+    """Interpolator wrapper that lowers nested interpolate nodes first."""
+
+    def __init__(self, expr: Interpolate):
+        dual_arg, operand = expr.argument_slots()
+        lowered_operand = lower_nested_interpolates(operand)
+        expr = expr._ufl_expr_reconstruct_(lowered_operand, v=dual_arg)
+        super().__init__(expr)
+        self.interpolator = expr._interpolator
+
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        return self.interpolator._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)
+
+    @property
+    def _allowed_mat_types(self):
+        return self.interpolator._allowed_mat_types
