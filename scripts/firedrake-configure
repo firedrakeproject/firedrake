@@ -810,7 +810,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         cflags=["-O3", "-march=native", "-mtune=native"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
-        extra_env_vars={"HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH"},
+        extra_env_vars={
+            "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
+            "CC": "mpicc",
+        },
     ),
 
     (OS.UNKNOWN, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
@@ -835,7 +838,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         cflags=["-O3", "-march=native", "-mtune=native"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
-        extra_env_vars={"HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH"},
+        extra_env_vars={
+            "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
+            "CC": "mpicc",
+        },
     ),
 }
 
