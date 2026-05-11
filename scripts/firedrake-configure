@@ -418,7 +418,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
         ],
-        extra_env_vars={"HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH"},
+        extra_env_vars={
+            "CC": "mpicc",
+            "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
+        },
     ),
 
     (OS.UBUNTU_2604_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
