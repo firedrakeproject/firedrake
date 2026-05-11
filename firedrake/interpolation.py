@@ -16,6 +16,10 @@ from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
+from ufl.algorithms.replace import Replacer
+from ufl.corealg.map_dag import map_expr_dag
+
+
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
@@ -166,14 +170,24 @@ class Interpolate(UFLInterpolate):
             return MixedInterpolator(self)
 
         operand, = self.ufl_operands
+
         target_mesh = self.target_space.mesh()
 
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
-            raise NotImplementedError(
-                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-            )
+            # raise NotImplementedError(
+            #     "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+            # )
+            
+            # return MixedInterpolator(self)
+
+            # TODO: Detect nested Interpolate nodes in the operand and resolve them first
+            # Build interpolators from inner interpolates and compose their callables.
+            splitter = InterpolateSplitter()
+            single_domain_operand = map_expr_dag(splitter, operand)
+            outer_expr = self._ufl_expr_reconstruct_(single_domain_operand)
+            return CompositeInterpolator(outer_expr, splitter.mapping)
 
         try:
             target_mesh = target_mesh.unique()
@@ -256,7 +270,11 @@ class Interpolator(abc.ABC):
         try:
             source_mesh = extract_unique_domain(operand)
         except ValueError:
-            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+            try:
+                source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+            except ValueError:
+                source_mesh = None # multi-domain expression
+            
         self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
@@ -1709,3 +1727,43 @@ class MixedInterpolator(Interpolator):
     @property
     def _allowed_mat_types(self):
         return {"aij", "nest", None}
+
+
+class InterpolateSplitter(Replacer):
+    "Replace inner Interpolate nodes with placeholder Functions in one pass."
+
+    def __init__(self):
+        super().__init__({}) # initialize empty mapping
+
+    def interpolate(self, o):
+        # Don't recurse into Interpolate
+        if o not in self.mapping:
+            self.mapping[o] = Function(o.ufl_function_space())
+        return self.mapping[o]
+
+
+class CompositeInterpolator(Interpolator):
+    def __init__(self, outer_interp_expr, subs):
+        super().__init__(outer_interp_expr)
+        self._inner_interpolators = [
+            (get_interpolator(inner_node), fn)
+            for inner_node, fn in subs.items()
+        ]
+        self._outer_interpolator = get_interpolator(outer_interp_expr)
+
+    def _get_callable(self, tensor=None, bcs=None, **kwargs):
+        inner_callables = [
+            interp._get_callable(tensor=fn)
+            for interp, fn in self._inner_interpolators
+            ]
+        outer_callable = self._outer_interpolator._get_callable(tensor=tensor, bcs=bcs)
+
+        def callable():
+            for c in inner_callables:
+                c()
+            return outer_callable()
+        return callable
+    
+    @property
+    def _allowed_mat_types(self):
+        return self._outer_interpolator._allowed_mat_types
