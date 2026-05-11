@@ -87,13 +87,11 @@ def main():
         arch = COMMUNITY_ARCHS[arch_key]
         warn(f"""\
 You have selected a community-maintained Firedrake configuration,
-if you encounter issues please contact {arch.maintainer}"""
-        )
+if you encounter issues please contact {arch.maintainer}""")
     else:
         error(f"""\
 Firedrake configuration not found for option set '{arch_key_str}',
-please consider passing '--os unknown' or building manually"""
-        )
+please consider passing '--os unknown' or building manually""")
 
     if args.show_system_packages:
         try:
@@ -221,8 +219,7 @@ def detect_os() -> "OS":
     error("""\
 Cannot identify operating system, to configure Firedrake please specify the
 operating system manually. Run 'python3 firedrake-configure --help' to see
-the available options."""
-    )
+the available options.""")
 
 
 class OS(enum.Enum):
