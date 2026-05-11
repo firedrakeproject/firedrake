@@ -289,27 +289,26 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     else:
         levels_prefix = f"{solver_prefix}levels_"
     current_level_prefix = f"{solver_prefix}levels_{level}_"
-    new_options_prefix = f"{context.options_prefix}{current_level_prefix}"
 
-    new_mat_type = None
-    new_pmat_type = None
-    new_sub_mat_type = None
-    new_sub_pmat_type = None
+    mat_type = None
+    pmat_type = None
+    sub_mat_type = None
+    sub_pmat_type = None
     for prefix in (levels_prefix, current_level_prefix):
-        new_mat_type = opts.getString(f"{prefix}mat_type", "") or new_mat_type
-        new_pmat_type = opts.getString(f"{prefix}pmat_type", "") or new_pmat_type
-        new_sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or new_sub_mat_type
-        new_sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or new_sub_pmat_type
+        mat_type = opts.getString(f"{prefix}mat_type", "") or mat_type
+        pmat_type = opts.getString(f"{prefix}pmat_type", "") or pmat_type
+        sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or sub_mat_type
+        sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or sub_pmat_type
 
-    new_pmat_type = new_pmat_type or new_mat_type
-    new_sub_pmat_type = new_sub_pmat_type or new_sub_mat_type
+    pmat_type = pmat_type or mat_type
+    sub_pmat_type = sub_pmat_type or sub_mat_type
     coarse = context.reconstruct(problem=problem,
-                                 mat_type=new_mat_type,
-                                 pmat_type=new_pmat_type,
-                                 sub_mat_type=new_sub_mat_type,
-                                 sub_pmat_type=new_sub_pmat_type,
+                                 mat_type=mat_type,
+                                 pmat_type=pmat_type,
+                                 sub_mat_type=sub_mat_type,
+                                 sub_pmat_type=sub_pmat_type,
                                  appctx=new_appctx,
-                                 options_prefix=new_options_prefix,
+                                 options_prefix=context.options_prefix,
                                  )
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
