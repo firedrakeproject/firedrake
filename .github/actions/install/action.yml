@@ -33,15 +33,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Pre-run cleanup
-      shell: bash
-      # Make sure the current directory is empty
-      run: find . -delete
-
     - name: Install system dependencies
       shell: bash
       run: |
         if [ ${{ inputs.os }} = 'linux' ]; then
+          : # Git is needed for actions/checkout and Python for firedrake-configure
+          apt-get update
+          apt-get -y install git python3
+
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           apt-get -y install python3-venv
