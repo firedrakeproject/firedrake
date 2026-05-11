@@ -183,7 +183,7 @@ jobs:
 
       - name: Install Firedrake
         id: install
-        uses: ./.github/actions/install
+        uses: ./firedrake-repo/.github/actions/install
         with:
           target_branch: ${{ inputs.target_branch }}
           deps: ci
@@ -403,7 +403,7 @@ jobs:
 
       - name: Install Firedrake
         id: install
-        uses: ./.github/actions/install
+        uses: ./firedrake-repo/.github/actions/install
         with:
           target_branch: ${{ inputs.target_branch }}
           deps: check
