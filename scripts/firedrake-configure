@@ -73,23 +73,26 @@ def main():
         warn(
             "Passing '--no-package-manager' is deprecated, please set '--os unknown' instead"
         )
-        args.os = OS.UNKNOWN
-    os_ = args.os if args.os else detect_os()
+        args.os = "unknown"
 
-    arch_key = (os_, args.scalar_type, args.gpu_arch)
-    arch_key_str = f"({', '.join(f'{k.__class__.__name__}: {k.name}' for k in arch_key)})"
+    os_ = OS(args.os) if args.os else detect_os()
+    scalar_type = ScalarType(args.scalar_type)
+    gpu_arch = GPUPlatform(args.gpu_arch)
+
+    arch_key = (os_, scalar_type, gpu_arch)
+    arch_key_str = f"{{{', '.join(f'{k.__class__.__name__}: \'{k.value}\'' for k in arch_key)}}}"
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
     elif arch_key in COMMUNITY_ARCHS:
         arch = COMMUNITY_ARCHS[arch_key]
-        warn(
-            "You have selected a community-maintained Firedrake configuration, "
-            f"if you encounter issues please contact {arch.maintainer}"
+        warn(f"""\
+You have selected a community-maintained Firedrake configuration,
+if you encounter issues please contact {arch.maintainer}"""
         )
     else:
-        error(
-            f"Firedrake configuration not found for option set '{arch_key_str}', "
-            "please consider passing '--os unknown' or building manually"
+        error(f"""\
+Firedrake configuration not found for option set '{arch_key_str}',
+please consider passing '--os unknown' or building manually"""
         )
 
     if args.show_system_packages:
@@ -132,8 +135,7 @@ Please see https://firedrakeproject.org/install for more information."""
     package_manager_group.add_argument(
         "--os",
         "--package-manager",  # old alias
-        choices=list(OS),
-        type=OS,
+        choices=[os_.value for os_ in OS],
         required=False,
         help="The operating system, if not provided 'firedrake-configure' "
         "will attempt to guess it.",
@@ -149,15 +151,13 @@ Please see https://firedrakeproject.org/install for more information."""
     parser.add_argument(
         "--scalar-type",
         "--arch",  # old alias
-        choices=list(ScalarType),
-        type=ScalarType,
-        default=ScalarType.DEFAULT,
+        choices=[st.value for st in ScalarType],
+        default="default",
         help="PETSc scalar type.",
     )
     parser.add_argument(
         "--gpu-arch",
-        choices=list(GPUPlatform),
-        type=GPUPlatform,
+        choices=[gpu_opt.value for gpu_opt in GPUPlatform],
         default="none",
         help=(
             "Target GPU architecture. WARNING: This is an experimental feature. "
@@ -218,9 +218,10 @@ def detect_os() -> "OS":
         if platform.machine() == "arm64":
             return OS.MACOS_ARM64
 
-    error(
-        "Cannot identify operating system, if you want to configure Firedrake "
-        "without any system packages please pass '--os unknown'"
+    error("""\
+Cannot identify operating system, to configure Firedrake please specify the
+operating system manually. Run 'python3 firedrake-configure --help' to see
+the available options."""
     )
 
 
