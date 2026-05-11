@@ -113,57 +113,16 @@ jobs:
         # (https://github.com/actions/runner/issues/863)
         run: echo "HOME=/root" >> "$GITHUB_ENV"
 
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
-
-      # Use a different mirror to fetch apt packages from to get around
-      # temporary outage.
-      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
-      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
-      - name: Configure apt
-        run: |
-          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-          apt-get update
-
       # Git is needed for actions/checkout and Python for firedrake-configure
       - name: Install system dependencies (1)
         run: apt-get -y install git python3
-
-      - uses: actions/checkout@v5
-        with:
-          path: firedrake-repo
-          ref: ${{ inputs.source_ref }}
-
-      - name: Validate single source of truth
-        run: ./firedrake-repo/scripts/check-config
-
-      # Check that the Dockerfile is using the latest Ubuntu version.
-      # The version is hardcoded into the Dockerfile so that the OS
-      # for each release is fixed.
-      - name: Check Dockerfile Ubuntu version
-        run: |
-          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
-          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
-          echo "Latest version: $latest_version"
-          echo "Docker version: $docker_version"
-          if [[ "$docker_version" != "$latest_version" ]]; then
-            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
-            exit 1
-          fi
-
-      - name: Install system dependencies (2)
-        run: |
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
-          apt-get -y install python3-venv
-          : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install Firedrake
         id: install
         uses: ./firedrake-repo/.github/actions/install
         with:
+          os: linux
+          source_ref: ${{ inputs.source_ref }}
           target_branch: ${{ inputs.target_branch }}
           arch: ${{ matrix.arch }}
           root_dir: /__w/firedrake/firedrake
@@ -348,23 +307,12 @@ jobs:
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
-
-      - uses: actions/checkout@v5
-        with:
-          path: firedrake-repo
-          ref: ${{ inputs.source_ref }}
-
-      - name: Install system dependencies
-        run: |
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
-
       - name: Install Firedrake
         id: install
         uses: ./firedrake-repo/.github/actions/install
         with:
+          os: macos
+          source_ref: ${{ inputs.source_ref }}
           target_branch: ${{ inputs.target_branch }}
           arch: default
           root_dir: /Users/github/actions-runner/_work/firedrake/firedrake
