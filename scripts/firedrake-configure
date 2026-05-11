@@ -80,7 +80,7 @@ def main():
     gpu_arch = GPUPlatform(args.gpu_arch)
 
     arch_key = (os_, scalar_type, gpu_arch)
-    arch_key_str = f"{{{', '.join(f'{k.__class__.__name__}: \'{k.value}\'' for k in arch_key)}}}"
+    arch_key_str = f"{{{', '.join(f'{k.__class__.__name__}: {k.value}' for k in arch_key)}}}"
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
     elif arch_key in COMMUNITY_ARCHS:
