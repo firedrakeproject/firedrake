@@ -423,10 +423,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         library_dirs=[
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
-        extra_env_vars={
-            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
-            "CFLAGS": "-Wno-incompatible-pointer-types",
-        },
     ),
 
     (OS.UBUNTU_2604_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
@@ -506,8 +502,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         ],
         extra_env_vars={
             "PATH": "/usr/local/cuda/bin:$PATH",
-            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
-            "CFLAGS": "-Wno-incompatible-pointer-types",
         },
         extra_url="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2604/x86_64/cuda-keyring_1.1-1_all.deb",
     ),
@@ -572,10 +566,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         library_dirs=[
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
-        extra_env_vars={
-            # Ignore mismatch in apt graphviz and pypi pygraphviz signatures
-            "CFLAGS": "-Wno-incompatible-pointer-types",
-        },
     ),
 
     # Ubuntu 26.04 aarch64
