@@ -1601,8 +1601,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
         # set ghost+constrained entries to -1 to make sure they are overwritten
         numbering[self.free.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
-        debug_assert(lambda: (numbering >= 0).all())
-        return Dat(self, data=numbering)
+        retval = Dat(self, data=numbering)
+        if (retval.data_ro < 0).any():
+            breakpoint()
+        return retval
 
 
 @pyop3.record.frozenrecord()
@@ -2347,7 +2349,10 @@ class AxisForest(AbstractAxisTreeLike):
         from pyop3 import Dat
 
         # return Dat(self.localize(), buffer=self.trees[0].global_numbering.buffer)
-        return Dat(self, buffer=self.trees[0].global_numbering.buffer)
+        retval = Dat(self, buffer=self.trees[0].global_numbering.buffer)
+        if (retval.data_ro < 0).any():
+            breakpoint()
+        return retval
 
     @property
     def owned(self) -> AxisForest:

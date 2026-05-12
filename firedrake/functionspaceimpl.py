@@ -681,15 +681,13 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
-        from pyop3.axis_tree.visitors.layout import _collect_regions
-
         lgmap_axes = self.axes
         if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
             block_size = numpy.prod(self.shape)
-        lgmap_dat = lgmap_axes.global_numbering
+        lgmap_dat = lgmap_axes.global_numbering.copy()
 
         # track which BCs are used so we can warn if any are missed
         unused_bcs = set(bcs)

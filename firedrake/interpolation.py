@@ -1050,7 +1050,6 @@ def _build_interpolation_callables(
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
-            breakpoint()
 
         packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
         local_kernel_args.append(packed_tensor)
