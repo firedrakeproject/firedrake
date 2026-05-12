@@ -106,11 +106,12 @@ and is swept around the :math:`z`-axis. ::
 Mesh hierarchy and submesh hierarchy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Geometric multigrid requires a hierarchy of uniformly refined meshes.  We
-build the volume and surface hierarchies together. 
 The submesh for the surface can be built from
 either the :func:`~.Submesh` or :func:`~.SubmeshHierarchy` constructors,
-but only the latter enables us to use a multigrid solver.
+but only the latter enables us to use a multigrid solver. 
+Geometric multigrid requires a hierarchy of uniformly refined meshes.  We
+build the volume and surface hierarchies together.
+
 Like :class:`~.DirichletBC`, :func:`~.Submesh`
 takes in a subdomain id to indicate which part of the mesh should be
 extracted. In this case we want the entire exterior facet mesh, which we
@@ -122,8 +123,8 @@ can specify directly. ::
   mesh_v = mh_v[-1]
   mesh_s = mh_s[-1]
 
-Function spaces and parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Function spaces
+~~~~~~~~~~~~~~~
 
 We use continuous piecewise-linear elements on both the volume and the surface,
 collected into a :func:`~.MixedFunctionSpace`. ::
@@ -197,10 +198,10 @@ Fieldsplit geometric-multigrid solver
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The system is not symmetric because :math:`\lambda \neq \gamma` in general, so
-we use FGMRES as the outer solver. (It could be made so by rescaling, but we do not
+we use GMRES as the outer solver. (It could be made so by rescaling, but we do not
 pursue this here.) The two diagonal blocks—a volume elliptic
 problem and a surface elliptic problem—are each preconditioned independently
-by a full-cycle geometric multigrid solver. (Monolithic multigrid approaches on
+by a full-cycle geometric multigrid solver. (Although monolithic multigrid approaches on
 the coupled system are also available.) Firedrake automatically
 rediscretises the operators on each level using the mesh hierarchies we built
 above. ::
@@ -216,7 +217,7 @@ above. ::
 
   sp = {
       "snes_type": "ksponly",
-      "ksp_type":  "fgmres",
+      "ksp_type":  "gmres",
       "ksp_monitor": None,
       "ksp_rtol":  1e-8,
       "pc_type":   "fieldsplit",
