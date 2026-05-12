@@ -796,6 +796,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
             "CC": "$PETSC_DIR/$PETSC_ARCH/bin/mpicc",
             "MPICC": "$PETSC_DIR/$PETSC_ARCH/bin/mpicc",
+            "MPI_HOME": "$PETSC_DIR/$PETSC_ARCH",
             "LD_LIBRARY_PATH": "$PETSC_DIR/$PETSC_ARCH/lib",
         },
     ),
