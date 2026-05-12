@@ -17,6 +17,10 @@ inputs:
     description: Firedrake configuration to build
     type: string
     required: true
+  gpu:
+    description: Target GPU platform
+    type: string
+    default: none
   deps:
     description: Optional dependencies to install along with Firedrake (e.g. 'check')
     type: string
@@ -25,15 +29,31 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install system dependencies
+    - name: Install system dependencies (1)
+      shell: bash
+      if: inputs.os == 'linux'
+      run: |
+          apt-get update
+          apt-get -y install curl git python3 python3-venv
+
+    - name: Add NVIDIA CUDA deb repositories
+      if: inputs.gpu == 'cuda'
+      shell: bash
+      run: |
+        deburl=$(python3 ./firedrake-repo/scripts/firedrake-configure --show-extra-repo-pkg-url --gpu-arch cuda)
+        debfile=$( basename "${deburl}" )
+        curl -fsSLO "${deburl}"
+        dpkg -i "${debfile}"
+        apt-get update
+
+    - name: Install system dependencies (2)
       shell: bash
       run: |
         if [ ${{ inputs.os }} = 'linux' ]; then
-          apt-get update
-          apt-get -y install git python3 python3-venv
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
               --arch ${{ inputs.arch }} \
+              --gpu-arch ${{ inputs.gpu }} \
               --show-system-packages)
           : # Dependencies needed to run the test suite
           apt-get -y install \
@@ -78,7 +98,9 @@ runs:
 
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
-          --arch ${{ inputs.arch }} --show-petsc-configure-options | \
+          --arch ${{ inputs.arch }} \
+          --gpu-arch ${{ inputs.gpu }} \
+          --show-petsc-configure-options | \
           xargs -L1 ./configure \
             --with-make-np=$NPROCS \
             --download-slepc
@@ -95,6 +117,7 @@ runs:
       run: |
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --arch ${{ inputs.arch }} \
+          --gpu-arch ${{ inputs.gpu }} \
           --show-env)
         env
 
