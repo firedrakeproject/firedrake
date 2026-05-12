@@ -52,6 +52,9 @@ def compute_form_data(form,
     kwargs overriden in the way TSFC needs it and is provided for
     other form compilers based on TSFC.
     """
+    # Multidomain problems require further index simplifications to ensure
+    # that unwanted quantities do not appear inside single-domain integrals.
+    do_remove_component_tensors = len(form.ufl_domains()) > 1
     fd = ufl_compute_form_data(
         form,
         do_apply_function_pullbacks=do_apply_function_pullbacks,
@@ -63,7 +66,8 @@ def compute_form_data(form,
         do_estimate_degrees=do_estimate_degrees,
         do_replace_functions=True,
         coefficients_to_split=coefficients_to_split,
-        complex_mode=complex_mode
+        complex_mode=complex_mode,
+        do_remove_component_tensors=do_remove_component_tensors,
     )
     constants = extract_firedrake_constants(form)
     fd.constants = constants
