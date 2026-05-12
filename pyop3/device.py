@@ -30,7 +30,7 @@ class Device(metaclass=ABCMeta):
 
 class CPU(Device):
     """
-    CPU Class, designed to be host object.
+    CPU Class, designed to be host object, inheriting Device
     - Plausible to have multiple CPUs, functionally similar to having GPU
     """
     name = "CPU"
@@ -59,7 +59,7 @@ class CPU(Device):
 
 class CUDAGPU(Device):
     """ 
-    GPU class for Nvidia GPUs 
+    GPU class for Nvidia GPUs. inheriting Device.
     - All offloading will be done through CuPy
     - Multiple instantiations will be independent of each other 
     """
@@ -96,8 +96,18 @@ _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
 def offloading(dev: Device):
     """ 
     Context Manager for offloading components to select device
-    - Controls global _current_device variable
-    - Stores former device in `token` to allow stacking of context changes
+    This function should be the only way to modfiy the current device variable
+
+    Updates current context to the given `dev` variable.
+    Former device is stored in stack, to be restored when finished
+        - This also allows for stacking of context windows
+
+    Context variables are also async safe.
+
+    --- Example:
+    gpu = op3.CUDAGPU()
+    with op3.offloading(gpu):
+        g.dat.assign(23, eager=True, eager_strategy="array")
     """
 
     # TODO: Not Device exception
