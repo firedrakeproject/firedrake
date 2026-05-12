@@ -143,15 +143,6 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
             # ick way to make sure that if we have sizes wrapped up into Scalars that this
             # gets passed up
             mysize = utils.just_one(component_size.buffer._data)
-            try:
-                assert mysize >= 0 and mysize <= 10000
-            except:
-                import pyop3.debug
-                pyop3.debug.enable_conditional_breakpoints()
-                Loop(i,
-                    component_size.iassign(subtree_size_expr)
-                )()
-                breakpoint()
             if not isinstance(subtree_size, numbers.Integral):
                 sbuf = ArrayBuffer.from_scalar(mysize, constant=True)
                 mysize = ScalarBufferExpression(sbuf)

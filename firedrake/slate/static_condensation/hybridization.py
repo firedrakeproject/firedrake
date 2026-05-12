@@ -325,7 +325,7 @@ class HybridizationPC(SCBase):
             # any projections
             unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
             broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
-            unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+            unbroken_scalar_data.dat.assign(broken_scalar_data.dat, eager=True, eager_strategy="array")
 
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
@@ -359,9 +359,9 @@ class HybridizationPC(SCBase):
             # Solve the system for the Lagrange multipliers
             with self.schur_rhs.dat.vec_ro as b:
                 if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.vec
+                    acc = self.trace_solution.dat.vec_rw
                 else:
-                    acc = self.trace_solution.vec_wo
+                    acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
                     self.trace_ksp.solve(b, x_trace)
 
@@ -383,7 +383,7 @@ class HybridizationPC(SCBase):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.subfunctions[self.pidx]
             unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
-            broken_pressure.dat.copy(unbroken_pressure.dat)
+            broken_pressure.dat.assign(unbroken_pressure.dat, eager=True, eager_strategy="array")
 
             # Compute the hdiv projection of the broken hdiv solution
             broken_hdiv = self.broken_solution.subfunctions[self.vidx]

@@ -6,7 +6,7 @@ This file was copied from ngsPETSc.
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.petsc import PETSc
 import firedrake
 
