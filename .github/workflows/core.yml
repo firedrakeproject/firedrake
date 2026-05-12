@@ -463,11 +463,16 @@ jobs:
           find . -delete
 
   check:
-    name: Run simple repo checks
+    name: Basic repository checks
     runs-on: ubuntu-latest
     container:
       image: ubuntu:latest
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install python3
+
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo

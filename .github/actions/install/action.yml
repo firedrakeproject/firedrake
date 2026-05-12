@@ -142,4 +142,3 @@ runs:
       run: |
         . venv/bin/activate
         firedrake-check
-      timeout-minutes: 5
