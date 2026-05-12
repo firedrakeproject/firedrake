@@ -21,7 +21,7 @@ inputs:
     description: Base directory
     type: string
     required: true
-  np:
+  np:  # could just be inferred from the OS
     description: Available parallelism
     type: string
     required: true
@@ -42,12 +42,12 @@ runs:
           apt-get -y install git python3
 
           apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ inputs.arch }} --show-system-packages)
           apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
           apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
         else
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
+          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ inputs.arch }} --show-system-packages)
         fi
 
     - name: Install PETSc
@@ -75,7 +75,7 @@ runs:
     - name: Install Firedrake
       shell: bash
       run: |
-        export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
+        export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ inputs.arch }}" --show-env)
         python3 -m venv venv
         . venv/bin/activate
 
