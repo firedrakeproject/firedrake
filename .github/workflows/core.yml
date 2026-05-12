@@ -106,7 +106,6 @@ jobs:
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
       PYTEST_MPI_MAX_NPROCS: 8
-      LD_LIBRARY_PATH: /__w/firedrake/firedrake/petsc/arch-firedrake-debug/lib
     steps:
       - name: Fix HOME
         # For unknown reasons GitHub actions overwrite HOME to /github/home
@@ -237,6 +236,7 @@ jobs:
 
       - name: Run firedrake-check
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-check
         timeout-minutes: 5
@@ -267,6 +267,7 @@ jobs:
       - name: Run Firedrake tests (nprocs = 1)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
@@ -276,6 +277,7 @@ jobs:
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
@@ -283,6 +285,7 @@ jobs:
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
@@ -290,6 +293,7 @@ jobs:
       - name: Run tests (nprocs = 4)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
@@ -297,6 +301,7 @@ jobs:
       - name: Run tests (nprocs = 5)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
@@ -304,6 +309,7 @@ jobs:
       - name: Run tests (nprocs = 6)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
@@ -311,6 +317,7 @@ jobs:
       - name: Run tests (nprocs = 7)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
@@ -318,6 +325,7 @@ jobs:
       - name: Run tests (nprocs = 8)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
@@ -329,6 +337,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             GUSTO_BRANCH='main'
@@ -349,6 +358,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
           pip install --verbose ./thetis-repo
@@ -361,6 +371,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
+          export PATH=/__w/firedrake/firedrake/petsc/arch-firedrake-default/bin:$PATH
           . venv/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
           pip install --verbose ./spyro-repo
