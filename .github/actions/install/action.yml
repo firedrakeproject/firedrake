@@ -2,31 +2,23 @@ name: Install Firedrake
 
 inputs:
   os:
-    description: Operating system (linux or macos)
+    description: Operating system ('linux' or 'macos')
     type: string
     required: true
   source_ref:
-    description: The source branch
+    description: Source branch
     type: string
     required: true
-  target_branch:
-    description: The target branch (usually 'main' or 'release')
+  base_ref:
+    description: Target branch ('main' or 'release')
     type: string
     required: true
   arch:
     description: Firedrake configuration to build
     type: string
     required: true
-  root_dir:
-    description: Base directory
-    type: string
-    required: true
-  np:  # could just be inferred from the OS
-    description: Available parallelism
-    type: string
-    required: true
   deps:
-    description: Optional dependencies to install along with Firedrake
+    description: Optional dependencies to install along with Firedrake (e.g. 'check')
     type: string
     required: true
 
@@ -37,55 +29,81 @@ runs:
       shell: bash
       run: |
         if [ ${{ inputs.os }} = 'linux' ]; then
-          : # Git is needed for actions/checkout and Python for firedrake-configure
           apt-get update
-          apt-get -y install git python3
-
+          apt-get -y install git python3 python3-venv
           apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ inputs.arch }} --show-system-packages)
-          apt-get -y install python3-venv
+            $(python3 ./firedrake-repo/scripts/firedrake-configure \
+              --arch ${{ inputs.arch }} \
+              --show-system-packages)
           : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
+          apt-get -y install \
+            fonts-dejavu \
+            graphviz \
+            graphviz-dev \
+            parallel \
+            poppler-utils
+        elif [ ${{ inputs.os }} = 'macos' ]; then
+          brew install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure \
+              --arch ${{ inputs.arch }} \
+              --show-system-packages)
         else
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ inputs.arch }} --show-system-packages)
+          echo "Unrecognised 'os' input: '${{ inputs.os }}"
+          exit 1
         fi
 
     - name: Install PETSc
       shell: bash
       run: |
-        if [ ${{ inputs.target_branch }} = 'release' ]; then
+        : # Clone PETSc
+        if [ ${{ inputs.base_ref }} = 'main' ]; then
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+        elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
             --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
             https://gitlab.com/petsc/petsc.git
         else
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
+          exit 1
         fi
+
+        if [ ${{ inputs.os }} = 'linux' ]; then
+          NPROCS=8
+        elif [ ${{ inputs.os }} = 'macos' ]; then
+          NPROCS=4
+        else
+          echo "Unrecognised 'os' input: '${{ inputs.os }}"
+          exit 1
+        fi
+
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --arch ${{ inputs.arch }} --show-petsc-configure-options | \
-          xargs -L1 ./configure --with-make-np=${{ inputs.np }} --download-slepc
-        make PETSC_DIR=${{ inputs.root_dir }}/petsc PETSC_ARCH=arch-firedrake-${{ inputs.arch }}
+          xargs -L1 ./configure \
+            --with-make-np=$NPROCS \
+            --download-slepc
+        make PETSC_DIR=$PWD PETSC_ARCH=arch-firedrake-${{ inputs.arch }}
         make check
         {
-          echo "PETSC_DIR=${{ inputs.root_dir }}/petsc"
+          echo "PETSC_DIR=$PWD"
           echo "PETSC_ARCH=arch-firedrake-${{ inputs.arch }}"
-          echo "SLEPC_DIR=${{ inputs.root_dir }}/petsc/arch-firedrake-${{ inputs.arch }}"
+          echo "SLEPC_DIR=$PWD/petsc/arch-firedrake-${{ inputs.arch }}"
         } >> "$GITHUB_ENV"
 
     - name: Install Firedrake
       shell: bash
       run: |
-        export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ inputs.arch }}" --show-env)
+        export $(python3 ./firedrake-repo/scripts/firedrake-configure \
+          --arch ${{ inputs.arch }} \
+          --show-env)
+
         python3 -m venv venv
         . venv/bin/activate
 
         : # Empty the pip cache to ensure that everything is compiled from scratch
         pip cache purge
 
-        if [ ${{ inputs.target_branch }} = 'release' ]; then
-          EXTRA_BUILD_ARGS=''
-          EXTRA_PIP_FLAGS=''
-        else
+        if [ ${{ inputs.base_ref }} = 'main' ]; then
           : # Install build dependencies
           pip install "$PETSC_DIR"/src/binding/petsc4py
           pip install -r ./firedrake-repo/requirements-build.txt
@@ -99,6 +117,12 @@ runs:
           : # We have to pass '--no-build-isolation' to use a custom petsc4py
           EXTRA_BUILD_ARGS='--no-isolation'
           EXTRA_PIP_FLAGS='--no-build-isolation'
+        elif [ ${{ inputs.base_ref }} = 'release' ]; then
+          EXTRA_BUILD_ARGS=''
+          EXTRA_PIP_FLAGS=''
+        else
+          echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
+          exit 1
         fi
 
         : # Install from an sdist so we can make sure that it is not ill-formed
@@ -112,3 +136,10 @@ runs:
 
         firedrake-clean
         pip list
+
+    - name: Run firedrake-check
+      shell: bash
+      run: |
+        . venv/bin/activate
+        firedrake-check
+      timeout-minutes: 5
