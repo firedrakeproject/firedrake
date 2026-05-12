@@ -237,7 +237,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    # TODO: Connor and I both dislike defaultdict but I can't think of an alternative atm 
     _state: collections.defaultdict[Device, int]
     _max_value: np.number | None = None
 
@@ -489,9 +488,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if not self._is_data_available(curr_dev) or not self._is_data_synced(curr_dev):
             self.sync_devices(curr_dev)
         
-        # NOTE: If data is None, set to zeros? 
-        # if self._lazy_data is None:
-        #    self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
         return self._lazy_data[curr_dev]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
