@@ -156,7 +156,7 @@ jobs:
         run: |
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages --os ubuntu24.04-x86_64)
-          apt-get -y install python3-venv
+          apt-get -y install python3-venv gcc-13
           : # Dependencies needed to run the test suite
           apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
@@ -172,7 +172,7 @@ jobs:
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure --os unknown \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8 --download-slepc --with-avx512-kernels=0
+            xargs -L1 ./configure --with-make-np=8 --download-slepc --with-avx512-kernels=0 --with-cc=gcc-13
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           make check
           {
