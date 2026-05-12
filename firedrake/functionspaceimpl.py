@@ -814,8 +814,11 @@ class AbstractFunctionSpace:
         self,
         iter_type: Literal["cell", "exterior_facet", "interior_facet"],
     ) -> op3.Dat:
-        if len(self) > 1:
-            raise NotImplementedError
+        # these are actually OK, but they shouldn't be used as offsets
+        # if len(self) > 1:
+        #     raise TypeError("Cannot tabulate cell node maps for mixed spaces")
+        # if self.boundary_set:
+        #     raise TypeError("Cannot tabulate cell node maps for restricted spaces")
 
         # To convert between the fully unrolled DoF map and a node-wise one
         # we just need to stride and divide by the block size.

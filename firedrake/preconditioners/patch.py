@@ -977,6 +977,9 @@ class PatchBase(PCSNESBase):
             # the field-local sections into 'global' offsets.
             # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
             raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
+        if any(Vsub.boundary_set for Vsub in V):
+            # same reasoning as above but for restricted function spaces
+            raise NotImplementedError("PCPatch+RFS requires IS-related fixes in PETSc")
 
         dms = [Vsub.dm for Vsub in V]
         block_sizes = [Vsub.block_size for Vsub in V]

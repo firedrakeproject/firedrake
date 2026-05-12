@@ -166,8 +166,7 @@ def physical_node_locations(V):
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(
-            firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc),
-                pyop3_compiler_parameters={"optimize": False},
+            firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
         )
         return cache.setdefault(key, locations)
 

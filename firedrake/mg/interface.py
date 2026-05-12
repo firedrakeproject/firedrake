@@ -92,8 +92,13 @@ def prolong(coarse, fine):
             d.dat.buffer.reduce_leaves_to_roots_end()
 
         op3.loop(
-            n := Vf.nodal_axes.blocked(Vf.shape).owned.unconstrained.iter(),
-            kernel(fine.dat[n], coarse.dat[fine_to_coarse(n)], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
+            n := Vf.nodal_axes.blocked(Vf.shape).free.iter(),
+            kernel(
+                _regionless(fine.dat)[n],
+                _regionless(coarse.dat)[fine_to_coarse(n)],
+                _regionless(node_locations.dat)[n],
+                _regionless(coarse_coords.dat)[fine_to_coarse_coords(n)],
+            ),
             eager=True,
         )
         coarse = fine
@@ -165,13 +170,15 @@ def restrict(fine_dual, coarse_dual):
         coarse_coords.dat.buffer.reduce_leaves_to_roots()
 
         kernel = kernels.restrict_kernel(Vf, Vc)
-        import pyop3.debug
-        pyop3.debug.enable_conditional_breakpoints()
         op3.loop(
             n := Vf.nodal_axes.blocked(Vf.shape).free.iter(),
-            kernel(coarse_dual.dat[fine_to_coarse(n)], fine_dual.dat[n], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
+            kernel(
+                _regionless(coarse_dual.dat)[fine_to_coarse(n)],
+                _regionless(fine_dual.dat)[n],
+                _regionless(node_locations.dat)[n],
+                _regionless(coarse_coords.dat)[fine_to_coarse_coords(n)],
+            ),
             eager=True,
-            compiler_parameters={"optimize": True},  # for debugging
         )
         fine_dual = coarse_dual
     return coarse_dual
@@ -248,7 +255,12 @@ def inject(fine, coarse):
 
             op3.loop(
                 n := Vc.nodal_axes.blocked(Vc.shape).free.iter(),
-                kernel(coarse.dat[n], fine.dat[coarse_node_to_fine_nodes(n)], node_locations.dat[n], fine_coords.dat[coarse_node_to_fine_coords(n)]),
+                kernel(
+                    _regionless(coarse.dat)[n],
+                    _regionless(fine.dat)[coarse_node_to_fine_nodes(n)],
+                    _regionless(node_locations.dat)[n],
+                    _regionless(fine_coords.dat)[coarse_node_to_fine_coords(n)],
+                ),
                 eager=True,
             )
         else:
@@ -288,3 +300,12 @@ def get_coordinates(V):
         W = V.reconstruct(element=coords.function_space().ufl_element())
         coords = Function(W).interpolate(coords)
     return coords
+
+
+def _regionless(dat):
+    """Drop all region (i.e. unconstrained vs constrained) information from a dat.
+
+    This is needed for multigrid because otherwise the node-wise loops fail.
+
+    """
+    return dat.with_axes(dat.axes.regionless())
