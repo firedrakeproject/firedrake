@@ -7,7 +7,7 @@ transfer mechanism.  A prototypical model of this class is the coupled
 volume-surface reaction-diffusion system analysed by :cite:`Egger:2018`, which
 we consider here on a solid torus :math:`\Omega \subset \mathbb{R}^3` with
 surface :math:`\Gamma = \partial\Omega`. This demo illustrates how such
-problems may be solved with the submesh functionality in Firedrake.
+problems may be solved with the :func:`~.Submesh` functionality in Firedrake.
 
 The model
 ---------
@@ -108,14 +108,17 @@ Mesh hierarchy and submesh hierarchy
 
 Geometric multigrid requires a hierarchy of uniformly refined meshes.  We
 build the volume and surface hierarchies together. 
-The submesh for the surface can be built with the :func:`~.SubmeshHierarchy` constructor.
-This takes in a subdomain id to indicate which part of the mesh should be
+The submesh for the surface can be built from
+either the :func:`~.Submesh` or :func:`~.SubmeshHierarchy` constructors,
+but only the latter enables us to use a multigrid solver.
+Like :class:`~.DirichletBC`, :func:`~.Submesh`
+takes in a subdomain id to indicate which part of the mesh should be
 extracted. In this case we want the entire exterior facet mesh, which we
 can specify directly. ::
 
   nref = 1
   mh_v = MeshHierarchy(base_v, nref)
-  mh_s = SubmeshHierarchy(mh_v, subdim=2, subdomain_id=1, label_name="exterior_facets")
+  mh_s = SubmeshHierarchy(mh_v, subdomain_id="on_boundary")
   mesh_v = mh_v[-1]
   mesh_s = mh_s[-1]
 
@@ -197,7 +200,8 @@ The system is not symmetric because :math:`\lambda \neq \gamma` in general, so
 we use FGMRES as the outer solver. (It could be made so by rescaling, but we do not
 pursue this here.) The two diagonal blocks—a volume elliptic
 problem and a surface elliptic problem—are each preconditioned independently
-by a full-cycle geometric multigrid solver.  Firedrake automatically
+by a full-cycle geometric multigrid solver. (Monolithic multigrid approaches on
+the coupled system are also available.) Firedrake automatically
 rediscretises the operators on each level using the mesh hierarchies we built
 above. ::
 
