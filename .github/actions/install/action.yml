@@ -87,7 +87,7 @@ runs:
         {
           echo "PETSC_DIR=$PWD"
           echo "PETSC_ARCH=arch-firedrake-${{ inputs.arch }}"
-          echo "SLEPC_DIR=$PWD/petsc/arch-firedrake-${{ inputs.arch }}"
+          echo "SLEPC_DIR=$PWD/arch-firedrake-${{ inputs.arch }}"
         } >> "$GITHUB_ENV"
 
     - name: Install Firedrake
@@ -96,6 +96,7 @@ runs:
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --arch ${{ inputs.arch }} \
           --show-env)
+        env
 
         python3 -m venv venv
         . venv/bin/activate
