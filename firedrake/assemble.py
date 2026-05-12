@@ -28,7 +28,7 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.interpolation import get_interpolator
-from firedrake.pack import pack
+from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc
 from firedrake.mesh import get_iteration_spec, get_mesh_topologies
 from firedrake.slate import slac, slate
@@ -1075,7 +1075,7 @@ class ParloopFormAssembler(FormAssembler):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
             if isinstance(self, ExplicitMatrixAssembler):
-                with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
+                with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                     parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
                 parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
@@ -2124,20 +2124,3 @@ class _FormHandler:
 
 def _is_real_space(space):
     return space.ufl_element().family() == "Real"
-
-
-@contextlib.contextmanager
-def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
-    if lgmaps is None:
-        yield
-        return
-
-    petscmat = mat.handle
-    assert mat.buffer.mat is petscmat
-    if petscmat.type == "nest":
-        petscmat = petscmat.getNestSubMatrix(*indices)
-
-    orig_lgmaps = petscmat.getLGMap()
-    petscmat.setLGMap(*lgmaps)
-    yield
-    petscmat.setLGMap(*orig_lgmaps)

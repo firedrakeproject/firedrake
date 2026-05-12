@@ -34,7 +34,7 @@ import gem
 import finat
 
 from firedrake import utils
-from firedrake.pack import pack, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
+from firedrake.pack import pack, modified_lgmaps
 from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
@@ -1025,6 +1025,7 @@ def _build_interpolation_callables(
             copyin += (lambda: tensor.assign(output, eager=True),)
         copyout += (lambda: output.assign(tensor, eager=True),)
 
+    lgmaps = None
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
@@ -1040,7 +1041,6 @@ def _build_interpolation_callables(
         Vcol = arguments[1].function_space()
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
 
-        lgmaps = None
         if bcs:
             # NOTE: Probably shouldn't overwrite Vrow and Vcol here...
             if is_dual(Vrow):
@@ -1049,7 +1049,8 @@ def _build_interpolation_callables(
                 Vcol = Vcol.dual()
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
-            lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
+            lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
+            breakpoint()
 
         packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
         local_kernel_args.append(packed_tensor)
@@ -1102,7 +1103,8 @@ def _build_interpolation_callables(
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 
     def parloop_callable():
-        parloop(compiler_parameters=pyop3_compiler_parameters)
+        with modified_lgmaps(tensor, None, lgmaps):
+            parloop(compiler_parameters=pyop3_compiler_parameters)
 
     if isinstance(tensor, op3.Mat):
         return parloop_callable, tensor.assemble

@@ -1,4 +1,5 @@
 import collections
+import contextlib
 import functools
 import itertools
 from typing import Any
@@ -478,3 +479,20 @@ def iter_space(space: WithGeometry):
         yield (Ellipsis, space)
     else:
         yield from ((label, subspace) for label, subspace in zip(space._labels, space, strict=True))
+
+
+@contextlib.contextmanager
+def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
+    if lgmaps is None:
+        yield
+        return
+
+    petscmat = mat.handle
+    assert mat.buffer.mat is petscmat
+    if petscmat.type == "nest":
+        petscmat = petscmat.getNestSubMatrix(*indices)
+
+    orig_lgmaps = petscmat.getLGMap()
+    petscmat.setLGMap(*lgmaps)
+    yield
+    petscmat.setLGMap(*orig_lgmaps)
