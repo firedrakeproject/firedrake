@@ -29,7 +29,7 @@ from pyop3.mpi import collective
 ndarray_types = [np.ndarray,]
 try: 
     import cupy as cp
-    ndarray_types = [np.ndarray, cp.ndarray]
+    ndarray_types.append(cp.ndarray) 
 except ImportError:
     pass
 
@@ -584,7 +584,7 @@ def pretty_type(obj: Any) -> str:
 def safe_equals(a, b, /) -> bool:
     if any(isinstance(x, tuple(ndarray_types)) for x in [a, b]):
         return (a == b).all()
-    if any(isinstance(x, dict) for x in [a, b]):
+    if any(isinstance(x, Mapping) for x in [a, b]):
         if a.keys() != b.keys(): 
             return False 
         return all(safe_equals(a[k], b[k]) for k in a)

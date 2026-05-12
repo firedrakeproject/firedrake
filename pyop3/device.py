@@ -7,10 +7,12 @@ import warnings
 import numpy as np
 
 class Device(metaclass=ABCMeta):
+    """
+    Device - Abstract class
+    - Base for future GPU implementations
+    - All device-specific logic should be kept in here
+    """
     name: str
-
-    def __init__(self):
-        pass
 
     @abstractmethod
     def asarray(self, arr, *, constant=False):
@@ -27,53 +29,77 @@ class Device(metaclass=ABCMeta):
         return self.name
 
 class CPU(Device):
+    """
+    CPU Class, designed to be host object.
+    - Plausible to have multiple CPUs, functionally similar to having GPU
+    """
     name = "CPU"
 
-    def __init__(self):
-        super().__init__()
-
     def asarray(self, arr, *, constant=False):
-        # NOTE: Better logic needed if we switch from just NumPy/CuPy
-        output = arr
-        if not isinstance(arr, np.ndarray):
+        """ Convert GPU/CuPy/NumPy input array to CPU-compliant NumPy array """
+        try:
             import cupy as cp
+        except ImportError:
+            cp = None
+        
+        if cp and isinstance(arr, cp.ndarray):
             output = cp.asnumpy(arr)
+        elif isinstance(arr, np.ndarray):
+            output = np.array(arr)
+            if constant:
+                output.flags.writeable = False
         else:
-            output = np.array(output) 
+            raise TypeError(f"{type(arr)} not supported.")
 
-        if constant:
-            output.flags.writeable = False
         return output
+
 
     def zeros_like(self, arr):
         return np.zeros_like(arr)
 
 class CUDAGPU(Device):
+    """ 
+    GPU class for Nvidia GPUs 
+    - All offloading will be done through CuPy
+    - Multiple instantiations will be independent of each other 
+    """
     name = "CudaGPU"
     
     def __init__(self):
-        super().__init__()
-
         try:
-            import cupy as cp
-            assert cp.is_available() 
+            assert self.cp.is_available() 
         except:
             # TODO: Raise No GPU exception
             raise NotImplementedError 
 
-    def asarray(self, arr, *, constant=False):
+    @property
+    def cp(self):
         import cupy as cp
-        return cp.asarray(arr)
+        return cp
+
+    def asarray(self, arr, *, constant=False):
+        return self.cp.asarray(arr)
     
     def zeros_like(self, arr):
-        import cupy as cp
-        return cp.zeros_like(arr)
+        return self.cp.zeros_like(arr)
 
 HOST_DEVICE = CPU() 
+
+""" 
+    Global context variable for determining device context
+    - This should not be imported to other modules - value accessed through getter
+    - All modification should be controlled via the offloading function.
+"""
 _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
 
 @contextlib.contextmanager
 def offloading(dev: Device):
+    """ 
+    Context Manager for offloading components to select device
+    - Controls global _current_device variable
+    - Stores former device in `token` to allow stacking of context changes
+    """
+
     # TODO: Not Device exception
     if not isinstance(dev, Device):
         raise NotImplementedError
@@ -85,13 +111,13 @@ def offloading(dev: Device):
         _current_device.reset(token)
 
 def on_host(func):
-
+    """
+    Decorator for components that we want to stay on host device
+    i.e. MPI communications/StarForest
+    """
     def wrapper(*args, **kwargs):
-        token = _current_device.set(HOST_DEVICE)
-        try:
+        with offloading(HOST_DEVICE):
             return func(*args, **kwargs)
-        finally:
-            _current_device.reset(token)
 
     return wrapper 
 

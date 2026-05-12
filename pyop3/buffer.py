@@ -250,7 +250,16 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             type(self), self._constant, self._rank_equal, self._ordered, 
             self.dtype, buffer_counter[self])
 
-    def __init__(self, data: np.ndarray | cp.ndarray | None, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
+    def __init__(
+            self, data: np.ndarray | cp.ndarray | None, 
+            sf: StarForest | None = None, *, 
+            name: str|None=None,
+            prefix:str|None=None,
+            constant:bool=False, 
+            rank_equal: bool = False, 
+            max_value: numbers.Number | None=None, 
+            ordered:bool=False
+        ):
 
         data = data.flatten()
         curr_dev = get_current_device()
@@ -326,7 +335,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # TODO: Fix for first-assign, immediate duplicate bug
         # This can be removed once `compile` strategy works on device
         if curr_dev not in self._lazy_data:
-            self.sync_devices(curr_dev)
+            self.sync_devices()
 
         if copy:
             data = {curr_dev: self._lazy_data[curr_dev]}
@@ -485,8 +494,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _data(self):
         curr_dev = get_current_device() 
 
-        if not self._is_data_available(curr_dev) or not self._is_data_synced(curr_dev):
-            self.sync_devices(curr_dev)
+        if not self._is_data_available_and_synced(curr_dev):
+            self.sync_devices()
         
         return self._lazy_data[curr_dev]
 
@@ -604,17 +613,18 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
     
-    def sync_devices(self, current_device: Device):
+    def sync_devices(self):
         last_updated_device = self._last_updated_device
+        current_device = get_current_device()
 
         self._lazy_data[current_device] = current_device.asarray(self._lazy_data[last_updated_device], constant=self.constant)
         self._state[current_device] = self._state[last_updated_device]
 
-    def _is_data_available(self, device: Device) -> bool:
-        return device in self._lazy_data
+    def _is_data_available_and_synced(self, device: Device) -> bool:
+        is_available = device in self._lazy_data
+        is_synced = self.state[device] == max(self.state.values())
+        return is_available and is_synced
 
-    def _is_data_synced(self, device: Device) -> bool:
-        return self.state[device] == max(self.state.values())
 
 class MatBufferSpec(abc.ABC):
     pass
