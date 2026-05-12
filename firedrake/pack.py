@@ -765,36 +765,36 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
         # printf("o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});")
-        if ns[0] == 84 or ns[0] == 45:
-            if ns[0] == 84:
-                print_range = range(37,43)
-            elif ns[0] == 45:
-                print_range = range(18,25)
-            if len(ns) > 1:
-                print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
-                # print_insn = lp.CInstruction(tuple(),
-                #             f"""printf(\"initial b: {" ".join('%f' for i in range(34, 41))}\\n\", {', '.join(f"b[{i*ns[0] + j}]" for j in range(12, 16) for i in range(12,16))});
-                #                 """, assignees=(), read_variables=frozenset([]), id="print")
-            else:
-                print_insn = lp.CInstruction(tuple(),
-                            f"""printf(\"initial b: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"b[{j}]" for j in print_range)});
-                                printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});
-                                """, assignees=(), read_variables=frozenset([]), id="print")
+        # if ns[0] == 84 or ns[0] == 45:
+        #     if ns[0] == 84:
+        #         print_range = range(37,43)
+        #     elif ns[0] == 45:
+        #         print_range = range(18,32)
+        #     if len(ns) > 1:
+        #         print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+        #         # print_insn = lp.CInstruction(tuple(),
+        #         #             f"""printf(\"initial b: {" ".join('%f' for i in range(34, 41))}\\n\", {', '.join(f"b[{i*ns[0] + j}]" for j in range(12, 16) for i in range(12,16))});
+        #         #                 """, assignees=(), read_variables=frozenset([]), id="print")
+        #     else:
+        #         print_insn = lp.CInstruction(tuple(),
+        #                     f"""printf(\"initial b: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"b[{j}]" for j in print_range)});
+        #                         printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});
+        #                         """, assignees=(), read_variables=frozenset([]), id="print")
 
-            if len(ns) > 1:
-                print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-                # print_insn1 = lp.CInstruction(tuple(),
-                #             f"""printf(\"final res: {" ".join('%f' for i in range(0, 16))}\\n\", {', '.join(f"res[{i*ns[0] + j}]"  for j in range(12, 16) for i in range(12, 16))});
-                #             """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-            else:
-                # range(34, ns[0])
-                print_insn1 = lp.CInstruction(tuple(),
-                            f"""printf(\"final res: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"res[{j}]" for j in print_range)});
-                            """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-        else:
-            print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+        #     if len(ns) > 1:
+        #         print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        #         # print_insn1 = lp.CInstruction(tuple(),
+        #         #             f"""printf(\"final res: {" ".join('%f' for i in range(0, 16))}\\n\", {', '.join(f"res[{i*ns[0] + j}]"  for j in range(12, 16) for i in range(12, 16))});
+        #         #             """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        #     else:
+        #         # range(34, ns[0])
+        #         print_insn1 = lp.CInstruction(tuple(),
+        #                     f"""printf(\"final res: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"res[{j}]" for j in print_range)});
+        #                     """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        # else:
+        print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
 
-            print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         
         def overall(direction, all_elems):
             return lp.make_kernel(
