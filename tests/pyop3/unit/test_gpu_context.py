@@ -4,7 +4,7 @@ import numpy as np
 try:
     import cupy as cp
 except ImportError as err:
-    pytest.exit("CuPy not available, skipping GPU tests...")
+    pytest.skip(allow_module_level=True, reason="CuPy not available, skipping GPU tests...")
 
 
 import pyop3 as op3
@@ -23,16 +23,16 @@ def mesh():
     return UnitSquareMesh(3, 3)
 
 @pytest.fixture()
-def FuncSpace(mesh):
+def space(mesh):
     return FunctionSpace(mesh, "P", 2)
 
 @pytest.fixture()
-def f(FuncSpace):
-    return Function(FuncSpace).assign(10)
+def f(space):
+    return Function(space).assign(10)
 
 @pytest.fixture()
-def g(FuncSpace):
-    return Function(FuncSpace)
+def g(space):
+    return Function(space)
 
 def state(func, device):
     """Shorthand for reading buffer state on a given device."""
@@ -56,14 +56,14 @@ class TestInitialState:
 class TestOffloadingArrayTypes:
     """Inside op3.offloading, data array type should be GPU array types"""
 
-    def test_buffer_evaluates_cupy_on_cudagpu(self, FuncSpace):
-        f = Function(FuncSpace).assign(10)
+    def test_buffer_evaluates_cupy_on_cudagpu(self, space):
+        f = Function(space).assign(10)
         with op3.offloading(CUDAGPU):
             assert isinstance(f.dat.data_ro, cp.ndarray)
 
-    def test_buffer_creation_on_cudagpu(self, FuncSpace):
+    def test_buffer_creation_on_cudagpu(self, space):
         with op3.offloading(CUDAGPU):
-            k = Function(FuncSpace)
+            k = Function(space)
             assert isinstance(k.dat.data_ro, cp.ndarray)
 
 class TestOffloadingAssignmentState:
@@ -102,24 +102,25 @@ class TestOffloadingArraysUpdated:
 
 class TestDeviceArrayDuplication:
     
-    def test_duplicate_not_same(self, FuncSpace):
+    def test_duplicate_not_same(self, space):
         """Duplicate buffer is not same object"""
         with op3.offloading(CUDAGPU):
-            k = Function(FuncSpace)
+            k = Function(space)
             k_dup_buffer = k.dat.buffer.duplicate()
             assert type(k_dup_buffer) == type(k.dat.buffer)
             assert not k_dup_buffer is k.dat.buffer
 
-    def test_duplicate_to_device(self, FuncSpace):
+    def test_duplicate_to_device(self, space):
         """ Buffer maintains device context when copied"""
         with op3.offloading(CUDAGPU):
-            k = Function(FuncSpace)
+            k = Function(space)
             k_dup_buffer = k.dat.buffer.duplicate()
             assert isinstance(k_dup_buffer.data_ro, cp.ndarray)
 
-    def test_duplicate_copy_to_device(self, FuncSpace):
+    def test_duplicate_copy_to_device(self, space):
         """ Buffer maintains device context when exact copy"""
         with op3.offloading(CUDAGPU):
-            k = Function(FuncSpace)
+            k = Function(space)
             k_dup_buffer = k.dat.buffer.duplicate(copy=True)
             assert isinstance(k_dup_buffer.data_ro, cp.ndarray)
+            assert k_dup_buffer._data is k.dat.buffer._data
