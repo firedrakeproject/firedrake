@@ -217,6 +217,7 @@ jobs:
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
+            --no-binary mpi4py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
