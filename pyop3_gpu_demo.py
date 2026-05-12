@@ -48,11 +48,11 @@ with op3.offloading(gpu):
     assert not isinstance(f.dat.data_ro, np.ndarray)
     assert not isinstance(g.dat.data_ro, np.ndarray)
 
-    # Do the assignment using array operations
+    # # Do the assignment using array operations
     g.dat.assign(2*f.dat + 3, eager=True, eager_strategy="array")
 
-    # Do the assignment using MLIR (this is a later step)
-    # g.dat.assign(2*f.dat + 3, eager=True, eager_strategy="compile")
+    # # Do the assignment using MLIR (this is a later step)
+    # # g.dat.assign(2*f.dat + 3, eager=True, eager_strategy="compile")
     k = Function(V)
     k.dat.buffer.duplicate()
     k.dat.buffer.duplicate(copy=True)
@@ -64,17 +64,18 @@ with op3.offloading(gpu):
     assert f.dat.buffer.state[gpu] == 1  # matches host
     assert g.dat.buffer.state[host] == 0  # untouched
     assert g.dat.buffer.state[gpu] == 1  # modified once
-    assert k.dat.buffer.state[host] == -1 # not created 
+    assert k.dat.buffer.state[host] == 0 # not modified
     assert k.dat.buffer.state[gpu] == 1  # modified 
 
 assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 assert (g.dat.data_ro == 23).all()
+assert (k.dat.data_ro == 3).all()
 
 # state tracking checks
 assert f.dat.buffer.state[host] == 1  # modified once
 assert f.dat.buffer.state[gpu] == 1  # matches host
 assert g.dat.buffer.state[host] == 1  # matches device
 assert g.dat.buffer.state[gpu] == 1  # modified once
-assert k.dat.buffer.state[host] == -1  # not created
+assert k.dat.buffer.state[host] == 1  # matches device 
 assert k.dat.buffer.state[gpu] == 1  # modified once 

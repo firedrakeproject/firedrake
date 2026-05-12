@@ -323,6 +323,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.assemble()
         name = f"{self.name}_copy"
         curr_dev = get_current_device()
+
+        # TODO: Fix for first-assign, immediate duplicate bug
+        # This can be removed once `compile` strategy works on device
+        if curr_dev not in self._lazy_data:
+            self.sync_devices(curr_dev)
+
         if copy:
             data = {curr_dev: self._lazy_data[curr_dev]}
         else:
@@ -332,7 +338,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     is_nested: ClassVar[bool] = False
     
     @property
-    def handle(self) -> np.ndarray:
+    def handle(self) -> np.ndarray | cp.ndarray:
         return self._data
 
     @property
@@ -486,7 +492,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # NOTE: If data is None, set to zeros? 
         # if self._lazy_data is None:
         #    self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-
         return self._lazy_data[curr_dev]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the

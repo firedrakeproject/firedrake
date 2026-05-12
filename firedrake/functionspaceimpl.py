@@ -31,6 +31,7 @@ import ufl
 from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
 from pyop3.cache import cached_on, with_heavy_caches, cached_method
+from pyop3.device import on_host
 from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
@@ -1412,7 +1413,9 @@ class FunctionSpace(AbstractFunctionSpace):
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.template_vec.getSize()
 
+    # TODO: `on_host` decorator only exists while `compile` strategy does not work on device
     @_with_mesh_heavy_cache
+    @on_host
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
         if val is not None:

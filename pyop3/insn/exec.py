@@ -517,9 +517,11 @@ class CompiledCodeExecutor:
 
     try:
         import cupy as cp
+        # NOTE: This gives a pointer to a GPU memory address.
+        # Loopy cannot work with GPU so this will lead to a segfault. 
         @_as_exec_argument.register(cp.ndarray)
         def _(self, handle: cp.ndarray) -> int:
-            return handle.data.ptr
+            raise MemoryError("SegFault will occur if you pass a CuPy GPU pointer to Loopy/C code")
     except ImportError:
         pass
 
