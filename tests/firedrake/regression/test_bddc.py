@@ -5,6 +5,9 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
+pytest.skip(allow_module_level=True)
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=123456789))

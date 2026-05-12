@@ -172,7 +172,7 @@ jobs:
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure --os unknown \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8 --download-slepc
+            xargs -L1 ./configure --with-make-np=8 --download-slepc --with-avx512-kernels=0
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           make check
           {
