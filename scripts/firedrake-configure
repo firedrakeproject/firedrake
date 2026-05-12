@@ -356,6 +356,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         name="default",
         system_packages=[
             "bison",
+            "libopenblas-dev",
             "build-essential",
             "cmake",
             "flex",
