@@ -123,4 +123,4 @@ class TestDeviceArrayDuplication:
             k = Function(space)
             k_dup_buffer = k.dat.buffer.duplicate(copy=True)
             assert isinstance(k_dup_buffer.data_ro, cp.ndarray)
-            assert k_dup_buffer._data is k.dat.buffer._data
+            assert k_dup_buffer.get_array() is k.dat.buffer.get_array()

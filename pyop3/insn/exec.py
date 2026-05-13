@@ -473,7 +473,7 @@ class CompiledCodeExecutor:
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer._data)
+        return f"({buffer.size})", str(buffer.get_array())
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -610,7 +610,8 @@ class CompiledCodeExecutor:
                     nil = dtype_limits(buffer.dtype).min
 
                 def _init_nil():
-                    buffer._data[buffer.sf.ileaf] = nil
+                    # Not modifying owned values so don't want to update state via intent
+                    buffer.get_array()[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 
