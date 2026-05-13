@@ -415,3 +415,23 @@ def test_assemble_tensor_empty_shape(mesh):
     v = Function(V).assign(1)
     expected = assemble(inner(v, v)*dx)
     assert np.allclose(result, expected)
+
+
+def test_cell_avg_mfs():
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = MixedFunctionSpace([V, Q])
+    z = Function(Z)
+    usub, psub = z.subfunctions
+    usub.interpolate(SpatialCoordinate(mesh))
+    psub.interpolate(Constant(1))
+
+    expect = 6
+    result1 = assemble(inner(cell_avg(div(usub)), psub + div(usub))*dx)
+    assert np.isclose(result1, expect)
+
+    # This fails if do_replace_functions=True in entity_avg in tscf/ufl_utils.py
+    u, p = split(z)
+    result2 = assemble(inner(cell_avg(div(u)), p + div(u))*dx)
+    assert np.isclose(result2, expect)
