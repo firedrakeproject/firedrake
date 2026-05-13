@@ -241,8 +241,8 @@ class InstructionExecutionContext:
         num_buffers = 0
         cache_key_str = str(self.disk_cache_key)
         array_pattern = \
-            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \S+, \S+, \S+\)"
-        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \S+\)"
+            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
+        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
         for pattern in [array_pattern, petscmat_pattern]:
             num_buffers += len(utils.unique(re.findall(pattern, cache_key_str)))
         assert num_buffers == len(self.preprocessed_buffers)

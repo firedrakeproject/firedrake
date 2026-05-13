@@ -701,7 +701,7 @@ class CompositeDat(Terminal):
 
 # TODO: This has to obey some interface...
 @pyop3.record.record()
-class AggregateDat:
+class AggregateDat(pyop3.obj.Pyop3Object):
     """A dat formed of multiple subdats concatenated together."""
 
     DEFAULT_PREFIX: ClassVar[str] = "aggdat"

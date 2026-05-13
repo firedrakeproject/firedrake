@@ -16,6 +16,7 @@ from petsc4py import PETSc
 from pyop3 import buffer
 
 import pyop3.dtypes
+import pyop3.index_tree
 import pyop3.record
 from pyop3 import utils
 from pyop3.cache import cached_method
@@ -597,9 +598,47 @@ class ColumnDatPythonMatContext(DatPythonMatContext):
 
 # TODO: Should inherit from SymbolicTensor/SymbolicMat
 @pyop3.record.record()
-class AggregateMat:
+class AggregateMat(pyop3.obj.Pyop3Object):
     """A matrix formed of multiple submatrices concatenated together."""
+
+    # {{{ instance attrs
+
     submats: np.ndarray[Mat]
+    row_axis: Axis
+    column_axis: Axis
+    name: str
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            tuple(map(visitor, self.submats.flatten())),
+            visitor(self.row_axis),
+            visitor(self.column_axis),
+        )
+
+    def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        # TODO: check size 1 for each axis component and # components must match # subdats
+        self.submats = submats
+        self.row_axis = row_axis
+        self.column_axis = column_axis
+        self.name = name
+
+    # }}}
+
+    DEFAULT_PREFIX: ClassVar[str] = "aggmat"
+
+    def __iter__(self):
+        subitems = []
+        for (ri, ci), submat in np.ndenumerate(self.submats):
+            row_index = pyop3.index_tree.ScalarIndex(
+                self.row_axis.label, self.row_axis.component_labels[ri], 0
+            )
+            column_index = pyop3.index_tree.ScalarIndex(
+                self.column_axis.label, self.column_axis.component_labels[ci], 0
+            )
+            subitems.append(((row_index, column_index), submat))
+        return iter(subitems)
 
     @property
     def subtensors(self):
@@ -609,7 +648,7 @@ class AggregateMat:
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)
-        return type(self)(cf_submats)
+        return self.__record_init__(submats=cf_submats)
 
     @cached_property
     def row_axes(self) -> AxisTree:
@@ -619,7 +658,7 @@ class AggregateMat:
             )
             for row_submats in self.submats
         )
-        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        axes = AxisTree(self.row_axis)
         for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
             axes = axes.add_subtree(leaf_path, subtree)
         return axes
@@ -633,7 +672,7 @@ class AggregateMat:
             )
             for column_submats in self.submats.T
         )
-        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        axes = AxisTree(self.column_axis)
         for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
             axes = axes.add_subtree(leaf_path, subtree)
         return axes

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import pprint
 
 from immutabledict import immutabledict as idict
 
@@ -124,6 +125,12 @@ class OrderedFrozenSet(AbstractOrderedSet):
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
+
+
+# monkey patch pretty printing
+pprint.PrettyPrinter._dispatch[idict.__repr__] = pprint.PrettyPrinter._pprint_ordered_dict
+pprint.PrettyPrinter._dispatch[OrderedSet.__repr__] = pprint.PrettyPrinter._pprint_set
+pprint.PrettyPrinter._dispatch[OrderedFrozenSet.__repr__] = pprint.PrettyPrinter._pprint_set
 
 
 _ordered_mapping_types = (dict, collections.OrderedDict, idict)

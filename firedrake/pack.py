@@ -118,7 +118,7 @@ def _(
     if packed_mats.size == 1:
         return packed_mats.item()
     else:
-        return op3.AggregateMat(packed_mats)
+        return op3.AggregateMat(packed_mats, row_space.field_axis, column_space.field_axis)
 
 
 def _pack_mat_nonmixed(
