@@ -81,7 +81,7 @@ class GenericSolveBlock(Block):
         except AttributeError:
             pass
 
-        if isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
+        if isinstance(self.rhs, ufl.BaseForm):
             # add all meshes as dependency
             for mesh in extract_domains(self.rhs):
                 self.add_dependency(mesh, no_duplicates=True)
@@ -252,11 +252,7 @@ class GenericSolveBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isconstant(c):
-            trial_function = firedrake.TrialFunction(
-                c.function_space()
-            )
-        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = c.reconstruct(
@@ -463,9 +459,7 @@ class GenericSolveBlock(Block):
             )
             return [tmp_bc]
 
-        if isconstant(c_rep):
-            W = c_rep.function_space()
-        elif isinstance(c, firedrake.MeshGeometry):
+        if isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
         else:
