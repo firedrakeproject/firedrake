@@ -61,8 +61,7 @@ from collections.abc import Mapping, Sequence
 # Attributes that we expect to change occasionally
 
 SUPPORTED_PETSC_VERSION = "v3.25.0"
-# CUDA 13.1 is currently not supported by GPU drivers on Firedrake CI systems.
-SUPPORTED_CUDA_VERSION = "13.0"
+SUPPORTED_CUDA_VERSION = "13.2"
 
 
 def main():
