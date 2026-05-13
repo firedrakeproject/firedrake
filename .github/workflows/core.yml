@@ -106,6 +106,7 @@ jobs:
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
+      # NOTE: is this needed any more?
       - name: Fix HOME
         # For unknown reasons GitHub actions overwrite HOME to /github/home
         # which will break everything unless fixed
@@ -116,110 +117,20 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      # Use a different mirror to fetch apt packages from to get around
-      # temporary outage.
-      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
-      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
-      - name: Configure apt
-        run: |
-          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-          apt-get update
-
-      # Git is needed for actions/checkout and Python for firedrake-configure
-      - name: Install system dependencies (1)
-        run: apt-get -y install git python3
-
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Validate single source of truth
-        run: ./firedrake-repo/scripts/check-config
-
-      # Check that the Dockerfile is using the latest Ubuntu version.
-      # The version is hardcoded into the Dockerfile so that the OS
-      # for each release is fixed.
-      - name: Check Dockerfile Ubuntu version
-        run: |
-          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
-          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
-          echo "Latest version: $latest_version"
-          echo "Docker version: $docker_version"
-          if [[ "$docker_version" != "$latest_version" ]]; then
-            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
-            exit 1
-          fi
-
-      - name: Install system dependencies (2)
-        run: |
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
-          apt-get -y install python3-venv
-          : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
-
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch ${{ matrix.arch }} --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8 --download-slepc
-          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
-          make check
-          {
-            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}"
-            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}"
-          } >> "$GITHUB_ENV"
-
       - name: Install Firedrake
         id: install
-        run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
-          python3 -m venv venv
-          . venv/bin/activate
-
-          : # Empty the pip cache to ensure that everything is compiled from scratch
-          pip cache purge
-
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            EXTRA_BUILD_ARGS=''
-            EXTRA_PIP_FLAGS=''
-          else
-            : # Install build dependencies
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install -r ./firedrake-repo/requirements-build.txt
-
-            : # Install runtime dependencies that have been removed from the pyproject.toml
-            : # because they rely on non-PyPI versions of petsc4py.
-            pip install --no-build-isolation --no-deps \
-              "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
-
-            : # We have to pass '--no-build-isolation' to use a custom petsc4py
-            EXTRA_BUILD_ARGS='--no-isolation'
-            EXTRA_PIP_FLAGS='--no-build-isolation'
-          fi
-
-          : # Install from an sdist so we can make sure that it is not ill-formed
-          pip install build
-          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
-
-          pip install --verbose $EXTRA_PIP_FLAGS \
-            --no-binary h5py \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
-
-          firedrake-clean
-          pip list
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.source_ref }}
+          base_ref: ${{ inputs.target_branch }}
+          arch: ${{ matrix.arch }}
+          deps: ci
 
       - name: Upload sdist (default ARCH only)
         if: matrix.arch == 'default'
@@ -231,12 +142,6 @@ jobs:
       - name: Report sdist build status
         id: report_sdist
         run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
-      - name: Run firedrake-check
-        run: |
-          . venv/bin/activate
-          firedrake-check
-        timeout-minutes: 5
 
       - name: Run TSFC tests
         # Run even if earlier tests failed
@@ -409,66 +314,15 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Install system dependencies
-        run: |
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
-
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch default --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=4
-          make
-          make check
-          {
-            echo "PETSC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-default"
-            echo "SLEPC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc/arch-firedrake-default"
-          } >> "$GITHUB_ENV"
-
       - name: Install Firedrake
         id: install
-        run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
-          env
-
-          python3 -m venv venv
-          . venv/bin/activate
-
-          : # Empty the pip cache to ensure that everything is compiled from scratch
-          pip cache purge
-
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            EXTRA_PIP_FLAGS=''
-          else
-            : # Install build dependencies
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install -r ./firedrake-repo/requirements-build.txt
-
-            : # We have to pass '--no-build-isolation' to use a custom petsc4py
-            EXTRA_PIP_FLAGS='--no-build-isolation'
-          fi
-
-          pip install --verbose $EXTRA_PIP_FLAGS \
-            --no-binary h5py \
-            './firedrake-repo[check]'
-
-          firedrake-clean
-          pip list
-
-      - name: Run smoke tests
-        run: |
-          . venv/bin/activate
-          firedrake-check
-        timeout-minutes: 10
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: macos
+          source_ref: ${{ inputs.source_ref }}
+          base_ref: ${{ inputs.target_branch }}
+          arch: default
+          deps: check
 
       - name: Post-run cleanup
         if: always()
@@ -607,6 +461,39 @@ jobs:
         if: always()
         run: |
           find . -delete
+
+  check:
+    name: Basic repository checks
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install python3
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Validate single source of truth
+        run: ./firedrake-repo/scripts/check-config
+
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          echo "Latest version: $latest_version"
+          echo "Docker version: $docker_version"
+          if [[ "$docker_version" != "$latest_version" ]]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
 
   lint:
     name: Lint codebase

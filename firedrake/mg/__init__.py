@@ -1,6 +1,7 @@
 from firedrake.mg.mesh import (  # noqa F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
-    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    SubmeshHierarchy,
 )
 from firedrake.mg.interface import (  # noqa F401
     prolong, restrict, inject
