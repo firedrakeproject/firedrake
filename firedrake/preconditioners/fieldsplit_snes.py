@@ -135,6 +135,8 @@ class FieldsplitSNES(SNESBase):
         # Break the SNESContext apart into one per split
         split_ctxs = ctx.split(self.splits)
 
+        self._set_nullspaces(ctx, split_ctxs, self.splits)
+
         # Each split_ctx holds the form for it's own part
         # of G^{k+1}, but we also need to apply the forcing
         # from (G^{k} - F^{k}).
@@ -159,7 +161,9 @@ class FieldsplitSNES(SNESBase):
         # update ctx._x of the outer snes.
         self.split_solvers = tuple(
             NonlinearVariationalSolver(
-                split_ctx._problem, appctx=split_ctx.appctx,
+                split_ctx._problem,
+                appctx=split_ctx.appctx,
+                nullspace=split_ctx._nullspace,
                 options_prefix=sub_prefix+str(i))
             for i, split_ctx in enumerate(split_ctxs)
         )
@@ -168,8 +172,8 @@ class FieldsplitSNES(SNESBase):
         for solver in self.split_solvers:
             split_snes = solver.snes
             split_snes.incrementTabLevel(1, parent=outer_snes)
-            split_snes.ksp.incrementTabLevel(1, parent=outer_snes)
-            split_snes.ksp.pc.incrementTabLevel(1, parent=outer_snes)
+            split_snes.ksp.incrementTabLevel(1, parent=split_snes)
+            split_snes.ksp.pc.incrementTabLevel(1, parent=split_snes.ksp)
 
     def _get_splits(self, snes_options, nfields):
         split_opts = {}
@@ -197,6 +201,33 @@ class FieldsplitSNES(SNESBase):
                 f"Specified fields = {split_opts}")
 
         return split_list
+
+    def _set_nullspaces(self, ctx, split_ctxs, splits):
+        from firedrake.nullspace import (
+            VectorSpaceBasis, MixedVectorSpaceBasis)
+
+        if ctx._nullspace is None:
+            return
+
+        for split_ctx, fields in zip(split_ctxs, splits):
+            if len(fields) == 1:
+                base = ctx._nullspace._bases[fields[0]]
+                if not isinstance(base, VectorSpaceBasis):
+                    continue
+                split_space = base
+
+            else:
+                W = split_ctx._x.function_space()
+                mono_bases = [ctx._nullspace._bases[i] for i in fields]
+
+                split_bases = [
+                    base if isinstance(base, VectorSpaceBasis) else W.sub(k)
+                    for k, base in enumerate(mono_bases)
+                ]
+
+                split_space = MixedVectorSpaceBasis(W, split_bases)
+
+            split_ctx._nullspace = split_space
 
     def update(self, snes):
         pass
