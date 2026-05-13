@@ -356,7 +356,9 @@ class LinuxGnuCompiler(Compiler):
         if not self._debug and self._version >= Version("15"):
             # Disable '-O3' for GCC versions >=15 because it causes issues with
             # complex interpolation kernels
-            # TODO: revisit this in later GCC releases to see if the issue is fixed
+            # TODO: revisit this in later GCC releases to see if we can set a
+            # maximum version constraint
+            # (see https://github.com/firedrakeproject/firedrake/issues/5107)
             cflags.append("-O2")
         return tuple(cflags)
 
