@@ -365,7 +365,7 @@ class CommunityArch(Arch):
 
     or:
 
-        "...if you encounter issues please contact My Name at email@email.com"
+        "...if you encounter issues please contact Your Name at email@address.com"
 
     """
     last_modified: str
