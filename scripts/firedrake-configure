@@ -485,7 +485,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libnpp-dev-13-1",
 
             # CUDA packages from extra repo
-            # "cuda-compat-13-2",  needed?
+            "cuda-compat-13-2",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
