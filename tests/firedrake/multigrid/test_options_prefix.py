@@ -58,7 +58,7 @@ def test_fieldsplit_mg_options_prefix(named):
 
     assert solver.snes.ksp.pc.getOperators()[0].getType() == "python"
     fsplit = solver.snes.ksp.pc.getFieldSplitSubKSP()
-    assert len(fsplit) == len(V)
+    assert len(fsplit) == len(W)
     for ksp in fsplit:
         coarse = ksp.pc.getMGSmoother(0)
         assert coarse.pc.getType() == "lu"
