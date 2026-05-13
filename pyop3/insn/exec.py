@@ -5,6 +5,7 @@ import ctypes
 import dataclasses
 import functools
 import os
+import re
 from collections.abc import Mapping
 from functools import cached_property
 from typing import Any, Callable, Hashable
@@ -20,6 +21,7 @@ from pyop3 import utils
 import pyop3.buffer
 import pyop3.collections
 import pyop3.compile
+import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
 from pyop3.cache import cached_method, memory_cache
@@ -224,13 +226,29 @@ class InstructionExecutionContext:
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
         self.preprocess()
-
         assert not self._has_called_compile
         self._has_called_compile = True
 
-        compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
+        # A very common and insidious caching bug happens when we incorrectly hit
+        # the compile_static cache and then try to load buffers using their index
+        # when the number of buffers does not match the initial time we hit cache.
+        # To catch this as early as possible we look for the number of unique
+        # buffer keys that appear in the disk cache key and compare to the buffers
+        # that we actually have.
+        # TODO: make this check conditional
+        # if pyop3.config.config.debug_checks:
+        #     ...
+        num_buffers = 0
+        cache_key_str = str(self.disk_cache_key)
+        array_pattern = \
+            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \S+, \S+, \S+\)"
+        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \S+\)"
+        for pattern in [array_pattern, petscmat_pattern]:
+            num_buffers += len(utils.unique(re.findall(pattern, cache_key_str)))
+        assert num_buffers == len(self.preprocessed_buffers)
 
-        loopy_code, buffer_index_map = _compile_static(self, self.compiler_parameters)
+        compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
+        loopy_code, buffer_index_map = _compile_static(self, compiler_parameters)
         executable = Executable(loopy_code, compiler_parameters, self.comm)
 
         # TODO: We don't do anything with nest indices yet because we have always already

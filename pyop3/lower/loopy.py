@@ -413,6 +413,7 @@ class SolveCallable(LACallable):
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+    # NOTE: is config valid to include here?
     return (op.disk_cache_key, compiler_parameters, config)
 
 

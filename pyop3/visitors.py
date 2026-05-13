@@ -42,33 +42,6 @@ class BufferCollector(pyop3.node.NodeCollector):
     def _(self, obj: pyop3.obj.Pyop3Object, /) -> OrderedFrozenSet:
         return obj.collect_buffers(self)
 
-    # @process.register(pyop3.insn.NullInstruction)
-    # def _(self, insn: pyop3.insn.NullInstruction, /) -> OrderedFrozenSet:
-    #     return OrderedFrozenSet()
-    #
-    #
-    # @process.register(pyop3.insn.StandaloneCalledFunction)
-    # def _(self, func: pyop3.insn.StandaloneCalledFunction, /) -> OrderedFrozenSet:
-    #     return OrderedFrozenSet().union(
-    #         *(self._expr_collector(arg) for arg in func.arguments)
-    #     )
-    #
-    # @process.register(pyop3.insn.Exscan)
-    # def _(self, exscan: pyop3.insn.Exscan, /) -> OrderedFrozenSet:
-    #     return OrderedFrozenSet().union(
-    #         self._expr_collector(exscan.assignee),
-    #         self._expr_collector(exscan.expression),
-    #         self._expr_collector(exscan.extent),
-    #     )
-    #
-    # @process.register(pyop3.insn.ConcretizedNonEmptyArrayAssignment)
-    # def _(self, assignment: pyop3.insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-    #     return (
-    #         self._expr_collector(assignment.assignee)
-    #         | self._expr_collector(assignment.expression)
-    #         | utils.reduce("|", map(self._tree_collector, assignment.axis_trees))
-    #     )
-
 
 # def collect_buffers(insn: pyop3.insn.Instruction) -> OrderedFrozenSet:
 #     return BufferCollector.maybe_singleton(insn.comm)(insn)

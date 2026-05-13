@@ -10,6 +10,7 @@ from typing import NoReturn
 import numpy as np
 from immutabledict import immutabledict as idict
 
+import pyop3.collections
 import pyop3.record
 from pyop3 import utils
 from pyop3.node import Node, Terminal
@@ -517,10 +518,17 @@ class AxisVar(TerminalExpression):
     axis: Axis
 
     def collect_buffers(self, visitor):
-        return visitor(self.axis)
+        # Axis vars are just pointers to some outer loop. Any internal
+        # buffers that we need will be referenced elsewhere.
+        return pyop3.collections.OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self.axis))
+        # Axis vars are just pointers to some outer loop. We don't
+        # need to recurse here, just make sure that the labels match.
+        return (
+            type(self),
+            ("axis", visitor.renamer.add(self.axis.label, "Axis")),
+        )
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -590,7 +598,9 @@ class LoopIndexVar(TerminalExpression):
     axis: Axis
 
     def collect_buffers(self, visitor):
-        return visitor(self.loop_index) | visitor(self.axis)
+        # Loop index vars are just pointers to some outer loop. Any internal
+        # buffers that we need will be referenced elsewhere.
+        return pyop3.collections.OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Loop index vars are just pointers to some outer loop. We don't

@@ -226,7 +226,7 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
         return visitor(self.size)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self.size), self.label)
+        return (type(self), ("size", visitor(self.size)), ("label", self.label))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -383,7 +383,7 @@ class AxisComponent(LabelledNodeComponent):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
-            type(self), tuple(map(visitor, self.regions)), visitor(self._size), self.label
+            type(self), ("regions", tuple(map(visitor, self.regions))), ("size", visitor(self._size)), ("label", self.label)
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
