@@ -74,6 +74,8 @@ runs:
 
     - name: Install PETSc
       shell: bash
+      env:
+        EXTRA_OPTIONS: -use_gpu_aware_mpi 0
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
