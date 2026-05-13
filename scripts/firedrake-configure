@@ -61,7 +61,6 @@ from collections.abc import Mapping, Sequence
 # Attributes that we expect to change occasionally
 
 SUPPORTED_PETSC_VERSION = "v3.25.0"
-SUPPORTED_CUDA_VERSION = "13.2"
 
 
 def main():
@@ -474,17 +473,19 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libptscotch-dev",
             "libscalapack-openmpi-dev",
 
-            # CUDA packages
-            f"cuda-compat-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvtx-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-cudart-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-command-line-tools-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-minimal-build-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-libraries-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvml-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libnpp-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcusparse-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcublas-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            # CUDA packages on apt
+            "cuda-command-line-tools-13-1",
+            "cuda-cudart-dev-13-1",
+            "cuda-libraries-dev-13-1",
+            "cuda-minimal-build-13-1",
+            "cuda-nvml-dev-13-1",
+            "cuda-nvtx-13-1",
+            "libcublas-dev-13-1",
+            "libcusparse-dev-13-1",
+            "libnpp-dev-13-1",
+
+            # CUDA packages from extra repo
+            # "cuda-compat-13-2",  needed?
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -1044,16 +1045,16 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
             "libscalapack-openmpi-dev",
 
             # CUDA packages
-            f"cuda-compat-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvtx-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-cudart-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-command-line-tools-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-minimal-build-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-libraries-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvml-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libnpp-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcusparse-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcublas-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            "cuda-compat-13-0",
+            "cuda-nvtx-13-0",
+            "cuda-cudart-dev-13-0",
+            "cuda-command-line-tools-13-0",
+            "cuda-minimal-build-13-0",
+            "cuda-libraries-dev-13-0",
+            "cuda-nvml-dev-13-0",
+            "libnpp-dev-13-0",
+            "libcusparse-dev-13-0",
+            "libcublas-dev-13-0",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
