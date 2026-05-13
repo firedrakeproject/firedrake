@@ -473,7 +473,7 @@ class CompiledCodeExecutor:
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer._data)
+        return f"({buffer.size})", str(buffer.get_array())
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -514,6 +514,16 @@ class CompiledCodeExecutor:
     @_as_exec_argument.register
     def _(self, handle: np.ndarray) -> int:
         return handle.ctypes.data
+
+    try:
+        import cupy as cp
+        # NOTE: This gives a pointer to a GPU memory address.
+        # Loopy cannot work with GPU so this will lead to a segfault. 
+        @_as_exec_argument.register(cp.ndarray)
+        def _(self, handle: cp.ndarray) -> int:
+            raise MemoryError("SegFault will occur if you pass a CuPy GPU pointer to Loopy/C code")
+    except ImportError:
+        pass
 
     @_as_exec_argument.register
     def _(self, mat: PETSc.Mat) -> int:
@@ -600,7 +610,8 @@ class CompiledCodeExecutor:
                     nil = dtype_limits(buffer.dtype).min
 
                 def _init_nil():
-                    buffer._data[buffer.sf.ileaf] = nil
+                    # Not modifying owned values so don't want to update state via intent
+                    buffer.get_array()[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 

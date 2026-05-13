@@ -23,8 +23,15 @@ from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
 from pyop3.config import config
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
 from pyop3.mpi import collective
+
+ndarray_types = [np.ndarray,]
+try: 
+    import cupy as cp
+    ndarray_types.append(cp.ndarray) 
+except ImportError:
+    pass
 
 
 class UniqueNameGenerator(pytools.UniqueNameGenerator):
@@ -169,7 +176,7 @@ def is_sequence(item):
 
 def flatten(iterable):
     """Recursively flatten a nested iterable."""
-    if isinstance(iterable, np.ndarray):
+    if isinstance(iterable, tuple(ndarray_types)):
         return iterable.flatten()
     if not isinstance(iterable, (list, tuple)):
         return (iterable,)
@@ -330,13 +337,12 @@ def map_when(func, when_func, iterable):
         else:
             yield item
 
-
-def readonly(array):
-    """Return a readonly view of a numpy array."""
+def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
+    """Return a readonly view of a numpy/cupy array."""
     view = array.view()
-    view.setflags(write=False)
+    if isinstance(array, np.ndarray):
+        view.setflags(write=False)
     return view
-
 
 def debug_assert(predicate, msg=None):
     if config.debug_checks:
@@ -576,8 +582,12 @@ def pretty_type(obj: Any) -> str:
 
 
 def safe_equals(a, b, /) -> bool:
-    if any(isinstance(x, np.ndarray) for x in [a, b]):
+    if any(isinstance(x, tuple(ndarray_types)) for x in [a, b]):
         return (a == b).all()
+    if any(isinstance(x, Mapping) for x in [a, b]):
+        if a.keys() != b.keys(): 
+            return False 
+        return all(safe_equals(a[k], b[k]) for k in a)
     else:
         return bool(a == b)
 
