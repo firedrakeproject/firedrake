@@ -4,7 +4,6 @@ from ufl.domain import extract_domains
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
 
 
 class AssembleBlock(Block):
@@ -104,9 +103,7 @@ class AssembleBlock(Block):
 
         arity_form = len(form.arguments())
 
-        if isconstant(c):
-            space = c.function_space()
-        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
         elif isinstance(c, firedrake.MeshGeometry):
             c_rep = firedrake.SpatialCoordinate(c_rep)
@@ -161,9 +158,7 @@ class AssembleBlock(Block):
         c1 = block_variable.output
         c1_rep = block_variable.saved_output
 
-        if isconstant(c1):
-            space = c1.function_space()
-        elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
         elif isinstance(c1, firedrake.MeshGeometry):
             c1_rep = firedrake.SpatialCoordinate(c1)

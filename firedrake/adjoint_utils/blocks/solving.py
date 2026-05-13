@@ -9,7 +9,6 @@ from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
 
 
 def extract_subfunction(u, V):
