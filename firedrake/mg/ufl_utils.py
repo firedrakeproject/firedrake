@@ -1,7 +1,7 @@
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import as_domain, extract_unique_domain
+from ufl.domain import extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
@@ -99,14 +99,18 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = as_domain(it)
+        mesh = it.ufl_domain()
         new_mesh = self(mesh, self)
         if isinstance(integrand, ufl.classes.Zero):
             continue
         if it.subdomain_data() is not None:
             raise CoarseningError("Don't know how to coarsen subdomain data")
+        # Coarsen secondary meshes in cross-mesh integrals (e.g. intersect_measures).
+        integral_type_map = {self(d, self): itype
+                             for d, itype in it.extra_domain_integral_type_map().items()}
         new_itg = it.reconstruct(integrand=integrand,
-                                 domain=new_mesh)
+                                 domain=new_mesh,
+                                 extra_domain_integral_type_map=integral_type_map)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
     return form
