@@ -130,7 +130,7 @@ jobs:
           os: linux
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.target_branch }}
-          arch: ${{ matrix.arch }}
+          scalar_type: ${{ matrix.arch }}
           deps: ci
 
       - name: Upload sdist (default ARCH only)
@@ -322,7 +322,6 @@ jobs:
           os: macos
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.target_branch }}
-          arch: default
           deps: check
 
       - name: Post-run cleanup
@@ -381,7 +380,6 @@ jobs:
           os: linux
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.target_branch }}
-          arch: default
           gpu: cuda
           deps: check
 

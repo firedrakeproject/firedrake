@@ -13,10 +13,10 @@ inputs:
     description: Target branch ('main' or 'release')
     type: string
     required: true
-  arch:
-    description: Firedrake configuration to build
+  scalar_type:
+    description: Scalar type ('default' or 'complex')
     type: string
-    required: true
+    default: default
   gpu:
     description: Target GPU platform
     type: string
@@ -52,7 +52,7 @@ runs:
         if [ ${{ inputs.os }} = 'linux' ]; then
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
-              --arch ${{ inputs.arch }} \
+              --scalar-type ${{ inputs.scalar_type }} \
               --gpu-arch ${{ inputs.gpu }} \
               --show-system-packages)
           : # Dependencies needed to run the test suite
@@ -65,7 +65,7 @@ runs:
         elif [ ${{ inputs.os }} = 'macos' ]; then
           brew install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
-              --arch ${{ inputs.arch }} \
+              --scalar-type ${{ inputs.scalar_type }} \
               --show-system-packages)
         else
           echo "Unrecognised 'os' input: '${{ inputs.os }}"
@@ -98,27 +98,23 @@ runs:
 
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
-          --arch ${{ inputs.arch }} \
+          --scalar-type ${{ inputs.scalar_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-petsc-configure-options | \
           xargs -L1 ./configure \
             --with-make-np=$NPROCS \
             --download-slepc
-        make PETSC_DIR=$PWD PETSC_ARCH=arch-firedrake-${{ inputs.arch }}
+        make
         make check
-        {
-          echo "PETSC_DIR=$PWD"
-          echo "PETSC_ARCH=arch-firedrake-${{ inputs.arch }}"
-          echo "SLEPC_DIR=$PWD/arch-firedrake-${{ inputs.arch }}"
-        } >> "$GITHUB_ENV"
 
     - name: Install Firedrake
       shell: bash
       run: |
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
-          --arch ${{ inputs.arch }} \
+          --scalar-type ${{ inputs.scalar_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-env)
+        export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
         env
 
         python3 -m venv venv
