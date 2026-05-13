@@ -475,6 +475,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
             # CUDA packages on apt
             "cuda-command-line-tools-13-1",
+            "cuda-compiler-13-1",
             "cuda-cudart-dev-13-1",
             "cuda-libraries-dev-13-1",
             "cuda-minimal-build-13-1",
@@ -485,7 +486,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libnpp-dev-13-1",
 
             # CUDA packages from extra repo
-            "cuda-compat-13-2",
+            # "cuda-compat-13-2",  # needed?
         ],
         extra_petsc_configure_options=[
             "--with-bison",
