@@ -339,11 +339,15 @@ def test_multiple_meshes(rg):
 
     solve(a - L == 0, u, bcs)
 
-    J = assemble(u1**2*dx(mesh1) + u2**2*dx(mesh2))
+    J = assemble(u1**4*dx(mesh1) + u2**4*dx(mesh2))
     rf = ReducedFunctional(J, Control(f))
     df = rg.uniform(V)
 
-    assert taylor_test(rf, f, df) > 1.95
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
 @pytest.mark.skipcomplex
@@ -375,11 +379,15 @@ def test_submesh(rg):
 
     solve(a - L == 0, u, bcs)
 
-    J = assemble(u2**2*dx_sub)
+    J = assemble(u2**4*dx_sub)
     rf = ReducedFunctional(J, Control(f))
     df = rg.uniform(V1)
 
-    assert taylor_test(rf, f, df) > 1.95
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
 def convergence_rates(E_values, eps_values):
