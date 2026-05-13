@@ -77,6 +77,13 @@ runs:
       env:
         EXTRA_OPTIONS: -use_gpu_aware_mpi 0
       run: |
+        export $(python3 ./firedrake-repo/scripts/firedrake-configure \
+          --scalar-type ${{ inputs.scalar_type }} \
+          --gpu-arch ${{ inputs.gpu }} \
+          --show-env)
+        export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
+        env
+
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
           git clone --depth 1 https://gitlab.com/petsc/petsc.git
