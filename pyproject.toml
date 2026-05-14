@@ -18,10 +18,17 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
+<<<<<<< HEAD
   # TODO RELEASE
   "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
   # TODO RELEASE
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
+=======
+  # FEniCS may make new minor releases of UFL without warning so we pin each Firedrake
+  # release to a specific UFL minor version (e.g. 2025.3.x)
+  "fenics-ufl>=2025.3,<2025.4",
+  "firedrake-fiat>=2026.4",
+>>>>>>> release
   "h5py>3.12.1",
   "firedrake-rtree",
   "immutabledict",

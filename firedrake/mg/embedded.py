@@ -246,16 +246,22 @@ class TransferManager(object):
         Vt = target.function_space()
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
+
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
+                self.op(source_, target_, transfer_op=transfer_op)
+            return
+
         if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
         gdim = Vt.mesh().geometric_dimension
         if self.is_native(target_element, gdim, transfer_op):
             self._native_transfer(target_element, gdim, transfer_op)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
-            assert type(target_element) is finat.ufl.MixedElement
-            for source_, target_ in zip(source.subfunctions, target.subfunctions):
-                self.op(source_, target_, transfer_op=transfer_op)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -312,16 +318,22 @@ class TransferManager(object):
         Vt_star = target.function_space()
         source_element = Vs_star.ufl_element()
         target_element = Vt_star.ufl_element()
+
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
+                self.restrict(source_, target_)
+            return
+
         if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
         gdim = Vs_star.mesh().geometric_dimension
         if self.is_native(source_element, gdim, Op.RESTRICT):
             self._native_transfer(source_element, gdim, Op.RESTRICT)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
-            assert type(target_element) is finat.ufl.MixedElement
-            for source_, target_ in zip(source.subfunctions, target.subfunctions):
-                self.restrict(source_, target_)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()
