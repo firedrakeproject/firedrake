@@ -117,7 +117,7 @@ runs:
           --gpu-arch ${{ inputs.gpu }} \
           --show-env)
         export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
-        :# Disable compiler optimisation to speed up build (especially petsc4py)
+        : # Disable compiler optimisation to speed up build (especially petsc4py)
         export CFLAGS="-O0"
         env
 
