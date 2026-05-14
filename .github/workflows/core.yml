@@ -11,10 +11,6 @@ on:
         description: The target branch (usually 'main' or 'release')
         type: string
         required: true
-      run_tests:
-        description: Whether to run the test suite
-        type: boolean
-        default: true
       build_docs:
         description: Whether to build the documentation
         type: boolean
@@ -29,10 +25,6 @@ on:
         default: false
       deploy_website:
         description: Whether to deploy the website
-        type: boolean
-        default: false
-      upload_pypi:
-        description: Whether to upload an sdist to PyPI
         type: boolean
         default: false
 
@@ -46,10 +38,6 @@ on:
         description: The target branch (usually 'main' or 'release')
         type: string
         required: true
-      run_tests:
-        description: Whether to run the test suite
-        type: boolean
-        default: true
       build_docs:
         description: Whether to build the documentation
         type: boolean
@@ -64,10 +52,6 @@ on:
         default: false
       deploy_website:
         description: Whether to deploy the website
-        type: boolean
-        default: false
-      upload_pypi:
-        description: Whether to upload an sdist to PyPI
         type: boolean
         default: false
 
@@ -91,8 +75,6 @@ jobs:
     container:
       # TODO: set to 'ubuntu:latest'
       image: ubuntu:noble
-    outputs:
-      sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -133,20 +115,9 @@ jobs:
           scalar_type: ${{ matrix.arch }}
           deps: ci
 
-      - name: Upload sdist (default ARCH only)
-        if: matrix.arch == 'default'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: firedrake-repo/dist/*
-
-      - name: Report sdist build status
-        id: report_sdist
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
       - name: Run TSFC tests
         # Run even if earlier tests failed
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -155,7 +126,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Run PyOP2 tests
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -168,7 +139,7 @@ jobs:
 
 
       - name: Run Firedrake tests (nprocs = 1)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -177,49 +148,49 @@ jobs:
         timeout-minutes: 90
 
       - name: Run tests (nprocs = 2)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
@@ -228,7 +199,6 @@ jobs:
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
         if: |
-          inputs.run_tests &&
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
@@ -248,7 +218,6 @@ jobs:
 
       - name: Run Thetis smoke tests
         if: |
-          inputs.run_tests &&
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
@@ -260,7 +229,6 @@ jobs:
 
       - name: Run spyro smoke tests
         if: |
-          inputs.run_tests &&
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
@@ -272,7 +240,6 @@ jobs:
 
       - name: Run G-ADOPT smoke tests
         if: |
-          inputs.run_tests &&
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
@@ -284,7 +251,7 @@ jobs:
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        if: success() || steps.install.conclusion == 'success'
         with:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
