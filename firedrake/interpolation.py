@@ -3,7 +3,7 @@ import os
 import tempfile
 import abc
 
-from functools import cached_property, partial
+from functools import cached_property, partial, singledispatchmethod
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -15,6 +15,7 @@ from ufl.duals import is_dual
 from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
+from ufl.corealg.dag_traverser import DAGTraverser
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
@@ -100,6 +101,25 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
+class NestedInterpolateLowerer(DAGTraverser):
+    """Lower nested interpolate nodes to assembled coefficients."""
+
+    @singledispatchmethod
+    def process(self, o: Expr) -> Expr:
+        return super().process(o)
+
+    @process.register(Expr)
+    @process.register(BaseForm)
+    def _(self, o: Expr | BaseForm) -> Expr | BaseForm:
+        return self.reuse_if_untouched(o)
+
+    @process.register(UFLInterpolate)
+    @DAGTraverser.postorder
+    def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
+        from firedrake.assemble import assemble
+        return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
+
+
 class Interpolate(UFLInterpolate):
 
     def __init__(self, expr: Expr, V: WithGeometry | BaseForm, **kwargs):
@@ -161,14 +181,18 @@ class Interpolate(UFLInterpolate):
             An appropriate :class:`Interpolator` subclass for this
             interpolation expression.
         """
+        operand, = self.ufl_operands
+        # Check for nested Interpolates first
+        lowered_operand = NestedInterpolateLowerer()(operand)
+        if lowered_operand is not operand:
+            return get_interpolator(self._ufl_expr_reconstruct_(lowered_operand))
+
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
         if len(arguments) == 2 and has_mixed_arguments:
             return MixedInterpolator(self)
 
-        operand, = self.ufl_operands
         target_mesh = self.target_space.mesh()
-
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
