@@ -537,24 +537,3 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
-
-  upload_pypi:
-    name: Upload to PyPI (optional)
-    needs: test_linux
-    if: |
-      always() &&
-      inputs.upload_pypi &&
-      inputs.target_branch == 'release' &&
-      needs.test_linux.outputs.sdist_conclusion == 'success'
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - name: Push to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
