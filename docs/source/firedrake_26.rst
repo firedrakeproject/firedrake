@@ -25,7 +25,7 @@ The PETSc meeting will run from 1-3 June, and the Firedrake meeting from 3-5
 June, with overlapping sessions of common interest on Wednesday 3 June.
 Participants may register for either part of the week, but we hope that many
 will take the opportunity to learn more about these two related projects by
-staying for the whole week. 
+staying for the whole week.
 
 Venue & registration
 --------------------
@@ -41,13 +41,13 @@ night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day
 coffee breaks. There are also options without the room and breakfast component
 for those who live locally.
 
-=================   =================================== ======  ======= ======================= ========================== 
+=================   =================================== ======  ======= ======================= ==========================
 Event               Dates                               Full    Student Full (no accommodation) Student (no accommodation)
-=================   =================================== ======  ======= ======================= ========================== 
-PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170 
-PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100 
-Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100 
-=================   =================================== ======  ======= ======================= ========================== 
+=================   =================================== ======  ======= ======================= ==========================
+PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170
+PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100
+Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100
+=================   =================================== ======  ======= ======================= ==========================
 
 International attendees will likely need to book a hotel for the night before
 the conference. We recommend either booking an extra night at the `conference
@@ -105,7 +105,7 @@ exact):
    13:30-14:45 Firedrake tutorial 1
    14:45-15:30 coffee break
    15:30-16:45 Firedrake tutorial 2
-   16:45-17:30 poster session
+   16:45-17:30 poster session and drinks reception, sponsored by `Devito Codes <https://www.devitocodes.com>`__
    =========== ====================
 
 **Thursday**
@@ -159,7 +159,7 @@ By air
 ~~~~~~
 
 Oxford lies between London and Birmingham. The closest London airport is London
-Heathrow.  
+Heathrow.
 
 From Heathrow, a `regular coach service
 <https://www.theairline.co.uk/oxford-to-heathrow-bus/>`__ runs to Oxford. There
@@ -189,7 +189,7 @@ Support
 
 These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
 `CoSeC <https://www.cosec.ac.uk/communities/>`__ and `STFC
-<https://www.ukri.org/councils/stfc/>`__ 
+<https://www.ukri.org/councils/stfc/>`__
 
 .. |STFC| image:: /images/stfc.*
   :height: 60px
@@ -205,6 +205,20 @@ These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
   +--------+---------+
   | |STFC| | |CoSeC| |
   +--------+---------+
+
+
+The poster session and drinks reception is sponsored by
+`Devito Codes <https://www.devitocodes.com>`__.
+
+.. |DevitoLogo| image:: /images/devito.svg
+  :height: 60px
+  :target: https://www.devitocodes.com
+
+.. only:: html
+
+  +--------------+
+  | |DevitoLogo| |
+  +--------------+
 
 
 Further details
