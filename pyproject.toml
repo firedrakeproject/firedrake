@@ -111,7 +111,8 @@ ci = [
   "networkx",
   "ngsPETSc>=0.2.0",
   "pdf2image",
-  "pygraphviz",
+  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
+  # "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
@@ -129,7 +130,8 @@ docker = [  # Used in firedrake-vanilla container
   "nbval",
   "networkx",
   "pdf2image",
-  "pygraphviz",
+  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
+  # "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",

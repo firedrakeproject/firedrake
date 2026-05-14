@@ -61,8 +61,6 @@ from collections.abc import Mapping, Sequence
 # Attributes that we expect to change occasionally
 
 SUPPORTED_PETSC_VERSION = "v3.25.0"
-# CUDA 13.1 is currently not supported by GPU drivers on Firedrake CI systems.
-SUPPORTED_CUDA_VERSION = "13.0"
 
 
 def main():
@@ -86,8 +84,9 @@ def main():
     elif arch_key in COMMUNITY_ARCHS:
         arch = COMMUNITY_ARCHS[arch_key]
         warn(f"""\
-You have selected a community-maintained Firedrake configuration,
-if you encounter issues please contact {arch.maintainer}""")
+You have selected an untested, community-maintained Firedrake configuration
+(last modified {arch.last_modified}), if you encounter issues please
+contact {arch.maintainer} {arch.contact}""")
     else:
         error(f"""\
 Firedrake configuration not found for option set '{arch_key_str}',
@@ -211,6 +210,11 @@ def detect_os() -> "OS":
                         return OS.UBUNTU_2404_X86_64
                     elif platform.machine() == "aarch64":
                         return OS.UBUNTU_2404_AARCH64
+                if os_info["VERSION_ID"] == "26.04":
+                    if platform.machine() == "x86_64":
+                        return OS.UBUNTU_2604_X86_64
+                    elif platform.machine() == "aarch64":
+                        return OS.UBUNTU_2604_AARCH64
 
     elif platform.system() == "Darwin":
         if platform.machine() == "arm64":
@@ -225,6 +229,8 @@ the available options.""")
 class OS(enum.Enum):
     UBUNTU_2404_X86_64 = "ubuntu24.04-x86_64"
     UBUNTU_2404_AARCH64 = "ubuntu24.04-aarch64"
+    UBUNTU_2604_X86_64 = "ubuntu26.04-x86_64"
+    UBUNTU_2604_AARCH64 = "ubuntu26.04-aarch64"
     MACOS_ARM64 = "macos-arm64"
     UNKNOWN = "unknown"
 
@@ -342,7 +348,30 @@ class Arch:
 class CommunityArch(Arch):
     maintainer: str
     """Name of the person or team maintaining a particular arch."""
+    contact: str
+    """Contact details for the maintainer.
+
+    The 'maintainer' and 'contact' fields are concatenated together into the
+    message:
+
+        "...if you encounter issues please contact {maintainer} {contact}"
+
+    so make sure the grammar is right! For example:
+
+        "...if you encounter issues please contact the Firedrake team on Slack"
+
+    or:
+
+        "...if you encounter issues please contact Your Name at email@address.com"
+
+    """
     last_modified: str
+    """Date the configuration was last modified (YYYY-MM-DD).
+
+    This is useful for judging the age, and hence likelihood to work, of
+    submitted configurations.
+
+    """
 
 
 ArchKey = tuple[OS, ScalarType, GPUPlatform]
@@ -350,10 +379,74 @@ ArchKey = tuple[OS, ScalarType, GPUPlatform]
 # Configurations with official support that are tested in CI
 OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
-    # Ubuntu 24.04 x86
+    # Ubuntu 26.04 x86
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UBUNTU_2604_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
         name="default",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhdf5-mpi-dev",
+            "libhwloc-dev",
+            "libhypre-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-hypre",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/scotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/hypre",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    (OS.UBUNTU_2604_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
+        name="complex",
         system_packages=[
             "bison",
             "build-essential",
@@ -384,6 +477,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libsuperlu-dist-dev",
         ],
         extra_petsc_configure_options=[
+            "--with-scalar-type=complex",
             "--with-bison",
             "--with-fftw",
             "--with-hdf5",
@@ -393,6 +487,72 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-netcdf",
             "--with-pnetcdf",
             "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/scotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    # Ubuntu 26.04 aarch64
+
+    (OS.UBUNTU_2604_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+        name="default",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libhypre-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/scotch",
             "--with-scalapack-lib=-lscalapack-openmpi",
             "--with-suitesparse",
             "--with-superlu_dist",
@@ -404,14 +564,78 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
-            "/usr/include/scotch",
+            "/usr/include/hypre",
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
         ],
         library_dirs=[
-            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
         ],
     ),
+
+    (OS.UBUNTU_2604_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
+        name="complex",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-scalar-type=complex",
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/scotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    # Ubuntu 26.04 x86 CUDA
 
     (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
         name="default-cuda",
@@ -442,16 +666,16 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libscalapack-openmpi-dev",
 
             # CUDA packages
-            f"cuda-compat-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvtx-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-cudart-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-command-line-tools-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-minimal-build-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-libraries-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"cuda-nvml-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libnpp-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcusparse-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
-            f"libcublas-dev-{SUPPORTED_CUDA_VERSION.replace('.', '-')}",
+            "cuda-compat-13-0",
+            "cuda-nvtx-13-0",
+            "cuda-cudart-dev-13-0",
+            "cuda-command-line-tools-13-0",
+            "cuda-minimal-build-13-0",
+            "cuda-libraries-dev-13-0",
+            "cuda-nvml-dev-13-0",
+            "libnpp-dev-13-0",
+            "libcusparse-dev-13-0",
+            "libcublas-dev-13-0",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -491,191 +715,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "PATH": "/usr/local/cuda/bin:$PATH",
         },
         extra_url="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb",
-    ),
-
-    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="complex",
-        system_packages=[
-            "bison",
-            "build-essential",
-            "cmake",
-            "flex",
-            "gfortran",
-            "git",
-            "ninja-build",
-            "pkg-config",
-            "python3-dev",
-            "python3-pip",
-
-            # PETSc external packages
-            "libfftw3-dev",
-            "libfftw3-mpi-dev",
-            "libhwloc-dev",
-            "libhdf5-mpi-dev",
-            "libmumps-ptscotch-dev",
-            "libmetis-dev",
-            "libnetcdf-dev",
-            "libopenblas-dev",
-            "libopenmpi-dev",
-            "libpnetcdf-dev",
-            "libptscotch-dev",
-            "libscalapack-openmpi-dev",
-            "libsuitesparse-dev",
-            "libsuperlu-dev",
-            "libsuperlu-dist-dev",
-        ],
-        extra_petsc_configure_options=[
-            "--with-scalar-type=complex",
-            "--with-bison",
-            "--with-fftw",
-            "--with-hdf5",
-            "--with-hwloc",
-            "--with-metis",
-            "--with-mumps",
-            "--with-netcdf",
-            "--with-pnetcdf",
-            "--with-ptscotch",
-            "--with-scalapack-lib=-lscalapack-openmpi",
-            "--with-suitesparse",
-            "--with-superlu_dist",
-            "--with-zlib",
-        ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
-        include_dirs=[
-            "/usr/include/hdf5/openmpi",
-            "/usr/include/scotch",
-            "/usr/include/superlu",
-            "/usr/include/superlu-dist",
-        ],
-        library_dirs=[
-            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
-        ],
-    ),
-
-    # Ubuntu 24.04 aarch64
-
-    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): Arch(
-        name="default",
-        system_packages=[
-            "bison",
-            "build-essential",
-            "cmake",
-            "flex",
-            "gfortran",
-            "git",
-            "ninja-build",
-            "pkg-config",
-            "python3-dev",
-            "python3-pip",
-
-            # PETSc external packages
-            "libfftw3-dev",
-            "libfftw3-mpi-dev",
-            "libhwloc-dev",
-            "libhdf5-mpi-dev",
-            "libmumps-ptscotch-dev",
-            "libmetis-dev",
-            "libnetcdf-dev",
-            "libopenblas-dev",
-            "libopenmpi-dev",
-            "libpnetcdf-dev",
-            "libptscotch-dev",
-            "libscalapack-openmpi-dev",
-            "libsuitesparse-dev",
-            "libsuperlu-dev",
-            "libsuperlu-dist-dev",
-        ],
-        extra_petsc_configure_options=[
-            "--with-bison",
-            "--with-fftw",
-            "--with-hdf5",
-            "--with-hwloc",
-            "--with-metis",
-            "--with-mumps",
-            "--with-netcdf",
-            "--with-pnetcdf",
-            "--with-ptscotch",
-            "--with-scalapack-lib=-lscalapack-openmpi",
-            "--with-suitesparse",
-            "--with-superlu_dist",
-            "--with-zlib",
-            "--download-hypre",
-        ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
-        include_dirs=[
-            "/usr/include/hdf5/openmpi",
-            "/usr/include/scotch",
-            "/usr/include/superlu",
-            "/usr/include/superlu-dist",
-        ],
-        library_dirs=[
-            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
-        ],
-    ),
-
-    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): Arch(
-        name="complex",
-        system_packages=[
-            "bison",
-            "build-essential",
-            "cmake",
-            "flex",
-            "gfortran",
-            "git",
-            "ninja-build",
-            "pkg-config",
-            "python3-dev",
-            "python3-pip",
-
-            # PETSc external packages
-            "libfftw3-dev",
-            "libfftw3-mpi-dev",
-            "libhwloc-dev",
-            "libhdf5-mpi-dev",
-            "libmumps-ptscotch-dev",
-            "libmetis-dev",
-            "libnetcdf-dev",
-            "libopenblas-dev",
-            "libopenmpi-dev",
-            "libpnetcdf-dev",
-            "libptscotch-dev",
-            "libscalapack-openmpi-dev",
-            "libsuitesparse-dev",
-            "libsuperlu-dev",
-            "libsuperlu-dist-dev",
-        ],
-        extra_petsc_configure_options=[
-            "--with-scalar-type=complex",
-            "--with-bison",
-            "--with-fftw",
-            "--with-hdf5",
-            "--with-hwloc",
-            "--with-metis",
-            "--with-mumps",
-            "--with-netcdf",
-            "--with-pnetcdf",
-            "--with-ptscotch",
-            "--with-scalapack-lib=-lscalapack-openmpi",
-            "--with-suitesparse",
-            "--with-superlu_dist",
-            "--with-zlib",
-        ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
-        include_dirs=[
-            "/usr/include/hdf5/openmpi",
-            "/usr/include/scotch",
-            "/usr/include/superlu",
-            "/usr/include/superlu-dist",
-        ],
-        library_dirs=[
-            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
-        ],
     ),
 
     # macOS arm64
@@ -841,7 +880,268 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
 
 # 'Best effort' configurations that are not tested in CI
-COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {}
+COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
+
+    # Ubuntu 24.04 x86
+
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
+        name="default",
+        maintainer="the Firedrake team",
+        contact="on Slack",
+        last_modified="2026-05-13",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+            "--download-hypre",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
+        name="complex",
+        maintainer="the Firedrake team",
+        contact="on Slack",
+        last_modified="2026-05-13",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-scalar-type=complex",
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    # Ubuntu 24.04 aarch64
+
+    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
+        name="default",
+        maintainer="the Firedrake team",
+        contact="on Slack",
+        last_modified="2026-05-13",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+            "--download-hypre",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+
+    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
+        name="complex",
+        maintainer="the Firedrake team",
+        contact="on Slack",
+        last_modified="2026-05-13",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+            "libsuitesparse-dev",
+            "libsuperlu-dev",
+            "libsuperlu-dist-dev",
+        ],
+        extra_petsc_configure_options=[
+            "--with-scalar-type=complex",
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
+        ],
+    ),
+}
 
 
 if __name__ == "__main__":
