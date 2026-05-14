@@ -24,7 +24,7 @@ inputs:
   deps:
     description: Optional dependencies to install along with Firedrake (e.g. 'check')
     type: string
-    required: true
+    default: check
 
 runs:
   using: composite
@@ -117,6 +117,8 @@ runs:
           --gpu-arch ${{ inputs.gpu }} \
           --show-env)
         export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
+        : # Disable compiler optimisation to speed up build (especially petsc4py)
+        export CFLAGS="-O0"
         env
 
         python3 -m venv venv
@@ -137,24 +139,18 @@ runs:
           pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
           : # We have to pass '--no-build-isolation' to use a custom petsc4py
-          EXTRA_BUILD_ARGS='--no-isolation'
           EXTRA_PIP_FLAGS='--no-build-isolation'
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
-          EXTRA_BUILD_ARGS=''
           EXTRA_PIP_FLAGS=''
         else
           echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
           exit 1
         fi
 
-        : # Install from an sdist so we can make sure that it is not ill-formed
-        pip install build
-        python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
-
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
-          "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[${{ inputs.deps }}]"
+          "./firedrake-repo[${{ inputs.deps }}]"
 
         firedrake-clean
         pip list
