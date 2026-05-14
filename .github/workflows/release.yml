@@ -49,8 +49,7 @@ jobs:
     needs: check
     runs-on: [self-hosted, Linux]
     container:
-      # TODO: set to 'ubuntu:latest'
-      image: ubuntu:noble
+      image: ubuntu:latest
     environment:
       name: pypi
     steps:
