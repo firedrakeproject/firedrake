@@ -443,7 +443,8 @@ class _SNESContext(object):
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            field_prefix = f"fieldsplit_{V.name or field_num}_"
+            name = V.name if len(V) == 1 else None
+            field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
         return self._splits.setdefault(tuple(fields), splits)
