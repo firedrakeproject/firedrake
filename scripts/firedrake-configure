@@ -637,7 +637,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Ubuntu 26.04 x86 CUDA
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): CommunityArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.CUDA): Arch(
         name="default-cuda",
         system_packages=[
             "bison",
