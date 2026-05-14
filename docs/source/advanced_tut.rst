@@ -35,3 +35,4 @@ element systems.
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
    Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>
+   Coupled volume-surface reaction-diffusion on a torus using Submesh and geometric multigrid.<demos/submesh_reaction_diffusion.py>
