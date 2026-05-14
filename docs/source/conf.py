@@ -184,6 +184,7 @@ linkcheck_ignore = [
     r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
     r'https://join.slack.com/t/firedrakeproject/*',
+    r'https://www.askitalian.co.uk/restaurant/durham/',
 ]
 linkcheck_timeout = 30
 
