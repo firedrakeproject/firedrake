@@ -417,6 +417,24 @@ def test_assemble_tensor_empty_shape(mesh):
     assert np.allclose(result, expected)
 
 
+@pytest.mark.parametrize("coefficient", [False, True], ids=["Expr", "Function"])
+def test_cell_avg(coefficient):
+    mesh = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(mesh)
+    expr = dot(x, x) ** 2
+    if coefficient:
+        V = FunctionSpace(mesh, "CG", 4)
+        expr = Function(V).interpolate(expr)
+
+    result = assemble(inner(cell_avg(expr), expr) * dx)
+
+    Q = FunctionSpace(mesh, "DG", 0)
+    p = Function(Q)
+    p.project(expr)
+    expect = assemble(inner(p, expr) * dx)
+    assert np.isclose(result, expect)
+
+
 def test_cell_avg_mfs():
     mesh = UnitSquareMesh(3, 3)
     V = VectorFunctionSpace(mesh, "CG", 2)
