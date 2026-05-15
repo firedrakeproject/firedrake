@@ -52,6 +52,12 @@ jobs:
       image: ubuntu:latest
     environment:
       name: pypi
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      # We don't need compiler optimisations here that might crash, we just need
+      # firedrake-check to pass
+      PYOP2_CFLAGS: -O0
     steps:
       - uses: actions/checkout@v5
         with:
