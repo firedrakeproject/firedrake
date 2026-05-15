@@ -343,21 +343,21 @@ jobs:
         timeout-minutes: 90
 
       - name: Run tests (nprocs = 2)
-        if: inputs.trigger == 'pr'
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
-        if: inputs.trigger == 'pr'
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4+)
-        if: inputs.trigger == 'pr'
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests

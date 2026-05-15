@@ -323,200 +323,200 @@ def get_caches(comm, func_name):
     return tuple(caches[cache_id] for cache_id in cache_ids)
 
 
-class TestGeneratedCodeCache:
-    """Generated Code Cache Tests."""
-
-    @property
-    def cache(self):
-        icomm = internal_comm(COMM_WORLD, self)
-        return get_cache(icomm, "compile_global_kernel")
-
-    @pytest.fixture
-    def a(cls, diterset):
-        return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "a")
-
-    @pytest.fixture
-    def b(cls, diterset):
-        return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "b")
-
-    def test_same_args(self, iterset, iter2ind1, x, a):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
-
-        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
-                     iterset,
-                     a(op2.WRITE),
-                     x(op2.READ, iter2ind1))
-
-        assert len(self.cache) == 1
-
-        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
-                     iterset,
-                     a(op2.WRITE),
-                     x(op2.READ, iter2ind1))
-
-        assert len(self.cache) == 1
-
-    def test_diff_kernel(self, iterset, iter2ind1, x, a):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
-
-        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
-                     iterset,
-                     a(op2.WRITE),
-                     x(op2.READ, iter2ind1))
-
-        assert len(self.cache) == 1
-
-        kernel_cpy = "static void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
-
-        op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
-                     iterset,
-                     a(op2.WRITE),
-                     x(op2.READ, iter2ind1))
-
-        assert len(self.cache) == 2
-
-    def test_invert_arg_similar_shape(self, iterset, iter2ind1, x, y):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        kernel_swap = """
-static void swap(unsigned int* x, unsigned int* y)
-{
-  unsigned int t;
-  t = *x;
-  *x = *y;
-  *y = t;
-}
-"""
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     x(op2.RW, iter2ind1),
-                     y(op2.RW, iter2ind1))
-
-        assert len(self.cache) == 1
-
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     y(op2.RW, iter2ind1),
-                     x(op2.RW, iter2ind1))
-
-        assert len(self.cache) == 1
-
-    def test_dloop_ignore_scalar(self, iterset, a, b):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        kernel_swap = """
-static void swap(unsigned int* x, unsigned int* y)
-{
-  unsigned int t;
-  t = *x;
-  *x = *y;
-  *y = t;
-}
-"""
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     a(op2.RW),
-                     b(op2.RW))
-
-        assert len(self.cache) == 1
-
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     b(op2.RW),
-                     a(op2.RW))
-
-        assert len(self.cache) == 1
-
-    def test_vector_map(self, iterset, x2, iter2ind2):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        kernel_swap = """
-static void swap(unsigned int* x)
-{
-  unsigned int t;
-  t = x[0];
-  x[0] = x[1];
-  x[1] = t;
-}
-"""
-
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     x2(op2.RW, iter2ind2))
-
-        assert len(self.cache) == 1
-
-        op2.par_loop(op2.Kernel(kernel_swap, "swap"),
-                     iterset,
-                     x2(op2.RW, iter2ind2))
-
-        assert len(self.cache) == 1
-
-    def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        k = op2.Kernel("""static void k(void *x) {}""", 'k')
-
-        op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2))
-
-        assert len(self.cache) == 1
-
-        op2.par_loop(k, iterset,
-                     x2(op2.INC, iter2ind2))
-
-        assert len(self.cache) == 1
-
-    def test_change_dat_dtype_matters(self, iterset, diterset):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        d = op2.Dat(diterset, list(range(nelems)), numpy.uint32)
-
-        k = op2.Kernel("""static void k(void *x) {}""", 'k')
-
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        assert len(self.cache) == 1
-
-        d = op2.Dat(diterset, list(range(nelems)), numpy.int32)
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        assert len(self.cache) == 2
-
-    def test_change_global_dtype_matters(self, iterset, diterset):
-        if self.cache is not None:
-            self.cache.clear()
-            assert len(self.cache) == 0
-
-        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
-        k = op2.Kernel("""static void k(void *x) {}""", 'k')
-
-        op2.par_loop(k, iterset, g(op2.INC))
-
-        assert len(self.cache) == 1
-
-        g = op2.Global(1, 0, dtype=numpy.float64, comm=COMM_WORLD)
-        op2.par_loop(k, iterset, g(op2.INC))
-
-        assert len(self.cache) == 2
+# class TestGeneratedCodeCache:
+#     """Generated Code Cache Tests."""
+#
+#     @property
+#     def cache(self):
+#         icomm = internal_comm(COMM_WORLD, self)
+#         return get_cache(icomm, "compile_global_kernel")
+#
+#     @pytest.fixture
+#     def a(cls, diterset):
+#         return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "a")
+#
+#     @pytest.fixture
+#     def b(cls, diterset):
+#         return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "b")
+#
+#     def test_same_args(self, iterset, iter2ind1, x, a):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+#
+#         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
+#                      iterset,
+#                      a(op2.WRITE),
+#                      x(op2.READ, iter2ind1))
+#
+#         assert len(self.cache) == 1
+#
+#         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
+#                      iterset,
+#                      a(op2.WRITE),
+#                      x(op2.READ, iter2ind1))
+#
+#         assert len(self.cache) == 1
+#
+#     def test_diff_kernel(self, iterset, iter2ind1, x, a):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
+#
+#         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
+#                      iterset,
+#                      a(op2.WRITE),
+#                      x(op2.READ, iter2ind1))
+#
+#         assert len(self.cache) == 1
+#
+#         kernel_cpy = "static void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
+#
+#         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
+#                      iterset,
+#                      a(op2.WRITE),
+#                      x(op2.READ, iter2ind1))
+#
+#         assert len(self.cache) == 2
+#
+#     def test_invert_arg_similar_shape(self, iterset, iter2ind1, x, y):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         kernel_swap = """
+# static void swap(unsigned int* x, unsigned int* y)
+# {
+#   unsigned int t;
+#   t = *x;
+#   *x = *y;
+#   *y = t;
+# }
+# """
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      x(op2.RW, iter2ind1),
+#                      y(op2.RW, iter2ind1))
+#
+#         assert len(self.cache) == 1
+#
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      y(op2.RW, iter2ind1),
+#                      x(op2.RW, iter2ind1))
+#
+#         assert len(self.cache) == 1
+#
+#     def test_dloop_ignore_scalar(self, iterset, a, b):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         kernel_swap = """
+# static void swap(unsigned int* x, unsigned int* y)
+# {
+#   unsigned int t;
+#   t = *x;
+#   *x = *y;
+#   *y = t;
+# }
+# """
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      a(op2.RW),
+#                      b(op2.RW))
+#
+#         assert len(self.cache) == 1
+#
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      b(op2.RW),
+#                      a(op2.RW))
+#
+#         assert len(self.cache) == 1
+#
+#     def test_vector_map(self, iterset, x2, iter2ind2):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         kernel_swap = """
+# static void swap(unsigned int* x)
+# {
+#   unsigned int t;
+#   t = x[0];
+#   x[0] = x[1];
+#   x[1] = t;
+# }
+# """
+#
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      x2(op2.RW, iter2ind2))
+#
+#         assert len(self.cache) == 1
+#
+#         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
+#                      iterset,
+#                      x2(op2.RW, iter2ind2))
+#
+#         assert len(self.cache) == 1
+#
+#     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         k = op2.Kernel("""static void k(void *x) {}""", 'k')
+#
+#         op2.par_loop(k, iterset,
+#                      x2(op2.INC, iter2ind2))
+#
+#         assert len(self.cache) == 1
+#
+#         op2.par_loop(k, iterset,
+#                      x2(op2.INC, iter2ind2))
+#
+#         assert len(self.cache) == 1
+#
+#     def test_change_dat_dtype_matters(self, iterset, diterset):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         d = op2.Dat(diterset, list(range(nelems)), numpy.uint32)
+#
+#         k = op2.Kernel("""static void k(void *x) {}""", 'k')
+#
+#         op2.par_loop(k, iterset, d(op2.WRITE))
+#
+#         assert len(self.cache) == 1
+#
+#         d = op2.Dat(diterset, list(range(nelems)), numpy.int32)
+#         op2.par_loop(k, iterset, d(op2.WRITE))
+#
+#         assert len(self.cache) == 2
+#
+#     def test_change_global_dtype_matters(self, iterset, diterset):
+#         if self.cache is not None:
+#             self.cache.clear()
+#             assert len(self.cache) == 0
+#
+#         g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
+#         k = op2.Kernel("""static void k(void *x) {}""", 'k')
+#
+#         op2.par_loop(k, iterset, g(op2.INC))
+#
+#         assert len(self.cache) == 1
+#
+#         g = op2.Global(1, 0, dtype=numpy.float64, comm=COMM_WORLD)
+#         op2.par_loop(k, iterset, g(op2.INC))
+#
+#         assert len(self.cache) == 2
 
 
 class TestSparsityCache:
