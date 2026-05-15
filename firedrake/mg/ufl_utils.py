@@ -418,7 +418,10 @@ def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
 
 @singledispatch
 def refine(expr, self, coefficient_mapping=None):
-    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)  # fallback to original
+    # Many coarsen_* handlers already branch on `self == coarsen` vs `self == refine`
+    # to handle both directions.  Delegating here lets those shared handlers do
+    # the right thing when called via `refine(...)`.
+    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)
 
 
 @refine.register(ufl.Mesh)

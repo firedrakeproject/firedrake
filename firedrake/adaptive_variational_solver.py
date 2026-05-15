@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+from typing import ClassVar
+
+from firedrake.assemble import assemble
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
@@ -25,6 +29,7 @@ __all__ = ["GoalAdaptiveSolverBase",
            "GoalAdaptiveNonlinearVariationalSolver"]
 
 
+@dataclass(frozen=True)
 class GoalAdaptiveOptions:
     """Options for goal-adaptive solvers.
 
@@ -112,43 +117,28 @@ class GoalAdaptiveOptions:
         iteration via :func:`PETSc.Sys.Print`.
     """
 
-    def __init__(self,
-                 dorfler_alpha: float = 0.5,
-                 max_iterations: int = 10,
-                 output_dir: str = "./output",
-                 run_name: str = "default",
-                 primal_extra_degree: int = 1,
-                 dual_extra_degree: int = 1,
-                 cell_residual_extra_degree: int = 1,
-                 facet_residual_extra_degree: int = 1,
-                 use_adjoint_residual: bool = False,
-                 primal_low_method: str = "interpolate",
-                 dual_low_method: str = "interpolate",
-                 write_solution: bool | int = False,
-                 verbose: bool = True,
-                 ):
-        self.dorfler_alpha = dorfler_alpha
-        self.max_iterations = max_iterations
-        self.output_dir = output_dir
-        self.run_name = run_name
-        self.primal_extra_degree = primal_extra_degree
-        self.dual_extra_degree = dual_extra_degree
-        self.cell_residual_extra_degree = cell_residual_extra_degree
-        self.facet_residual_extra_degree = facet_residual_extra_degree
-        self.use_adjoint_residual = use_adjoint_residual
-        self.primal_low_method = primal_low_method
-        self.dual_low_method = dual_low_method
-        self.write_solution = write_solution
-        self.verbose = verbose
+    dorfler_alpha: float = 0.5
+    max_iterations: int = 10
+    output_dir: str = "./output"
+    run_name: str = "default"
+    primal_extra_degree: int = 1
+    dual_extra_degree: int = 1
+    cell_residual_extra_degree: int = 1
+    facet_residual_extra_degree: int = 1
+    use_adjoint_residual: bool = False
+    primal_low_method: str = "interpolate"
+    dual_low_method: str = "interpolate"
+    write_solution: bool | int = False
+    verbose: bool = True
 
-    # Solver parameters
-    sp_cell = {
+    # Solver parameters for cell/facet bubble projections
+    sp_cell: ClassVar[dict] = {
         "mat_type": "matfree",
         "snes_type": "ksponly",
         "ksp_type": "cg",
         "pc_type": "jacobi",
     }
-    sp_facet = {
+    sp_facet: ClassVar[dict] = {
         "snes_type": "ksponly",
         "ksp_type": "cg",
         "pc_type": "jacobi",
@@ -176,7 +166,7 @@ class GoalAdaptiveSolverBase:
 
     def __init__(self,
                  tolerance: float,
-                 goal_adaptive_options: dict | None = None,
+                 goal_adaptive_options: "GoalAdaptiveOptions | dict | None" = None,
                  exact_goal=None,
                  ):
         if goal_adaptive_options is None:
@@ -194,7 +184,9 @@ class GoalAdaptiveSolverBase:
         self.eff3_vec = []
 
     def _make_options(self, d):
-        """Construct an options object from a dictionary.  Override in subclasses."""
+        """Construct a :class:`GoalAdaptiveOptions` from a dict or pass through as-is.  Override in subclasses."""
+        if isinstance(d, GoalAdaptiveOptions):
+            return d
         return GoalAdaptiveOptions(**d)
 
     # ------------------------------------------------------------------
@@ -216,6 +208,14 @@ class GoalAdaptiveSolverBase:
         ----------
         it
             Current iteration index (mesh level).
+
+        Raises
+        ------
+        StopIteration
+            Raised (instead of returning) when the error estimate falls below
+            :attr:`tolerance` or when ``it`` reaches ``max_iterations - 1``.
+            :meth:`solve` catches this automatically; callers driving the loop
+            manually with :meth:`step` must handle it themselves.
         """
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         # SOLVE + ESTIMATE
@@ -364,7 +364,7 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
                  problem: NonlinearVariationalProblem,
                  goal_functional: ufl.BaseForm,
                  tolerance: float,
-                 goal_adaptive_options: dict | None = None,
+                 goal_adaptive_options: "GoalAdaptiveOptions | dict | None" = None,
                  primal_solver_parameters: dict | None = None,
                  dual_solver_parameters: dict | None = None,
                  primal_solver_kwargs: dict | None = None,
@@ -385,10 +385,12 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         self.dual_solver_kwargs = dual_solver_kwargs if dual_solver_kwargs is not None else {}
         self.u_exact = as_mixed(exact_solution) if isinstance(exact_solution, (tuple, list)) else exact_solution
 
-        # Set up an AdaptiveMeshHierarchy for every mesh of the problem
+        # Set up an AdaptiveMeshHierarchy for every mesh of the problem.
+        # For a MeshSequenceGeometry, iterating over it yields the component meshes;
+        # we also need a separate AMH for the sequence geometry itself.
         V = problem.u.function_space()
-        meshes = set(V.mesh())
-        meshes.add(V.mesh())
+        mesh = V.mesh()
+        meshes = {*mesh, mesh}  # component meshes + the sequence geometry (same object for a regular mesh)
         for mesh in meshes:
             mh, level = get_level(mesh)
             if mh is None:
@@ -410,11 +412,17 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
     def solve(self):
         """Run the adaptive loop and return the solution and error estimate.
 
+        Each call to :meth:`solve` runs the full SOLVE→ESTIMATE→MARK→REFINE
+        loop (up to ``max_iterations`` times) from the current state of
+        ``problem.u``.  Calling :meth:`solve` a second time continues from the
+        mesh and solution that the first call left behind — the history vectors
+        (``Ndofs_vec``, ``etah_vec``, etc.) are appended rather than reset.
+
         Returns
         -------
         tuple[Function, float]
             ``(u_out, error_estimate)`` where ``u_out`` is the solution on the
-            finest mesh and ``error_estimate`` is the final ``|eta_h|``.
+            finest mesh reached and ``error_estimate`` is the final ``|eta_h|``.
         """
         super().solve()
         u_out = self.u_high if self.u_high is not None else self.problem.u
@@ -423,14 +431,36 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         return u_out, error_estimate
 
     def step(self, it=None):
-        """Compute one SOLVE→ESTIMATE→MARK→REFINE step.
+        """Compute one SOLVE→ESTIMATE→MARK→REFINE step and return the current solution.
+
+        This method is useful for users who want to post-process or inspect the
+        solution at each mesh level without calling the full :meth:`solve` loop.
+
+        Parameters
+        ----------
+        it
+            Mesh level index.  If ``None``, inferred from the current mesh
+            hierarchy level.
 
         Returns
         -------
         tuple[Function, float]
-            ``(u_out, eta_h)`` — the current solution and error estimate.
-            Only returned when refinement was performed (not when
-            :class:`StopIteration` is raised).
+            ``(u_out, eta_h)`` — the solution and error estimate on the current
+            mesh.  Only returned when the step performed refinement; raises
+            :exc:`StopIteration` otherwise (see below).
+
+        Raises
+        ------
+        StopIteration
+            Raised when the error estimate is below :attr:`tolerance` or the
+            maximum iteration count is reached.  Callers must catch this to
+            detect convergence::
+
+                for it in range(options.max_iterations):
+                    try:
+                        u, eta = solver.step(it)
+                    except StopIteration:
+                        break
         """
         if it is None:
             V = self.problem.u.function_space()
@@ -452,9 +482,22 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         return eta_h, eta
 
     def solve_primal(self):
-        """
-        Solve the primal problem or problems (i.e. with higher polynomial degree)
-        and return the estimate for the error in the primal solution.
+        """Solve the primal problem and return the primal error representative.
+
+        When ``use_adjoint_residual=False`` (the default), the primal problem is
+        solved once in the base space ``V``.
+
+        When ``use_adjoint_residual=True``, the problem is also solved in an
+        enriched space of degree ``degree + primal_extra_degree``.  The
+        low-degree approximation is obtained via
+        ``primal_low_method`` (interpolate / project / solve), and the
+        difference ``u_high - u`` is returned as the primal error representative.
+
+        Returns
+        -------
+        Function or None
+            The primal error representative ``u_high - u_h``, or ``None`` when
+            ``use_adjoint_residual=False``.
         """
         F = self.problem.F
         u = self.problem.u
@@ -510,10 +553,18 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         return u_err
 
     def solve_dual(self):
-        """
-        Solve the dual problem or problems (i.e. with higher polynomial degree)
-        and return the low-order dual solution and the estimate for the error in
-        the dual solution.
+        """Solve the dual (adjoint) problem and return the dual solutions.
+
+        The dual problem is always solved in an enriched space of degree
+        ``degree + dual_extra_degree``.  A low-degree approximation ``z_lo`` is
+        obtained via ``dual_low_method`` (interpolate / project / solve).
+
+        Returns
+        -------
+        tuple[Function, Function]
+            ``(z_lo, z_err)`` where ``z_lo`` is the low-degree dual solution
+            (in the same space as the primal ``u``) and ``z_err = z - z_lo``
+            is the dual error representative used to weight the residuals.
         """
 
         def solve_zh(z):
@@ -563,8 +614,30 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         return z_lo, z_err
 
     def estimate_error(self, u_err, z_lo, z_err):
-        """Compute error estimate"""
-        from firedrake.assemble import assemble
+        """Compute the global DWR error estimate for the goal functional.
+
+        Computes the primal residual :math:`\\rho(u_h; z - z_h)` and, when
+        ``use_adjoint_residual=True``, also the adjoint residual
+        :math:`\\rho^*(z_h; u - u_h)`, combining them as
+        :math:`\\frac{1}{2}(\\rho + \\rho^*)`.  Also estimates the solver error
+        :math:`\\rho(u_h; z_h)`.
+
+        Parameters
+        ----------
+        u_err
+            Primal error representative ``u_high - u_h`` (or ``None`` when
+            ``use_adjoint_residual=False``).
+        z_lo
+            Low-degree dual solution in the base space.
+        z_err
+            Dual error representative ``z - z_lo``.
+
+        Returns
+        -------
+        tuple[float, float | None]
+            ``(eta_h, eta)`` — the error estimate and the true error
+            ``J(u) - J(u_h)`` (or ``None`` if no exact value was supplied).
+        """
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
@@ -624,8 +697,19 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         return eta_h, eta
 
     def compute_error_indicators(self):
-        """Compute cell and facet residuals R_cell, R_facet"""
-        from firedrake.assemble import assemble
+        """Compute cell-wise DWR error indicators via bubble/cone projections.
+
+        Projects the primal residual :math:`F(u_h; \\cdot)` onto cell-bubble
+        and facet-bubble spaces, then weights by the dual error ``z_err``.
+        When ``use_adjoint_residual=True``, the adjoint residual is also
+        projected and weighted by ``u_err``, and the two contributions are
+        averaged.
+
+        Returns
+        -------
+        Function
+            DG0 Function of absolute-value cell-wise indicators :math:`\\eta_K`.
+        """
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
@@ -759,10 +843,11 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
             output_dir = self.options.output_dir
             run_name = self.options.run_name
             prefix = f"{output_dir}/{run_name}/{run_name}"
+            comm = self.problem.u.function_space().mesh().comm
             self.print("Writing (primal) solution ...")
-            VTKFile(f"{prefix}_solution_{it}.pvd").write(*self.problem.u.subfunctions)
+            VTKFile(f"{prefix}_solution_{it}.pvd", comm=comm).write(*self.problem.u.subfunctions)
             self.print("Writing (dual) solution ...")
-            VTKFile(f"{prefix}_dual_solution_{it}.pvd").write(*self.z.subfunctions)
+            VTKFile(f"{prefix}_dual_solution_{it}.pvd", comm=comm).write(*self.z.subfunctions)
 
 
 
@@ -823,8 +908,6 @@ def _compute_residual_indicators(F, z_err, options):
     Function
         DG0 Function of absolute-value cell indicators.
     """
-    from firedrake.assemble import assemble
-
     v, = F.arguments()
     V = v.function_space()
     mesh = V.mesh().unique()
