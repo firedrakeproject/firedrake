@@ -122,9 +122,11 @@ class NestedInterpolateLowerer(DAGTraverser):
     def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
         # from firedrake.assemble import assemble
         # return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
+
         inner_node = o._ufl_expr_reconstruct_(operand)
         fn = Function(o.ufl_function_space())
-        self.subs[inner_node] = fn
+        # self.subs[inner_node] = fn
+        self.subs[fn] = get_interpolator(inner_node)
         return as_ufl(fn)
 
 class Interpolate(UFLInterpolate):
@@ -193,8 +195,9 @@ class Interpolate(UFLInterpolate):
         lowerer = NestedInterpolateLowerer()
         lowered_operand = lowerer(operand)
         if lowered_operand is not operand:
+            # return get_interpolator(self._ufl_expr_reconstruct_(lowered_operand))
             return CompositeInterpolator(self._ufl_expr_reconstruct_(lowered_operand), lowerer.subs)
-
+        
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
         if len(arguments) == 2 and has_mixed_arguments:
@@ -1760,28 +1763,22 @@ class MixedInterpolator(Interpolator):
 
 
 class CompositeInterpolator(Interpolator):
-    """Interpolator for expressions containing inner Interpolate nodes defined on different meshes.
-
-    Builds inner interpolators for each detected inner Interpolate node and composes
-    their callables with the outer interpolator so that inner nodes are re-evaluated
-    at each step.
+    """
+    An interpolator for expressions containing nested interpolations (possibly defined across different meshes).
     """
 
     def __init__(self, outer_expr, subs):
         super().__init__(outer_expr)
-        self._inner = [
-            (get_interpolator(inner_node), fn)
-            for inner_node, fn in subs.items()
-        ]
+        self.subs = subs # {Function: Interpolator} returned by NestedInterpolateLowerer
         self._outer = get_interpolator(outer_expr)
 
     def _get_callable(self, tensor=None, bcs=None, **kwargs):
         inner_callables = [
             interp._get_callable(tensor=fn)
-            for interp, fn in self._inner
+            for fn, interp in self.subs.items()
         ]
         outer_callable = self._outer._get_callable(tensor=tensor, bcs=bcs)
-        
+
         def callable():
             for c in inner_callables:
                 c()
