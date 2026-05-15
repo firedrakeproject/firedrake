@@ -199,8 +199,6 @@ class HybridizationPC(SCBase):
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, KT, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
 
-        breakpoint()
-
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Cofunction(TraceSpace.dual())
         self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
@@ -342,7 +340,6 @@ class HybridizationPC(SCBase):
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
                       "vec_out": (broken_res_hdiv, INC)})
-            breakpoint()
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -374,7 +371,6 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         :arg y: a PETSc vector for placing the resulting fields.
         """
-
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
         with PETSc.Log.Event("RecoverFirstElim"):
@@ -400,8 +396,6 @@ class HybridizationPC(SCBase):
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
-
-        breakpoint()
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""

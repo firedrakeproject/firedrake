@@ -1069,7 +1069,14 @@ class ParloopFormAssembler(FormAssembler):
         else:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                self._as_pyop3_type(tensor).buffer.zero()
+                # This is a big ol' hack to get subfunctions working
+                op3_tensor = self._as_pyop3_type(tensor)
+                if all(t.local_size == t.unindexed.local_size for t in op3_tensor.axis_trees):
+                    # this doesn't work for subfunctions
+                    op3_tensor.buffer.zero()
+                else:
+                    # FIXME: this doesn't work for matrices (yet)
+                    op3_tensor.zero(eager=True, eager_strategy="array")
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
