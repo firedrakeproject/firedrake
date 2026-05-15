@@ -210,11 +210,8 @@ def discover_ranks(
         list[int] all_indices
 
     rank_to_indices = {}
-    all_indices = []
-
     # map dest_rank -> list of point indices to send there
     for i in range(n_points):
-        seen_ranks = set()
         err = rtree_locate_all_at_point(
             rtree.tree,
             <const double *>&points[i, 0],
@@ -227,6 +224,7 @@ def discover_ranks(
             raise RuntimeError("rtree_locate_all_at_point failed")
 
         # Points may lie in multiple bounding boxes owned by the same rank
+        seen_ranks = set()
         for j in range(nids_out):
             seen_ranks.add(<int>ids_out[j])
         err = rtree_free_ids(ids_out, nids_out)
@@ -240,10 +238,11 @@ def discover_ranks(
             else:
                 rank_to_indices[dest_rank] = [i]
 
-    nto = len(rank_to_indices)
-    toranks = np.empty(nto, dtype=np.int32)
-    send_counts = np.empty(nto, dtype=np.int32)
-    send_offsets = np.empty(nto + 1, dtype=np.int32)
+    all_indices = []
+    nto = len(rank_to_indices)  # number of ranks we're sending points to
+    toranks = np.empty(nto, dtype=np.int32)  # the ranks we're sending each point to
+    send_counts = np.empty(nto, dtype=np.int32)  # number of points we're sending to each rank
+    send_offsets = np.empty(nto + 1, dtype=np.int32)  # offsets into point_indices for each rank 
     send_offsets[0] = 0
     for i, (rank, idx_list) in enumerate(rank_to_indices.items()):
         toranks[i] = rank
@@ -340,14 +339,14 @@ cdef class RTreeNode(object):
 
     def __dealloc__(self):
         if self.node_handle != <RTreeNodeH*>0 and self.is_root:
-            # We can only free the node if it is the root. Child nodes
+            # We can only free a node if it is the root. Child nodes
             # must be freed all at once by `rtree_node_children_free`.
             # The RTreeNodeChildren class facilitates this.
             rtree_node_free(self.node_handle)
             self.node_handle = <RTreeNodeH*>0
 
 def root_node(RTree rtree):
-    """Return the root node of the Rtree."""
+    """Return the root node of an Rtree."""
     cdef:
         RTreeNodeH* node
         RTreeError err
@@ -358,7 +357,7 @@ def root_node(RTree rtree):
 
 
 def node_children(RTreeNode node):
-    """Return the children of an Rtree node as a list of RTreeNodeHs."""
+    """Return the children of an Rtree node as a list of RTreeNodes."""
     cdef:
         RTreeNodeH** children
         size_t nchildren
@@ -369,8 +368,12 @@ def node_children(RTreeNode node):
     if err != Success:
         raise RuntimeError("rtree_node_children failed")
 
+    # The children array must be freed with rtree_node_children_free.
+    # Nodes in the array cannot be freed individually or else 
+    # we get double frees when calling rtree_node_children_free.
     # We create an RTreeNodeChildren object to own the children array
-    # to make sure that it gets freed when we're done with it.
+    # and each child node holds a reference to this to 
+    # ensure they are not freed by the garbage collector.
     child_nodes = RTreeNodeChildren(<uintptr_t>children, nchildren)
 
     result = [
