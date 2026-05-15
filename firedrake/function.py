@@ -282,8 +282,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._expression_cache = cachetools.LRUCache(maxsize=50)
 
         # Store the mesh topology version to detect topology changes
-        self.mesh = self._function_space.mesh()
-        self._mesh_topology_version = self.mesh._topology_version
+        # self.mesh = self._function_space.mesh()
+        # self._mesh_topology_version = self.mesh._topology_version
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -436,7 +436,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._data = new_data
         self._function_space = FS_new_wg
         
-        # Clear any UFL expression caches as they need to be rebuilt
+        # Clear any expression caches as they need to be rebuilt
         self._expression_cache.clear()
 
         # Update the mesh topology version stored on the function

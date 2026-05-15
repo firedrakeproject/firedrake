@@ -2312,6 +2312,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
+
+        self._topology_version = 0
+        self._topology_step_sfs = {}
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
 
     def _distribute(self):
@@ -2655,7 +2658,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._rtree = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
-        self._topology_version = 0
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
 
