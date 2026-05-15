@@ -69,6 +69,10 @@ class LinearEigenproblem:
         if not M:
             M = inner(u, v) * dx
 
+        self._original_A = A
+        self._original_M = M
+        self._original_bcs = list(bcs) if bcs else []
+
         if self.restrict:  # assumed u and v are in the same space here
             V_res = restricted_function_space(self.output_space, extract_subdomain_ids(bcs))
             u_res = TrialFunction(V_res)

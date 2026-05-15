@@ -454,6 +454,25 @@ def refine_function(expr, self, coefficient_mapping=None):
     return new
 
 
+@refine.register(firedrake.LinearEigenproblem)
+def refine_eigenproblem(problem, self, coefficient_mapping=None):
+    if hasattr(problem, "_fine"):
+        mh, _ = utils.get_level(problem.output_space.mesh())
+        if mh is utils.get_level(problem._fine.output_space.mesh())[0]:
+            return problem._fine
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
+           for bc in problem._original_bcs]
+    A = self(problem._original_A, self, coefficient_mapping=coefficient_mapping)
+    M = self(problem._original_M, self, coefficient_mapping=coefficient_mapping)
+    orig = problem
+    problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
+                                           bc_shift=orig.bc_shift, restrict=orig.restrict)
+    orig._fine = problem
+    return problem
+
+
 class Interpolation(object):
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
         self.cprimal = firedrake.Function(Vcoarse)
