@@ -432,6 +432,7 @@ intersphinx_mapping = {
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
