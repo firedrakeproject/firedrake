@@ -10,11 +10,12 @@ jobs:
   test:
     uses: ./.github/workflows/core.yml
     with:
+      trigger: push
       source_ref: ${{ github.ref_name }}
       target_branch: ${{ github.ref_name }}
-      test_complex: some
-      test_cuda: some
-      test_macos: some
+      test_complex: true
+      test_cuda: true
+      test_macos: true
       deploy_website: true
     secrets: inherit
 

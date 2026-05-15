@@ -8,23 +8,12 @@ jobs:
   test:
     uses: ./.github/workflows/core.yml
     with:
+      trigger: pr
       source_ref: ${{ github.ref }}
       target_branch: ${{ github.base_ref }}
       # Run all tests of a specific configuration (e.g. complex) if the right label
       # is on the PR, otherwise do nothing.
-      test_complex: |-
-        ${{ case(
-          contains(github.event.pull_request.labels.*.name, 'ci:complex'), 'all',
-          'none'
-        ) }}
-      test_cuda: |-
-        ${{ case(
-          contains(github.event.pull_request.labels.*.name, 'ci:cuda'), 'all',
-          'none'
-        ) }}
-      test_macos: |-
-        ${{ case(
-          contains(github.event.pull_request.labels.*.name, 'ci:macos'), 'all',
-          'none'
-        ) }}
+      test_complex: contains(github.event.pull_request.labels.*.name, 'ci:complex')
+      test_cuda: contains(github.event.pull_request.labels.*.name, 'ci:cuda')
+      test_macos: contains(github.event.pull_request.labels.*.name, 'ci:macos')
     secrets: inherit

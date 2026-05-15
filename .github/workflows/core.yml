@@ -3,6 +3,10 @@
 on:
   workflow_call:
     inputs:
+      trigger:
+        description: Whether the workflow was triggered by a PR or push ('pr' or 'push')
+        type: string
+        required: true
       source_ref:
         description: The input Git ref to checkout
         type: string
@@ -11,26 +15,29 @@ on:
         description: The target branch (usually 'main' or 'release')
         type: string
         required: true
-      build_docs:
-        description: Whether to build the documentation
-        type: boolean
-        default: true
       deploy_website:
         description: Whether to deploy the website
         type: boolean
         default: false
       test_complex:
-        description: Whether to test a complex build ('none', 'some' or 'all')
-        type: string
+        description: Whether to test a complex build
+        type: boolean
+        required: true
       test_cuda:
-        description: Whether to test using CUDA-enabled PETSc ('none', 'some' or 'all')
-        type: string
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        required: true
       test_macos:
-        description: Whether to test using macOS ('none', 'some' or 'all')
-        type: string
+        description: Whether to test using macOS
+        type: boolean
+        required: true
 
   workflow_dispatch:
     inputs:
+      trigger:
+        description: Whether the workflow was triggered by a PR or push ('pr' or 'push')
+        type: string
+        required: true
       source_ref:
         description: The input Git ref to checkout
         type: string
@@ -39,23 +46,22 @@ on:
         description: The target branch (usually 'main' or 'release')
         type: string
         required: true
-      build_docs:
-        description: Whether to build the documentation
-        type: boolean
-        default: true
       deploy_website:
         description: Whether to deploy the website
         type: boolean
         default: false
       test_complex:
-        description: Whether to test a complex build ('none', 'some' or 'all')
-        type: string
+        description: Whether to test a complex build
+        type: boolean
+        required: true
       test_cuda:
-        description: Whether to test using CUDA-enabled PETSc ('none', 'some' or 'all')
-        type: string
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        required: true
       test_macos:
-        description: Whether to test using macOS ('none', 'some' or 'all')
-        type: string
+        description: Whether to test using macOS
+        type: boolean
+        required: true
 
 concurrency:
   # Cancel running jobs if new commits are pushed
@@ -72,6 +78,9 @@ env:
   PYTEST_MPI_MAX_NPROCS: 8
   PYOP2_SPMD_STRICT: 1
   FIREDRAKE_CI: 1
+  # NOTE: One should occasionally update test_durations.json by running
+  # 'make test_durations' inside a 'firedrake:latest' Docker image.
+  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
 
 jobs:
 
@@ -85,9 +94,6 @@ jobs:
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
-      # NOTE: One should occasionally update test_durations.json by running
-      # 'make test_durations' inside a 'firedrake:latest' Docker image.
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
     steps:
       - name: Pre-run cleanup
         # Make sure the current directory is empty
@@ -255,10 +261,10 @@ jobs:
       - name: Generate matrix
         id: generate
         run: |
-          if [ "${{ inputs.test_complex }}" != 'none' ]; then
+          if [ "${{ inputs.test_complex }}" ]; then
             matrix='{"scalar_type": "complex", "gpu": "none"}'
           fi
-          if [ "${{ inputs.test_cuda }}" != 'none' ]; then
+          if [ "${{ inputs.test_cuda }}" ]; then
             arch='{"scalar_type": "default", "gpu": "cuda"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
@@ -286,12 +292,13 @@ jobs:
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
-      # NOTE: One should occasionally update test_durations.json by running
-      # 'make test_durations' inside a 'firedrake:latest' Docker image.
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
       PETSC_OPTIONS: -use_gpu_aware_mpi 0
     steps:
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
       - name: Confirm NVIDIA GPUs are enabled
         if: matrix.gpu == 'cuda'
         # The presence of the nvidia-smi command indicates that the Nvidia drivers have
@@ -299,16 +306,13 @@ jobs:
         # if nvidia-smi is not present
         run: nvidia-smi
 
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
-
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
       - name: Install Firedrake
+        id: install
         uses: ./firedrake-repo/.github/actions/install
         with:
           os: linux
@@ -318,24 +322,68 @@ jobs:
           gpu: ${{ matrix.gpu }}
           deps: ci
 
+      - name: Run tests subset
+        if: inputs.trigger == 'push'
+        run: |
+          . venv/bin/activate
+
+          : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
+          PYTEST_ARGS="$EXTRA_PYTEST_ARGS --splits 10 --group 1 -m parallel[match]"
+
+          python3 -m pytest -n 8 firedrake-repo/tests "$PYTEST_ARGS"
+          mpiexec -n 2 python3 -m pytest firedrake-repo/tests "$PYTEST_ARGS"
+          mpiexec -n 3 python3 -m pytest firedrake-repo/tests "$PYTEST_ARGS"
+        timeout-minutes: 30
+
+      - name: Run tests (nprocs = 1)
+        if: inputs.trigger == 'pr'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+        timeout-minutes: 90
+
+      - name: Run tests (nprocs = 2)
+        if: inputs.trigger == 'pr'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+        timeout-minutes: 60
+
+      - name: Run tests (nprocs = 3)
+        if: inputs.trigger == 'pr'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+        timeout-minutes: 60
+
+      - name: Run tests (nprocs = 4+)
+        if: inputs.trigger == 'pr'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests
+        timeout-minutes: 60
+
       - name: Post-run cleanup
         if: always()
-        run: |
-          find . -delete
+        run: find . -delete
 
-
+  # TODO: run full test suite on PR and subset on push like above
   test_macos:
     name: Test macOS
     runs-on: [self-hosted, macOS]
-    if: inputs.test_macos != 'none'
+    if: inputs.test_macos
     steps:
-      - name: Add homebrew to PATH
-        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
-        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
+
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v5
         with:
@@ -410,7 +458,6 @@ jobs:
   # Docs
 
   build_docs:
-    if: inputs.build_docs
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:
