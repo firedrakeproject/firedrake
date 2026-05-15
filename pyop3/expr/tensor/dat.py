@@ -721,6 +721,13 @@ class AggregateDat(pyop3.obj.Pyop3Object):
     axis: Axis
     name: str
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            tuple(map(visitor, self.subdats)),
+            visitor(self.axis),
+        )
+
     def __init__(self, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 

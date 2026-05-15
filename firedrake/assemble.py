@@ -1842,6 +1842,9 @@ class ParloopBuilder:
 
         i, j = indices
         if petscmat.type == PETSc.Mat.Type.NEST:
+            if i is None or j is None:
+                raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
+
             assert len(row_space) > 1 and len(column_space) > 1
             row_space = row_space[i]
             column_space = column_space[j]
@@ -2019,7 +2022,10 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
-        return self._mesh.cell_to_facets[index]
+        if self._mesh.extruded:
+            return self._mesh._base_mesh.cell_to_facets[self._mesh.extr_cell_to_base_cell_map(index)]
+        else:
+            return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)
     def _(self, _, index):

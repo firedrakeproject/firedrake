@@ -10,6 +10,7 @@ from typing import Any
 
 from immutabledict import immutabledict as idict
 
+import pyop3.exceptions
 from pyop3 import utils
 from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType

@@ -57,7 +57,6 @@ class SCBase(PCBase):
 
         with PETSc.Log.Event("SCBackSub"):
             self.backward_substitution(pc, y)
-        breakpoint()
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
