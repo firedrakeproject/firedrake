@@ -12,8 +12,9 @@ jobs:
     with:
       source_ref: ${{ github.ref_name }}
       target_branch: ${{ github.ref_name }}
-      test_macos: true
-      test_gpu: true
+      test_complex: some
+      test_cuda: some
+      test_macos: some
       deploy_website: true
     secrets: inherit
 
