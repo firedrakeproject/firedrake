@@ -44,14 +44,12 @@ jobs:
             exit 0
           fi
 
-  pypi:
-    name: Make PyPI release
+  sdist:
+    name: Create sdist
     needs: check
     runs-on: [self-hosted, Linux]
     container:
       image: ubuntu:latest
-    environment:
-      name: pypi
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -79,10 +77,27 @@ jobs:
           pip install build
           python -m build ./firedrake-repo --sdist
 
-      - name: Upload to PyPI
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+  pypi:
+    name: Upload sdist to PyPI
+    needs: sdist
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Push to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: firedrake-repo/dist/
           # TODO: Use trusted publishing
           password: ${{ secrets.PYPI_API_TOKEN }}
 
