@@ -695,7 +695,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-# TODO: not sure need to specify 'array' here
 @pyop3.record.frozenrecord()
 class Assignment(AbstractAssignment):
 
@@ -723,7 +722,7 @@ class Assignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        pass
+         pass
 
     # }}}
 

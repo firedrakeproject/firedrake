@@ -83,8 +83,7 @@ def mass(function_space):
 
 @pytest.fixture
 def matrix_mixed_nofacet():
-    # mesh = UnitSquareMesh(2, 2)
-    mesh = UnitSquareMesh(1, 1)
+    mesh = UnitSquareMesh(2, 2)
     U = FunctionSpace(mesh, "RT", 1)
     V = FunctionSpace(mesh, "DG", 0)
     T = FunctionSpace(mesh, "HDiv Trace", 0)
@@ -203,8 +202,7 @@ def test_mixed_argument_tensor(mesh):
     T = Tensor(sigma * tau * dx)
     As = assemble(T)
     A = assemble(sigma * tau * dx)
-    for ms, m in zip(As.M, A.M):
-        assert np.allclose(ms.values, m.values)
+    assert np.allclose(As.M.values, A.M.values)
 
 
 def test_vector_subblocks(mesh):
@@ -313,7 +311,7 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     # test matrix built from diagonal for non mass matrix
     res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
     ref2 = assemble(matrix_mixed_nofacet, diagonal=True).dat.data_ro
-    for r, d in zip(res2, np.diag(ref2)):
+    for r, d in zip(ref2, np.diag(res2)):
         assert np.allclose(r, d, rtol=1e-14)
 
     # test matrix built from diagonal
@@ -321,7 +319,7 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     A = Tensor(matrix_mixed_nofacet)
     res3 = assemble(DiagonalTensor(A+A)).M.values
     ref3 = assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data_ro
-    for r, d in zip(res3, np.diag(ref3)):
+    for r, d in zip(ref3, np.diag(res3)):
         assert np.allclose(r, d, rtol=1e-14)
 
 

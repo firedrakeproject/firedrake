@@ -325,7 +325,6 @@ class InstructionExecutionContext:
             try:
                 nest_indices = utils.just_one(mat.nest_indices)
             except ValueError:
-                breakpoint()
                 raise NotImplementedError("Recursively nested MATNESTs not supported")
             buffer = buffer.restrict_nest(*nest_indices)
 
@@ -340,6 +339,10 @@ class InstructionExecutionContext:
     @_extract_buffers.register
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         return tuple(buf for subdat in agg_dat.subdats for buf in self._extract_buffers(subdat))
+
+    @_extract_buffers.register
+    def _(self, agg_mat: pyop3.expr.AggregateMat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        return tuple(buf for submat in agg_mat.submats.flatten() for buf in self._extract_buffers(submat))
 
 
 # TODO: This class is a bit redundant and can/should probably be folded into CompiledCodeExecutor
@@ -403,10 +406,9 @@ class Executable:
     # TODO: this should live on the executor class
     def __call__(self, *args) -> None:
         # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
-        if "restrict" in str(self.code):
-        #     breakpoint()
-            import pyop3.debug
-            pyop3.debug.maybe_breakpoint()
+            # breakpoint()
+            # import pyop3.debug
+            # pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
@@ -510,12 +512,6 @@ class CompiledCodeExecutor:
         self.executable = executable
         self.buffer_map = buffer_map
         self.comm = comm
-
-        if any(
-            buf.name == "dat_1_buffer"
-            for buf, intent in buffer_map.values()
-        ):
-            breakpoint()
 
     @cached_property
     def _buffer_refs(self) -> tuple[BufferRef]:  # BufferRef is gone

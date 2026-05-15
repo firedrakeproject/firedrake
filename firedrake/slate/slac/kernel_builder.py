@@ -40,7 +40,11 @@ Context information for creating coefficient temporaries.
 
 
 class LayerCountKernelArg(kernel_args.KernelArg):
-    ...
+    """Argument storing the number of layers in this column of the mesh."""
+
+
+class LayerKernelArg(kernel_args.KernelArg):
+    """Argument storing the current layer up the mesh column."""
 
 
 class CellFacetKernelArg(kernel_args.KernelArg):
@@ -190,12 +194,11 @@ class LocalLoopyKernelBuilder:
         self.bag.needs_mesh_layers = True
         layer = pym.Variable(self.layer_arg_name)
 
-        # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count_name)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
-                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
-                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+        which = {"interior_facet_horiz_top": pym.Comparison(layer[0], "<", nlayer[0]),
+                 "interior_facet_horiz_bottom": pym.Comparison(layer[0], ">", 0),
+                 "exterior_facet_top": pym.Comparison(layer[0], "==", nlayer[0]),
+                 "exterior_facet_bottom": pym.Comparison(layer[0], "==", 0)}[integral_type]
 
         return [which]
 
@@ -399,11 +402,11 @@ class LocalLoopyKernelBuilder:
                                                     initializer=np.arange(self.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
-            layer_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(),
-                                              dtype=np.int32)
-            args.append(LayerCountKernelArg(layer_loopy_arg))
+            num_layers_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(1,), dtype=np.int32)
+            args.append(LayerCountKernelArg(num_layers_loopy_arg))
 
-            tmp_args.append(loopy.ValueArg(self.layer_arg_name, dtype=np.int32))
+            layer_loopy_arg = loopy.GlobalArg(self.layer_arg_name, shape=(1,), dtype=np.int32)
+            args.append(LayerKernelArg(layer_loopy_arg))
 
         for tensor_temp in tensor2temp.values():
             tmp_args.append(tensor_temp)

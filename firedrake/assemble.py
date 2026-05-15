@@ -32,7 +32,7 @@ from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc
 from firedrake.mesh import get_iteration_spec, get_mesh_topologies
 from firedrake.slate import slac, slate
-from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
+from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from functools import cached_property
 
@@ -2015,15 +2015,12 @@ class ParloopBuilder:
         return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)
-    def _as_parloop_arg_layer_count(self, _, index):
-        raise NotImplementedError
-        glob = op2.Global(
-            (1,),
-            self._iterset.layers-2,
-            dtype=numpy.int32,
-            comm=self._iterset.comm
-        )
-        return op2.GlobalParloopArg(glob)
+    def _(self, _, index):
+        return self._mesh.num_cells_per_column
+
+    @_as_parloop_arg.register(LayerKernelArg)
+    def _(self, _, index):
+        return self._mesh.cell_column_nums[index]
 
 
 class _FormHandler:

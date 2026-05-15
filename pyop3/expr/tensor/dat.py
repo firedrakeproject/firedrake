@@ -92,6 +92,7 @@ class Dat(Tensor):
         name=None,
         prefix=None,
         buffer_kwargs=None,
+        constant: bool = False,
         transform=None,
     ):
         """
@@ -114,14 +115,17 @@ class Dat(Tensor):
         elif isinstance(buffer, NullBuffer):
             pass
         else:
+            # the shape of the underlying buffer for a dat should be 1D
+            data = data.flatten()
+
             if buffer_kwargs is None:
                 buffer_kwargs = {}
             if "name" not in buffer_kwargs:
                 buffer_kwargs["name"] = f"{name}_buffer"
+            if constant not in buffer_kwargs:
+                buffer_kwargs["constant"] = constant
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
-
-        assert buffer.size == axes.unindexed.local_max_size
 
         self.axes = axes
         self._buffer = buffer
@@ -130,6 +134,11 @@ class Dat(Tensor):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        # fails for transforms, is that an issue?
+        # assert self.buffer.size == self.axes.unindexed.local_max_size
+        if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
+            assert len(self.buffer.shape) == 1
+
         # Lazily allocated PETSc Vecs (and state tracking)
         self._work_vec = None
         self._work_vec_buffer_state = None

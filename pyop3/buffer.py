@@ -106,11 +106,13 @@ class AbstractBuffer(DistributedObject, pyop3.obj.Pyop3Object, metaclass=abc.ABC
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
     def __post_init__(self) -> None:
-        assert isinstance(self.size, numbers.Integral)
+        pass
+
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
-    def size(self) -> int:
+    def shape(self) -> tuple[int, ...]:
         pass
 
     @property
@@ -122,6 +124,12 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def ordered(self) -> bool:
         pass
+
+    # }}}
+
+    @property
+    def size(self) -> int:
+        return np.prod(self.shape, dtype=int)
 
 
 @pyop3.record.record()
@@ -137,34 +145,49 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ instance attrs
 
-    _size: int
+    _shape: tuple[int, ...]
     _name: str
     _dtype: np.dtype
-    _max_value: np.number | None
-    _ordered: bool
+    _max_value: np.number | None  # unused?
+    _ordered: bool  # unused?
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
         return OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), self._size, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
+        return (type(self), self._shape, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
 
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        return (type(self), self._size, self._dtype, self._ordered, buffer_counter[self])
+        return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
 
-    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
+    def __init__(
+        self,
+        shape: tuple[numbers.Integral, ...] | numbers.Integral,
+        dtype: DTypeT | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        max_value: numbers.Number | None = None,
+        ordered: bool = False,
+    ):
+        if isinstance(shape, numbers.Integral):
+            shape = (shape,)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
 
-        self._size = size
+        self._shape = shape
         self._name = name
         self._dtype = dtype
         self._max_value = max_value
         self._ordered = ordered
 
         self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert isinstance(self.shape, tuple)
+        super().__post_init__()
 
     # }}}
 
@@ -176,7 +199,7 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ interface impls
 
-    size: ClassVar[property] = pyop3.record.attr("_size")
+    shape: ClassVar[property] = pyop3.record.attr("_shape")
     name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
@@ -277,8 +300,18 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
-        data = data.flatten()
+    def __init__(
+        self,
+        data: np.ndarray,
+        sf: StarForest | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
+        rank_equal: bool = False,
+        max_value: numbers.Number | None=None,
+        ordered:bool=False,
+    ):
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -329,8 +362,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     @property
-    def size(self) -> int:
-        return self._data.size
+    def shape(self) -> tuple[int, ...]:
+        return self._data.shape
 
     @property
     def dtype(self) -> np.dtype:

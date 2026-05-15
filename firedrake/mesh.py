@@ -2511,7 +2511,6 @@ class MeshTopology(AbstractMeshTopology):
         return map_, integral_type
 
 
-# NOTE: I don't think that we need an extra class here. The public API is exactly the same as 'MeshTopology'.
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
@@ -3266,8 +3265,6 @@ class ExtrudedMeshTopology(MeshTopology):
             nodes = np.asarray(nodes_per_entity)
             nodes_per_entity = sum(nodes[:, i] for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
-        elif self.variable_layers:
-            return extnum.node_classes(self, nodes_per_entity)
         else:
             nodes = np.asarray(nodes_per_entity)
             if self.extruded_periodic:
@@ -3293,6 +3290,20 @@ class ExtrudedMeshTopology(MeshTopology):
             return extnum.entity_layers(self, height, label)
         else:
             return self.cell_set.layers
+
+    @cached_property
+    def num_cells_per_column(self) -> op3.Scalar:
+        """The number of cells in each column."""
+        return op3.Scalar(self.layers-1, self.comm, constant=True)
+
+    @cached_property
+    def cell_column_nums(self) -> op3.Dat:
+        """The number of each cell up the column."""
+        column_nums = np.repeat(
+            np.arange(self.layers-1, dtype=np.int32),
+            self._base_mesh.num_cells,
+        )
+        return op3.Dat(self.cells.materialize(), data=column_nums, constant=True)
 
     def cell_dimension(self):
         """Returns the cell dimension."""

@@ -25,6 +25,7 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
+import pyop3.axis_tree
 import pyop3.cache
 import pyop3.dtypes
 import pyop3.expr
@@ -917,9 +918,8 @@ def add_leaf_assignment(
     loop_indices,
 ):
     intent = assignment_type_as_intent(assignment.assignment_type)
-    shape = tuple(axis_tree.size for axis_tree in assignment.axis_trees)
-    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths, shape=shape)
-    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
+    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths)
+    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
@@ -948,8 +948,8 @@ def _(exscan: Exscan, loop_indices, context) -> None:
     context.add_assignment(lexpr, rexpr)
 
 
-def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression:
-    return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None) -> pym.Expression:
+    return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths)
 
 
 # TODO: use overloadedexpressionevaluator
@@ -1045,28 +1045,43 @@ def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices
 
 
 @_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
-def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
     row_path, column_path = paths
     layouts = (mat_expr.row_layout.linearize(row_path), mat_expr.column_layout.linearize(column_path))
-    return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+    return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
-def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
 
 
-def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, shape=None) -> pym.Expression:
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent) -> pym.Expression:
     name_in_kernel = context.add_buffer(buffer, intent)
 
-    offset_expr = 0
-    strides = utils.strides(shape) if shape else (1,)
-    for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
-        stride = lower_expr(stride, [iname_map], loop_indices, context)
-        offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
+    # At this point we know how to address each axis of the underlying buffer.
+    # This is sufficient to address a flat buffer, but for a buffer with more
+    # dimensions (i.e. a matrix) we have to do more work. As an example
+    # consider accessing a 2D buffer with shape (5, 5) using layout functions
+    # '2*i+1' and 'j+2' for the rows and columns respectively, where
+    # '0<=i<2' and '0<=j<3'. The offset expression that we want from this is:
+    #
+    #     5*(2*i+1) + (j+2)
+    #
+    # Which we can only determine from knowing the underlying buffer shape.
+    offset_expr = sum(
+        stride * lower_expr(layout, [iname_map], loop_indices, context)
+        for stride, layout, iname_map in zip(
+            utils.strides(buffer.shape),
+            layouts,
+            iname_maps,
+            strict=True
+        )
+    )
 
+    # Add some leading zeros to make loopy happy
     indices = maybe_multiindex(buffer, offset_expr, context)
 
     subscript = pym.subscript(pym.var(name_in_kernel), indices)

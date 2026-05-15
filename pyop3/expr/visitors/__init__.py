@@ -1163,10 +1163,14 @@ class ArgumentCollector(NodeCollector):
     # TODO: AbstractBufferExpression
     @process.register(pyop3.expr.OpaqueTerminal)
     @process.register(pyop3.expr.Tensor)
-    @process.register(pyop3.expr.AggregateDat)
     @process.register(pyop3.expr.BufferExpression)
     def _(self, arg: Any, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([arg])
+
+    @process.register(pyop3.expr.AggregateDat)
+    @process.register(pyop3.expr.AggregateMat)
+    def _(self, agg_tensor: Any, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet(agg_tensor.subtensors.flatten())
 
 
 def collect_arguments(expr: ExpressionT) -> OrderedFrozenSet:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import collections
 import pprint
 
+import numpy as np
 from immutabledict import immutabledict as idict
 
+from pyop3 import utils
 from pyop3.exceptions import ValueMismatchException
 
 
@@ -91,11 +93,13 @@ class OrderedSet(AbstractOrderedSet):
     """A mutable ordered set."""
 
     def __init__(self, values=None, /) -> None:
-        if values is not None:
-            self._values = list(values)
+        if values is None:
+            values = []
         else:
-            self._values = []
+            assert is_ordered_sequence(values) or len(values) < 2
+            values = list(values)
 
+        self._values = values
 
     def index(self, value) -> int:
         return self._values.index(value)
@@ -121,7 +125,8 @@ class OrderedSet(AbstractOrderedSet):
 class OrderedFrozenSet(AbstractOrderedSet):
 
     def __init__(self, values: collections.abc.Sequence = (), /) -> None:
-        self._values = tuple(values)
+        assert is_ordered_sequence(values) or len(values) < 2
+        self._values = utils.unique(values)
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
@@ -141,10 +146,11 @@ _dict_items_type = type({}.items())
 _ordered_sequence_types = (
     list,
     tuple,
-    AbstractOrderedSet,
     _dict_keys_type,
     _dict_values_type,
     _dict_items_type,
+    np.ndarray,
+    AbstractOrderedSet,
 )
 
 

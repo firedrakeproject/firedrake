@@ -94,7 +94,8 @@ class Mat(Tensor):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        pass
+        if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
+            assert len(self.buffer.shape) == 2
 
     # }}}
 
@@ -155,7 +156,11 @@ class Mat(Tensor):
     def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.unindexed.local_max_size*column_axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
+        buffer = NullBuffer(
+            (row_axes.unindexed.local_max_size, column_axes.unindexed.local_max_size),
+            dtype=dtype,
+            **buffer_kwargs,
+        )
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}

@@ -184,7 +184,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     assert len(list(chain(*(map[1] for map in coefficient_numbers)))) == len(coefficients), \
         "KernelInfo must be generated with a coefficient map that maps EXACTLY all coefficients that are in its arguments attribute."
-    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), \
+    assert len(loopy_merged.callables_table[name].subkernel.args) == len(arguments), \
         "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
@@ -202,7 +202,6 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
-                       pass_layer_arg=builder.bag.needs_mesh_layers,
                        arguments=arguments,
                        events=events)
 
