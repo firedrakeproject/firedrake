@@ -252,7 +252,8 @@ jobs:
     outputs:
       matrix: ${{ steps.generate.outputs.matrix }}
     steps:
-      - id: generate
+      - name: Generate matrix
+        id: generate
         run: |
           if [ "${{ inputs.test_complex }}" != 'none' ]; then
             matrix='{"scalar_type": "complex", "gpu": "none"}'
@@ -324,9 +325,9 @@ jobs:
 
 
   test_macos:
-    name: Test macOS (optional)
+    name: Test macOS
     runs-on: [self-hosted, macOS]
-    if: inputs.test_macos
+    if: inputs.test_macos != 'none'
     steps:
       - name: Add homebrew to PATH
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
