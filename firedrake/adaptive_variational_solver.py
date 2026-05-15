@@ -22,8 +22,7 @@ from numbers import Integral
 
 
 __all__ = ["GoalAdaptiveSolverBase",
-           "GoalAdaptiveNonlinearVariationalSolver",
-           "GoalAdaptiveEigensolver"]
+           "GoalAdaptiveNonlinearVariationalSolver"]
 
 
 class GoalAdaptiveOptions:
@@ -78,7 +77,6 @@ class GoalAdaptiveOptions:
         at degree :math:`p + \\text{dual\\_extra\\_degree}`). This means
         that the remainder term is instead quadratic in the errors
         z - z_h and u - u_h.
-        Not used by :class:`GoalAdaptiveEigensolver`.
         Defaults to ``False``.
     primal_low_method
         How to obtain the low-degree primal solution when
@@ -91,7 +89,6 @@ class GoalAdaptiveOptions:
         * ``"solve"`` – solve the primal problem independently in the base
           space; the enriched-space solution is used only for the error estimate.
 
-        Not used by :class:`GoalAdaptiveEigensolver`.
     dual_low_method
         How to obtain the low-degree dual solution used in the error estimate.
         Options:
@@ -104,7 +101,6 @@ class GoalAdaptiveOptions:
           this is the most expensive option but produces the most accurate solver-error
           estimate.
 
-        Not used by :class:`GoalAdaptiveEigensolver`.
     write_solution
         Controls when primal and dual solutions are written to VTK files.
 
@@ -157,35 +153,6 @@ class GoalAdaptiveOptions:
         "ksp_type": "cg",
         "pc_type": "jacobi",
     }
-
-
-class GoalAdaptiveEigenOptions(GoalAdaptiveOptions):
-    """Options for :class:`GoalAdaptiveEigensolver`.
-
-    Extends :class:`GoalAdaptiveOptions` with eigenproblem-specific parameters.
-
-    Parameters
-    ----------
-    self_adjoint
-        If ``True``, the eigenproblem is self-adjoint so the dual eigenproblem
-        equals the primal; only one set of eigensolves is performed per
-        iteration.  Defaults to ``False``.
-    nev
-        Number of eigenvalue/eigenvector pairs to compute at each solve.
-        The solver picks the one best correlated with the current eigenfunction
-        estimate via :func:`match_best`.  Defaults to ``5``.
-
-    Notes
-    -----
-    The options ``use_adjoint_residual``, ``primal_low_method``, and
-    ``dual_low_method`` inherited from :class:`GoalAdaptiveOptions` are not
-    used by :class:`GoalAdaptiveEigensolver`.
-    """
-
-    def __init__(self, *args, self_adjoint: bool = False, nev: int = 5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.self_adjoint = self_adjoint
-        self.nev = nev
 
 
 class GoalAdaptiveSolverBase:
@@ -798,208 +765,6 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
             VTKFile(f"{prefix}_dual_solution_{it}.pvd").write(*self.z.subfunctions)
 
 
-class GoalAdaptiveEigensolver(GoalAdaptiveSolverBase):
-    """Solves an eigenvalue problem adaptively to minimise the error in a
-    target eigenvalue.  The goal functional is :math:`J = \\lambda`.
-
-    At each iteration the solver:
-
-    1. Solves the primal (and, if non-self-adjoint, dual) eigenproblem at both
-       degree ``p`` and ``p + dual_extra_degree``.
-    2. Estimates the error in the eigenvalue via the dual-weighted residual
-       formula of Larson & Bengzon.
-    3. Computes cell-wise indicators using the same bubble/cone projection as
-       :class:`GoalAdaptiveNonlinearVariationalSolver`.
-    4. Refines the mesh by Dörfler marking.
-
-    Parameters
-    ----------
-    problem
-        A :class:`~.LinearEigenproblem` on the initial mesh.
-    target
-        Target eigenvalue used by SLEPc for spectral targeting
-        (``eps_target``).
-    tolerance
-        Terminate when ``|eta_h| < tolerance``.
-    goal_adaptive_options
-        Dictionary passed to :class:`GoalAdaptiveEigenOptions`.
-        Key extra entries: ``"self_adjoint"`` (bool) and ``"nev"`` (int).
-    solver_parameters
-        SLEPc solver parameters forwarded to :class:`~.LinearEigensolver`.
-        Do not set ``eps_target`` here; it is set from ``target``.
-    exact_eigenvalue
-        Exact eigenvalue, if known, for computing efficiency indices.
-    """
-
-    def __init__(self,
-                 problem,
-                 target: float,
-                 tolerance: float,
-                 goal_adaptive_options: dict | None = None,
-                 solver_parameters: dict | None = None,
-                 exact_eigenvalue: float | None = None,
-                 ):
-        super().__init__(tolerance, goal_adaptive_options, exact_goal=exact_eigenvalue)
-        self.problem = problem
-        self.target = target
-        self.sp = solver_parameters or {}
-
-        # Set up AdaptiveMeshHierarchy
-        mesh = problem.output_space.mesh()
-        mh, level = get_level(mesh)
-        if mh is None:
-            AdaptiveMeshHierarchy(mesh)
-        else:
-            amh = AdaptiveMeshHierarchy(mh[0])
-            for m in mh[1:level+1]:
-                amh.add_mesh(m)
-
-        self.atm = AdaptiveTransferManager()
-        self._lam_h = None
-
-    def _make_options(self, d):
-        return GoalAdaptiveEigenOptions(**d)
-
-    def solve(self):
-        """Run the adaptive loop and return the eigenvalue and error estimate.
-
-        Returns
-        -------
-        tuple[float, float]
-            ``(lam_h, error_estimate)`` on the finest mesh.
-        """
-        super().solve()
-        return self._lam_h, self.etah_vec[-1]
-
-    def solve_and_estimate(self):
-        """Solve the eigenproblem at two polynomial degrees, match eigenfunctions,
-        and compute a global error estimate for the eigenvalue."""
-        opts = self.options
-        problem = self.problem
-        V = problem.output_space
-        self.Ndofs_vec.append(V.dim())
-        self.print(f"Solving eigenproblem (degree: {V.ufl_element().degree()}, dofs: {V.dim()}) ...")
-
-        sp_target = dict(self.sp)
-        if opts.self_adjoint:
-            sp_target.setdefault("eps_gen_hermitian", None)
-        sp_target["eps_target"] = self.target
-
-        # Solve at degree p
-        lams, vecs = _solve_eigs(problem, opts.nev, sp_target)
-        self._lam_h = lams[0]
-        self._u_h = vecs[0]
-        self.print(f'{"Computed eigenvalue:":40s}{self._lam_h:15.12f}')
-
-        # Solve at degree p + dual_extra_degree (enriched primal)
-        high_problem = _reconstruct_eig_degree(problem, opts.dual_extra_degree)
-        self.print(f"Solving enriched eigenproblem (dofs: {high_problem.output_space.dim()}) ...")
-        lams_p, vecs_p = _solve_eigs(high_problem, opts.nev, sp_target)
-        self._lam_p, self._u_p = match_best(self._u_h, vecs_p, lams_p)
-
-        if opts.self_adjoint:
-            self._z_h = self._u_h
-            self._z_p = self._u_p
-        else:
-            # Adjoint eigenproblem at degree p
-            adj_problem = _make_adjoint_eig_problem(problem)
-            self.print(f"Solving adjoint eigenproblem (dofs: {adj_problem.output_space.dim()}) ...")
-            lamz, zs = _solve_eigs(adj_problem, opts.nev, sp_target)
-            _, self._z_h = match_best(self._u_h, zs, lamz)
-
-            # Adjoint at degree p + dual_extra_degree
-            adj_high = _reconstruct_eig_degree(adj_problem, opts.dual_extra_degree)
-            self.print(f"Solving enriched adjoint eigenproblem (dofs: {adj_high.output_space.dim()}) ...")
-            lamzp, zsp = _solve_eigs(adj_high, opts.nev, sp_target)
-            _, self._z_p = match_best(self._u_h, zsp, lamzp)
-
-        # Dual error representative (UFL expression, may span two spaces)
-        self._z_err = self._z_p - self._z_h
-
-        eta_h, eta = self._estimate_eigenvalue_error()
-        return eta_h, eta
-
-    def _estimate_eigenvalue_error(self):
-        """Compute global error estimate for the eigenvalue (Larson–Bengzon formula)."""
-        from firedrake.assemble import assemble
-        u_h, u_p = self._u_h, self._u_p
-        z_h, z_p = self._z_h, self._z_p
-        lam_h = self._lam_h
-        A = self.problem._original_A
-        M = self.problem._original_M
-
-        # Low-order primal representative in the base space
-        phi_h = Function(u_h.function_space())
-        phi_h.interpolate(u_p)
-        e = u_p - phi_h     # primal enrichment error (UFL expression)
-        e_sigma = u_p - u_h
-
-        if self.options.self_adjoint:
-            sigma_h = 0.5 * float(assemble(inner(e_sigma, e_sigma) * dx))
-            rhs = float(assemble(replace_both_args(A, u_h, e)
-                                 - lam_h * replace_both_args(M, u_h, e)))
-        else:
-            e_adj = z_p - z_h
-            sigma_h = 0.5 * float(assemble(inner(e_sigma, e_adj) * dx))
-            rhs = 0.5 * (
-                float(assemble(replace_both_args(A, u_h, e_adj)))
-                - lam_h * float(assemble(replace_both_args(M, u_h, e_adj)))
-                + float(assemble(replace_both_args(adjoint(A), z_h, e)))
-                - lam_h * float(assemble(replace_both_args(M, z_h, e)))
-            )
-
-        denom = 1.0 - sigma_h
-        eta_h = abs(rhs / denom) if abs(denom) > 1e-14 else float("nan")
-        self.etah_vec.append(eta_h)
-        self.print(f'{"Predicted error:":40s}{eta_h: 15.12e}')
-
-        eta = None
-        if self.goal_exact is not None:
-            eta = abs(self.goal_exact - lam_h)
-            self.eta_vec.append(eta)
-            self.print(f'{"Exact eigenvalue:":40s}{self.goal_exact: 15.12f}')
-            self.print(f'{"True error:":40s}{eta: 15.12e}')
-
-        return eta_h, eta
-
-    def compute_error_indicators(self):
-        """Compute cell/facet residual indicators for the eigenvalue problem."""
-        A = self.problem._original_A
-        M = self.problem._original_M
-        u_h = self._u_h
-        lam_h = self._lam_h
-        z_err = self._z_err
-        # Residual linear form: A(u_h, v) - lam_h * M(u_h, v)
-        _, trial = A.arguments()
-        F_eig = replace(A, {trial: u_h}) - lam_h * replace(M, {trial: u_h})
-        return _compute_residual_indicators(F_eig, z_err, self.options)
-
-    def refine_problem(self, markers):
-        """Refine the mesh and reconstruct the :class:`~.LinearEigenproblem`."""
-        mesh = markers.function_space().mesh()
-        new_mesh = mesh.refine_marked_elements(markers)
-        amh, _ = get_level(mesh)
-        amh.add_mesh(new_mesh)
-        coef_map = {}
-        self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)
-
-    def write_solution(self, it):
-        ws = self.options.write_solution
-        if ws is False:
-            return
-        elif ws is True:
-            should_write = True
-        elif isinstance(ws, Integral):
-            should_write = (it % ws == 0)
-        else:
-            raise ValueError(f"write_solution must be False, True, or a positive integer, got {ws!r}")
-        if should_write:
-            output_dir = self.options.output_dir
-            run_name = self.options.run_name
-            self.print("Writing (primal) eigenfunction ...")
-            VTKFile(f"{output_dir}/{run_name}/{run_name}_eigenfunction_{it}.pvd"
-                    ).write(*self._u_h.subfunctions)
-
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
@@ -1029,144 +794,6 @@ def reconstruct_degree(V, degree):
 def reconstruct_bcs(bcs, V):
     """Reconstruct a list of BCs on a different FunctionSpace."""
     return [bc.reconstruct(V=V, indices=bc._indices) for bc in bcs]
-
-
-def replace_both_args(bilinear_form, trial_coeff, test_coeff):
-    """Substitute both arguments of a bilinear form with coefficients.
-
-    Parameters
-    ----------
-    bilinear_form
-        A UFL bilinear form with two arguments.
-    trial_coeff
-        Coefficient to substitute for the trial (second) argument.
-    test_coeff
-        Coefficient to substitute for the test (first) argument.
-
-    Returns
-    -------
-    ufl.Form
-        A 0-form (scalar integral).
-    """
-    test, trial = bilinear_form.arguments()
-    return replace(bilinear_form, {test: test_coeff, trial: trial_coeff})
-
-
-def l2_normalize(f):
-    """L2-normalise a :class:`~.Function` in place and return it."""
-    from firedrake.assemble import assemble
-    nrm = float(assemble(inner(f, f) * dx)) ** 0.5
-    if nrm > 0:
-        f.assign(f / nrm)
-    return f
-
-
-def match_best(target, candidates, lambdas=None):
-    """Return the candidate best correlated with ``target`` in L2.
-
-    Parameters
-    ----------
-    target
-        Reference :class:`~.Function`.
-    candidates
-        List of candidate :class:`~.Function` objects.
-    lambdas
-        List of associated eigenvalues (optional).
-
-    Returns
-    -------
-    tuple
-        ``(lam, aligned)`` where ``lam`` is the eigenvalue of the best match
-        (or its index if ``lambdas`` is ``None``) and ``aligned`` is a
-        phase/sign-aligned copy of the best candidate in the same space.
-    """
-    from firedrake.assemble import assemble
-    nt = float(assemble(inner(target, target) * dx)) ** 0.5
-    scores = []
-    for i, w in enumerate(candidates):
-        nw = float(assemble(inner(w, w) * dx)) ** 0.5
-        if nw == 0.0:
-            continue
-        c = complex(assemble(inner(target, w) * dx))
-        scores.append((abs(c) / (nt * nw), i, c))
-
-    if not scores:
-        raise RuntimeError("No nonzero candidate found in match_best.")
-
-    scores.sort(key=lambda t: t[0], reverse=True)
-    _, best_i, best_c = scores[0]
-
-    aligned = candidates[best_i].copy(deepcopy=True)
-    if best_c != 0:
-        phase = best_c.conjugate() / abs(best_c)
-        aligned.assign(phase * aligned)
-
-    lam = lambdas[best_i] if lambdas is not None else best_i
-    return lam, aligned
-
-
-def _solve_eigs(problem, nev, solver_parameters):
-    """Solve a :class:`~.LinearEigenproblem` and return L2-normalised eigenpairs.
-
-    Parameters
-    ----------
-    problem
-        :class:`~.LinearEigenproblem` to solve.
-    nev
-        Number of eigenvalue/eigenvector pairs to request.
-    solver_parameters
-        Dictionary of SLEPc solver parameters.
-
-    Returns
-    -------
-    tuple[list, list]
-        ``(eigenvalues, eigenfunctions)`` — both lists have length
-        ``min(nconv, nev)``.
-    """
-    from firedrake import LinearEigensolver
-    es = LinearEigensolver(problem, n_evals=nev, solver_parameters=solver_parameters)
-    nconv = es.solve()
-    lams, vecs = [], []
-    for i in range(min(nconv, nev)):
-        lams.append(es.eigenvalue(i))
-        vr, _ = es.eigenfunction(i)
-        vecs.append(l2_normalize(vr))
-    return lams, vecs
-
-
-def _reconstruct_eig_degree(problem, extra_degree):
-    """Return a new :class:`~.LinearEigenproblem` on a space of degree+extra_degree.
-
-    Uses the original unrestricted forms stored on ``problem._original_A/M/bcs``
-    to avoid double-restricting on the reconstructed problem.
-    """
-    from firedrake import LinearEigenproblem
-    A = problem._original_A
-    M = problem._original_M
-    bcs = problem._original_bcs
-    v, u = A.arguments()
-    V = u.function_space()
-    high_degree = V.ufl_element().degree() + extra_degree
-    V_high = reconstruct_degree(V, high_degree)
-    u_high = TrialFunction(V_high)
-    v_high = TestFunction(V_high)
-    A_high = replace(A, {v: v_high, u: u_high})
-    M_high = replace(M, {M.arguments()[0]: v_high, M.arguments()[1]: u_high})
-    bcs_high = [bc.reconstruct(V=V_high, indices=bc._indices) for bc in bcs]
-    return LinearEigenproblem(A_high, M_high, bcs=bcs_high,
-                              bc_shift=problem.bc_shift, restrict=problem.restrict)
-
-
-def _make_adjoint_eig_problem(problem):
-    """Return the adjoint of a :class:`~.LinearEigenproblem`.
-
-    For a self-adjoint problem this is identical to the primal.
-    """
-    from firedrake import LinearEigenproblem
-    A_adj = adjoint(problem._original_A)
-    return LinearEigenproblem(A_adj, problem._original_M,
-                              bcs=problem._original_bcs,
-                              bc_shift=problem.bc_shift, restrict=problem.restrict)
 
 
 def _compute_residual_indicators(F, z_err, options):
