@@ -1960,6 +1960,18 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
 
     # }}}
 
+    # {{{ PyOP2 migration compat
+
+    # mesh.exterior_facets is now an indexed axis tree
+    @property
+    def unique_markers(self):
+        raise TypeError(
+            "'unique_markers' is not a valid attribute in pyop3, you probably "
+            "have to use 'mesh.facet_markers' instead"
+        )
+
+    # }}}
+
 
 
 # TODO: Have an abstract indexed axis tree mixin type

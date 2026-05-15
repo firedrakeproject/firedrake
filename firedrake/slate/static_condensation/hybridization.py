@@ -172,7 +172,7 @@ class HybridizationPC(SCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh_unique.exterior_facets.unique_markers]
+                markers = [int(x) for x in mesh_unique.facet_markers]
                 dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
@@ -198,6 +198,8 @@ class HybridizationPC(SCBase):
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, KT, pc, self.vidx, self.pidx)
         schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
+
+        breakpoint()
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Cofunction(TraceSpace.dual())
@@ -325,7 +327,7 @@ class HybridizationPC(SCBase):
             # any projections
             unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
             broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
-            unbroken_scalar_data.dat.assign(broken_scalar_data.dat, eager=True, eager_strategy="array")
+            broken_scalar_data.dat.assign(unbroken_scalar_data.dat, eager=True, eager_strategy="array")
 
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
@@ -340,6 +342,7 @@ class HybridizationPC(SCBase):
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
                       "vec_out": (broken_res_hdiv, INC)})
+            breakpoint()
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -383,7 +386,7 @@ class HybridizationPC(SCBase):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.subfunctions[self.pidx]
             unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
-            broken_pressure.dat.assign(unbroken_pressure.dat, eager=True, eager_strategy="array")
+            unbroken_pressure.dat.assign(broken_pressure.dat, eager=True, eager_strategy="array")
 
             # Compute the hdiv projection of the broken hdiv solution
             broken_hdiv = self.broken_solution.subfunctions[self.vidx]
@@ -397,6 +400,8 @@ class HybridizationPC(SCBase):
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
+
+        breakpoint()
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""

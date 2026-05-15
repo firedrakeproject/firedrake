@@ -3299,9 +3299,8 @@ class ExtrudedMeshTopology(MeshTopology):
     @cached_property
     def cell_column_nums(self) -> op3.Dat:
         """The number of each cell up the column."""
-        column_nums = np.repeat(
-            np.arange(self.layers-1, dtype=np.int32),
-            self._base_mesh.num_cells,
+        column_nums = np.concatenate(
+            [np.arange(self.layers-1, dtype=np.int32)]*self._base_mesh.num_cells,
         )
         return op3.Dat(self.cells.materialize(), data=column_nums, constant=True)
 

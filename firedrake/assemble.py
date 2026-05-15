@@ -1643,7 +1643,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             size = utils.single_valued((
                 axes.size for axes in {assignee.row_axes, assignee.column_axes}
             ))
-            expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
+            expr_data = numpy.eye(size, dtype=utils.ScalarType) * self.weight
             expr_buffer = op3.ArrayBuffer(expr_data, constant=True, rank_equal=True)
             expression = op3.Mat(
                 assignee.row_axes.materialize().regionless(),
