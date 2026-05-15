@@ -55,45 +55,27 @@ jobs:
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
-      # Speed up compilation
-      CFLAGS: -O0
+      # We don't need compiler optimisations here that might crash, we just need
+      # firedrake-check to pass
+      PYOP2_CFLAGS: -O0
     steps:
-      # We cannot use the reusable 'install' composite action here because it
-      # breaks the PyPI publishing action so instead we build manually
-
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.branch }}
 
-      - name: Install system dependencies
-        run: |
-            apt-get update
-            apt-get -y install git python3 python3-venv
-            apt-get -y install \
-              $(python3 ./firedrake-repo/scripts/firedrake-configure --show-system-packages)
-
-      - name: Install PETSc
-        run: |
-          git clone --depth 1 \
-            --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-            https://gitlab.com/petsc/petsc.git
-
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8
-          make
-          make check
+      - name: Install Firedrake
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.branch }}
+          base_ref: release
 
       - name: Create sdist
         run: |
+          . venv/bin/activate
           export $(python3 ./firedrake-repo/scripts/firedrake-configure --show-env)
           env
-
-          python3 -m venv venv
-          . venv/bin/activate
-
           pip install build
           python -m build ./firedrake-repo --sdist
 
