@@ -372,7 +372,7 @@ class _SNESContext(object):
         splits = []
         problem = self._problem
         splitter = ExtractSubBlock()
-        for field in fields:
+        for field_num, field in enumerate(fields):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
@@ -442,10 +442,10 @@ class _SNESContext(object):
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx,
-                                     transfer_manager=self.transfer_manager,
-                                     pre_apply_bcs=self.pre_apply_bcs))
+            name = V.name if len(V) == 1 else None
+            field_prefix = f"fieldsplit_{name or field_num}_"
+            options_prefix = f"{self.options_prefix}{field_prefix}"
+            splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod

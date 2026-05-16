@@ -100,7 +100,7 @@ from firedrake.mesh import (  # noqa: F401
 )
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
-    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
     OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
     AdaptiveTransferManager

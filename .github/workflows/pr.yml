@@ -2,7 +2,7 @@ name: Test pull request
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened, edited ]
+    types: [ opened, synchronize, reopened, labeled ]
 
 jobs:
   test:

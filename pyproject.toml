@@ -19,6 +19,8 @@ dependencies = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   # TODO RELEASE
+  # Note that FEniCS may make new minor releases of UFL without warning so we pin
+  # each Firedrake release to a specific UFL minor version (e.g. 2025.3.x)
   "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
   # TODO RELEASE
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
@@ -113,7 +115,8 @@ ci = [
   "networkx",
   "ngsPETSc>=0.2.0",
   "pdf2image",
-  "pygraphviz",
+  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
+  # "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
@@ -132,7 +135,8 @@ docker = [  # Used in firedrake-vanilla container
   "nbval",
   "networkx",
   "pdf2image",
-  "pygraphviz",
+  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
+  # "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
