@@ -84,8 +84,8 @@ class FieldsplitSNES(SNESBase):
     identically to with PCFIELDSPLIT.
 
     If a component subspace of the mixed function space has been given
-    a name then the prefix for the corresponding split will be
-    ``-fieldsplit_splitname_`` instead of ``-fieldsplit_%d_``.
+    a name ``"fsname"`` then the prefix for the corresponding split will
+    be ``-fieldsplit_fsname_`` instead of ``-fieldsplit_%d_``.
 
     See Also
     --------
@@ -118,8 +118,6 @@ class FieldsplitSNES(SNESBase):
         # options for setting up the fieldsplit are "snes_fieldsplit_option"
         outer_prefix = snes.getOptionsPrefix() or ""
         snes_prefix = outer_prefix + 'snes_' + self._prefix
-        # options for each field are "fieldsplit_%d"
-        sub_prefix = outer_prefix + self._prefix
 
         snes_options = PETSc.Options(snes_prefix)
         self.fieldsplit_type = snes_options.getString('type', 'additive')
@@ -164,7 +162,7 @@ class FieldsplitSNES(SNESBase):
                 split_ctx._problem,
                 appctx=split_ctx.appctx,
                 nullspace=split_ctx._nullspace,
-                options_prefix=sub_prefix+str(i))
+                options_prefix=split_ctx.options_prefix)
             for i, split_ctx in enumerate(split_ctxs)
         )
 
