@@ -313,7 +313,10 @@ def coarsen_eigenproblem(problem, self, coefficient_mapping=None):
     orig = problem
     problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
                                            bc_shift=orig.bc_shift, restrict=orig.restrict)
-    orig._fine = problem
+    if self == coarsen:
+        orig._coarse = problem
+    elif self == refine:
+        orig._fine = problem
     return problem
 
 
