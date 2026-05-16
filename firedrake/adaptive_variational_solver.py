@@ -200,6 +200,7 @@ class GoalAdaptiveSolverBase:
                 self.step(it=it)
             except StopIteration:
                 break
+        return self.get_solution_and_error_estimate()
 
     def step(self, it):
         """Execute one SOLVE→ESTIMATE→MARK→REFINE cycle.
@@ -235,9 +236,10 @@ class GoalAdaptiveSolverBase:
         # REFINE
         self.print("Transferring problem to new mesh ...")
         self.refine_problem(markers)
+        return self.get_solution_and_error_estimate()
 
     # ------------------------------------------------------------------
-    # Common machinery (mark + efficiency)
+    # Common machinery (mark + refine + efficiency)
     # ------------------------------------------------------------------
 
     def set_adaptive_cell_markers(self, eta_cell):
@@ -262,6 +264,29 @@ class GoalAdaptiveSolverBase:
             threshold = self.options.dorfler_alpha * emax
             m.dat.data_wo[e.dat.data_ro > threshold] = 1
         return markers
+
+    def refine_problem(self, markers, coef_map=None):
+        """Refine the mesh and reconstruct the problem on the new mesh.
+
+        Parameters
+        ----------
+        markers
+            DG0 Function with value 1 on cells to refine.
+        """
+        for marker in markers.subfunctions:
+            mesh = marker.function_space().mesh()
+            new_mesh = mesh.refine_marked_elements(marker)
+            amh, _ = get_level(mesh)
+            amh.add_mesh(new_mesh)
+        # Reconstruct MeshSequence with the refined meshes
+        mesh = self.problem.u.function_space().mesh()
+        if len(mesh) > 1:
+            new_mesh = type(mesh)([get_level(m)[0][-1] for m in mesh])
+            amh, _ = get_level(mesh)
+            amh.add_mesh(new_mesh)
+        if coef_map is None:
+            coef_map = {}
+        self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)
 
     def compute_efficiency_indices(self, eta_cell, eta_h, eta):
         """Compute and log efficiency indices."""
@@ -312,16 +337,6 @@ class GoalAdaptiveSolverBase:
         -------
         Function
             A DG0 Function of cell-wise indicators (absolute values).
-        """
-        raise NotImplementedError
-
-    def refine_problem(self, markers):
-        """Refine the mesh and reconstruct the problem on the new mesh.
-
-        Parameters
-        ----------
-        markers
-            DG0 Function with value 1 on cells to refine.
         """
         raise NotImplementedError
 
@@ -409,14 +424,8 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
         self._z_lo = None
         self._z_err = None
 
-    def solve(self):
-        """Run the adaptive loop and return the solution and error estimate.
-
-        Each call to :meth:`solve` runs the full SOLVE→ESTIMATE→MARK→REFINE
-        loop (up to ``max_iterations`` times) from the current state of
-        ``problem.u``.  Calling :meth:`solve` a second time continues from the
-        mesh and solution that the first call left behind — the history vectors
-        (``Ndofs_vec``, ``etah_vec``, etc.) are appended rather than reset.
+    def get_solution_and_error_estimate(self):
+        """Return the solution and error estimate.
 
         Returns
         -------
@@ -424,52 +433,9 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
             ``(u_out, error_estimate)`` where ``u_out`` is the solution on the
             finest mesh reached and ``error_estimate`` is the final ``|eta_h|``.
         """
-        super().solve()
         u_out = self.u_high if self.u_high is not None else self.problem.u
         error_estimate = self.etah_vec[-1]
-        self.u_high = None
         return u_out, error_estimate
-
-    def step(self, it=None):
-        """Compute one SOLVE→ESTIMATE→MARK→REFINE step and return the current solution.
-
-        This method is useful for users who want to post-process or inspect the
-        solution at each mesh level without calling the full :meth:`solve` loop.
-
-        Parameters
-        ----------
-        it
-            Mesh level index.  If ``None``, inferred from the current mesh
-            hierarchy level.
-
-        Returns
-        -------
-        tuple[Function, float]
-            ``(u_out, eta_h)`` — the solution and error estimate on the current
-            mesh.  Only returned when the step performed refinement; raises
-            :exc:`StopIteration` otherwise (see below).
-
-        Raises
-        ------
-        StopIteration
-            Raised when the error estimate is below :attr:`tolerance` or the
-            maximum iteration count is reached.  Callers must catch this to
-            detect convergence::
-
-                for it in range(options.max_iterations):
-                    try:
-                        u, eta = solver.step(it)
-                    except StopIteration:
-                        break
-        """
-        if it is None:
-            V = self.problem.u.function_space()
-            _, it = get_level(V.mesh())
-        super().step(it)
-        # Only reached if no StopIteration was raised (i.e. refinement happened)
-        u_out = self.u_high if self.u_high is not None else self.problem.u
-        eta_h = self.etah_vec[-1]
-        return u_out, eta_h
 
     def solve_and_estimate(self):
         """Solve primal and dual, compute global error estimate."""
@@ -811,20 +777,9 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
 
     def refine_problem(self, markers):
         """Adaptively refine the mesh and rediscretise the problem on the refined mesh"""
-        for marker in markers.subfunctions:
-            mesh = marker.function_space().mesh()
-            new_mesh = mesh.refine_marked_elements(marker)
-            amh, _ = get_level(mesh)
-            amh.add_mesh(new_mesh)
-        # Reconstruct MeshSequence with the refined meshes
-        mesh = self.problem.u.function_space().mesh()
-        if len(mesh) > 1:
-            new_mesh = type(mesh)([get_level(m)[0][-1] for m in mesh])
-            amh, _ = get_level(mesh)
-            amh.add_mesh(new_mesh)
-
         coef_map = {}
-        self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)
+        super().refine_problem(markers, coef_map=coef_map)
+
         self.goal_functional = refine(self.goal_functional, refine, coefficient_mapping=coef_map)
         if self.u_exact is not None:
             self.u_exact = refine(self.u_exact, refine, coefficient_mapping=coef_map)
@@ -854,10 +809,9 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
 # Module-level helpers
 # ---------------------------------------------------------------------------
 
-def residual(F, test):
-    """Replace the test function argument of a linear Form."""
-    v, = F.arguments()
-    return replace(F, {v: test})
+def residual(F, *args):
+    """Replace the test function argument of a Form."""
+    return replace(F, dict(zip(F.arguments(), args)))
 
 
 def both(u):

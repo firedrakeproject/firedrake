@@ -162,31 +162,42 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
-    if self == coarsen and hasattr(V, "_coarse") and V._coarse.mesh() == new_mesh:
+    if hasattr(V, "_coarse") and V._coarse.mesh() == new_mesh:
         return V._coarse
-    elif self == refine and hasattr(V, "_fine") and V._fine.mesh() == new_mesh:
-        return V._fine
-
     # Get the parent name
     V_parent = V
-    if self == coarsen:
-        while hasattr(V_parent, "_fine") and V_parent._fine:
-            V_parent = V_parent._fine
-    elif self == refine:
-        while hasattr(V_parent, "_coarse") and V_parent._coarse:
-            V_parent = V_parent._coarse
+    while hasattr(V_parent, "_fine") and V_parent._fine:
+        V_parent = V_parent._fine
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
-
+    # Reconstruct the space
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    if self == coarsen:
-        V_new._fine = V
-        V._coarse = V_new
-    elif self == refine:
-        V_new._coarse = V
-        V._fine = V_new
+    V_new._fine = V
+    V._coarse = V_new
+    return V_new
+
+
+@refine.register(firedrake.functionspaceimpl.WithGeometryBase)
+def refine_function_space(V, self, coefficient_mapping=None):
+    # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
+    mesh = V.mesh() if V.index is None else V.parent.mesh()
+    new_mesh = self(mesh, self)
+    if hasattr(V, "_fine") and V._fine.mesh() == new_mesh:
+        return V._fine
+    # Get the parent name
+    V_parent = V
+    while hasattr(V_parent, "_coarse") and V_parent._coarse:
+        V_parent = V_parent._coarse
+    name = V_parent.name
+    if name is not None:
+        mh, level = utils.get_level(new_mesh)
+        name = f"{name}_level_{level}"
+    # Reconstruct the space
+    V_new = V.reconstruct(mesh=new_mesh, name=name)
+    V_new._coarse = V
+    V._fine = V_new
     return V_new
 
 
