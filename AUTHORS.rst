@@ -108,7 +108,7 @@ Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
 Tuomas Kärnä
 
-Michael Lange.................<https://www.linkedin.com/in/michael-lange-56675994/>
+Michael Lange
 
 Nicolas Loriant
 

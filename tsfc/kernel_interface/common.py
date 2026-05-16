@@ -346,6 +346,10 @@ def set_quad_rule(params, cell, integral_type, functions):
         finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         if any(c.is_macrocell() for c in fiat_cells):
+            if len(set(c.get_spatial_dimension() for c in fiat_cells)) > 1:
+                dimension = fiat_cell.get_dimension()
+                fiat_cells = [c if c.get_dimension() == dimension else
+                              c.construct_subcomplex(dimension) for c in fiat_cells]
             fiat_cell = max_complex(fiat_cells)
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         quad_rule = fem.get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme)

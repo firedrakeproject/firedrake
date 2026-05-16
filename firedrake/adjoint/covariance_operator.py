@@ -669,7 +669,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
         return self._rngs
 
     def sample(self, rng=None, tensor=None):
-        tensor = tensor or Function(self.function_space)
+        tensor = tensor or Function(self.function_space())
         for cov, tsub, rsub in zip(self.subcovariances,
                                    tensor.subfunctions,
                                    rng or self.rng()):

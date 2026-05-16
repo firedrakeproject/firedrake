@@ -53,6 +53,7 @@ SERIAL_DEMOS = [
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
     Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
+    Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
     Demo(('goal_based_adaptivity_bvp', 'goal_based_adaptivity_bvp'), ["netgen"]),
 ]
 PARALLEL_DEMOS = [

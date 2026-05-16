@@ -119,10 +119,9 @@ ensure that these system dependencies are in place. Some of the dependencies
 downloaded by PETSc ``configure`` by passing additional flags like
 ``--download-mpich`` or ``--download-openblas`` (run ``./configure --help | less`` to
 see what is available). To give you a guide as to what system dependencies are
-needed, on Ubuntu they are:
+needed, on Ubuntu they are::
 
-.. literalinclude:: minimal_apt_deps.txt
-   :language: text
+   build-essential flex gfortran git ninja-build pkg-config python3-dev python3-pip
 
 .. _install_petsc:
 
@@ -157,15 +156,15 @@ do the following steps:
 If you are using one of the
 :ref:`officially supported distributions<supported_systems>` then these configure
 options will include paths to system packages so PETSc can correctly find and
-link against them. If you are not then you should pass the ``--no-package-manager``
+link against them. If you are not then you should pass the ``--os unknown``
 flag to obtain a set of configure options where ``firedrake-configure``
 pessimistically assumes that no external packages are available, and hence need
 to be downloaded and compiled from source::
 
-   $ python3 ../firedrake-configure --no-package-manager --show-petsc-configure-options | xargs -L1 ./configure
+   $ python3 ../firedrake-configure --os unknown --show-petsc-configure-options | xargs -L1 ./configure
 
 For the default build, running ``firedrake-configure`` with
-``--no-package-manager`` will produce the flags:
+``--os unknown`` will produce the flags:
 
 .. literalinclude:: petsc_configure_options.txt
    :language: text
