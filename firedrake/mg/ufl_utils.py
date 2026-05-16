@@ -64,18 +64,28 @@ def coarsen(expr, self, coefficient_mapping=None):
     return expr
 
 
+@singledispatch
+def refine(expr, self, coefficient_mapping=None):
+    # Most coarsen_ handlers will simply reconstruct the expression tree.
+    # And very few of them branch on `self == coarsen` vs `self == refine`
+    # to handle both directions.  Delegating here lets those shared handlers do
+    # the right thing when called via `refine(...)`.
+    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)
+
+
 @coarsen.register(ufl.Mesh)
 @coarsen.register(ufl.MeshSequence)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
         raise CoarseningError("No mesh hierarchy available")
-    return hierarchy[level - 1]
+    level_increment = -1 if self == coarsen else 1
+    return hierarchy[level + level_increment]
 
 
 @coarsen.register(ufl.BaseForm)
 @coarsen.register(ufl.classes.Expr)
-def coarse_expr(expr, self, coefficient_mapping=None):
+def coarsen_expr(expr, self, coefficient_mapping=None):
     if expr is None:
         return None
     mapper = CoarsenIntegrand(self, coefficient_mapping)
@@ -156,15 +166,20 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
         return V._coarse
     elif self == refine and hasattr(V, "_fine") and V._fine.mesh() == new_mesh:
         return V._fine
-    name = V.name
+
+    # Get the parent name
+    V_parent = V
+    if self == coarsen:
+        while hasattr(V_parent, "_fine") and V_parent._fine:
+            V_parent = V_parent._fine
+    elif self == refine:
+        while hasattr(V_parent, "_coarse") and V_parent._coarse:
+            V_parent = V_parent._coarse
+    name = V_parent.name
     if name is not None:
-        level_increment = -1 if self == coarsen else 1
-        try:
-            name, prev_level = name.split("_level_")
-        except ValueError:
-            prev_level = 0
-        level = int(prev_level) + level_increment
+        mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
+
     V_new = V.reconstruct(mesh=new_mesh, name=name)
     if self == coarsen:
         V_new._fine = V
@@ -182,23 +197,27 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        Vf = expr.function_space()
-        Vc = self(Vf, self)
+        V = expr.function_space()
+        Vnew = self(V, self)
         name = expr.name()
         if name is not None:
-            level_increment = -1 if self == coarsen else 1
             try:
                 name, prev_level = name.split("_level_")
             except ValueError:
                 prev_level = 0
+            level_increment = -1 if self == coarsen else 1
             level = int(prev_level) + level_increment
             name = f"{name}_level_{level}"
-        new = firedrake.Function(Vc, name=name)
-        manager = get_transfer_manager(Vf.dm)
-        if is_dual(expr):
-            manager.restrict(expr, new)
+
+        new = firedrake.Function(Vnew, name=name)
+        manager = get_transfer_manager(V.dm)
+        if self == coarsen:
+            if is_dual(expr):
+                manager.restrict(expr, new)
+            else:
+                manager.inject(expr, new)
         else:
-            manager.inject(expr, new)
+            new.interpolate(expr)
         coefficient_mapping[expr] = new
     return new
 
@@ -260,6 +279,30 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         orig._coarse = problem
     elif self == refine:
         orig._fine = problem
+    return problem
+
+
+@coarsen.register(firedrake.LinearEigenproblem)
+def coarsen_eigenproblem(problem, self, coefficient_mapping=None):
+    # Have we done this already?
+    mh, _ = utils.get_level(problem.output_space().mesh())
+    if self == coarsen and hasattr(problem, "_coarse"):
+        if mh is utils.get_level(problem._coarse.output_space.mesh())[0]:
+            return problem._coarse
+    elif self == refine and hasattr(problem, "_fine"):
+        if mh is utils.get_level(problem._fine.output_space.mesh())[0]:
+            return problem._fine
+
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
+           for bc in problem._original_bcs]
+    A = self(problem._original_A, self, coefficient_mapping=coefficient_mapping)
+    M = self(problem._original_M, self, coefficient_mapping=coefficient_mapping)
+    orig = problem
+    problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
+                                           bc_shift=orig.bc_shift, restrict=orig.restrict)
+    orig._fine = problem
     return problem
 
 
@@ -416,66 +459,6 @@ def coarsen_slate_tensor(tensor, self, coefficient_mapping=None):
 def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
     children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
     return type(tensor)(*children)
-
-
-@singledispatch
-def refine(expr, self, coefficient_mapping=None):
-    # Many coarsen_* handlers already branch on `self == coarsen` vs `self == refine`
-    # to handle both directions.  Delegating here lets those shared handlers do
-    # the right thing when called via `refine(...)`.
-    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)
-
-
-@refine.register(ufl.Mesh)
-@refine.register(ufl.MeshSequence)
-def refine_mesh(mesh, self, coefficient_mapping=None):
-    hierarchy, level = utils.get_level(mesh)
-    if hierarchy is None:
-        raise CoarseningError("No mesh hierarchy available")
-    return hierarchy[level + 1]
-
-
-@refine.register(firedrake.Cofunction)
-@refine.register(firedrake.Function)
-def refine_function(expr, self, coefficient_mapping=None):
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    new = coefficient_mapping.get(expr)
-    if new is None:
-        Vf = expr.function_space()
-        Vc = self(Vf, self)
-        name = expr.name()
-        if name is not None:
-            level_increment = -1 if self == coarsen else 1
-            try:
-                name, prev_level = name.split("_level_")
-            except ValueError:
-                prev_level = 0
-            level = int(prev_level) + level_increment
-            name = f"{name}_level_{level}"
-            new = firedrake.Function(Vc, name=name)
-        new.interpolate(expr)
-        coefficient_mapping[expr] = new
-    return new
-
-
-@refine.register(firedrake.LinearEigenproblem)
-def refine_eigenproblem(problem, self, coefficient_mapping=None):
-    if hasattr(problem, "_fine"):
-        mh, _ = utils.get_level(problem.output_space.mesh())
-        if mh is utils.get_level(problem._fine.output_space.mesh())[0]:
-            return problem._fine
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
-           for bc in problem._original_bcs]
-    A = self(problem._original_A, self, coefficient_mapping=coefficient_mapping)
-    M = self(problem._original_M, self, coefficient_mapping=coefficient_mapping)
-    orig = problem
-    problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
-                                           bc_shift=orig.bc_shift, restrict=orig.restrict)
-    orig._fine = problem
-    return problem
 
 
 class Interpolation(object):

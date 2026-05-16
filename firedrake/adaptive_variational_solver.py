@@ -850,7 +850,6 @@ class GoalAdaptiveNonlinearVariationalSolver(GoalAdaptiveSolverBase):
             VTKFile(f"{prefix}_dual_solution_{it}.pvd", comm=comm).write(*self.z.subfunctions)
 
 
-
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
