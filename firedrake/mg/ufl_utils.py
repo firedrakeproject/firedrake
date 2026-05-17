@@ -66,10 +66,10 @@ def coarsen(expr, self, coefficient_mapping=None):
 
 @singledispatch
 def refine(expr, self, coefficient_mapping=None):
-    # Most coarsen_ handlers will simply reconstruct the expression tree.
-    # And very few of them branch on `self == coarsen` vs `self == refine`
-    # to handle both directions.  Delegating here lets those shared handlers do
-    # the right thing when called via `refine(...)`.
+    # Most coarsen handlers will simply reconstruct the expression tree.  And
+    # very few of them branch on coarsen vs refine to handle both directions.
+    # Delegating here lets those shared handlers do the right thing when called
+    # via `refine(...)`.
     return coarsen(expr, self, coefficient_mapping=coefficient_mapping)
 
 
@@ -79,8 +79,16 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
         raise CoarseningError("No mesh hierarchy available")
-    level_increment = -1 if self == coarsen else 1
-    return hierarchy[level + level_increment]
+    return hierarchy[level - 1]
+
+
+@refine.register(ufl.Mesh)
+@refine.register(ufl.MeshSequence)
+def refine_mesh(mesh, self, coefficient_mapping=None):
+    hierarchy, level = utils.get_level(mesh)
+    if hierarchy is None:
+        raise CoarseningError("No mesh hierarchy available")
+    return hierarchy[level + 1]
 
 
 @coarsen.register(ufl.BaseForm)
@@ -216,19 +224,39 @@ def coarsen_function(expr, self, coefficient_mapping=None):
                 name, prev_level = name.split("_level_")
             except ValueError:
                 prev_level = 0
-            level_increment = -1 if self == coarsen else 1
-            level = int(prev_level) + level_increment
+            level = int(prev_level) - 1
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
         manager = get_transfer_manager(V.dm)
-        if self == coarsen:
-            if is_dual(expr):
-                manager.restrict(expr, new)
-            else:
-                manager.inject(expr, new)
+        if is_dual(expr):
+            manager.restrict(expr, new)
         else:
-            new.interpolate(expr)
+            manager.inject(expr, new)
+        coefficient_mapping[expr] = new
+    return new
+
+
+@refine.register(firedrake.Cofunction)
+@refine.register(firedrake.Function)
+def refine_function(expr, self, coefficient_mapping=None):
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    new = coefficient_mapping.get(expr)
+    if new is None:
+        V = expr.function_space()
+        Vnew = self(V, self)
+        name = expr.name()
+        if name is not None:
+            try:
+                name, prev_level = name.split("_level_")
+            except ValueError:
+                prev_level = 0
+            level = int(prev_level) + 1
+            name = f"{name}_level_{level}"
+
+        new = firedrake.Function(Vnew, name=name)
+        new.interpolate(expr)
         coefficient_mapping[expr] = new
     return new
 
