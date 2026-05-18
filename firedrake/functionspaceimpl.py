@@ -648,20 +648,17 @@ class AbstractFunctionSpace:
     @property
     @abc.abstractmethod
     def section(self) -> PETSc.Section:
-        """Docs"""
+        """Deprecated, prefer local section"""
 
     @property
-    @deprecated("section")
     def local_section(self):
         return self.section
 
     @cached_property
     @deprecated("axes.template_vec")
     def template_vec(self):
-        if len(self) > 1:
-            return self.layout_axes.template_vec(())
-        else:
-            return self.layout_axes.template_vec(self.shape)
+        block_shape = self.shape if len(self) == 1 else ()
+        return self.layout_axes.template_vec(block_shape)
 
     @cached_method()
     def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
@@ -1360,6 +1357,7 @@ class FunctionSpace(AbstractFunctionSpace):
         is_.setBlockSize(self.block_size)
         return (is_,)
 
+    # TODO: rename local section
     @cached_property
     @_mesh_cached
     def section(self):

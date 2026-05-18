@@ -805,6 +805,23 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     def with_region_labels(self, *args, **kwargs) -> Self:
         pass
 
+
+    @property
+    @abc.abstractmethod
+    def buffer_slice(self) -> slice | np.ndarray:
+        """Indices of the buffer entries corresponding to this axis tree."""
+
+    @property
+    @abc.abstractmethod
+    def buffer_size(self) -> int:
+        """The number of entries that a buffer built on this axis tree would have.
+
+        Since an axis tree may contain degenerate entries (entries that map to the
+        same offsets), this size may be less than the size of the tree itself.
+
+        """
+
+
     # }}}
 
     @cached_property
@@ -1211,11 +1228,6 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
 
-    @property
-    @abc.abstractmethod
-    def _buffer_indices(self) -> slice | np.ndarray[IntType]:
-        pass
-
     def _alloc_size(self, axis=None):
         if self.is_empty:
             pyop3.debug.warn_todo("think about zero-sized things, should this be allowed?")
@@ -1263,15 +1275,11 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     def template_vec(self, block_shape: tuple[int, ...]) -> PETSc.Vec:
         """Dummy PETSc Vec of the right size for this set of axes."""
         vec = PETSc.Vec().create(comm=self.comm)
-        axes = self.materialize()  # discard parent information
-
         # As far as PETSc is concerned, the only DoFs that it knows about are those
         # held in the first region (which is 'owned' + 'unconstrained').
+        size = self.free.buffer_size
         block_size = np.prod(block_shape, dtype=int)
-        vec.setSizes(
-            (axes.free.local_size, axes.free.global_size),
-            bsize=block_size,
-        )
+        vec.setSizes((size, None), bsize=block_size)
         vec.setUp()
         return vec
 
@@ -1286,6 +1294,14 @@ class _UnitAxisTree(AbstractUnitAxisTree):
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet()
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer_slice = slice(0, 1, 1)
+
+    buffer_size = 1
 
     # }}}
 
@@ -1584,10 +1600,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
 
         return compute_layouts(self)
 
-    @cached_property
-    def _buffer_indices(self) -> slice:
+    @property
+    def buffer_slice(self) -> slice:
         assert isinstance(self.local_size, numbers.Integral)
         return slice(self.local_size)
+
+    @property
+    def buffer_size(self) -> int:
+        return self.local_size
 
     # This is a PETSc-specific attribute
     @cached_property
@@ -1925,6 +1945,12 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
         if len(indices) > 0:
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
+        return indices
+
+    @cached_property
+    def buffer_slice(self) -> slice | np.ndarray[int]:
+        indices = self._buffer_indices
+
         # then convert to a slice if possible, do in Cython?
         slice_ = None
         n = len(indices)
@@ -1944,6 +1970,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
                     return indices
 
             return slice(indices[0], indices[-1]+1, step)
+
+    @property
+    def buffer_size(self) -> int:
+        return self._buffer_indices.size
 
     # {{{ parallel
 
@@ -1984,10 +2014,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
     unindexed: AxisTree
     _targets: Any
 
-    def collect_buffers(self, visitor):
-        raise NotImplementedError
-        return visitor(self.unindexed)
-
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         targets_key = {}
         for path, targetss in self._targets.items():
@@ -2019,6 +2045,16 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
 
     def __post_init__(self) -> None:
         pass
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def buffer_slice(self):
+        raise NotImplementedError
+
+    buffer_size = 1
 
     # }}}
 
@@ -2220,6 +2256,10 @@ class AxisForest(AbstractAxisTreeLike):
 
     # }}}
 
+    def __str__(self, /) -> str:
+        sep = f"\n{'*'*10}\n"
+        return sep.join(map(str, self.trees))
+
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
 
@@ -2381,8 +2421,12 @@ class AxisForest(AbstractAxisTreeLike):
         return type(self)(new_trees)
 
     @property
-    def _buffer_indices(self):
-        return self.trees[0]._buffer_indices
+    def buffer_slice(self):
+        return utils.single_valued(t.buffer_slice for t in self.trees)
+
+    @property
+    def buffer_size(self) -> int:
+        return utils.single_valued(t.buffer_size for t in self.trees)
 
 
 @pyop3.record.frozenrecord()

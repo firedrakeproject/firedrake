@@ -328,8 +328,8 @@ class Mat(Tensor):
                     assert isinstance(context, pyop3.expr.tensor.ColumnDatPythonMatContext) 
                     return values.reshape((1, -1))
             else:
-                row_indices = self.row_axes.with_region_labels(regions)._buffer_indices
-                column_indices = self.column_axes.with_region_labels(regions)._buffer_indices
+                row_indices = self.row_axes.with_region_labels(regions).buffer_slice
+                column_indices = self.column_axes.with_region_labels(regions).buffer_slice
                 return mat[row_indices, column_indices]
         else:
             raise NotImplementedError

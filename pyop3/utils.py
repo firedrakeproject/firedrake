@@ -151,8 +151,27 @@ def split_at(iterable, index):
     return iterable[:index], iterable[index:]
 
 
-single_valued = pytools.single_valued
-is_single_valued = pytools.is_single_valued
+def single_valued(iterable):
+    items = iter(iterable)
+    try:
+        first = next(items)
+    except StopIteration:
+        raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
+
+    for item in items:
+        if not safe_equals(first, item):
+            raise RuntimeError
+
+    return first
+
+
+def is_single_valued(iterable):
+    try:
+        single_valued(iterable)
+    except RuntimeError as e:
+        return False
+    else:
+        return True
 
 
 def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:

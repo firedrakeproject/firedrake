@@ -432,13 +432,13 @@ class Dat(Tensor):
                 array = self.buffer.data_rw
 
         if include_ghosts:  # TODO: this is now unclear, really is all constrained DoFs
-            indices = self.axes._buffer_indices
+            indices = self.axes.buffer_slice
         else:
             from pyop3.axis_tree.visitors.layout import _collect_regions
             region_selector = _collect_regions(self.axes)[0]
             if isinstance(region_selector, str):
                 region_selector = frozenset({region_selector})
-            indices = self.axes.with_region_labels(region_selector)._buffer_indices
+            indices = self.axes.with_region_labels(region_selector).buffer_slice
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)
@@ -494,7 +494,7 @@ class Dat(Tensor):
 
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
-        is_view = isinstance(self.axes.owned._buffer_indices, slice)
+        is_view = isinstance(self.axes.owned.buffer_slice, slice)
 
         assert is_view
 
