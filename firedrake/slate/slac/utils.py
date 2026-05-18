@@ -1,6 +1,8 @@
 from collections import OrderedDict
 
-from ufl.corealg.multifunction import MultiFunction
+from ufl.corealg.dag_traverser import DAGTraverser
+from ufl.classes import Expr, PositiveRestricted
+from ufl.form import BaseForm
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  Solve, Inverse, Variable, view, Delta, Index, Division)
@@ -8,7 +10,7 @@ from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
 
-from functools import singledispatch
+from functools import singledispatch, singledispatchmethod
 import firedrake.slate.slate as sl
 import loopy as lp
 from loopy.transform.callable import merge
@@ -18,13 +20,22 @@ from tsfc.loopy import profile_insns
 from petsc4py import PETSc
 
 
-class RemoveRestrictions(MultiFunction):
-    """UFL MultiFunction for removing any restrictions on the
+class RemoveRestrictions(DAGTraverser):
+    """UFL DAGTraverser for removing any restrictions on the
     integrals of forms.
     """
-    expr = MultiFunction.reuse_if_untouched
 
-    def positive_restricted(self, o):
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
+
+    @process.register(Expr)
+    @process.register(BaseForm)  # type: ignore
+    def _(self, o):
+        return self.reuse_if_untouched(o)
+
+    @process.register(PositiveRestricted)
+    def _(self, o):
         return self(o.ufl_operands[0])
 
 
