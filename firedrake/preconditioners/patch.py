@@ -289,12 +289,6 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
             unpack_insn = (
                 f"MatSetValues(J, {row_size}, &(activeDofsArray[{row_size}*i]), {column_size}, &(activeDofsArray[{column_size}*i]), {temp_name}, ADD_VALUES);"
             )
-#             unpack_insn = f"""\
-# for (int ii=0; ii<{row_size}; ii++)
-#   for (int jj=0; jj<{column_size}; jj++)
-#     printf("%f ", {temp_name}[{column_size}*ii+jj]);
-# printf("\\n");
-# MatSetValues(J, {row_size}, &(activeDofsArray[{row_size}*i]), {column_size}, &(activeDofsArray[{column_size}*i]), {temp_name}, ADD_VALUES);"""
         else:
             size, = sizes
 

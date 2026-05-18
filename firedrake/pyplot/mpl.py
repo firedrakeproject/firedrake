@@ -20,14 +20,14 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry, get_iteration_spec
+                       SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
 
 __all__ = [
-    "plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
+    "plot", "triplot", "scatter", "tricontourf", "tricontour", "trisurf", "tripcolor",
     "quiver", "streamplot", "FunctionPlotter"
 ]
 
@@ -84,6 +84,72 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
+def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
+    r"""Plot a 2D or 3D :func:`.VertexOnlyMesh` as a scatter plot.
+
+    Parameters
+    ----------
+    vom_or_function
+        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
+        If a :class:`~.Function` is provided, its values are used to colour the points.
+    axes
+        The axes on which to plot. If not provided, the current active axes are used.
+    **kwargs
+        Additional keyword arguments passed to :meth:`matplotlib.axes.Axes.scatter`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The scatter plot artist.
+    """
+    is_vom = isinstance(vom_or_function, MeshGeometry) and isinstance(vom_or_function.topology, VertexOnlyMeshTopology)
+    is_function_on_vom = isinstance(vom_or_function, Function) and isinstance(vom_or_function.function_space().mesh().topology, VertexOnlyMeshTopology)
+
+    if not (is_vom or is_function_on_vom):
+        raise TypeError("Expected a VertexOnlyMesh or a Function defined on one.")
+
+    if isinstance(vom_or_function, Function):
+        if len(vom_or_function.ufl_shape) == 0:
+            # scalar field: colour points by value
+            kwargs["c"] = vom_or_function.dat.data_ro
+        elif len(vom_or_function.ufl_shape) == 1:
+            # vector field: use quiver instead
+            raise ValueError("Expected a scalar-valued Function. Use quiver to plot vector-valued Functions.")
+        else:
+            raise ValueError(
+                f"Cannot plot a rank-{len(vom_or_function.ufl_shape)} tensor field; "
+                "only scalar-valued Functions are supported by this method. "
+                "For vector-valued Functions, use quiver.")
+        vom = vom_or_function.function_space().mesh()
+    else:
+        vom = vom_or_function
+
+    if vom.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    gdim = vom.geometric_dimension
+    coords = toreal(vom.coordinates.dat.data_ro_with_halos, "real")
+
+    if axes is None:
+        fig = plt.figure()
+        if gdim == 3:
+            axes = fig.add_subplot(111, projection="3d")
+        elif gdim == 2:
+            axes = fig.add_subplot(111)
+        else:
+            raise ValueError("Scatter is only supported for 2D and 3D meshes.")
+
+    kwargs.setdefault("zorder", 5)  # this makes sure that points are drawn on top of the parent mesh lines
+    kwargs.setdefault("s", 10)  # controls scatter dot size
+    kwargs.setdefault("c", "red")  # default colour if no function provided
+
+    collection = axes.scatter(*(coords.T), **kwargs)
+
+    _autoscale_view(axes, coords)
+    return collection
+
+
+@PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
@@ -100,6 +166,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
     :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
@@ -182,6 +251,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
+
     for marker, color in zip(markers, colors):
         vertices = []
         for typ in ["interior", "exterior"]:
@@ -213,6 +283,10 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
     Q = function.function_space()
     mesh = Q.mesh()
+
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
@@ -320,6 +394,10 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
     Q = function.function_space()
     mesh = Q.mesh()
+
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     if mesh.geometric_dimension == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
     _kwargs.update({"shade": False})
@@ -337,14 +415,23 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 
 @PETSc.Log.EventDecorator()
-def quiver(function, *, complex_component="real", **kwargs):
-    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
+def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`.
 
-    :arg function: the vector field to plot
-    :kwarg complex_component: If plotting complex data, which
-        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
-    :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
-    :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
+    Parameters
+    ----------
+    function
+        The 2D vector field to plot.
+    complex_component
+        Which component to plot if the data is complex. Either ``'real'``
+        or ``'imag'``. Defaults to ``'real'``.
+    **kwargs
+        Additional keyword arguments passed to :func:`matplotlib.pyplot.quiver`.
+
+    Returns
+    -------
+    matplotlib.quiver.Quiver
+        The quiver plot artist.
     """
     if function.ufl_shape != (2,):
         raise ValueError("Quiver plots only defined for 2D vector fields!")
@@ -354,10 +441,18 @@ def quiver(function, *, complex_component="real", **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = toreal(extract_unique_domain(function).coordinates.dat.data_ro, "real")
-    V = extract_unique_domain(function).coordinates.function_space()
-    function_interp = assemble(interpolate(function, V))
-    vals = toreal(function_interp.dat.data_ro, complex_component)
+    mesh = function.function_space().mesh()
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    coords = toreal(mesh.coordinates.dat.data_ro, "real")
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        vals = toreal(function.dat.data_ro, complex_component)
+    else:
+        V = mesh.coordinates.function_space()
+        function_interp = assemble(interpolate(function, V))
+        vals = toreal(function_interp.dat.data_ro, complex_component)
+
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
@@ -389,6 +484,9 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
@@ -613,12 +711,15 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     if function.ufl_shape != (2,):
         raise ValueError("Streamplot only defined for 2D vector fields!")
 
+    mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    mesh = extract_unique_domain(function)
     if resolution is None:
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
@@ -739,6 +840,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     :arg kwargs: same as for matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
+
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -752,6 +854,9 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     for ii, line in enumerate([function, *args]):
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
+
+        if extract_unique_domain(line).comm.size > 1:
+            raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
         if extract_unique_domain(line).geometric_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "

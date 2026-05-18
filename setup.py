@@ -9,10 +9,10 @@ from glob import glob
 from pathlib import Path
 
 import libsupermesh
+import firedrake_rtree
 import numpy as np
 import pybind11
 import petsctools
-import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
@@ -21,8 +21,7 @@ from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
 # Ensure that the PETSc getting linked against is compatible
-# TODO RELEASE set to ">=3.25"
-petsctools.init(version_spec=">=3.23.0")
+petsctools.init(version_spec=">=3.25.0")
 import petsc4py
 
 
@@ -121,24 +120,20 @@ else:
     # Set the library name and hope for the best
     hdf5_ = ExternalDependency(libraries=["hdf5"])
 
-# When we link against spatialindex or libsupermesh we need to know where
+# When we link against firedrake-rtree or libsupermesh we need to know where
 # the '.so' files end up. Since installation happens in an isolated
-# environment we cannot simply query rtree and libsupermesh for the
+# environment we cannot simply query firedrake-rtree and libsupermesh for the
 # current paths as they will not be valid once the installation is complete.
 # Therefore we set the runtime library search path to all the different
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
-# libspatialindex
-# example:
-# gcc -I/rtree/include
-# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
-libspatialindex_so = Path(rtree.core.rt._name).absolute()
-spatialindex_ = ExternalDependency(
-    include_dirs=[rtree.finder.get_include()],
-    extra_link_args=[str(libspatialindex_so)],
+# firedrake_rtree
+rtree_ = ExternalDependency(
+    include_dirs=[firedrake_rtree.get_include()],
+    extra_link_args=[firedrake_rtree.get_lib_filename()],
     runtime_library_dirs=[
-        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+        os.path.join(dir, "firedrake_rtree") for dir in sitepackage_dirs
     ],
 )
 
@@ -197,12 +192,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/spatialindex.pyx: numpy, spatialindex
+    # firedrake/cython/rtree.pyx: numpy, rtree-capi
     cython_list.append(Extension(
-        name="firedrake.cython.spatialindex",
+        name="firedrake.cython.rtree",
         language="c",
-        sources=[os.path.join("firedrake", "cython", "spatialindex.pyx")],
-        **(mpi_ + numpy_ + spatialindex_)
+        sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
+        **(mpi_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
@@ -252,6 +247,7 @@ FIREDRAKE_CHECK_FILES = (
     "tests/firedrake/regression/test_dg_advection.py",
     "tests/firedrake/regression/test_interpolate_cross_mesh.py",
     "tests/firedrake/output/test_io_function.py",
+    "tests/firedrake/offload/test_poisson_offloading_pc.py",
 )
 
 

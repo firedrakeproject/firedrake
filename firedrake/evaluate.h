@@ -20,8 +20,8 @@ struct Function {
 	PetscInt *f_map;
 	int f_offset;
 
-	/* Spatial index */
-	void *sidx;
+	/* rtree */
+	void *rtree;
 
 	/*
 	 * TODO:

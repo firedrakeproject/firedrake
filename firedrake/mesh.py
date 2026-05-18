@@ -23,11 +23,12 @@ import numbers
 from functools import cache, cached_property
 import abc
 from immutabledict import immutabledict as idict
-import rtree
+from typing import Iterable, Optional, Union
+import firedrake_rtree
 from textwrap import dedent
 from pathlib import Path
 import typing
-from typing import Iterable, Optional, Union
+import warnings
 
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
@@ -44,10 +45,10 @@ import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.cython.spatialindex as spatialindex
+import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
-from firedrake.logging import info_red, logger
+from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
@@ -3781,7 +3782,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.submesh_parent = None
 
         self._bounding_box_coords = None
-        self._spatial_index = None
+        self._rtree = None
         self._saved_coordinate_dat_version = coordinates.dat.buffer.state.copy()
 
         self._cache = {}
@@ -3861,8 +3862,8 @@ values from f.)"""
 
         Notes
         -----
-        After changing tolerance any requests for :attr:`spatial_index` will cause
-        the spatial index to be rebuilt with the new tolerance which may take some time.
+        After changing tolerance any requests for :attr:`rtree` will cause
+        the rtree to be rebuilt with the new tolerance which may take some time.
         """
         return self._tolerance
 
@@ -3871,28 +3872,25 @@ values from f.)"""
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
-            self.clear_spatial_index()
+            self.clear_rtree()
             self._tolerance = value
 
-    def clear_spatial_index(self):
-        """Reset the :attr:`spatial_index` on this mesh geometry.
+    def clear_rtree(self):
+        """Reset the :attr:`rtree` on this mesh geometry.
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        self._spatial_index = None
+        self._rtree = None
 
     @cached_property
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """Calculates bounding boxes for spatial indexing.
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculates bounding boxes for the mesh rtree.
 
         Returns
         -------
         Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
-
-        None if the geometric dimension is 1, since libspatialindex
-        does not support 1D.
 
         Notes
         -----
@@ -3903,11 +3901,6 @@ values from f.)"""
         """
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ
-
-        gdim = self.geometric_dimension
-        if gdim <= 1:
-            info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
-            return None
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
@@ -3943,7 +3936,7 @@ values from f.)"""
             return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -3952,7 +3945,7 @@ values from f.)"""
 
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
+        domain = f"{{[d, i]: 0 <= d < {self.geometric_dimension} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
@@ -3971,20 +3964,19 @@ values from f.)"""
 
     @property
     @PETSc.Log.EventDecorator()
-    def spatial_index(self):
-        """Builds spatial index from bounding box coordinates, expanding
-        the bounding box by the mesh tolerance.
+    def rtree(self):
+        """Builds an rtree from bounding box coordinates, expanding
+        the bounding boxes by the mesh tolerance.
 
         Returns
         -------
-        :class:`~.spatialindex.SpatialIndex` or None if the mesh is
-        one-dimensional.
+        :class:`~.rtree.RTree`
 
         Notes
         -----
         If this mesh has a :attr:`tolerance` property, which
         should be a float, this tolerance is added to the extrema of the
-        spatial index so that points just outside the mesh, within tolerance,
+        rtree so that points just outside the mesh, within tolerance,
         can be found.
 
         """
@@ -3992,8 +3984,8 @@ values from f.)"""
             if "bounding_box_coords" in self.__dict__:
                 del self.bounding_box_coords
         else:
-            if self._spatial_index:
-                return self._spatial_index
+            if self._rtree:
+                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -4005,22 +3997,21 @@ values from f.)"""
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
-        if self.bounding_box_coords is None:
-            # This happens in 1D meshes
-            return None
-        else:
-            coords_min, coords_max = self.bounding_box_coords
+        coords_min, coords_max = self.bounding_box_coords
+        if self.geometric_dimension == 1:
+            coords_min = coords_min.reshape(-1, 1)
+            coords_max = coords_max.reshape(-1, 1)
+
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
         coords_max = coords_mid + (tolerance + 0.5)*d
 
-        # Build spatial index
-        with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        with PETSc.Log.Event("rtree_build"):
+            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state.copy()
-        return self._spatial_index
+        return self._rtree
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -4029,7 +4020,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: cell number (int), or None (if the point is not
@@ -4044,7 +4035,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: reference coordinates within cell (numpy array) or
@@ -4059,7 +4050,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: tuple either
@@ -4083,7 +4074,7 @@ values from f.)"""
         :arg xs: 1 or more point coordinates of shape (npoints, gdim)
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cells_ignore: Cell numbers to ignore in the search for each
             point in xs. Shape should be (npoints, n_ignore_pts). Each column
@@ -4166,20 +4157,19 @@ values from f.)"""
                 }}
             """)
 
-            libspatialindex_so = Path(rtree.core.rt._name).absolute()
-            lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
             dll = compilation.load(
                 src, "c",
                 cppargs=(
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}"
-                ) + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                    f"-I{firedrake_rtree.get_include()}",
+                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    str(libspatialindex_so),
+                    firedrake_rtree.get_lib_filename(),
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    lsi_runpath
+                    f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
                 ],
                 comm=self.comm
             )
@@ -4495,14 +4485,74 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension <= V.value_size
+    orig_mesh = V.mesh()
+    assert orig_mesh.ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
     mesh._tolerance = tolerance
+    mesh._did_reordering = orig_mesh._did_reordering
+    mesh._distribution_parameters = orig_mesh._distribution_parameters
     return mesh
+
+
+def _fully_localize_coordinates(dm):
+    """Expand sparsely localized coordinates to cover all cells.
+
+    For file-based periodic meshes (e.g. Gmsh), PETSc only creates
+    cell-local (DG) coordinates for cells touching the periodic
+    boundary. This fills in the remaining cells using CG vertex
+    coordinates via ``vecGetClosure``.
+    """
+    gdim = dm.getCoordinateDim()
+    cStart, cEnd = dm.getHeightStratum(0)
+    cell_sec = dm.getCellCoordinateSection()
+    coord_sec = dm.getCoordinateSection()
+    coord_vec = dm.getCoordinatesLocal()
+    old_cell_vec = dm.getCellCoordinatesLocal()
+
+    # Find dofs_per_cell from an existing cell entry
+    dofs_per_cell = None
+    for c in range(cStart, cEnd):
+        dof = cell_sec.getDof(c)
+        if dof > 0:
+            dofs_per_cell = dof
+            break
+    if dofs_per_cell is None:
+        return
+
+    # Build new section and vector covering all cells
+    new_sec = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    new_sec.setNumFields(1)
+    new_sec.setFieldComponents(0, gdim)
+    new_sec.setChart(cStart, cEnd)
+    for c in range(cStart, cEnd):
+        new_sec.setDof(c, dofs_per_cell)
+        new_sec.setFieldDof(c, 0, dofs_per_cell)
+    new_sec.setUp()
+
+    new_vec = PETSc.Vec().create(comm=PETSc.COMM_SELF)
+    new_vec.setSizes((new_sec.getStorageSize(), PETSc.DETERMINE), gdim)
+    new_vec.setType(coord_vec.getType())
+
+    arr = new_vec.array
+    old_arr = old_cell_vec.array
+    for c in range(cStart, cEnd):
+        off = new_sec.getOffset(c)
+        old_dof = cell_sec.getDof(c)
+        if old_dof > 0:
+            old_off = cell_sec.getOffset(c)
+            arr[off:off + dofs_per_cell] = old_arr[old_off:old_off + old_dof]
+        else:
+            arr[off:off + dofs_per_cell] = dm.vecGetClosure(
+                coord_sec, coord_vec, c)[:dofs_per_cell]
+
+    coord_dm = dm.getCoordinateDM()
+    dm.setCellCoordinateDM(coord_dm.clone())
+    dm.setCellCoordinateSection(gdim, new_sec)
+    dm.setCellCoordinatesLocal(new_vec)
 
 
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
@@ -4526,8 +4576,15 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
-    geometric_dim = topology.topology_dm.getCoordinateDim()
-    if not topology.topology_dm.getCoordinatesLocalized():
+    dm = topology.topology_dm
+    geometric_dim = dm.getCoordinateDim()
+    # For periodic meshes loaded from file (e.g. Gmsh), PETSc creates
+    # cell-local (DG) coordinates only for cells touching the periodic
+    # boundary (sparse localization). Firedrake needs every cell to
+    # have an entry, so we expand to full localization.
+    if dm.getCoordinatesLocalized():
+        _fully_localize_coordinates(dm)
+    if not dm.getCoordinatesLocalized():
         element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
@@ -4783,7 +4840,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :arg layers:         number of extruded cell layers in the "vertical"
                          direction.  One may also pass an array of
                          shape (cells, 2) to specify a variable number
-                         of layers.  In this case, each entry is a pair
+                         of layers (deprecated).  In this case, each entry is a pair
                          ``[a, b]`` where ``a`` indicates the starting
                          cell layer of the column and ``b`` the number
                          of cell layers in that column.
@@ -4939,7 +4996,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the mesh will be built using just the vertices
         which are specified on rank 0. If False, the mesh will be built using
@@ -5122,7 +5179,7 @@ def _pic_swarm_in_mesh(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
@@ -5234,7 +5291,9 @@ def _pic_swarm_in_mesh(
         remove_missing_points=False,
     )
     visible_idxs = parent_cell_nums_local != -1
-    plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
+    # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+    plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
+    plex_parent_cell_nums[visible_idxs] = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local[visible_idxs]]
     base_parent_cell_nums_visible = None
     extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
@@ -5589,7 +5648,7 @@ def _parent_mesh_embedding(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     redundant : ``bool``
         If True, the embedding will be done using only the points specified on
@@ -6158,22 +6217,28 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
+def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
     ----------
     mesh : MeshGeometry
         Parent mesh (`MeshGeometry`).
-    subdim : int
+    subdim : int | None
         Topological dimension of the submesh.
-    subdomain_id : int | None
+        Defaults to ``mesh.topological_dimension``.
+    subdomain_id : int | Sequence | None
         Subdomain ID representing the submesh.
-        `None` defines the submesh owned by the sub-communicator.
+        If multiple subdomain IDs are provided, their union is taken.
+        If `None` the submesh will cover the entire domain,
+        this is useful to obtain a codim-1 submesh over all facets or
+        a submesh over a different communicator.
     label_name : str | None
         Name of the label to search ``subdomain_id`` in.
+        Defaults to ``'Cell Sets'`` or ``'Face Sets'`` depending on ``subdim``.
     name : str |  None
         Name of the submesh.
+        Defaults to ``mesh.name + "_submesh"``·
     ignore_halo : bool
         Whether to exclude the halo from the submesh.
     reorder : bool | None
@@ -6209,6 +6274,47 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     ridges to be contained in the quad mesh are shared by at most two
     facets to make the quad mesh orientation algorithm work.
 
+    Examples
+    --------
+    >>> mesh = UnitSquareMesh(4, 4)
+    >>> x, y = SpatialCoordinate(mesh)
+    >>> DG = FunctionSpace(mesh, "DG", 0)
+    >>> DGT = FunctionSpace(mesh, "DGT", 0)
+
+    Mark a cell subdomain and construct a codim-0 submesh from all cells in the subdomain
+
+    >>> cell_marker = assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG))
+    >>> mesh.mark_entities(cell_marker, 111)
+    >>> submesh = Submesh(mesh, subdomain_id=111)
+
+    Mark a facet subdomain and construct a codim-1 submesh from all facets in the subdomain
+
+    >>> facet_marker = assemble(interpolate(conditional(lt(abs(x-0.5), 1E-12), 1, 0), DGT))
+    >>> mesh.mark_entities(facet_marker, 222)
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=222)
+
+    Construct a codim-0 submesh of the union of multiple subdomains by passing a list
+
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG)), 1)
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(y, 0.5), 1, 0), DG)), 2)
+    >>> submesh = Submesh(mesh, subdomain_id=[1, 2])
+
+    Construct a codim-1 submesh of all the facets (the skeleton mesh)
+
+    >>> submesh = Submesh(mesh, subdim=1)
+
+    Construct a codim-1 submesh of the entire boundary
+
+    >>> submesh = Submesh(mesh, subdomain_id="on_boundary")
+
+    Construct a codim-1 submesh of the union of multiple boundaries
+
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=[1, 2, 3])
+
+    Construct a codim-0 submesh of the part of the mesh owned by each MPI rank
+
+    >>> submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
+
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
@@ -6216,24 +6322,36 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+
+    if subdomain_id == "on_boundary":
+        if subdim is None:
+            subdim = mesh.topological_dimension - 1
+        elif subdim != mesh.topological_dimension - 1:
+            raise ValueError('subdomain_id="on_boundary" requires subdim=dim-1')
+        if label_name is None:
+            label_name = "exterior_facets"
+        elif label_name != "exterior_facets":
+            raise ValueError('subdomain_id="on_boundary" requires label_name="exterior_facets"')
+        subdomain_id = 1
+
+    if subdim is None:
+        subdim = mesh.topological_dimension
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim not in [dim, dim - 1]:
+    if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-    if label_name is None:
+    if subdomain_id is None:
+        if label_name is not None:
+            raise ValueError("subdomain_id=None requires label_name=None.")
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
+    elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
-    if subdomain_id is None:
-        # Filter the plex with PETSc's default label (cells owned by comm)
-        if label_name != dmcommon.CELL_SETS_LABEL:
-            raise ValueError("subdomain_id == None requires label_name == CELL_SETS_LABEL.")
-        subplex, sf = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
-        dmcommon.submesh_update_facet_labels(plex, subplex)
-        dmcommon.submesh_correct_entity_classes(plex, subplex, sf)
-    else:
-        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
@@ -6241,7 +6359,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
     if reorder is None:
-        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
 
     submesh = Mesh(
@@ -6402,6 +6520,13 @@ def get_iteration_spec(
             else:
                 matching_indices = utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
             plex_indices = plex_indices.union(matching_indices)
+
+        breakpoint()  # needs fixing
+        with temp_internal_comm(self.mesh.comm) as icomm:
+            num_global_indices = icomm.reduce(len(indices), MPI.SUM, root=0)
+            if num_global_indices == 0 and icomm.rank == 0:
+                logger.warn(f"Subdomain {markers} is empty. This is likely an error. "
+                            "Did you choose the right label?")
 
         # Restrict to indices that exist within the iterset (e.g. drop exterior facets
         # from an interior facet integral)

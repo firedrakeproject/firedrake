@@ -1,6 +1,7 @@
 import numpy as np
 from fractions import Fraction
 from collections import defaultdict
+from collections.abc import Sequence
 
 from pyop3.dtypes import IntType
 
@@ -14,7 +15,7 @@ from firedrake.cython import mgimpl as impl
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
-           "SemiCoarsenedExtrudedHierarchy")
+           "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
 
 
 class HierarchyBase(object):
@@ -126,9 +127,8 @@ def MeshHierarchy(mesh, refinement_levels,
     # Effectively "invert" addOverlap().
     # -- The resulting plex is to have the identical data structure as the one before addOverlap().
     #    This is algorithmically guaranteed.
-    dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
+    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
     cdm.removeLabel("firedrake_is_ghost")
     cdm.setRefinementUniform(True)
     dms = [cdm]
@@ -385,3 +385,79 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
 def NonNestedHierarchy(*meshes):
     return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes],
                          nested=False)
+
+
+def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
+                     subdim: int | None = None,
+                     subdomain_id: int | Sequence | None = None,
+                     label_name: str | None = None,
+                     name: str | None = None,
+                     ignore_halo: bool = False,
+                     reorder: bool | None = None,
+                     comm=None):
+    """Build a hierarchy of submeshes from an existing mesh hierarchy.
+
+    Parameters
+    ----------
+    parent_hierarchy :
+        Parent mesh hierarchy.
+    subdim :
+        Topological dimension of the submesh.
+        Defaults to ``mesh.topological_dimension``.
+    subdomain_id :
+        Subdomain ID representing the submesh.
+        If `None` the submesh will cover the entire domain.
+        This is useful to obtain a codim-1 submesh over all facets or
+        a submesh over a different communicator.
+    label_name :
+        Name of the label to search ``subdomain_id`` in.
+        Defaults to ``'Cell Sets'`` or ``'Face Sets'`` depending on ``subdim``.
+    name : str |  None
+        Name of the submesh.
+        Defaults to ``mesh.name + "_submesh"``·
+    ignore_halo :
+        Whether to exclude the halo from the submesh.
+    reorder :
+        Whether to reorder the mesh entities. By default,
+        the submesh will be reordered if the parent mesh was reordered.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
+        By default, the submesh is defined on `mesh.comm`.
+
+    Returns
+    -------
+    HierarchyBase
+        The submesh hierarchy.
+
+    """
+    meshes = [firedrake.Submesh(mesh,
+                                subdim=subdim, subdomain_id=subdomain_id,
+                                label_name=label_name, name=name,
+                                ignore_halo=ignore_halo, reorder=reorder,
+                                comm=comm)
+              for mesh in parent_hierarchy._meshes]
+
+    lgmaps_with_overlap = []
+    for i, m in enumerate(meshes):
+        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
+        m.topology_dm.setRefineLevel(i)
+    lgmaps_without_overlap = lgmaps_with_overlap
+    lgmaps = [
+        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
+    ]
+    coarse_to_fine_cells = []
+    fine_to_coarse_cells = [None]
+    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
+                                                  zip(lgmaps[:-1], lgmaps[1:])):
+        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
+        coarse_to_fine_cells.append(c2f)
+        fine_to_coarse_cells.append(f2c)
+
+    refinements_per_level = parent_hierarchy.refinements_per_level
+    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
+                                for i, c2f in enumerate(coarse_to_fine_cells))
+    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
+                                for i, f2c in enumerate(fine_to_coarse_cells))
+    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                         refinements_per_level=refinements_per_level,
+                         nested=parent_hierarchy.nested)

@@ -11,6 +11,10 @@ on:
         description: The version number to release
         type: string
         required: true
+      prev_version:
+        description: The previously most up-to-date version number
+        type: string
+        required: true
 
 jobs:
   check:
@@ -41,15 +45,41 @@ jobs:
           fi
 
   pypi:
-    uses: ./.github/workflows/core.yml
+    name: Make PyPI release
     needs: check
-    with:
-      source_ref: ${{ inputs.branch }}
-      target_branch: release
-      run_tests: false
-      build_docs: false
-      upload_pypi: true
-    secrets: inherit
+    runs-on: [self-hosted, Linux]
+    container:
+      # TODO: set to 'ubuntu:latest'
+      image: ubuntu:noble
+    environment:
+      name: pypi
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.branch }}
+
+      - name: Install Firedrake
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.branch }}
+          base_ref: release
+
+      - name: Create sdist
+        run: |
+          . venv/bin/activate
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --show-env)
+          env
+          pip install build
+          python -m build ./firedrake-repo --sdist
+
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: firedrake-repo/dist/
+          # TODO: Use trusted publishing
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
   github_release:
     name: Create GitHub release
@@ -62,7 +92,7 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create --title ${{ inputs.version }} --target ${{ inputs.branch }} --generate-notes ${{ inputs.version }}
+        run: gh release create --title ${{ inputs.version }} --target ${{ inputs.branch }} --generate-notes ${{ inputs.version }} --notes-start-tag ${{ inputs.prev_version }}
 
   docker:
     name: Build Docker containers

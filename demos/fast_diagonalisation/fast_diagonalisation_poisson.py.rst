@@ -95,14 +95,17 @@ using a sparse direct LU factorization. ::
 .. note::
     On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
     corresponds to the original operator. This is no longer the case with non-Cartesian
-    meshes or more general PDEs, as the FDM basis will fail to diagonalise the
-    problem.  For such cases, :class:`~.FDMPC` will produce a sparse
+    meshes or more general PDEs, as the FDM basis only diagonalises very specific
+    problems.  For such cases, :class:`~.FDMPC` will produce a sparse
     approximation of the original operator.
 
 Moving on to a more complicated solver, we'll employ a two-level solver with
 the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
 relaxation we define an additive Schwarz method on vertex-star patches
-implemented via :class:`~.ASMStarPC`::
+implemented via :class:`~.ASMStarPC`.
+In addition we specify `"use_coloring"` to group non-overlapping subsets of
+patches into sparse block-diagonal matrices via a mesh coloring, which reduces
+the overhead of calling many KSP solves for each patch.::
 
   asm_params = {
       "pc_type": "python",
@@ -115,7 +118,8 @@ implemented via :class:`~.ASMStarPC`::
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMStarPC",
           "pc_star_column": 0,
-          "sub_sub_pc_type": "lu",
+          "pc_star_use_coloring": True,
+          "pc_star_sub_sub_pc_type": "lu",
       },
   }
 

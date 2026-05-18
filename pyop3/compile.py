@@ -280,33 +280,35 @@ class Compiler(ABC):
         return self._ld
 
     @property
-    def cflags(self):
-        cflags = self._cflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cflags += self._debugflags
-        else:
-            cflags += self._optflags
-        cflags += config.extra_cflags
-        return cflags
+    def cflags(self) -> tuple[str, ...]:
+        return (
+            *self._cflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *config.extra_cflags),
+        )
 
     @property
-    def cxxflags(self):
-        cxxflags = self._cxxflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cxxflags += self._debugflags
-        else:
-            cxxflags += self._optflags
-        cxxflags += config.extra_cxxflags
-        return cxxflags
+    def cxxflags(self) -> tuple[str, ...]:
+        return (
+            *self._cxxflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *config.extra_cxxflags,
+        )
 
     @property
-    def ldflags(self):
-        ldflags = self._ldflags + self._extra_linker_flags
-        ldflags += config.extra_ldflags
-        return ldflags
+    def ldflags(self) -> tuple[str, ...]:
+        return (
+            *self._ldflags,
+            *self._extra_linker_flags,
+            *config.extra_ldflags,
+        )
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         return ()
 
 
@@ -350,30 +352,17 @@ class LinuxGnuCompiler(Compiler):
     _debugflags = ("-O0", "-g")
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         """Flags to work around bugs in compilers."""
-        ver = self._version
-        cflags = ()
-        if Version("4.8.0") <= ver < Version("4.9.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
-            cflags = ("-fno-ivopts",)
-        if Version("5.0") <= ver <= Version("5.4.0"):
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("6.0.0") <= ver < Version("6.5.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.1.0") <= ver < Version("7.1.2"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.3") <= ver <= Version("7.5"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
-            # See also https://github.com/firedrakeproject/firedrake/issues/1442
-            # And https://github.com/firedrakeproject/firedrake/issues/1717
-            # Bug also on skylake with the vectoriser in this
-            # combination (disappears without
-            # -fno-tree-loop-vectorize!)
-            cflags = ("-fno-tree-loop-vectorize", "-mno-avx512f")
-        return cflags
+        cflags = []
+        if not self._debug and self._version >= Version("15"):
+            # Disable '-O3' for GCC versions >=15 because it causes issues with
+            # complex interpolation kernels
+            # TODO: revisit this in later GCC releases to see if we can set a
+            # maximum version constraint
+            # (see https://github.com/firedrakeproject/firedrake/issues/5107)
+            cflags.append("-O2")
+        return tuple(cflags)
 
 
 class LinuxClangCompiler(Compiler):

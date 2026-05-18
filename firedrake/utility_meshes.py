@@ -1829,11 +1829,11 @@ def PeriodicBoxMesh(
     The boundary surfaces are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == 1
+    * 2: plane x == Lx
     * 3: plane y == 0
-    * 4: plane y == 1
+    * 4: plane y == Ly
     * 5: plane z == 0
-    * 6: plane z == 1
+    * 6: plane z == Lz
 
     where periodic surfaces are ignored.
 
@@ -2184,6 +2184,7 @@ def UnitIcosahedralSphereMesh(
         refinement_level=refinement_level,
         degree=degree,
         reorder=reorder,
+        distribution_parameters=distribution_parameters,
         comm=comm,
         name=name,
         distribution_name=distribution_name,

@@ -1,10 +1,12 @@
-.PHONY: all
-all: ext
-
 .PHONY: ext
 ext:
 	@echo "    Building extension modules"
-	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
+	@python setup.py build_ext --inplace 2>&1 | tee cat build.log
+
+.PHONY: extforce
+extforce:
+	@echo "    Force building all extension modules"
+	@python setup.py build_ext --inplace --force 2>&1 | tee cat build.log
 
 .PHONY: allext
 allext:
