@@ -3782,7 +3782,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self._bounding_box_coords = None
         self._spatial_index = None
-        self._saved_coordinate_dat_version = coordinates.dat.buffer.state
+        self._saved_coordinate_dat_version = coordinates.dat.buffer.state.copy()
 
         self._cache = {}
 
@@ -4019,7 +4019,7 @@ values from f.)"""
         # Build spatial index
         with PETSc.Log.Event("spatial_index_build"):
             self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state
+        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state.copy()
         return self._spatial_index
 
     @PETSc.Log.EventDecorator()

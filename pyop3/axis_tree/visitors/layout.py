@@ -235,7 +235,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     # Lastly 'freeze' the offset dats so they can no longer be modified
     for _, offset_dat in to_tabulate:
         object.__setattr__(offset_dat.buffer, "_constant", True)
-        offset_dat.buffer._data.flags.writeable = False
+        offset_dat.buffer.get_array().flags.writeable = False
 
     return layouts
 

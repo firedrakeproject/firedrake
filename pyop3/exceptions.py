@@ -24,6 +24,9 @@ class ValueMismatchException(Pyop3Exception):
 class UnhashableObjectException(Pyop3Exception, TypeError):
     pass
 
+class UnsupportedArrayException(Pyop3Exception, TypeError):
+    pass
+
 
 class EmptyIterableException(Pyop3Exception):
     pass

@@ -66,6 +66,7 @@ from pyop3.utils import (
 )
 
 from ._tree_cy import apply_constraints
+from pyop3.device import on_host
 
 
 if typing.TYPE_CHECKING:
@@ -1929,7 +1930,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
 
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!
+    
+    # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
     @cached_property
+    @on_host
     def _buffer_indices(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 

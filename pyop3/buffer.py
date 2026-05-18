@@ -24,6 +24,11 @@ from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
+from pyop3.device import (
+    Device,
+    get_current_device,
+    on_host
+)
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
@@ -56,16 +61,7 @@ def not_in_flight(func):
 
     return wrapper
 
-
-def record_modified(func):
-    def wrapper(self, *args, **kwargs):
-        assert not self.constant
-        self.inc_state()
-        return func(self, *args, **kwargs)
-    return wrapper
-
-
-class AbstractBuffer(DistributedObject, pyop3.obj.Pyop3Object, metaclass=abc.ABCMeta):
+class AbstractBuffer(pyop3.obj.Pyop3Object):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
@@ -246,26 +242,21 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-
-# NOTE: When GPU support is added, the host-device awareness and
-# copies should live in this class.
 @pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a numpy array."""
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
 
     # {{{ Instance attrs
 
-    _lazy_data: np.ndarray = dataclasses.field(repr=False)
+    _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
 
-    # now unused?
+    _state: collections.defaultdict[Device, int]
     _max_value: np.number | None = None
-
-    _state: int = 0
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
@@ -303,16 +294,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(
         self,
-        data: np.ndarray,
-        sf: StarForest | None = None,
-        *,
-        name: str | None = None,
-        prefix: str | None = None,
-        constant: bool = False,
-        rank_equal: bool = False,
-        max_value: numbers.Number | None=None,
-        ordered:bool=False,
+        data: np.ndarray | cp.ndarray | None, 
+        sf: StarForest | None = None, *, 
+        name: str|None=None,
+        prefix:str|None=None,
+        constant:bool=False, 
+        rank_equal: bool = False, 
+        max_value: numbers.Number | None=None, 
+        ordered:bool=False
     ):
+        curr_dev = get_current_device()
+
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -322,28 +314,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        if constant:
-            data.flags.writeable = False
-
-        self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
+        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
+
         self.__post_init__()
 
     def __post_init__(self) -> None:
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size
+        curr_dev = get_current_device()
         if self.rank_equal:
             assert self.constant
         if self.ordered:
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
-        if self.constant:
-            assert not self._data.flags.writeable
+        if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
+            assert not self._lazy_data[curr_dev].flags.writeable
 
     # }}}
 
@@ -364,31 +356,46 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        return self._data.shape
+        return self.get_array().shape
+
+    @property
+    def size(self) -> int:
+        return self.get_array().size
 
     @property
     def dtype(self) -> np.dtype:
-        return self._data.dtype
+        return self.get_array().dtype
+
+    @property
+    def _last_updated_device(self) -> Device:
+        return max(self.state, key=self.state.get)
 
     def inc_state(self) -> None:
-        self._state += 1
+        curr_dev = get_current_device() 
+        self.state[curr_dev] = self.state.get(curr_dev, 0) + 1
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
+        curr_dev = get_current_device()
+
+        # TODO: Fix for first-assign, immediate duplicate bug
+        # This can be removed once `compile` strategy works on device
+        if curr_dev not in self._lazy_data:
+            self.sync_devices()
+
         if copy:
-            data = self._lazy_data.copy()
+            data = {curr_dev: self._lazy_data[curr_dev]}
         else:
-            data = np.zeros_like(self._lazy_data)
+            data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
         return self.__record_init__(_name=name, _lazy_data=data)
 
     is_nested: ClassVar[bool] = False
 
-    # TODO: is this safe? might want to split by intent
     @property
-    def handle(self) -> np.ndarray:
-        return self._data
+    def handle(self) -> np.ndarray | cp.ndarray:
+        return self.get_array()
 
     @property
     def comm(self) -> MPI.Comm:
@@ -442,7 +449,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.data_rw
 
     @property
-    @record_modified
     @not_in_flight
     def data_rw(self):
         if not self._roots_valid:
@@ -452,7 +458,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         # modifying owned values invalidates ghosts
         self._leaves_valid = False
-        return self._data
+        return self.get_array("rw")
 
     # TODO: It would be good to be able to get data_ro but without updating the halos
     # The issue with the previous approach is we would only return the owned data. This
@@ -465,10 +471,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self.reduce_leaves_to_roots()
         if not self._leaves_valid:
             self.broadcast_roots_to_leaves()
-        return readonly(self._data)
+        return readonly(self.get_array("ro"))
 
     @property
-    @record_modified
     @not_in_flight
     def data_wo(self):
         """
@@ -481,7 +486,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # pending writes can be dropped
         self._pending_reduction = None
         self._leaves_valid = False
-        return self._data
+        return self.get_array("wo")
 
     @not_in_flight
     def assemble(self) -> None:
@@ -491,11 +496,16 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
-    @property
-    def _data(self):
-        if self._lazy_data is None:
-            self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-        return self._lazy_data
+    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+        curr_dev = get_current_device() 
+
+        if not self._is_data_available_and_synced(curr_dev):
+            self.sync_devices()
+
+        if intent in {"wo", "rw"}: 
+            self.inc_state() 
+
+        return self._lazy_data[curr_dev]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array. Ah, but maybe we want to
@@ -526,20 +536,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         }
 
     @not_in_flight
+    @on_host
     def reduce_leaves_to_roots(self):
         self.reduce_leaves_to_roots_begin()
         self.reduce_leaves_to_roots_end()
 
     @not_in_flight
     def reduce_leaves_to_roots_begin(self):
+        curr_dev = get_current_device()
         if not self._roots_valid:
             self.sf.reduce_begin(
-                self._data, self._reduction_ops[self._pending_reduction]
+                self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction]
             )
             self._leaves_valid = False
         self._finalizer = self.reduce_leaves_to_roots_end
 
     def reduce_leaves_to_roots_end(self):
+        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _reduce_leaves_to_roots_end without first calling "
@@ -549,25 +562,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._roots_valid:
-            self.sf.reduce_end(self._data, self._reduction_ops[self._pending_reduction])
+            self.sf.reduce_end(self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction])
         self._pending_reduction = None
         self._finalizer = None
 
     @not_in_flight
+    @on_host
     def broadcast_roots_to_leaves(self):
         self.broadcast_roots_to_leaves_begin()
         self.broadcast_roots_to_leaves_end()
 
     @not_in_flight
     def broadcast_roots_to_leaves_begin(self):
+        curr_dev = get_current_device()
         if not self._roots_valid:
             raise RuntimeError("Cannot broadcast invalid roots")
 
         if not self._leaves_valid:
-            self.sf.broadcast_begin(self._data, MPI.REPLACE)
+            self.sf.broadcast_begin(self._lazy_data[curr_dev], MPI.REPLACE)
         object.__setattr__(self, "_finalizer", self.broadcast_roots_to_leaves_end)
 
     def broadcast_roots_to_leaves_end(self):
+        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _broadcast_roots_to_leaves_end without first "
@@ -577,7 +593,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._leaves_valid:
-            self.sf.broadcast_end(self._data, MPI.REPLACE)
+            self.sf.broadcast_end(self._lazy_data[curr_dev], MPI.REPLACE)
         self._leaves_valid = True
         self._finalizer = None
 
@@ -609,6 +625,22 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_property
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
+    
+    def sync_devices(self):
+        last_updated_device = self._last_updated_device
+        current_device = get_current_device()
+
+        self._lazy_data[current_device] = current_device.asarray(
+            self._lazy_data[last_updated_device], 
+            constant=self.constant
+        )
+        
+        self._state[current_device] = self._state[last_updated_device]
+
+    def _is_data_available_and_synced(self, device: Device) -> bool:
+        is_available = device in self._lazy_data
+        is_synced = self.state[device] == max(self.state.values())
+        return is_available and is_synced
 
     # {{{ PETSc interop
 

@@ -1121,7 +1121,7 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
         result.assign(fn(result, expr)),
         eager=True
     )
-    return utils.just_one(result.buffer._data)
+    return utils.just_one(result.buffer.get_array())
 
 
 def max_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Number:
