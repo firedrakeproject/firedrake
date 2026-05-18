@@ -4,4 +4,4 @@ from .dat import (  # noqa: F401
     Dat,
     CompositeDat, AggregateDat,
 )
-from .mat import Mat, AggregateMat, RowDatPythonMatContext, ColumnDatPythonMatContext  # noqa: F401
+from .mat import Mat, AggregateMat  # noqa: F401

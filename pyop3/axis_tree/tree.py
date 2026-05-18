@@ -805,7 +805,6 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     def with_region_labels(self, *args, **kwargs) -> Self:
         pass
 
-
     @property
     @abc.abstractmethod
     def buffer_slice(self) -> slice | np.ndarray:
@@ -821,12 +820,20 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
 
         """
 
+    @property
+    @abc.abstractmethod
+    def block_shape(self) -> tuple[int, ...]:
+        pass
 
     # }}}
 
     @cached_property
     def free(self) -> Self:
         return self.with_region_labels({"owned", "unconstrained"}, allow_missing=True)
+
+    @property
+    def block_size(self) -> int:
+        return np.prod(self.block_shape, dtype=int)
 
 
 class AbstractAxisTree(AbstractAxisTreeLike):
@@ -856,6 +863,9 @@ class AbstractUnitAxisTree(AbstractAxisTree):
 
     def with_region_labels(self, *args, **kwargs):
          raise NotImplementedError("unsure what to do here, legal?")
+
+    buffer_size = 1
+    block_shape = ()
 
     # }}}
 
@@ -1300,8 +1310,6 @@ class _UnitAxisTree(AbstractUnitAxisTree):
     # {{{ interface impls
 
     buffer_slice = slice(0, 1, 1)
-
-    buffer_size = 1
 
     # }}}
 
@@ -2054,8 +2062,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
     def buffer_slice(self):
         raise NotImplementedError
 
-    buffer_size = 1
-
     # }}}
 
     def getitem(self, indices, *, strict=False) -> UnitIndexedAxisTree:
@@ -2345,8 +2351,8 @@ class AxisForest(AbstractAxisTreeLike):
     def regionless(self) -> AxisForest:
         return type(self)((tree.regionless() for tree in self.trees))
 
-    def with_region_labels(self, labels) -> AxisForest:
-        return type(self)((tree.with_region_labels(labels) for tree in self.trees))
+    def with_region_labels(self, labels, **kwargs) -> AxisForest:
+        return type(self)((tree.with_region_labels(labels, **kwargs) for tree in self.trees))
 
     def prune(self) -> AxisForest:
         return type(self)((tree.prune() for tree in self.trees))

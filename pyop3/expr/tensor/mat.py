@@ -124,6 +124,7 @@ class Mat(Tensor):
         return f"{self.name}[?, ?]"
 
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        breakpoint()
         raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}
@@ -321,12 +322,7 @@ class Mat(Tensor):
 
             if mat.type == PETSc.Mat.Type.PYTHON:
                 context = mat.getPythonContext()
-                values = mat.getPythonContext().dat.buffer.data_ro
-                if isinstance(context, pyop3.expr.tensor.RowDatPythonMatContext):
-                    return values.reshape((-1, 1))
-                else:
-                    assert isinstance(context, pyop3.expr.tensor.ColumnDatPythonMatContext) 
-                    return values.reshape((1, -1))
+                return mat.getPythonContext().data_ro
             else:
                 row_indices = self.row_axes.with_region_labels(regions).buffer_slice
                 column_indices = self.column_axes.with_region_labels(regions).buffer_slice
@@ -412,193 +408,6 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             full_spec[i] = sub_spec
 
     return full_spec
-
-
-# TODO: I don't think that this needs to be a Dat, a vec or array buffer is fine
-# 16/04/26 revisited this, yep I think that that's right
-class DatPythonMatContext:
-
-    def __init__(self, dat: Dat):
-        self.dat = dat
-
-    @classmethod
-    @abc.abstractmethod
-    def from_spec(cls, *args, **kwargs) -> DatPythonMatContext:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        pass
-
-    def set_diagonal(self, value: numbers.Number) -> None:
-        self.dat.data_wo[0] = value
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.dat.comm
-
-    @property
-    def handle(self):
-        assert not self.dat.buffer.is_nested
-        return self.dat.buffer.handle
-
-
-    # def __getitem__(self, key):
-    #     shape = [s[0] or 1 for s in self.sizes]
-    #     return self.dat.data_ro.reshape(*shape)[key]
-
-    def zeroEntries(self, mat):
-        self.dat.zero()
-
-    def mult(self, mat, x, y):
-        """Set y = self @ x."""
-        with self.dat.vec_ro as A:
-            if isinstance(self, RowDatPythonMatContext):  # FIXME: inheritance
-                # Example:
-                # * 'A' (self) has global size (5, 2)
-                # * 'x' has global size (5, 2)
-                # * 'y' has global size (2, 2)
-                #
-                #     A     ⊗  x  ➜  y
-                # ■ ■ ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■ ■ ■   ■ ■   ■ ■
-                #             ■ ■
-                #             ■ ■
-                #             ■ ■
-                y.setValue(0, A.dot(x))
-            else:
-                assert isinstance(self, ColumnDatPythonMatContext)  # FIXME: inheritance
-                # Example:
-                # * 'A' (self) has global size (5, 3)
-                # * 'x' has global size (3, 2)
-                # * 'y' has global size (5, 2)
-                #
-                #   A   ⊗  x  ➜  y
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■         ■ ■
-                # ■ ■ ■         ■ ■
-                #
-                # The algorithm is:
-                #
-                #     for i in range(5):
-                #       for j in range(2):
-                #         for k in range(3):
-                #           y[i,j] += A[i,k] * x[k,j]
-                #
-                # We can always assume that 'x' is small in both dimensions so
-                # those loops are safe to do explicitly (on the outside):
-                #
-                #     for j in range(2):
-                #       for k in range(3):
-                #         y[:,j] += A[:,k] * x[k,j]
-                #
-                # Which I know how to do efficiently using numpy.
-                nj = x.block_size
-                nk = A.block_size
-                for j in range(nj):
-                    for k in range(nk):
-                        y.buffer_w[:, j] += A.buffer_r[:, k] * x.buffer_r[k, j]
-
-    def multTranspose(self, mat, x, y):
-        raise NotImplementedError
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(y)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 y.scale(a)
-    #             else:
-    #                 v.pointwiseMult(x, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             if y.comm.rank == 0:
-    #                 y.array[0] = out
-    #             else:
-    #                 y.array[...]
-    #
-    # def multTransposeAdd(self, mat, x, y, z):
-    #     ''' z = y + mat^Tx '''
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(z)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 z.scale(a)
-    #                 z.axpy(1, y)
-    #             else:
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 v.pointwiseMult(x, z)
-    #                 return z.axpy(1, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             y = y.array_r
-    #             if z.comm.rank == 0:
-    #                 z.array[0] = out + y[0]
-    #             else:
-    #                 z.array[...]
-
-    def duplicate(self, *, copy=False):
-        new_dat = self.dat.duplicate(copy=copy)
-        return type(self)(new_dat)
-
-
-class RowDatPythonMatContext(DatPythonMatContext):
-
-    @classmethod
-    def from_spec(cls, row_axes, column_axes) -> RowDatPythonMatContext:
-        if column_axes.unindexed.global_size != 1:
-            # NOTE: We assume column axes are just a single global value
-            raise NotImplementedError
-
-        dat = Dat.empty(row_axes, dtype=ScalarType)
-        return cls(dat)
-
-    @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((self.dat.axes.unindexed.owned.local_size, None), (None, 1))
-
-
-class ColumnDatPythonMatContext(DatPythonMatContext):
-
-    @classmethod
-    def from_spec(cls, row_axes, column_axes) -> ColumnDatPythonMatContext:
-        if row_axes.unindexed.global_size != 1:
-            # NOTE: We assume row axes are just a single global value
-            raise NotImplementedError
-        dat = Dat.empty(column_axes, dtype=ScalarType)
-        return cls(dat)
-
-    @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((None, 1), (self.dat.axes.unindexed.owned.local_size, None))
 
 
 # TODO: Should inherit from SymbolicTensor/SymbolicMat

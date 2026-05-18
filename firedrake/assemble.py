@@ -1071,7 +1071,8 @@ class ParloopFormAssembler(FormAssembler):
             if self._needs_zeroing:
                 # This is a big ol' hack to get subfunctions working
                 op3_tensor = self._as_pyop3_type(tensor)
-                if all(t.local_size == t.unindexed.local_size for t in op3_tensor.axis_trees):
+                # Use >= instead of == so we also work for Real
+                if all(t.local_size >= t.unindexed.local_size for t in op3_tensor.axis_trees):
                     # this doesn't work for subfunctions
                     op3_tensor.buffer.zero()
                 else:
@@ -1114,8 +1115,8 @@ class ParloopFormAssembler(FormAssembler):
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-                if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                    subtensor = subtensor.buffer.mat.getPythonContext().dat
+                # if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
+                #     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
                 tensor_name[local_kernel] = subtensor.name
 

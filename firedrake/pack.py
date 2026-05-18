@@ -98,15 +98,15 @@ def _(
     if isinstance(column_space.topological, RestrictedFunctionSpace):
         column_space = column_space.function_space
 
-    if mat.buffer.mat_type == "python":
-        mat_context = mat.buffer.mat.getPythonContext()
-        if isinstance(mat_context, op3.RowDatPythonMatContext):
-            space = row_space
-        else:
-            assert isinstance(mat_context, op3.ColumnDatPythonMatContext)
-            space = column_space
-        dat = mat_context.dat
-        return pack(dat, space, loop_info, nodes=nodes)
+    # if mat.buffer.mat_type == "python":
+    #     mat_context = mat.buffer.mat.getPythonContext()
+    #     if isinstance(mat_context, op3.RowVecPythonMatContext):
+    #         space = row_space
+    #     else:
+    #         assert isinstance(mat_context, op3.ColumnVecPythonMatContext)
+    #         space = column_space
+    #     dat = mat_context.dat
+    #     return pack(dat, space, loop_info, nodes=nodes)
 
     packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):

@@ -332,7 +332,7 @@ class InstructionExecutionContext:
             isinstance(buffer, pyop3.buffer.PetscMatBuffer)
             and buffer.handle.type == PETSc.Mat.Type.PYTHON
         ):
-            buffer = buffer.handle.getPythonContext().dat.buffer
+            buffer = buffer.handle.getPythonContext().buffer
 
         return (buffer,)
 

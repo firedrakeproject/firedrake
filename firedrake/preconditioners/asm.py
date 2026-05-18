@@ -158,6 +158,8 @@ class ASMStarPC(ASMPatchPC):
             mesh = V.mesh().unique()
         except firedrake.exceptions.NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
+        if mesh.extruded:
+            raise NotImplementedError
         mesh_dm = mesh.topology_dm
 
         # Obtain the topological entities to use to construct the stars
@@ -223,6 +225,8 @@ class ASMVankaPC(ASMPatchPC):
             mesh_unique = mesh.unique()
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
+        if mesh.extruded:
+            raise NotImplementedError
         mesh_dm = mesh_unique.topology_dm
 
         if mesh_unique.extruded:

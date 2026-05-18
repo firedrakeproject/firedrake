@@ -38,7 +38,7 @@ import pyop3.lower
 import pyop3.insn.visitors as insn_visitors
 from pyop3.expr.tensor import (  # noqa: F401
     Tensor, Dat, Scalar, Mat, AggregateMat, AggregateDat,
-    RowDatPythonMatContext, ColumnDatPythonMatContext, OutOfPlaceCallableTensorTransform
+    OutOfPlaceCallableTensorTransform
 )
 from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NAN
 from pyop3.axis_tree import (  # noqa: F401

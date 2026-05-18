@@ -478,6 +478,8 @@ class Dat(Tensor):
     def vec(self) -> GeneratorType[PETSc.Vec]:
         return self.vec_rw
 
+    # TODO: There is a lot of shared functionality in this with ArrayBuffer.as_vec
+    # ideally share it in some way
     @contextlib.contextmanager
     def as_vec(
         self,

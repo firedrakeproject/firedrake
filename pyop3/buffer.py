@@ -18,6 +18,7 @@ import pyop3.obj
 import pyop3.record
 import pyop3.sf
 from pyop3 import utils
+from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
@@ -609,6 +610,42 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
 
+    # {{{ PETSc interop
+
+    @cached_method()
+    def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
+        block_size = np.prod(block_shape, dtype=int)
+        return PETSc.Vec().createWithArray(self._lazy_data, self.size, block_size, comm=self.comm)
+
+    def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("ro", block_shape)
+
+    def vec_wo(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("wo", block_shape)
+
+    def vec_rw(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("rw", block_shape)
+
+    @contextlib.contextmanager
+    def as_vec(
+        self,
+        mode: Literal["ro", "rw", "wo"],
+        block_shape: Iterable[int] | int = (),
+    ) -> GeneratorType[PETSc.Vec]:
+        if self.dtype != PETSc.ScalarType:
+            raise RuntimeError(
+                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+                f"must be '{PETSc.ScalarType}'"
+            )
+
+        # TODO: how should we handle the state of the work vec?
+        # TODO: catch nested contexts
+        yield self._work_vec(block_shape)
+        if mode in {"wo", "rw"}:
+            self.inc_state()
+
+    # }}}
+
 
 class MatBufferSpec(abc.ABC):
     pass
@@ -819,20 +856,25 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @classmethod
     def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
-        from pyop3.expr.tensor import RowDatPythonMatContext, ColumnDatPythonMatContext
-
         mat_type = mat_spec.mat_type
         row_spec = mat_spec.row_spec
         column_spec = mat_spec.column_spec
 
+        # TODO: just want the size here, don't need more than that. Can clean up matspec stuff
+        # Maybe can then even set lgmaps in the same way...
         if mat_type in {"rvec", "cvec"}:
             row_axes = row_spec
             column_axes = column_spec
 
+            comm = utils.single_comm([row_axes, column_axes], "comm")
+
             if mat_type == "rvec":
-                mat_context = RowDatPythonMatContext.from_spec(row_axes, column_axes)
+                mode = "row"
+                size = column_axes.buffer_size
             else:
-                mat_context = ColumnDatPythonMatContext.from_spec(row_axes, column_axes)
+                mode = "column"
+                size = column_axes.buffer_size
+            mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
@@ -912,3 +954,173 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return duplicated_mat
     else:
         return mat.duplicate(copy=copy)
+
+
+class DensePythonMatContext(abc.ABC):
+    """Matrix context for storing narrow and dense (usually Nx1 or 1xN) matrices as PETSc Vecs.
+
+    This is important in massively parallel settings where a single dense row would
+    live on a single process and hence be a significant performance bottleneck.
+
+    """
+
+    def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
+        self.mode = mode
+        self.buffer = buffer
+
+    @classmethod
+    def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:
+        if mode == "row":
+            shape = (1, size)
+        else:
+            assert mode == "column"
+            shape = (size, 1)
+        # There is no halo here so we use a local SF with no leaves
+        sf = pyop3.sf.local_sf(size, comm)
+        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType, **kwargs)
+        return cls(mode, buffer)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        # TODO: if block size > 1 then the other size will need changing
+        if self.mode == "row":
+            return ((None, 1), (self.buffer.size, None))
+        else:
+            return ((self.buffer.size, None), (None, 1))
+
+    def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
+        """Set y = self @ x."""
+        if self.mode == "row":
+            # Example:
+            # * 'A' (self) has global size (5, 2)
+            # * 'x' has global size (5, 2)
+            # * 'y' has global size (2, 2)
+            #
+            #     A     ⊗  x  ➜  y
+            # ■ ■ ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■ ■ ■   ■ ■   ■ ■
+            #             ■ ■
+            #             ■ ■
+            #             ■ ■
+            with self.buffer.vec_ro() as vec:
+                y.setValue(0, vec.dot(x))
+        else:
+            # Example:
+            # * 'A' (self) has global size (5, 3)
+            # * 'x' has global size (3, 2)
+            # * 'y' has global size (5, 2)
+            #
+            #   A   ⊗  x  ➜  y
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■         ■ ■
+            # ■ ■ ■         ■ ■
+            #
+            # The algorithm is:
+            #
+            #     for i in range(5):
+            #       for j in range(2):
+            #         for k in range(3):
+            #           y[i,j] += A[i,k] * x[k,j]
+            #
+            # We can always assume that 'x' is small in both dimensions so
+            # those loops are safe to do explicitly (on the outside):
+            #
+            #     for j in range(2):
+            #       for k in range(3):
+            #         y[:,j] += A[:,k] * x[k,j]
+            #
+            # Which I know how to do efficiently using numpy.
+            nj = x.block_size
+            nk = self._vec.block_size
+            for j in range(nj):
+                for k in range(nk):
+                    y.buffer_w[:, j] += self._vec.buffer_r[:, k] * x.buffer_r[k, j]
+
+    def multTranspose(self, mat, x, y):
+        raise NotImplementedError
+        # if self.mode == "row":
+        # with self.dat.vec_ro as v:
+        #     if self.sizes[0][0] is None:
+        #         # Row matrix
+        #         if x.sizes[1] == 1:
+        #             v.copy(y)
+        #             a = np.zeros(1, dtype=dtypes.ScalarType)
+        #             if x.comm.rank == 0:
+        #                 a[0] = x.array_r
+        #             else:
+        #                 x.array_r
+        #             with mpi.temp_internal_comm(x.comm) as comm:
+        #                 comm.bcast(a)
+        #             y.scale(a)
+        #         else:
+        #             v.pointwiseMult(x, y)
+        # else:
+        # # Column matrix
+        # out = v.dot(x)
+        # if y.comm.rank == 0:
+        #     y.array[0] = out
+        # else:
+        #     y.array[...]
+
+    def multTransposeAdd(self, mat, x, y, z):
+        ''' z = y + mat^Tx '''
+        raise NotImplementedError
+        # if self.mode == "row":
+        # if self.sizes[0][0] is None:
+        #     # Row matrix
+        #     if x.sizes[1] == 1:
+        #         v.copy(z)
+        #         a = np.zeros(1, dtype=dtypes.ScalarType)
+        #         if x.comm.rank == 0:
+        #             a[0] = x.array_r
+        #         else:
+        #             x.array_r
+        #         with mpi.temp_internal_comm(x.comm) as comm:
+        #             comm.bcast(a)
+        #         if y == z:
+        #             # Last two arguments are aliased.
+        #             tmp = y.duplicate()
+        #             y.copy(tmp)
+        #             y = tmp
+        #         z.scale(a)
+        #         z.axpy(1, y)
+        #     else:
+        #         if y == z:
+        #             # Last two arguments are aliased.
+        #             tmp = y.duplicate()
+        #             y.copy(tmp)
+        #             y = tmp
+        #         v.pointwiseMult(x, z)
+        #         return z.axpy(1, y)
+        # else:
+        #             # Column matrix
+        #             out = v.dot(x)
+        #             y = y.array_r
+        #             if z.comm.rank == 0:
+        #                 z.array[0] = out + y[0]
+        #             else:
+        #                 z.array[...]
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        breakpoint()
+
+    def data_ro(self) -> np.ndarray:
+        return self.buffer.data_ro.reshape(self.shape)
+
+    def set_diagonal(self, value: numbers.Number) -> None:
+        data = self.buffer.data_wo  # do collectively so state is tracked collectively
+        if self.comm.rank == 0:
+            data[0] = value
+
+    def zeroEntries(self, mat):
+        self.buffer.zero()
+
+    def duplicate(self, *, copy=False):
+        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
