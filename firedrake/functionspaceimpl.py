@@ -194,15 +194,25 @@ class WithGeometryBase:
 
     @property
     def dm(self):
-        # Store the VOM topology version at which the DM was built alongisde the DM itself
-        # and check on each access
-        current_version = getattr(self.topology, "_vom_topology_version", None)
-        if not hasattr(self, "_wg_dm_cache") or self._wg_dm_cache_version != current_version:
-            dm = self._dm()
-            dmhooks.set_function_space(dm, self)
-            self._wg_dm_cache = dm
-            self._wg_dm_cache_version = current_version
-        return self._wg_dm_cache
+        dm = self.topological.dm
+        dmhooks.set_function_space(dm, self)
+        return dm
+    
+    @property
+    def dm(self):
+        current_version = getattr(self.topological.mesh(), "_topology_version", None)
+        try:
+            if self._wg_dm_version == current_version:
+                # always returns for meshes that are not VOMs
+                return self._wg_dm_cache
+        except AttributeError:
+            pass
+        # For VOMs: trigger a rebuild when the versions don't match
+        dm = self.topological.dm
+        dmhooks.set_function_space(dm, self)
+        self._wg_dm_version = current_version
+        self._wg_dm_cache = dm
+        return dm
 
 
     @property
@@ -342,8 +352,9 @@ class WithGeometryBase:
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
+        # Always fetch attributes from the topological FS
         val = getattr(self.topological, name)
-        # Always fetch the proxied attributes from the topological FS
+        # Avoid caching if the topological FS is a VOM as we expect it to be changing
         if not hasattr(self.topological, "_vom_topology_version"):
             setattr(self, name, val)
         return val
@@ -576,6 +587,7 @@ class FunctionSpace:
         self._mesh = mesh
 
         if isinstance(self._mesh, VertexOnlyMeshTopology):
+            # Store the mesh topology version the FS was defined on
             self._vom_topology_version = self._mesh._topology_version
 
         self.value_size = self._ufl_function_space.value_size
@@ -684,7 +696,10 @@ class FunctionSpace:
         # dm = self._dm()
         # dmhooks.set_function_space(dm, self)
         # return dm
-        _ = self._shared_data # trigger version check which may delete the cache
+
+        # Trigger version check every time this property is accessed which may delete 
+        # the cache and force a rebuild with updated shared data
+        _ = self._shared_data
         try:
             return self._dm_cache
         except AttributeError:
