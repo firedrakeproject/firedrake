@@ -32,8 +32,8 @@ from itertools import chain, count
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import Zero
+from ufl.corealg.dag_traverser import DAGTraverser
+from ufl.classes import Expr, NegativeRestricted, Zero
 from ufl.domain import join_domains, sort_domains
 from ufl.form import BaseForm, Form, ZeroBaseForm
 import hashlib
@@ -57,13 +57,22 @@ Context that carries information for a block on an assembled vector.
 """
 
 
-class RemoveNegativeRestrictions(MultiFunction):
-    """UFL MultiFunction which removes any negative restrictions
+class RemoveNegativeRestrictions(DAGTraverser):
+    """UFL DAGTraverser which removes any negative restrictions
     in a form.
     """
-    ufl_type = MultiFunction.reuse_if_untouched
 
-    def negative_restricted(self, o):
+    @functools.singledispatchmethod
+    def process(self, o):
+        return super().process(o)
+
+    @process.register(Expr)
+    @process.register(BaseForm)  # type: ignore
+    def _(self, o):
+        return self.reuse_if_untouched(o)
+
+    @process.register(NegativeRestricted)
+    def _(self, o):
         return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
 
 
