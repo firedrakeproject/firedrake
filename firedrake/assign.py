@@ -2,16 +2,16 @@ import functools
 import operator
 
 import numpy as np
-from functools import cached_property
+from functools import cached_property, singledispatchmethod
 
 from pyadjoint.tape import annotate_tape
 from pyop2 import op2
 import pytools
 import finat.ufl
+import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
-from ufl.corealg.map_dag import map_expr_dag
-from ufl.corealg.multifunction import MultiFunction
+from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.domain import extract_unique_domain
 
 from firedrake.cofunction import Cofunction
@@ -32,10 +32,10 @@ def _isfunction(expr):
     return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
 
 
-class CoefficientCollector(MultiFunction):
-    """Multifunction used for converting an expression into a weighted sum of coefficients.
+class CoefficientCollector(DAGTraverser):
+    """DAGTraverser used for converting an expression into a weighted sum of coefficients.
 
-    Calling ``map_expr_dag(CoefficientCollector(), expr)`` will return a tuple whose entries
+    Calling ``CoefficientCollector()(expr)`` will return a tuple whose entries
     are of the form ``(coefficient, weight)``. Expressions that cannot be expressed as a
     weighted sum will raise an exception.
 
@@ -45,7 +45,18 @@ class CoefficientCollector(MultiFunction):
     may be either a :class:`firedrake.constant.Constant` or :class:`firedrake.function.Function`.
     """
 
-    def product(self, o, a, b):
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
+
+    @process.register(ufl.classes.Expr)
+    @DAGTraverser.postorder
+    def _(self, o, *operands):
+        raise NotImplementedError(f"Handler not defined for {type(o)}")
+
+    @process.register(ufl.classes.Product)
+    @DAGTraverser.postorder
+    def _(self, o, a, b):
         scalars, vectors = split_by(self._is_scalar_equiv, [a, b])
         # Case 1: scalar * scalar
         if len(scalars) == 2:
@@ -63,7 +74,9 @@ class CoefficientCollector(MultiFunction):
         scaling = self._as_scalar(scalar)
         return tuple((coeff, weight*scaling) for coeff, weight in vector)
 
-    def division(self, o, a, b):
+    @process.register(ufl.classes.Division)
+    @DAGTraverser.postorder
+    def _(self, o, a, b):
         # Division is only valid if b (the divisor) is a scalar
         if self._is_scalar_equiv(b):
             divisor = self._as_scalar(b)
@@ -72,46 +85,59 @@ class CoefficientCollector(MultiFunction):
             raise ValueError("Expressions involving division by a vector-valued subexpression "
                              "cannot be used for assignment. Consider using interpolate instead.")
 
-    def sum(self, o, a, b):
+    @process.register(ufl.classes.Sum)
+    @DAGTraverser.postorder
+    def _(self, o, a, b):
         # Note: a and b are tuples of (coefficient, weight) so addition is concatenation
         return a + b
 
-    def power(self, o, a, b):
+    @process.register(ufl.classes.Power)
+    @DAGTraverser.postorder
+    def _(self, o, a, b):
         # Only valid if a and b are scalars
         return ((Constant(self._as_scalar(a) ** self._as_scalar(b)), 1),)
 
-    def abs(self, o, a):
+    @process.register(ufl.classes.Abs)
+    @DAGTraverser.postorder
+    def _(self, o, a):
         # Only valid if a is a scalar
         return ((Constant(abs(self._as_scalar(a))), 1),)
 
     def _scalar(self, o):
         return ((Constant(o), 1),)
 
-    int_value = _scalar
-    float_value = _scalar
-    complex_value = _scalar
-    zero = _scalar
+    @process.register(ufl.classes.IntValue)
+    @process.register(ufl.classes.FloatValue)
+    @process.register(ufl.classes.ComplexValue)
+    @process.register(ufl.classes.Zero)
+    def _(self, o):
+        return self._scalar(o)
 
-    def multi_index(self, o):
+    @process.register(ufl.classes.MultiIndex)
+    def _(self, o):
         pass
 
-    def indexed(self, o, a, _):
+    @process.register(ufl.classes.Indexed)
+    @DAGTraverser.postorder
+    def _(self, o, a, _):
         return a
 
-    def component_tensor(self, o, a, _):
+    @process.register(ufl.classes.ComponentTensor)
+    @DAGTraverser.postorder
+    def _(self, o, a, _):
         return a
 
-    def coefficient(self, o):
+    @process.register(ufl.classes.Coefficient)
+    def _(self, o):
         return ((o, 1),)
 
-    def cofunction(self, o):
+    @process.register(ufl.classes.Cofunction)
+    def _(self, o):
         return ((o, 1),)
 
-    def constant_value(self, o):
+    @process.register(ufl.classes.ConstantValue)
+    def _(self, o):
         return ((o, 1),)
-
-    def expr(self, o, *operands):
-        raise NotImplementedError(f"Handler not defined for {type(o)}")
 
     def _is_scalar_equiv(self, weighted_coefficients):
         """Return ``True`` if the sequence of ``(coefficient, weight)`` can be compressed to
@@ -391,7 +417,7 @@ class Assigner:
         # TODO: It would be nice to stash this on the expression so we can avoid extra
         # traversals for non-persistent Assigner objects, but expressions do not currently
         # have caches attached to them.
-        return map_expr_dag(self._coefficient_collector, self._expression)
+        return self._coefficient_collector(self._expression)
 
 
 class IAddAssigner(Assigner):
