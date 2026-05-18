@@ -1,10 +1,9 @@
 import ufl
-from ufl.corealg.map_dag import map_expr_dag
-from ufl.corealg.multifunction import MultiFunction
+from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.domain import extract_unique_domain
 from ufl.duals import is_dual
 
-from functools import singledispatch, partial
+from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
@@ -22,7 +21,7 @@ class CoarseningError(Exception):
     pass
 
 
-class CoarsenIntegrand(MultiFunction):
+class CoarsenIntegrand(DAGTraverser):
 
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
@@ -32,28 +31,41 @@ class CoarsenIntegrand(MultiFunction):
             coefficient_mapping = {}
         self.coefficient_mapping = coefficient_mapping
         self.coarsen = coarsen
-        super(CoarsenIntegrand, self).__init__()
+        super().__init__()
 
-    ufl_type = MultiFunction.reuse_if_untouched
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
 
-    def argument(self, o):
+    @process.register(ufl.classes.Expr)
+    @process.register(ufl.BaseForm)
+    def _(self, o):
+        return self.reuse_if_untouched(o)
+
+    @process.register(ufl.classes.Argument)
+    def _(self, o):
         V = self.coarsen(o.function_space(), self.coarsen)
         return o.reconstruct(V)
 
-    def coefficient(self, o):
+    @process.register(ufl.classes.Coefficient)
+    def _(self, o):
         return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
 
-    def cofunction(self, o):
+    @process.register(ufl.classes.Cofunction)
+    def _(self, o):
         return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
 
-    def geometric_quantity(self, o):
+    @process.register(ufl.classes.GeometricQuantity)
+    def _(self, o):
         return type(o)(self.coarsen(extract_unique_domain(o), self.coarsen))
 
-    def circumradius(self, o):
+    @process.register(ufl.classes.Circumradius)
+    def _(self, o):
         mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
         return firedrake.Circumradius(mesh)
 
-    def facet_normal(self, o):
+    @process.register(ufl.classes.FacetNormal)
+    def _(self, o):
         mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
         return firedrake.FacetNormal(mesh)
 
@@ -79,7 +91,7 @@ def coarse_expr(expr, self, coefficient_mapping=None):
     if expr is None:
         return None
     mapper = CoarsenIntegrand(self, coefficient_mapping)
-    return map_expr_dag(mapper, expr)
+    return mapper(expr)
 
 
 @coarsen.register(ufl.Form)
@@ -98,7 +110,7 @@ def coarsen_form(form, self, coefficient_mapping=None):
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():
-        integrand = map_expr_dag(mapper, it.integrand())
+        integrand = mapper(it.integrand())
         mesh = it.ufl_domain()
         new_mesh = self(mesh, self)
         if isinstance(integrand, ufl.classes.Zero):

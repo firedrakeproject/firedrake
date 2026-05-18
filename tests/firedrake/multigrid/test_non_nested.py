@@ -2,6 +2,8 @@ from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from functools import singledispatch
+import ufl
+from ufl.corealg.traversal import traverse_unique_terminals
 
 
 def test_coarsen_callback():
@@ -38,6 +40,37 @@ def test_coarsen_callback():
     Ac, _ = lvs.snes.ksp.pc.getMGCoarseSolve().getOperators()
 
     assert Ac.getSize() == (25, 25)
+
+
+def test_symbolic_coarsen_geometric_quantities():
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 1)
+    mesh = hierarchy[-1]
+    coarse_mesh = hierarchy[-2]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    x = SpatialCoordinate(mesh)
+    n = FacetNormal(mesh)
+    h = Circumradius(mesh)
+    f = Function(V).interpolate(1 + x[0])
+
+    form = ((f + x[0] + h) * u * v * dx
+            + inner(n, n) * f * v * ds)
+    coarse_form = symbolic_coarsen(form, symbolic_coarsen)
+
+    assert all(arg.function_space().mesh() is coarse_mesh for arg in coarse_form.arguments())
+
+    coarse_coeffs = [coeff for coeff in coarse_form.coefficients() if isinstance(coeff, Function)]
+    assert coarse_coeffs and coarse_coeffs[0] is not f
+    assert all(coeff.function_space().mesh() is coarse_mesh for coeff in coarse_coeffs)
+
+    for integral in coarse_form.integrals():
+        assert integral.ufl_domain() is coarse_mesh
+        for terminal in traverse_unique_terminals(integral.integrand()):
+            if isinstance(terminal, ufl.classes.GeometricQuantity):
+                assert terminal.ufl_domain() is coarse_mesh
 
 
 def test_sphere_mg():
