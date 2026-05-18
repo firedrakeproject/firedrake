@@ -1,6 +1,26 @@
 import pytest
 import numpy as np
 from firedrake import *
+from ufl.duals import is_dual
+
+
+def test_dual_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    Vstar = V.dual()
+    Vstar_res = RestrictedFunctionSpace(Vstar, [2])
+    assert is_dual(Vstar_res)
+
+    V_res = RestrictedFunctionSpace(V, [2])
+    assert Vstar_res == V_res.dual()
+
+
+def test_composite_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    V1 = RestrictedFunctionSpace(RestrictedFunctionSpace(V, [3]), [1])
+    V2 = RestrictedFunctionSpace(V, [3, 1])
+    assert V1 == V2
 
 
 def compare_function_space_assembly(function_space, restricted_function_space,
