@@ -14,7 +14,7 @@ from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import replace, Form
+from ufl import as_ufl, replace, Form
 from ufl.algorithms import extract_coefficients
 from functools import cached_property
 
@@ -363,7 +363,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         coefficients = list(coefficients)
         for bc in problem.dirichlet_bcs():
-            coefficients.extend(extract_coefficients(bc._original_arg))
+            coefficients.extend(extract_coefficients(as_ufl(bc._original_arg)))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
