@@ -10,7 +10,7 @@ from ufl import (FunctionSpace, Mesh, TestFunction,
                  interval, triangle, quadrilateral,
                  TensorProductCell)
 from finat.ufl import FiniteElement, VectorElement
-from tsfc.parameters import target, default_parameters
+from tsfc.parameters import target
 
 
 def count_loopy_flops(kernel):
@@ -45,9 +45,6 @@ def parameters(request):
 
 
 def test_flop_count(cell, parameters):
-    if default_parameters()["scalar_type"] != numpy.float64:
-        pytest.skip(reason="FLOP counting only correct for float64")
-
     mesh = Mesh(VectorElement("P", cell, 1))
     loopy_flops = []
     new_flops = []
