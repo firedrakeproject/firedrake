@@ -2,14 +2,23 @@ name: Test pull request
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened, labeled ]
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
 
 jobs:
   test:
     uses: ./.github/workflows/core.yml
     with:
       source_ref: ${{ github.ref }}
-      target_branch: ${{ github.base_ref }}
+      # If not the actual target of the PR, the target branch ('main' or 'release')
+      # can be set with an appropriate label ('base:main' or 'base:release')
+      base_ref: |-
+        ${{ case(
+          contains(github.event.pull_request.labels.*.name, 'base:main'), 'main',
+          contains(github.event.pull_request.labels.*.name, 'base:release'), 'release',
+          github.base_ref == 'main', 'main',
+          github.base_ref == 'release', 'release',
+          'INVALID_BASE_REF'
+        ) }}
       # Only run macOS tests if the PR is labelled 'macOS'
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
       # Only run GPU tests if the PR is labelled 'gpu'
