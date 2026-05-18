@@ -7,8 +7,8 @@ on:
         description: The input Git ref to checkout
         type: string
         required: true
-      target_branch:
-        description: The target branch (usually 'main' or 'release')
+      base_ref:
+        description: The base branch ('main' or 'release')
         type: string
         required: true
       build_docs:
@@ -34,8 +34,8 @@ on:
         description: The input Git ref to checkout
         type: string
         required: true
-      target_branch:
-        description: The target branch (usually 'main' or 'release')
+      base_ref:
+        description: The base branch ('main' or 'release')
         type: string
         required: true
       build_docs:
@@ -108,7 +108,7 @@ jobs:
         with:
           os: linux
           source_ref: ${{ inputs.source_ref }}
-          base_ref: ${{ inputs.target_branch }}
+          base_ref: ${{ inputs.base_ref }}
           scalar_type: ${{ matrix.arch }}
           deps: ci
 
@@ -200,7 +200,7 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
+          if [ ${{ inputs.base_ref }} = 'release' ]; then
             GUSTO_BRANCH='main'
           else
             GUSTO_BRANCH='future'
@@ -219,7 +219,7 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
+          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
           pip install --verbose ./thetis-repo
           python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
         timeout-minutes: 10
@@ -241,7 +241,7 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.target_branch }}
+          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
@@ -281,7 +281,7 @@ jobs:
         with:
           os: macos
           source_ref: ${{ inputs.source_ref }}
-          base_ref: ${{ inputs.target_branch }}
+          base_ref: ${{ inputs.base_ref }}
           deps: check
 
       - name: Post-run cleanup
@@ -326,7 +326,7 @@ jobs:
         with:
           os: linux
           source_ref: ${{ inputs.source_ref }}
-          base_ref: ${{ inputs.target_branch }}
+          base_ref: ${{ inputs.base_ref }}
           gpu: cuda
           deps: check
 
@@ -394,7 +394,7 @@ jobs:
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.target_branch }}
+      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.base_ref }}
     outputs:
       conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
@@ -421,7 +421,7 @@ jobs:
         id: build_docs
         working-directory: firedrake-repo/docs
         run: |
-          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
+          make SPHINXOPTS="-t ${{ inputs.base_ref }}" html
           make latex
           make latexpdf
           # : Copy manual to HTML tree
@@ -476,7 +476,7 @@ jobs:
     if: |
       always() &&
       inputs.deploy_website &&
-      inputs.target_branch == 'main' &&
+      inputs.base_ref == 'main' &&
       needs.build_docs.outputs.conclusion == 'success'
     permissions:
       pages: write
