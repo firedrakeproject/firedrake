@@ -129,6 +129,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @cached_property
     def _components(self):
         shape = self.function_space().shape
+        assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             indices = op3.IndexTree.from_iterable((
@@ -155,9 +156,15 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[i]
+        elif not self.function_space().shape:
+            # TODO: Decide if this is acceptable usage
+            if i != 0:
+                raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
+            return self
+        else:
+            return self._components[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`

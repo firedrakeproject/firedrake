@@ -138,6 +138,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     @cached_property
     def _components(self) -> np.ndarray["CoordinatelessFunction"]:
         shape = self.function_space().shape
+        assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             indices = op3.IndexTree.from_iterable((
@@ -357,6 +358,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if type(self.function_space().ufl_element()) is MixedElement:
             return self.subfunctions[indices]
+        elif not self.function_space().shape:
+            # TODO: Decide if this is acceptable usage
+            if indices != 0:
+                raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
+            return self
         else:
             indices = parse_component_indices(indices, self.function_space().shape)
             return self._components[indices]
