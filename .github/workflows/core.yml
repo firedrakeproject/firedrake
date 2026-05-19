@@ -375,16 +375,40 @@ jobs:
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
-      - name: Run Firedrake tests (nprocs = 4+)
+      - name: Run Firedrake tests (nprocs = 4)
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 5)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 6)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 7)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 8)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 20
 
       - name: Post-run cleanup
         if: always()
