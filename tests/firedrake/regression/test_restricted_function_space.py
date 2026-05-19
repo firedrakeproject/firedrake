@@ -523,12 +523,12 @@ def test_restrict_multigrid(degree, relax):
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", degree)
+    V = VectorFunctionSpace(mesh, "CG", degree)
     u = Function(V)
     test = TestFunction(V)
 
-    x, y = SpatialCoordinate(mesh)
-    u_exact = x + y
+    x = SpatialCoordinate(mesh)
+    u_exact = x
     g = Function(V).interpolate(u_exact)
 
     F = inner(grad(u - u_exact), grad(test)) * dx
