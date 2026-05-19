@@ -317,7 +317,7 @@ jobs:
         with:
           os: linux
           source_ref: ${{ inputs.source_ref }}
-          base_ref: ${{ inputs.target_branch }}
+          base_ref: ${{ inputs.base_ref }}
           scalar_type: ${{ matrix.scalar_type }}
           gpu: ${{ matrix.gpu }}
           deps: ci
