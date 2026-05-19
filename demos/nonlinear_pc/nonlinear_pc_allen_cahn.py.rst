@@ -2,17 +2,19 @@ Nonlinear preconditioning applied to the Allen-Cahn equation
 ============================================================
 
 Contributed by `Daniel Shapero <https://psc.apl.uw.edu/people/investigators/daniel-shapero/>`_
-with edits by `Josh Hope-Collins <https://profiles.imperial.ac.uk/joshua.hope-collins13>`_.
+and `Josh Hope-Collins <https://profiles.imperial.ac.uk/joshua.hope-collins13>`_.
 
 In the other demonstrations on nonlinear PDE, we've used Newton's method to
 solve finite- dimensional systems of nonlinear equations. Suppose we want to
 solve a system
 
 .. math::
+
   F(u) = 0.
 
 At each step of Newton's method, we first compute a *search direction*
 :math:`v` by solving the linear system
+
 .. math::
 
   dF(u)v = -F(u).
@@ -116,6 +118,32 @@ make Newton's method converge... to the wrong solution!
       print("Resetting `u`")
       u.interpolate(initial_guess)
 
+The residual decreases at first but eventually diverges. Here's some of the PETSc
+log output:
+
+.. code-block:: console
+
+    $ python nonlinear_pc_allen_cahn.py
+      0 SNES Function norm 2.439229081145e-01
+      1 SNES Function norm 5.663027251974e+01
+      2 SNES Function norm 1.667065795962e+01
+      3 SNES Function norm 4.864679262673e+00
+      4 SNES Function norm 1.388964354434e+00
+      5 SNES Function norm 3.744562754242e-01
+      6 SNES Function norm 8.820230192544e-02
+      7 SNES Function norm 3.682817028776e-02
+      8 SNES Function norm 5.405858541080e-02
+      9 SNES Function norm 5.368629859638e-02
+       ...
+     26 SNES Function norm 5.280237868253e-02
+     27 SNES Function norm 1.098413882561e+00
+     28 SNES Function norm 1.082944223664e+00
+     29 SNES Function norm 6.520280025999e+03
+      Nonlinear firedrake_0_ solve did not converge due to DIVERGED_DTOL iterations 29
+
+In other scenarios, the solver doesn't explode as dramatically but rather
+stagnates and exceeds the number of allowable Newton iterations.
+
 To salvage the wreck, we'll use nonlinear preconditioning. Here we use
 the simplest solution strategy possible: preconditioned nonlinear
 Richardson iterations.
@@ -156,19 +184,27 @@ time around for this inner problem.
 
 Here we define a custom nonlinear preconditioner which inherits from
 :class:`~firedrake.preconditioners.auxiliary_snes.AuxiliaryOperatorSNES`.
-Similarly to the ``AuxiliaryOperatorPC`` we
-must implement the ``form`` method, which must return a residual form
-:math:`G(u; u^{k}, v)` where :math:`v` is the test function.
+Similar to ``AuxiliaryOperatorPC``, we have to implement the ``form`` method.
+This method returns (1) a residual form :math:`G(u; u^{k}, v)` where :math:`v`
+is the test function and (2) the boundary conditions for this sub-problem.
 The arguments that it takes are first the PETSc SNES object,
 then the value :math:`u_k` of the solution at the previous iteration;
 the current value :math:`u` to be solved for; and a test function.
-It outputs the variational form for :math:`G` and the boundary conditions.
 
 ::
 
   class AllenCahnAuxSNES(firedrake.AuxiliaryOperatorSNES):
       def form(self, snes, u_k, u, v):
+          F, bcs = super().form(snes, u_k, u, v)
           return (eps * inner(grad(u), grad(v)) + (u**3 - u_k) * v) * dx, bcs
+
+The contract for the ``form`` method requires it to supply the boundary
+conditions. We could have obtained the boundary conditions by pulling them out
+of the global context. That will work for this particular set of solvers but
+can create problems for others, for example when using the multigrid method.
+Instead, we've opted to call the parent class's `form` method, which will
+return the original variational form and boundary conditions. We then discard
+the original variational form, which we aren't using here.
 
 We now set ``-snes_type nrichardson`` for nonlinear Richardson iterations,
 and specify the additional parameters for the nonlinear preconditioner under
@@ -195,14 +231,32 @@ here we use Newton iterations.
 Now we actually converge! The convergence on nonlinear Richardson iterations is
 usually linear, as opposed to the quadratic convergence of Newton, but with
 suitable preconditioning they will usually have a wider basin of convergence than
-Newton.
+Newton. From the log output, we can observe that the residual is decreasing by a
+factor of 2 or more at each iteration.
+
+.. code-block:: console
+
+      0 SNES Function norm 2.439229081145e-01
+      1 SNES Function norm 2.405339859939e-01
+      2 SNES Function norm 1.540442351803e-01
+      3 SNES Function norm 7.166137071498e-02
+      4 SNES Function norm 2.854773301463e-02
+      5 SNES Function norm 1.070593887487e-02
+      6 SNES Function norm 3.943106335233e-03
+      7 SNES Function norm 1.451230558440e-03
+       ...
+     18 SNES Function norm 3.491990058865e-08
+     19 SNES Function norm 1.349411703695e-08
+     20 SNES Function norm 5.217958176918e-09
+     21 SNES Function norm 2.018693509573e-09
+      Nonlinear firedrake_1_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 21
 
 The Allen-Cahn equation is derivable through minimization of the free energy
 functional
 
 .. math::
 
-  G(u) = \int\_\Omega\left(\frac{\epsilon}{2}|\nabla u|^2 + (1 - u^2)^2/4\right)dx.
+  G(u) = \int_\Omega\left(\frac{\epsilon}{2}|\nabla u|^2 + \frac{1}{4}(1 - u^2)^2\right)dx.
 
 To close, let's evaluate the free energy at the starting guess and at the
 computed solution.
@@ -214,6 +268,11 @@ computed solution.
   G_final = firedrake.assemble(G)
   print(f"Initial free energy: {G_initial:0.04f}")
   print(f"Final:               {G_final:0.04f}")
+
+.. code-block:: console
+
+    Initial free energy: 1.3339
+    Final:               0.0534
 
 This demo can be found as a script in :demo:`nonlinear_pc_allen_cahn.py <nonlinear_pc_allen_cahn.py>`.
 
