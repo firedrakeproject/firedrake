@@ -332,12 +332,12 @@ class Dat(Tensor):
             current_axis = current_axis.get_part(idx.npart).subaxis
         return tuple(selected)
 
-    def duplicate(self, *, copy=False) -> Dat:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Dat:
         if self.transform is not None:
             raise RuntimeError
 
         name = f"{self.name}_copy"
-        buffer = self._buffer.duplicate(copy=copy)
+        buffer = self._buffer.duplicate(copy=copy, constant=constant)
         return self.__record_init__(_name=name, _buffer=buffer)
 
     # TODO: dont do this here
@@ -563,6 +563,7 @@ class Dat(Tensor):
         self._vec_context_is_active = False
 
     def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
+        assert False, "old code"
         assert self.dtype == IntType
         block_size = np.prod(block_shape, dtype=IntType)
         return PETSc.LGMap().create(self.data_ro_with_halos, bsize=block_size, comm=self.comm)

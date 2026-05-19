@@ -1630,10 +1630,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
         # set ghost+constrained entries to -1 to make sure they are overwritten
         numbering[self.free.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
-        retval = Dat(self, data=numbering)
-        if (retval.data_ro < 0).any():
-            breakpoint()
-        return retval
+        return Dat(self, data=numbering, constant=True)
 
 
 @pyop3.record.frozenrecord()

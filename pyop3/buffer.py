@@ -30,7 +30,7 @@ from pyop3.device import (
     on_host
 )
 
-from ._buffer_cy import set_petsc_mat_diagonal
+from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
 
 
 MatTypeT = str | np.ndarray["MatTypeT"]
@@ -79,7 +79,7 @@ class AbstractBuffer(pyop3.obj.Pyop3Object):
         pass
 
     @abc.abstractmethod
-    def duplicate(self, *, copy: bool = False) -> AbstractBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> AbstractBuffer:
         pass
 
     # TODO: not sure I need this here
@@ -202,7 +202,9 @@ class NullBuffer(AbstractArrayBuffer):
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
-    def duplicate(self, *, copy: bool = False) -> NullBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
+        if constant is None:
+            raise NotImplementedError
         name = f"{self.name}_copy"
         return self.__record_init__(_name=name)
 
@@ -335,7 +337,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self.ordered:
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
         if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
-            assert not self._lazy_data[curr_dev].flags.writeable
+            self._lazy_data[curr_dev].flags.writeable = False
 
     # }}}
 
@@ -374,7 +376,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         curr_dev = get_current_device() 
         self.state[curr_dev] = self.state.get(curr_dev, 0) + 1
 
-    def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
@@ -386,10 +388,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self.sync_devices()
 
         if copy:
-            data = {curr_dev: self._lazy_data[curr_dev]}
+            data = {curr_dev: self._lazy_data[curr_dev].copy()}
         else:
             data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
-        return self.__record_init__(_name=name, _lazy_data=data)
+        if constant is None:
+            constant = self.constant
+        return self.__record_init__(_name=name, _lazy_data=data, _constant=constant)
 
     is_nested: ClassVar[bool] = False
 
@@ -946,7 +950,6 @@ class PetscMatBuffer(ConcreteBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        # return PetscMatBuffer(mat, self.mat_spec)
         return PetscMatBuffer(mat)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
@@ -961,6 +964,8 @@ class PetscMatBuffer(ConcreteBuffer):
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
 
+            # nnz, onnz = get_preallocation(preallocator)
+            # template.setPreallocationNNZ((nnz, onnz))
             preallocator.preallocatorPreallocate(template)
 
 
@@ -999,7 +1004,6 @@ class DensePythonMatContext(abc.ABC):
     def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
         self.mode = mode
         self.buffer = buffer
-        breakpoint()
 
     @classmethod
     def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:

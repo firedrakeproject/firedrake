@@ -685,7 +685,7 @@ class AbstractFunctionSpace:
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
             block_size = numpy.prod(self.shape)
-        lgmap_dat = lgmap_axes.global_numbering.copy()
+        lgmap_dat = lgmap_axes.global_numbering.copy(constant=False)
 
         # track which BCs are used so we can warn if any are missed
         unused_bcs = set(bcs)
@@ -1552,7 +1552,7 @@ class FunctionSpace(AbstractFunctionSpace):
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
-        return PETSc.LGMap().create(indices.data_ro, bsize=self.block_size, comm=self.comm)
+        return PETSc.LGMap().create(indices.data_ro.copy(), bsize=self.block_size, comm=self.comm)
 
     # NOTE: superseded by .lgmap()?
     @cached_property
@@ -1562,7 +1562,7 @@ class FunctionSpace(AbstractFunctionSpace):
             return self._lgmap
         else:
             indices = self.axes.global_numbering
-            return PETSc.LGMap().create(indices, bsize=1, comm=self.comm)
+            return PETSc.LGMap().create(indices.copy(), bsize=1, comm=self.comm)
 
     def collapse(self):
         return type(self)(self.mesh(), self.ufl_element(), name=self.name)

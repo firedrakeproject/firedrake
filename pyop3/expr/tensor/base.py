@@ -213,13 +213,33 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
     def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
         return self.assign(0, **kwargs)
 
-    def duplicate(self, *, copy: bool = False) -> Tensor:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Tensor:
+        """Return a duplicate of the tensor.
+
+        Parameters
+        ----------
+        copy
+            Whether to copy values to the new object.
+        constant
+            Is the duplicate mutable or not? If `None` then default to the const-ness
+            of the original object.
+
+        """
         name = f"{self.name}_copy"
-        buffer = self.buffer.duplicate(copy=copy)
+        buffer = self.buffer.duplicate(copy=copy, constant=constant)
         return self.__record_init__(_name=name, _buffer=buffer)
 
-    def copy(self) -> Tensor:
-        return self.duplicate(copy=True)
+    def copy(self, *, constant: bool | None = None) -> Tensor:
+        """Return a copy of the tensor.
+
+        Parameters
+        ----------
+        constant
+            Is the copy mutable or not? If `None` then default to the const-ness
+            of the original object.
+
+        """
+        return self.duplicate(copy=True, constant=constant)
 
     @abc.abstractmethod
     def concretize(self):

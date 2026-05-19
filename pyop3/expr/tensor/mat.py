@@ -389,8 +389,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_block_size = np.prod(row_block_shape, dtype=pyop3.dtypes.IntType)
             column_block_size = np.prod(column_block_shape, dtype=pyop3.dtypes.IntType)
 
-            row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos, bsize=row_block_size, comm=comm)
-            column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos, bsize=column_block_size, comm=comm)
+            row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos.copy(), bsize=row_block_size, comm=comm)
+            column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos.copy(), bsize=column_block_size, comm=comm)
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
