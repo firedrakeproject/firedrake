@@ -1,12 +1,12 @@
 .PHONY: ext
 ext:
 	@echo "    Building extension modules"
-	@python setup.py build_ext --inplace 2>&1 | tee cat build.log
+	@python setup.py build_ext --inplace 2>&1 | tee build.log
 
 .PHONY: extforce
 extforce:
 	@echo "    Force building all extension modules"
-	@python setup.py build_ext --inplace --force 2>&1 | tee cat build.log
+	@python setup.py build_ext --inplace --force 2>&1 | tee build.log
 
 .PHONY: lint
 lint: srclint actionlint dockerlint
