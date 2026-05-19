@@ -487,7 +487,6 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
         yield
         return
 
-    breakpoint()
     petscmat = mat.handle
     assert mat.buffer.mat is petscmat
     if petscmat.type == "nest":

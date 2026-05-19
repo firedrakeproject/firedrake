@@ -1302,7 +1302,6 @@ class OneFormAssembler(ParloopFormAssembler):
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
                 r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
-            # breakpoint()  # fine
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
             if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
@@ -1639,15 +1638,16 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             elif space.topological != spaces[1].topological:
                 raise RuntimeError("bc space does not match the trial function space")
 
-            if V.component:
-                raise NotImplementedError("pyop3 todo")
+
+            if len(V) > 1 or V.boundary_set:
+                raise NotImplementedError("Think cant directly use nodes here")
 
             if mat.buffer.mat.type == "is":
+                if component:
+                    raise NotImplementedError("pyop3 todo")
                 # For MATIS we handle boundary conditions by masking out
                 # rows and columns after the fact because we can't change
                 # lgmaps on the fly.
-                if len(V) > 1 or V.boundary_set:
-                    raise NotImplementedError("Think cant directly use nodes here")
                 mat.buffer.mat.assemble()
                 mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes*space.block_size, self.weight)
             else:
@@ -1656,21 +1656,21 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # we're setting something we know to be zero
                 mat.assemble()
 
-                p = V.nodal_axes[bc.node_set].iter()
-                assignee = mat[index, index][p, p]
-                # If setting a block then use an identity matrix
-                size = utils.single_valued((
-                    axes.size for axes in {assignee.row_axes, assignee.column_axes}
-                ))
-                expr_data = numpy.eye(size, dtype=utils.ScalarType) * self.weight
-                expr_buffer = op3.ArrayBuffer(expr_data, constant=True, rank_equal=True)
-                expression = op3.Mat(
-                    assignee.row_axes.materialize().regionless(),
-                    assignee.column_axes.materialize().regionless(),
-                    buffer=expr_buffer,
-                )
+                rows = bc.nodes
+                rows = numpy.asarray(rows, dtype=utils.IntType)
+                rbs = V.block_size
+                if rbs > 1:
+                    if component is not None:
+                        rows = rbs * rows + component
+                    else:
+                        rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
 
-                op3.loop(p, assignee.assign(expression), eager=True)
+                rows = numpy.asarray(rows, dtype=utils.IntType)
+                # reshape needed for some reason
+                rows = rows.reshape(-1, 1)
+                values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
+                mat.buffer.mat.setValuesLocalRCV(rows, rows, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1691,8 +1691,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
-
-        breakpoint()
 
     @staticmethod
     def _apply_bcs_mat_real_block(op2tensor, row_axes, column_axes, i, j, component, node_set):
@@ -1877,12 +1875,16 @@ class ParloopBuilder:
 
         # filter the bcs to match the subspace
         def filter_bcs(space, index):
-            bc_space = space[index] if index is not None else space
-            return tuple(bc for bc in self._bcs if bc.function_space() == bc_space)
+            if len(space) > 1:
+                return tuple(
+                    bc for bc in self._bcs
+                    if bc.function_space_index() == index
+                )
+            else:
+                return self._bcs
 
         row_bcs = filter_bcs(row_space, i)
         column_bcs = filter_bcs(column_space, j)
-
         return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
 
     @property
