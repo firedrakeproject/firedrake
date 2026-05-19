@@ -554,7 +554,7 @@ def get_local_ises_indices(V):
     V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
     for Vi, indices in zip(V, V_local_ises_indices):
         if Vi.boundary_set:
-            indices[Vi.dof_dset.lgmap.indices == -1] = -1
+            indices[Vi.dof_dset.lgmap.indices < 0] = -1
     return V_local_ises_indices
 
 
