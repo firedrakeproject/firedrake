@@ -4159,7 +4159,7 @@ values from f.)"""
 
             dll = compilation.load(
                 src, "c",
-                cppargs=(
+                cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
                     f"-I{firedrake_rtree.get_include()}",
@@ -6520,13 +6520,6 @@ def get_iteration_spec(
             else:
                 matching_indices = utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
             plex_indices = plex_indices.union(matching_indices)
-
-        breakpoint()  # needs fixing
-        with temp_internal_comm(self.mesh.comm) as icomm:
-            num_global_indices = icomm.reduce(len(indices), MPI.SUM, root=0)
-            if num_global_indices == 0 and icomm.rank == 0:
-                logger.warn(f"Subdomain {markers} is empty. This is likely an error. "
-                            "Did you choose the right label?")
 
         # Restrict to indices that exist within the iterset (e.g. drop exterior facets
         # from an interior facet integral)

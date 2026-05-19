@@ -3,7 +3,6 @@ import functools
 import ufl
 
 import firedrake.dmhooks as dmhooks
-import pyop2
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc

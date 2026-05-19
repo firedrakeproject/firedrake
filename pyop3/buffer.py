@@ -905,7 +905,7 @@ class PetscMatBuffer(ConcreteBuffer):
                 size = column_axes.buffer_size
             else:
                 mode = "column"
-                size = column_axes.buffer_size
+                size = row_axes.buffer_size
             mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
@@ -999,6 +999,7 @@ class DensePythonMatContext(abc.ABC):
     def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
         self.mode = mode
         self.buffer = buffer
+        breakpoint()
 
     @classmethod
     def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:

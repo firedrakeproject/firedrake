@@ -492,6 +492,13 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
     if petscmat.type == "nest":
         petscmat = petscmat.getNestSubMatrix(*indices)
 
+    # One cannot set the lgmaps for a MATIS as the mat is defined by the
+    # lgmaps and hence changing them will destroy the matrix. Boundary
+    # conditions are instead applied as a post-processing step.
+    if petscmat.type == "is":
+        yield
+        return
+
     orig_lgmaps = petscmat.getLGMap()
     petscmat.setLGMap(*lgmaps)
     yield

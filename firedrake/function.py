@@ -898,7 +898,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
             f"-I{sys.prefix}/include",
             f"-I{firedrake_rtree.get_include()}",
             *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-        ],
+        ),
         ldargs=ldargs,
         comm=function.comm
     )

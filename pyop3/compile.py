@@ -286,7 +286,7 @@ class Compiler(ABC):
             *(self._debugflags if self._debug else self._optflags),
             *self.bugfix_cflags,
             *self._extra_compiler_flags,
-            *config.extra_cflags),
+            *config.extra_cflags,
         )
 
     @property

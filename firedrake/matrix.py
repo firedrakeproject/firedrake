@@ -2,6 +2,7 @@ from typing import Any
 from collections.abc import Iterable
 import itertools
 
+import pyop3 as op3
 from pyop3.pyop2_utils import as_tuple
 import ufl
 from firedrake.petsc import PETSc
@@ -168,7 +169,7 @@ class Matrix(MatrixBase):
     def __init__(
         self,
         a: ufl.BaseForm,
-        mat: op2.Mat | PETSc.Mat,
+        mat: op3.Mat | PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,

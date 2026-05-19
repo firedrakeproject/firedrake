@@ -1412,10 +1412,10 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 block_shape = ((), ())
 
                 if _is_real_space(test_subspace):
-                    sub_mat_type_ = "cvec"
+                    sub_mat_type_ = "rvec"
                 else:
                     if _is_real_space(trial_subspace):
-                        sub_mat_type_ = "rvec"
+                        sub_mat_type_ = "cvec"
                     else:
                         sub_mat_type_ = sub_mat_type
 
@@ -1478,7 +1478,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             self._make_maps_and_regions(),
         )
         mat = op3.Mat.from_sparsity(sparsity)
-        return matrix.Matrix(
+        return Matrix(
             self._form,
             mat,
             self._bcs,
@@ -1638,26 +1638,38 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             elif space.topological != spaces[1].topological:
                 raise RuntimeError("bc space does not match the trial function space")
 
-            # for some reason I need to do this first, is this still the case?
-            # kinda, changing accessor - if we used INC instead? it's allowed because
-            # we're setting something we know to be zero
-            mat.assemble()
+            if V.component:
+                raise NotImplementedError("pyop3 todo")
 
-            p = V.nodal_axes[bc.node_set].iter()
-            assignee = mat[index, index][p, p]
-            # If setting a block then use an identity matrix
-            size = utils.single_valued((
-                axes.size for axes in {assignee.row_axes, assignee.column_axes}
-            ))
-            expr_data = numpy.eye(size, dtype=utils.ScalarType) * self.weight
-            expr_buffer = op3.ArrayBuffer(expr_data, constant=True, rank_equal=True)
-            expression = op3.Mat(
-                assignee.row_axes.materialize().regionless(),
-                assignee.column_axes.materialize().regionless(),
-                buffer=expr_buffer,
-            )
+            if mat.buffer.mat.type == "is":
+                # For MATIS we handle boundary conditions by masking out
+                # rows and columns after the fact because we can't change
+                # lgmaps on the fly.
+                if len(V) > 1 or V.boundary_set:
+                    raise NotImplementedError("Think cant directly use nodes here")
+                mat.buffer.mat.assemble()
+                mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes, self.weight)
+            else:
+                # for some reason I need to do this first, is this still the case?
+                # kinda, changing accessor - if we used INC instead? it's allowed because
+                # we're setting something we know to be zero
+                mat.assemble()
 
-            op3.loop(p, assignee.assign(expression), eager=True)
+                p = V.nodal_axes[bc.node_set].iter()
+                assignee = mat[index, index][p, p]
+                # If setting a block then use an identity matrix
+                size = utils.single_valued((
+                    axes.size for axes in {assignee.row_axes, assignee.column_axes}
+                ))
+                expr_data = numpy.eye(size, dtype=utils.ScalarType) * self.weight
+                expr_buffer = op3.ArrayBuffer(expr_data, constant=True, rank_equal=True)
+                expression = op3.Mat(
+                    assignee.row_axes.materialize().regionless(),
+                    assignee.column_axes.materialize().regionless(),
+                    buffer=expr_buffer,
+                )
+
+                op3.loop(p, assignee.assign(expression), eager=True)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but

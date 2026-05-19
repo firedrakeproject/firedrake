@@ -236,7 +236,7 @@ def prolong_kernel(expression, Vf):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()})
+               "tdim": element.cell.get_spatial_dimension()}
 
         # Now build a pyop3 function wrapping this
         func = op3.Function.from_c_string(
