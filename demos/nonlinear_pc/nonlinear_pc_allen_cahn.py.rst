@@ -1,6 +1,9 @@
 Nonlinear preconditioning applied to the Allen-Cahn equation
 ============================================================
 
+Contributed by `Daniel Shapero <https://psc.apl.uw.edu/people/investigators/daniel-shapero/>`_
+with edits by `Josh Hope-Collins <https://profiles.imperial.ac.uk/joshua.hope-collins13>`_.
+
 In the other demonstrations on nonlinear PDE, we've used Newton's method to
 solve finite- dimensional systems of nonlinear equations. Suppose we want to
 solve a system
@@ -39,7 +42,7 @@ state Allen-Cahn equation
 
 .. math::
 
-  -\epsilon\Delta u - u + u^3 = 0
+  F(u) = -\epsilon\Delta u - u + u^3 = 0
 
 on the unit interval with Dirichlet boundary conditions :math:`u(0) = -1` and
 :math:`u(1) = +1`. The Jacobian of this residual is indefinite wherever
@@ -113,25 +116,52 @@ make Newton's method converge... to the wrong solution!
       print("Resetting `u`")
       u.interpolate(initial_guess)
 
-To salvage the wreck, we'll use nonlinear preconditioning. Here we define
-a custom preconditioner which inherits from `AuxiliaryOperatorSNES`. The
-arguments that it takes are first the nonlinear equation solver; then the
-value `u_k` of the solution at the previous iteration; the current value `u`
-for the solution; and a test function. It outputs the variational form which
-will determine the value of `u`.
-
-Our approach here is to solve for a candidate guess by holding back the
-linear part of the reaction term in the Allen-Cahn equation. In other words,
-at each step, we solve the PDE
+To salvage the wreck, we'll use nonlinear preconditioning. Here we use
+the simplest solution strategy possible: preconditioned nonlinear
+Richardson iterations.
+The idea is that if :math:`F(u)=0` is too difficult to solve, we can
+instead solve a auxiliary operator :math:`G(u)=0` which is in some sense
+*nearby* to :math:`F`, and use that solution to iterate towards a solution
+for :math:`F(u)=0`.
+At each iteration :math:`k` we solve the following system for the next
+iterate :math:`u_{k+1}` using the value of the current iterate :math:`u_k`.
 
 .. math::
 
-  -\epsilon\Delta u - u_k + u^3 = 0.
+   G_{k}(u_{k+1}) = G_{k}(u_{k}) - F(u_{k}),
+   \quad
+   G_{k}(u) = G(u; u_{k}).
+
+We can note several properties of this iteration. Firstly, if
+:math:`F(u_{*})=0` then :math:`u_{k}=u_{*}` is a fixed point of the iteration.
+Secondly, we never have to solve :math:`F(u)=0`, we only have to evaluate
+its residual at a given state. Thirdly, we can intuitively hope that if
+:math:`G` is *close enough* to :math:`F` then the iteration will converge,
+although proving this is much more difficult than in the linear case.
+Lastly, we can define a different :math:`G_k` at each iteration by
+parameterising with the current iterate, as we will see below.
+
+Our approach for defining :math:`G` here is to hold back the linear part of
+the reaction term in the Allen-Cahn equation to the value at the previous
+iteration. In other words, at each step, we define the PDE
+
+.. math::
+
+  G(u; u_k) = -\epsilon\Delta u - u_k + u^3 = 0.
 
 The Jacobian for this problem w.r.t. :math:`u` is symmetric and positive-
 definite. We have good guarantees about the convergence of Newton's method
 in that case, so we can reuse the solver parameters that we tried the first
 time around for this inner problem.
+
+Here we define a custom nonlinear preconditioner which inherits from
+``AuxiliaryOperatorSNES``. Similarly to the ``AuxiliaryOperatorPC`` we
+must implement the ``form`` method, which must return a residual form
+:math:`G(u; u^{k}, v)` where :math:`v` is the test function.
+The arguments that it takes are first the PETSc SNES object,
+then the value :math:`u_k` of the solution at the previous iteration;
+the current value :math:`u` to be solved for; and a test function.
+It outputs the variational form for :math:`G` and the boundary conditions.
 
 ::
 
@@ -139,8 +169,11 @@ time around for this inner problem.
       def form(self, snes, u_k, u, v):
           return (eps * inner(grad(u), grad(v)) + (u**3 - u_k) * v) * dx, bcs
 
-Here we use the simplest solution strategy possible: nonlinear Richardson
-iteration. We then specify the additional parameters under the key `"npc"`.
+We now set ``-snes_type nrichardson`` for nonlinear Richardson iterations,
+and specify the additional parameters for the nonlinear preconditioner under
+the key ``"npc"``. Firstly we need to specify our python SNES type, and then
+in the ``"aux"`` key we specify the parameters to actually solve :math:`G` -
+here we use Newton iterations.
 
 ::
 
@@ -157,6 +190,11 @@ iteration. We then specify the additional parameters under the key `"npc"`.
 
   solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
   solver.solve()
+
+Now we actually converge! The convergence on nonlinear Richardson iterations is
+usually linear, as opposed to the quadratic convergence of Newton, but with
+suitable preconditioning they will usually have a wider basin of convergence than
+Newton.
 
 The Allen-Cahn equation is derivable through minimization of the free energy
 functional
