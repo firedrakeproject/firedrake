@@ -1302,6 +1302,7 @@ class OneFormAssembler(ParloopFormAssembler):
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
                 r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
+            # breakpoint()  # fine
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
             if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
@@ -1690,6 +1691,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
+
+        breakpoint()
 
     @staticmethod
     def _apply_bcs_mat_real_block(op2tensor, row_axes, column_axes, i, j, component, node_set):
