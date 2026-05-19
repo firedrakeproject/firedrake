@@ -1648,7 +1648,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 if len(V) > 1 or V.boundary_set:
                     raise NotImplementedError("Think cant directly use nodes here")
                 mat.buffer.mat.assemble()
-                mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes, self.weight)
+                mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes*space.block_size, self.weight)
             else:
                 # for some reason I need to do this first, is this still the case?
                 # kinda, changing accessor - if we used INC instead? it's allowed because

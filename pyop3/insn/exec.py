@@ -405,8 +405,8 @@ class Executable:
 
     # TODO: this should live on the executor class
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "par_loop_kernel" in str(self.code):
-        #     breakpoint()
+        if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
+            breakpoint()
         # if "slate_wrapper" in str(self.code):
         #     breakpoint()
             # import pyop3.debug
