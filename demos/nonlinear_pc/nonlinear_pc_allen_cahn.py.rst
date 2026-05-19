@@ -214,3 +214,10 @@ computed solution.
   G_final = firedrake.assemble(G)
   print(f"Initial free energy: {G_initial:0.04f}")
   print(f"Final:               {G_final:0.04f}")
+
+This demo can be found as a script in :demo:`nonlinear_pc_allen_cahn.py <nonlinear_pc_allen_cahn.py>`.
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
