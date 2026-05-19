@@ -8,6 +8,7 @@ from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
+from ufl.algorithms import extract_coefficients
 from finat.ufl import VectorElement
 import finat
 
@@ -224,6 +225,9 @@ class BCBase(object):
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
 
+    def coefficients(self):
+        raise NotImplementedError("coefficients() method has to be overwritten")
+
     @PETSc.Log.EventDecorator()
     def as_subspace(self, field, V, use_split):
         fs = self._function_space
@@ -315,8 +319,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
-            if isinstance(g, firedrake.Function) and g.function_space() != V:
-                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -342,11 +344,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
+        self._coefficients = []
         V = self.function_space()
-        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
-            if g.function_space() != V:
-                raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
+        if isinstance(g, firedrake.Function) and g.function_space() == V:
             self._function_arg = g
+            self._coefficients.append(g)
         elif isinstance(g, ufl.classes.Zero):
             if g.ufl_shape and g.ufl_shape != V.value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
@@ -355,17 +357,18 @@ class DirichletBC(BCBase, DirichletBCMixin):
         elif isinstance(g, ufl.classes.Expr):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
+            self._function_arg = firedrake.Function(V)
             try:
-                self._function_arg = firedrake.Function(V)
                 interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
                 # Call this here to check if the element supports interpolation
                 # TODO: It's probably better to have a more explicit way of checking this
-                interpolator._get_callable()
                 self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
-            except (NotImplementedError, AttributeError):
+                self._function_arg_update()
+            except NotImplementedError:
                 # Element doesn't implement interpolation
-                self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
+                self._function_arg_update()
+            self._coefficients = extract_coefficients(g)
         else:
             try:
                 g = as_ufl(g)
@@ -459,6 +462,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     def integrals(self):
         return []
+
+    def coefficients(self):
+        return self._coefficients
 
     def extract_form(self, form_type):
         # DirichletBC is directly used in assembly.
@@ -612,6 +618,9 @@ class EquationBCSplit(BCBase):
 
     def integrals(self):
         return self.f.integrals()
+
+    def coefficients(self):
+        return self.f.coefficients()
 
     def add(self, bc):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
