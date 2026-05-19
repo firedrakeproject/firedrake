@@ -340,7 +340,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
-    def solve(self, bounds=None):
+    def solve(self, bounds=None, x=None, b=None):
         r"""Solve the variational problem.
 
         :arg bounds: Optional bounds on the solution (lower, upper).
@@ -372,7 +372,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
-        if problem.restrict:
+        if problem.restrict and b is not None:
+            # Transfer the rhs into the RestrictedFunctionSpace
+            Vres = problem.u_restrict.function_space()
+            b = Function(Vres.dual()).assign(b)
+
+        if x is not None:
+            problem.u_restrict.assign(x)
+        elif problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
 
@@ -395,11 +402,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
-                self.snes.solve(None, work)
+                if b is not None:
+                    with b.dat.vec as bvec:
+                        self.snes.solve(bvec, work)
+                else:
+                    self.snes.solve(None, work)
             work.copy(u)
         self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
+        if x is not None:
+            x.assign(problem.u)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
