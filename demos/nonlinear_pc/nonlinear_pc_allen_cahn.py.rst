@@ -155,7 +155,8 @@ in that case, so we can reuse the solver parameters that we tried the first
 time around for this inner problem.
 
 Here we define a custom nonlinear preconditioner which inherits from
-``AuxiliaryOperatorSNES``. Similarly to the ``AuxiliaryOperatorPC`` we
+:class:`~firedrake.preconditioners.auxiliary_snes.AuxiliaryOperatorSNES`.
+Similarly to the ``AuxiliaryOperatorPC`` we
 must implement the ``form`` method, which must return a residual form
 :math:`G(u; u^{k}, v)` where :math:`v` is the test function.
 The arguments that it takes are first the PETSc SNES object,
