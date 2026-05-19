@@ -359,8 +359,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
-        bcs = utils.unique(chain(problem.bcs, problem.dirichlet_bcs()))
-        objs = (*forms, *bcs)
+        objs = (*forms, *problem.bcs)
         coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem

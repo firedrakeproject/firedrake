@@ -19,6 +19,7 @@ from pyop2.utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix
+import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
@@ -344,11 +345,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
-        self._coefficients = []
+        self._coefficients = ()
         V = self.function_space()
         if isinstance(g, firedrake.Function) and g.function_space() == V:
             self._function_arg = g
-            self._coefficients.append(g)
+            self._coefficients = (g,)
         elif isinstance(g, ufl.classes.Zero):
             if g.ufl_shape and g.ufl_shape != V.value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
@@ -368,7 +369,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 # Element doesn't implement interpolation
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
                 self._function_arg_update()
-            self._coefficients = extract_coefficients(g)
+            self._coefficients = tuple(extract_coefficients(g))
         else:
             try:
                 g = as_ufl(g)
@@ -573,6 +574,10 @@ class EquationBC(object):
     def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
+    def coefficients(self):
+        splits = (self._F, self._J, self._Jp)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in splits))
+
 
 class EquationBCSplit(BCBase):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
@@ -620,7 +625,8 @@ class EquationBCSplit(BCBase):
         return self.f.integrals()
 
     def coefficients(self):
-        return self.f.coefficients()
+        subs = (self.f, *self.bcs)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in subs))
 
     def add(self, bc):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
