@@ -302,6 +302,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
+        self._work_cofunction = Function(problem.u_restrict.function_space().dual())
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -372,15 +373,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
-        if problem.restrict and b is not None:
-            # Transfer the rhs into the RestrictedFunctionSpace
-            Vres = problem.u_restrict.function_space()
-            b = Function(Vres.dual()).assign(b)
+        # Transfer the rhs into the RestrictedFunctionSpace
+        if b is not None:
+            b = self._work_cofunction.assign(b)
+            # Zero bc nodes on the rhs
+            for bc in problem.dirichlet_bcs():
+                bc.zero(b)
 
+        # Transfer the initial guess into the RestrictedFunctionSpace
         if x is not None:
             problem.u_restrict.assign(x)
         elif problem.restrict:
-            # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
 
         if self._ctx.pre_apply_bcs:
