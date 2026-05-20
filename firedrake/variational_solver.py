@@ -12,6 +12,7 @@ from pyop3.cache import with_heavy_caches
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.ufl_expr import extract_domains
+from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
@@ -559,7 +560,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
-    def solve(self, bounds=None, x=None, b=None):
+    def solve(self, bounds: tuple[Function, Function] | None = None, x: Function | None = None, b: Cofunction | None = None) -> Function:
         r"""Solve the variational problem.
 
         Parameters
@@ -567,6 +568,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         bounds : tuple of firedrake.function.Function
             Optional bounds on the solution, given as ``(lower, upper)``.
             ``lower`` and ``upper`` must both be :class:`firedrake.function.Function`\s.
+
+        x : firedrake.function.Function or None
+            Optional solution buffer that contains the initial guess on entry
+            and the converged solution on exit.
+        b : firedrake.cofunction.Cofunction or None
+            Optional right-hand side. Solve ``F == b`` when it is supplied.
 
         Returns
         -------
