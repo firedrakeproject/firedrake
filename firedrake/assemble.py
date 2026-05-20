@@ -31,7 +31,7 @@ from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, local_submat
 from firedrake.mesh import get_iteration_spec, get_mesh_topologies
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
@@ -1639,10 +1639,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 raise RuntimeError("bc space does not match the trial function space")
 
 
-            if len(V) > 1 or V.boundary_set:
+            if space.boundary_set:
                 raise NotImplementedError("Think cant directly use nodes here")
 
             if mat.buffer.mat.type == "is":
+                if len(space) > 1:
+                    raise NotImplementedError("pyop3 todo")
                 if component:
                     raise NotImplementedError("pyop3 todo")
                 # For MATIS we handle boundary conditions by masking out
@@ -1669,8 +1671,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # reshape needed for some reason
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
-                mat.buffer.mat.setValuesLocalRCV(rows, rows, values,
-                                              addv=PETSc.InsertMode.INSERT_VALUES)
+
+                with local_submat(mat.buffer.mat, V, V) as submat:
+                    submat.setValuesLocalRCV(
+                        rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
+                    )
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1883,8 +1888,9 @@ class ParloopBuilder:
             else:
                 return self._bcs
 
-        row_bcs = filter_bcs(row_space, i)
-        column_bcs = filter_bcs(column_space, j)
+        # TODO: it's annoying that we have to do this in a global sense?
+        row_bcs = filter_bcs(self.test_function_space, indices[0])
+        column_bcs = filter_bcs(self.trial_function_space, indices[1])
         return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
 
     @property

@@ -695,7 +695,8 @@ class AbstractFunctionSpace:
                 for subspace in self:
                     matching_bcs = []
                     for bc in bcs:
-                        if bc.function_space_index() == subspace.index:
+                        # if bc.function_space_index() == subspace.index:
+                        if True:
                             matching_bcs.append(bc)
                             unused_bcs.discard(bc)
                     split_bcs.append(((self._labels[subspace.index],), matching_bcs))

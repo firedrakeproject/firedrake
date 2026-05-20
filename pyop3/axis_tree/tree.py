@@ -2264,7 +2264,7 @@ class AxisForest(AbstractAxisTreeLike):
     # }}}
 
     def __str__(self, /) -> str:
-        sep = f"\n{'*'*10}\n"
+        sep = f"\n{'*'*80}\n"
         return sep.join(map(str, self.trees))
 
     def __getitem__(self, indices) -> AxisForest | AxisTree:
