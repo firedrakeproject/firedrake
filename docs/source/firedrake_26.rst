@@ -27,6 +27,13 @@ Participants may register for either part of the week, but we hope that many
 will take the opportunity to learn more about these two related projects by
 staying for the whole week.
 
+Programme
+---------
+
+`The programme is now available
+<https://easychair.org/smart-program/PETScFiredrake26/>`__.
+
+
 Venue & registration
 --------------------
 
@@ -55,88 +62,6 @@ venue <https://mercureoxfordhawkwellhouse.com>`__ or booking a hotel by
 London Paddington, as it is a convenient midpoint between London Heathrow and
 Oxford.
 
-Programme
----------
-
-Abstract submissions are now closed. The full programme will be made available
-soon but the agenda for the week is as follows (note that timings may not be
-exact):
-
-**Monday**
-
-.. table::
-   :align: left
-
-   =========== ============
-   10:00-10:30 PETSc talks
-   10:30-11:00 coffee break
-   11:00-11:45 PETSc talks
-   11:45-13:30 lunch
-   13:30-14:45 PETSc talks
-   14:45-15:30 coffee break
-   15:30-16:45 PETSc talks
-   =========== ============
-
-**Tuesday**
-
-.. table::
-   :align: left
-
-   =========== ============
-   09:00-10:00 PETSc talks
-   10:00-10:45 coffee break
-   10:45-11:45 PETSc talks
-   11:45-13:30 lunch
-   13:30-14:45 PETSc talks
-   14:45-15:30 coffee break
-   15:30-16:45 PETSc talks
-   =========== ============
-
-**Wednesday**
-
-.. table::
-   :align: left
-
-   =========== ====================
-   09:00-10:15 PETSc tutorial 1
-   10:15-11:00 coffee break
-   11:00-12:15 PETSc tutorial 2
-   12:15-13:30 lunch
-   13:30-14:45 Firedrake tutorial 1
-   14:45-15:30 coffee break
-   15:30-16:45 Firedrake tutorial 2
-   16:45-17:30 poster session and drinks reception, sponsored by `Devito Codes <https://www.devitocodes.com>`__
-   =========== ====================
-
-**Thursday**
-
-.. table::
-   :align: left
-
-   =========== ===============
-   09:00-10:00 Firedrake talks
-   10:00-10:45 coffee break
-   10:45-11:45 Firedrake talks
-   11:45-13:30 lunch
-   13:30-14:45 Firedrake talks
-   14:45-15:30 coffee break
-   15:30-16:45 Firedrake talks
-   =========== ===============
-
-**Friday**
-
-.. table::
-   :align: left
-
-   =========== ===============
-   09:00-10:00 Firedrake talks
-   10:00-10:45 coffee break
-   10:45-11:45 Firedrake talks
-   11:45-13:30 lunch
-   13:30-14:15 Firedrake talks
-   14:15-15:00 coffee break
-   15:00-16:00 Firedrake talks
-   =========== ===============
 
 Travel
 ------
