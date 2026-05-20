@@ -19,17 +19,21 @@ from .utils import get_level
 __all__ = ("CoarsePatchTransferManager", "FinePatchTransferManager", "RobustTransferManager")
 
 
+DEFAULT_PATCH_PARAMETERS = {
+    "ksp_type": "preonly",
+    "pc_type": "bjacobi",
+    "sub_pc_type": "lu",
+    "sub_pc_factor_mat_solver_type": "petsc",
+    "sub_pc_factor_shift_type": "nonzero",
+}
+
+
 class RobustTransferManager(TransferManager):
     """An object for managing transfers between levels in a multigrid hierarchy
     via standard interpolation into subdomain boundaries followed by an extension
     into the interior of the subdomains by solving the homogeneous PDE.
 
-    :kwarg native_transfers: dict mapping UFL element
-       to "natively supported" transfer operators. This should be
-       a three-tuple of (prolong, restrict, inject).
-    :kwarg use_averaging: Use averaging to approximate the
-       projection out of the embedded DG space? If False, a global
-       L2 projection will be performed.
+    The subdomain solver options are under the prefix ``mg_transfer_``.
     """
 
     class TransferCallable:
@@ -48,33 +52,22 @@ class RobustTransferManager(TransferManager):
                 c()
             return y.assign(self.y_buffer)
 
-    def __init__(self, native_transfers=None, use_averaging=True):
-        super().__init__(native_transfers=native_transfers,
-                         use_averaging=use_averaging)
-        self.direct_solver_parameters = {
-            "ksp_type": "preonly",
-            "pc_type": "bjacobi",
-            "sub_pc_type": "cholesky",
-            "sub_pc_factor_mat_solver_type": "cholmod",
-            "sub_pc_factor_shift_type": "nonzero",
-        }
-
     def form(self, V):
         """Get the preconditioning Form in the _SNESContext of a FunctionSpace."""
         form = None
         ctx = dmhooks.get_appctx(V.dm)
         if ctx is not None:
             form = ctx._problem.Jp or ctx._problem.J
-            if len(form.arguments()[1].function_space()) != len(V):
+            # Only return form when the trial function is in V
+            if form.arguments()[1].function_space() != V:
                 form = None
         return form
 
     def options_prefix(self, V):
         """Get the options prefix in the _SNESContext of a FunctionSpace."""
-        prefix = None
         ctx = dmhooks.get_appctx(V.dm)
-        if ctx is not None:
-            prefix = ctx.options_prefix + "_transfer"
+        prefix = ctx.options_prefix if ctx else ""
+        prefix += "mg_transfer_"
         return prefix
 
     def auxiliary_target_space(self, V):
@@ -173,7 +166,6 @@ class RobustTransferManager(TransferManager):
                 Ib = get_interpolator(interpolate(btest, rf))
                 copy_aux = partial(Iv.assemble, tensor=r_aux)
                 copy_rhs = partial(Ib.assemble, tensor=r_patch)
-
             residual = get_assembler(form(u_patch, vtest))
             callables = (
                 copy_rhs,
@@ -236,7 +228,7 @@ class CoarsePatchTransferManager(RobustTransferManager):
         a = assemble(form(test, trial), bcs=bcs)
         problem = LinearVariationalProblem(a, r_patch, u_patch)
         solver = LinearVariationalSolver(problem,
-                                         solver_parameters=self.direct_solver_parameters,
+                                         solver_parameters=DEFAULT_PATCH_PARAMETERS,
                                          options_prefix=self.options_prefix(V))
         return (solver.solve, r_patch, u_patch)
 
@@ -322,7 +314,7 @@ class FinePatchTransferManager(RobustTransferManager):
             a = assemble(a)
             problem = LinearVariationalProblem(a, r_patch, u_patch)
             solver = LinearVariationalSolver(problem,
-                                             solver_parameters=self.direct_solver_parameters,
+                                             solver_parameters=DEFAULT_PATCH_PARAMETERS,
                                              options_prefix=self.options_prefix(V))
             solve = solver.solve
         return (solve, r_patch, u_patch)
