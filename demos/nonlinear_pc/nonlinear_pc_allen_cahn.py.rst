@@ -44,7 +44,7 @@ state Allen-Cahn equation
 
 .. math::
 
-  F(u) = -\epsilon\Delta u - u + u^3 = 0
+  F(u) = -\epsilon\Delta u + u^3 - u = 0
 
 on the unit interval with Dirichlet boundary conditions :math:`u(0) = -1` and
 :math:`u(1) = +1`. The Jacobian of this residual is indefinite wherever
@@ -96,7 +96,7 @@ make Newton's method converge... to the wrong solution!
 ::
 
   v = TestFunction(Q)
-  F = (eps * inner(grad(u), grad(v)) - (u - u**3) * v) * dx
+  F = (eps * inner(grad(u), grad(v)) + (u**3 - u) * v) * dx
 
   problem = NonlinearVariationalProblem(F, u, bcs)
 
@@ -175,7 +175,7 @@ iteration. In other words, at each step, we define the PDE
 
 .. math::
 
-  G(u; u_k) = -\epsilon\Delta u - u_k + u^3 = 0.
+  G(u; u_k) = -\epsilon\Delta u + u^3 - u_k = 0.
 
 The Jacobian for this problem w.r.t. :math:`u` is symmetric and positive-
 definite. We have good guarantees about the convergence of Newton's method
@@ -204,7 +204,9 @@ of the global context. That will work for this particular set of solvers but
 can create problems for others, for example when using the multigrid method.
 Instead, we've opted to call the parent class's `form` method, which will
 return the original variational form and boundary conditions. We then discard
-the original variational form, which we aren't using here.
+the original variational form, which we aren't using here. For other nonlinear
+preconditioners, we might instead be building the preconditioning form by
+modifying ``F``.
 
 We now set ``-snes_type nrichardson`` for nonlinear Richardson iterations,
 and specify the additional parameters for the nonlinear preconditioner under
@@ -256,18 +258,18 @@ functional
 
 .. math::
 
-  G(u) = \int_\Omega\left(\frac{\epsilon}{2}|\nabla u|^2 + \frac{1}{4}(1 - u^2)^2\right)dx.
+  E(u) = \int_\Omega\left(\frac{\epsilon}{2}|\nabla u|^2 + \frac{1}{4}(1 - u^2)^2\right)dx.
 
 To close, let's evaluate the free energy at the starting guess and at the
 computed solution.
 
 ::
 
-  G = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
-  G_initial = firedrake.assemble(firedrake.replace(G, {u: initial_guess}))
-  G_final = firedrake.assemble(G)
-  print(f"Initial free energy: {G_initial:0.04f}")
-  print(f"Final:               {G_final:0.04f}")
+  E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
+  E_initial = firedrake.assemble(firedrake.replace(E, {u: initial_guess}))
+  E_final = firedrake.assemble(E)
+  print(f"Initial free energy: {E_initial:0.04f}")
+  print(f"Final:               {E_final:0.04f}")
 
 .. code-block:: console
 
