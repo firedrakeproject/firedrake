@@ -187,5 +187,5 @@ firedrake = [
 ]
 pyop3 = [
   "*.pyx",
-  "ir/*.c",
+  "lower/*.c",
 ]
