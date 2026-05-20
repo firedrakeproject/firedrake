@@ -333,14 +333,16 @@ jobs:
           pwd
           env
 
+          ls
+
           : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
           PYTEST_ARGS="--splits 10 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake"
 
           echo $PYTEST_ARGS
 
-          python3 -m pytest -n 8 "$PYTEST_ARGS"
-          mpiexec -n 2 python3 -m pytest "$PYTEST_ARGS"
-          mpiexec -n 3 python3 -m pytest "$PYTEST_ARGS"
+          python3 -m pytest -n 8 $PYTEST_ARGS
+          mpiexec -n 2 python3 -m pytest $PYTEST_ARGS
+          mpiexec -n 3 python3 -m pytest $PYTEST_ARGS
         timeout-minutes: 30
 
       - name: Run TSFC tests
