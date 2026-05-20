@@ -261,10 +261,10 @@ jobs:
       - name: Generate matrix
         id: generate
         run: |
-          if [ "${{ inputs.test_complex }}" ]; then
+          if [ ${{ inputs.test_complex }} == 'true' ]; then
             matrix='{"scalar_type": "complex", "gpu": "none"}'
           fi
-          if [ "${{ inputs.test_cuda }}" ]; then
+          if [ ${{ inputs.test_cuda }} == 'true' ]; then
             arch='{"scalar_type": "default", "gpu": "cuda"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
@@ -322,21 +322,23 @@ jobs:
           gpu: ${{ matrix.gpu }}
           deps: ci
 
+      # TODO: We should run all tests that are specific to a particular configuration
+      # (e.g. run all tests marked 'skipnogpu')
       - name: Run tests subset
         if: inputs.trigger == 'push'
         run: |
           . venv/bin/activate
 
           : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
-          PYTEST_ARGS="$EXTRA_PYTEST_ARGS --splits 10 --group 1 -m parallel[match]"
+          PYTEST_ARGS="--splits 10 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake"
 
-          python3 -m pytest -n 8 firedrake-repo/tests/firedrake "$PYTEST_ARGS"
-          mpiexec -n 2 python3 -m pytest firedrake-repo/tests/firedrake "$PYTEST_ARGS"
-          mpiexec -n 3 python3 -m pytest firedrake-repo/tests/firedrake "$PYTEST_ARGS"
+          python3 -m pytest -n 8 $PYTEST_ARGS
+          mpiexec -n 2 python3 -m pytest $PYTEST_ARGS
+          mpiexec -n 3 python3 -m pytest $PYTEST_ARGS
         timeout-minutes: 30
 
       - name: Run TSFC tests
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        if: inputs.trigger == 'pr'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
