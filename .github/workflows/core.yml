@@ -261,12 +261,12 @@ jobs:
       - name: Generate matrix
         id: generate
         run: |
-          if [ ${{ inputs.test_complex }} ]; then
+          if [ ${{ inputs.test_complex }} == 'true' ]; then
             matrix='{"scalar_type": "complex", "gpu": "none"}'
           fi
-          if [ ${{ inputs.test_cuda }} ]; then
+          if [ ${{ inputs.test_cuda }} == 'true' ]; then
             arch='{"scalar_type": "default", "gpu": "cuda"}'
-            if [ $matrix ]; then
+            if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else
               matrix="$arch"
