@@ -178,13 +178,7 @@ def prolong_kernel(expression, Vf):
         element = create_element(expression.ufl_element())
         num_verts = len(element.cell.get_vertices())
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop3_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc
-                                         %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -198,38 +192,34 @@ def prolong_kernel(expression, Vf):
                     break;
                 }
 
-            celldist = %(celldist_l1_c_expr)s;
-            if (celldist < bestdist) {
-                bestdist = celldist;
-                bestcell = i;
-            }
-        }
-        if (cell == -1) {
-            /* We didn't find a cell that contained this point exactly.
-               Did we find one that was close enough? */
-            if (bestdist < 10) {
-                cell = bestcell;
-            } else {
-                fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                for (int coord = 0; coord < %(tdim)s; coord++) {
-                  fprintf(stderr, "%%.14e ", X[coord]);
+                celldist = %(celldist_l1_c_expr)s;
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
                 }
-                fprintf(stderr, "\\n");
-                fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                abort();
             }
-        }
-        const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
-        const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
-        for ( int i = 0; i < %(Rdim)d; i++ ) {
-            R[i] = 0;
-        }
-        pyop3_kernel_evaluate(%(kernel_args)s);
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 10) {
+                    cell = bestcell;
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
+            }
+            const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
+            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
+            for ( int i = 0; i < %(Rdim)d; i++ ) {
+                R[i] = 0;
+            }
+            pyop3_kernel_evaluate(%(kernel_args)s);
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -239,27 +229,27 @@ def prolong_kernel(expression, Vf):
                "tdim": element.cell.get_spatial_dimension()}
 
         # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.WRITE),
+            ("f", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
         func = op3.Function.from_c_string(
             "pyop3_kernel_prolong",
-            c_kernel,
-            [
-                ("R", ScalarType, op3.WRITE),
-                ("f", ScalarType, op3.READ),
-                ("X", ScalarType, op3.READ),
-                ("Xc", ScalarType, op3.READ),
-            ],
+            kernel_code,
+            kernel_args,
             preambles=[
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
         )
 
-        # FIXME: not getting these...
-        # transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
-        # transfer_kernel.oriented = kernel.oriented
-        # transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-
-        return cache.setdefault(key, func)
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def restrict_kernel(Vf, Vc):
@@ -277,100 +267,87 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        pass
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
+        kernel = dual_evaluation_kernel(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
+        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        coords_element = create_element(coordinates.ufl_element())
+        element = create_element(Vc.ufl_element())
+        num_verts = len(element.cell.get_vertices())
 
-    assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
-    kernel = dual_evaluation_kernel(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
-    evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
-    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-    coords_element = create_element(coordinates.ufl_element())
-    element = create_element(Vc.ufl_element())
-    num_verts = len(element.cell.get_vertices())
+        kernel_code = """
+            PetscScalar Xref[%(tdim)d];
+            int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist = 2*bestdist;
 
-    c_kernel = textwrap.dedent("""
-        PetscScalar Xref[%(tdim)d];
-        int cell = -1;
-        int bestcell = -1;
-        double bestdist = 1e10;
-        for (int i = 0; i < %(ncandidate)d; i++) {
-            const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-            double celldist = 2*bestdist;
-
-            to_reference_coords_kernel(Xref, X, Xci);
-            if (%(inside_cell)s) {
-                cell = i;
-                break;
-            }
-
-            celldist = %(celldist_l1_c_expr)s;
-            /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
-            fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
-            if (celldist < bestdist) {
-                bestdist = celldist;
-                bestcell = i;
-            }
-        }
-        if (cell == -1) {
-            /* We didn't find a cell that contained this point exactly.
-               Did we find one that was close enough? */
-            if (bestdist < 10) {
-                cell = bestcell;
-            } else {
-                fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                for (int coord = 0; coord < %(tdim)s; coord++) {
-                  fprintf(stderr, "%%.14e ", X[coord]);
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    break;
                 }
-                fprintf(stderr, "\\n");
-                fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                abort();
-            }
-        }
 
-        {
-        const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-        pyop3_kernel_evaluate(%(kernel_args)s);
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+                celldist = %(celldist_l1_c_expr)s;
+                /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
+                fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+            }
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 10) {
+                    cell = bestcell;
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
+            }
+
+            {
+            const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
+            pyop3_kernel_evaluate(%(kernel_args)s);
+            }
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()})
+               "tdim": element.cell.get_spatial_dimension()}
 
-    # TODO: Use from_c_string()
-    # Now build a pyop3 'Function' wrapping this
-    # sniff arg sizes from the inner kernel
-    loopy_kernel = lp.make_kernel(
-        [],
-        [
-            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
-        ],
-        [
-            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
-            lp.GlobalArg("b", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
-        ],
-        name="pyop3_kernel_restrict",
-        preambles=[
-            ("20_petsc", "#include <petsc.h>"),
-            ("20_to_reference_kernel", str(to_reference_kernel)),
-            ("20_eval", evaluate_code),
-        ],
-        target=tsfc.parameters.target,
-        lang_version=op3.LOOPY_LANG_VERSION,
+        # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.INC),
+            ("b", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
+        func = op3.Function.from_c_string(
+            "pyop3_kernel_restrict",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
         )
-    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
 
-    # FIXME: need these
-    # transfer_kernel.oriented = kernel.oriented
-    # transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-    return cache.setdefault(key, func)
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def inject_kernel(Vf, Vc):
@@ -394,7 +371,7 @@ def inject_kernel(Vf, Vc):
             return cache[key]
         except KeyError:
             ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+            return cache.setdefault(key, ((dg_injection_kernel(Vf, Vc, ncandidate), False, False), True))
     else:
         expression = ufl.Coefficient(Vf)
         return (prolong_kernel(expression, Vc), False)

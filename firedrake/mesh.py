@@ -2549,7 +2549,8 @@ class ExtrudedMeshTopology(MeshTopology):
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
-
+        r"The PETSc DM representation of the mesh topology."
+        self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         self.periodic = periodic
