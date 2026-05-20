@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ufl
+from typing import Tuple
 from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
@@ -8,6 +9,7 @@ from petsctools import OptionsManager, flatten_parameters
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
@@ -341,17 +343,30 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
-    def solve(self, bounds=None, x=None, b=None):
+    def solve(self,
+              bounds: Tuple[Function, Function] | None = None,
+              x: Function | None = None,
+              b: Cofunction | None = None):
         r"""Solve the variational problem.
 
-        :arg bounds: Optional bounds on the solution (lower, upper).
-            ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s.
+        Parameters
+        ----------
 
-        .. note::
+        bounds
+            Optional bounds on the solution (lower, upper).
+        x
+            Optional solution buffer with the initial guess on
+            entry and the converged solution on exit.
+        b
+            Optional RHS source term. This enables solving
+            F == b.
+
+        Notes
+        -----
 
            If bounds are provided the ``snes_type`` must be set to
            ``vinewtonssls`` or ``vinewtonrsls``.
+
         """
         # Make sure the DM has this solver's callback functions
         self._ctx.set_function(self.snes)
