@@ -4046,6 +4046,7 @@ def _pic_swarm_in_mesh(
     swarm_input_idxs = input_idxs_on_leaves[all_indices]
     swarm_physical_coords = coords_recv[all_indices]
 
+    visible_idxs = swarm_parent_cell_nums != -1
     if parent_mesh.extruded:
         if parent_mesh.variable_layers:
             raise NotImplementedError(
@@ -4056,18 +4057,20 @@ def _pic_swarm_in_mesh(
         )
         # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
         # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_parent_cell_nums = np.full_like(base_parent_cell_nums, -1)
-        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            base_parent_cell_nums[visible_idxs], -1
+        plex_swarm_parent_cell_nums = np.full_like(swarm_base_cells, -1)
+        plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            swarm_base_cells[visible_idxs], -1
         ]
-        base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
-        extrusion_heights_visible = extrusion_heights[visible_idxs]
+        swarm_base_cells_visible = swarm_base_cells[visible_idxs]
+        swarm_extrusion_heights_visible = swarm_extrusion_heights[visible_idxs]
     else:
         # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
-        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local[visible_idxs], -1
+        plex_swarm_parent_cell_nums = np.full_like(swarm_parent_cell_nums, -1)
+        plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            swarm_parent_cell_nums[visible_idxs], -1
         ]
+        swarm_base_cells_visible = None
+        swarm_extrusion_heights_visible = None
 
     swarm = _dmswarm_create(
         fields,
@@ -4081,8 +4084,8 @@ def _pic_swarm_in_mesh(
         swarm_owner_ranks,
         swarm_input_ranks,
         swarm_input_idxs,
-        swarm_base_cells,
-        swarm_extrusion_heights,
+        swarm_base_cells_visible,
+        swarm_extrusion_heights_visible,
         parent_mesh.extruded,
         tdim,
         gdim,
