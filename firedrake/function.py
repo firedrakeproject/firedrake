@@ -342,7 +342,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         latest_topology_step_sf = self._mesh_topo._topology_step_sfs.get(current_version, None)
         if latest_topology_step_sf is None:
             raise RuntimeError(
-                f"Failed to migrate the Function data: the SF from version {self._mesh_topology_version} could not be found."
+                f"Failed to migrate the Function data: the SF to version {current_version} could not be found."
             )
     
         # Check that the element is DG0
@@ -400,6 +400,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         # SF maps new VOM (leaves) -> old VOM (roots)
         # The old function values are defined at the roots so we use a bcast operation 
         # to move them to the dofs at the leaves
+        # ilocal is used to write into the leaf buffer ()
+        # inputindex in remote
         new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype) 
         for c in range(dim):
             root_c = np.ascontiguousarray(old_func_vals_normalized[:, c])
@@ -409,11 +411,13 @@ class Function(ufl.Coefficient, FunctionMixin):
             unit = MPI._typedict[np.dtype(root_c.dtype).char]
 
             # Bcast old (root) values into new (leaf) positions
+            # uses ilocal to determine where to write in the leaf buffer and inputindex is used as an offset into the root buffer
+            # executes leaf_c[ilocal[k]] = root_c[inputindex[k]] or leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
             latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
             latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
 
             new_func_vals[:, c] = leaf_c
-        
+
         # Write the values into the new dat using the cell node list
         cnl = FS_topo.cell_node_list
         new_dofs = cnl[:, 0] # NOTE: this only works for DG0 that defines one dof per cell
