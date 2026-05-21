@@ -24,7 +24,6 @@ from finat.ufl import BrokenElement, FiniteElement
 from ufl import avg, dx, ds, dS, inner, as_vector, replace
 import ufl
 import numpy as np
-from numbers import Integral
 
 
 __all__ = ["GoalAdaptiveSolverBase",
@@ -891,7 +890,6 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         self.goal_functional = refine(self.goal_functional, refine, coefficient_mapping=coef_map)
         if self.u_exact is not None:
             self.u_exact = refine(self.u_exact, refine, coefficient_mapping=coef_map)
-
 
 
 # ---------------------------------------------------------------------------
