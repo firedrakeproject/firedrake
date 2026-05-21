@@ -74,6 +74,11 @@ class RobustTransferManager(TransferManager):
         """Construct an auxiliary target FunctionSpace."""
         raise NotImplementedError("Must be implemented by subclass.")
 
+    def build_auxiliary_target_space(self, V):
+        """Dispatch auxiliary_target_space on the subspaces of a MixedFunctionSpace."""
+        subspaces = tuple(map(self.auxiliary_target_space, V))
+        return MixedFunctionSpace(subspaces) if len(subspaces) > 1 else subspaces[0]
+
     def build_patch_solver(self, form, V):
         """Build a solver to extend the solution from the residual in the
            auxiliary space into the entire space V."""
@@ -113,7 +118,7 @@ class RobustTransferManager(TransferManager):
         uc = uf on patch boundaries and form(v, uf) = 0 for all v on the patch
         subspaces."""
         V = uf.function_space()
-        V_aux = self.auxiliary_target_space(V)
+        V_aux = self.build_auxiliary_target_space(V)
         u_aux = Function(V_aux)
 
         solver, r_patch, u_patch = self.get_patch_solver(form, V)
@@ -144,7 +149,7 @@ class RobustTransferManager(TransferManager):
     def restrict_callable(self, form, rf, rc):
         """Return a TransferCallable with the adjoint of prolong."""
         V = rf.function_space().dual()
-        V_aux = self.auxiliary_target_space(V)
+        V_aux = self.build_auxiliary_target_space(V)
         r_aux = Function(V_aux.dual())
         Au = Function(V_aux.dual())
 
@@ -208,8 +213,21 @@ class CoarsePatchTransferManager(RobustTransferManager):
     """
 
     def auxiliary_target_space(self, V):
-        """Construct a standard space for inter-grid interpolation."""
-        return V.reconstruct(variant=None, quad_scheme=None)
+        """Construct a facet space for inter-grid interpolation."""
+        element = V.ufl_element()
+        if (element.family() in {"Lagrange", "Discontinuous Lagrange"}
+                and V.finat_element.complex.is_macrocell()):
+            # If the element is a split variant, reconstruct the unsplit one
+            element = element.reconstruct(variant=None)
+
+        entity_dofs = V.finat_element.entity_dofs()
+        sd = max(entity_dofs)
+        if len(entity_dofs[sd][0]) > 0:
+            element = element["facet"]
+
+        if element == V.ufl_element():
+            return V
+        return V.collapse().reconstruct(element=element)
 
     def build_patch_solver(self, form, V):
         """Solve form(test, u_patch) = r_patch on coarse cell patches."""
@@ -256,9 +274,6 @@ class FinePatchTransferManager(RobustTransferManager):
 
     def auxiliary_target_space(self, V):
         """Construct a facet space for inter-grid interpolation."""
-        if len(V) > 1:
-            return MixedFunctionSpace(tuple(map(self.auxiliary_target_space, V)))
-
         if V.finat_element.is_dg():
             return V
 
