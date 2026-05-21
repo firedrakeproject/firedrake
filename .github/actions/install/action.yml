@@ -151,6 +151,7 @@ runs:
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
+        pip install git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/quad-scheme -v --no-deps --ignore-installed
 
         firedrake-clean
         pip list
