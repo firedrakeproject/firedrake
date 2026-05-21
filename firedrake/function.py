@@ -564,8 +564,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        # Point evaluation always uses float64 for geometric robustness
-        coord = np.asarray(coord, dtype=np.float64)
+        coord = np.asarray(coord)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:

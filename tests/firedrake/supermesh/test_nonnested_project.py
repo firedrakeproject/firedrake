@@ -1,5 +1,4 @@
 import pytest
-
 pytestmark = pytest.mark.skipsingle
 
 import numpy

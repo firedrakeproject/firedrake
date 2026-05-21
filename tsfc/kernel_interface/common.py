@@ -12,7 +12,6 @@ import gem
 import gem.impero_utils as impero_utils
 import petsctools
 import numpy
-from pyop2.datatypes import IntType
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
 from finat.quadrature import AbstractQuadratureRule
@@ -483,7 +482,7 @@ def prepare_constant(constant, number):
     :returns: (funarg, expression)
          expression - GEM expression referring to the Constant value(s)
     """
-    value_size = numpy.prod(constant.ufl_shape, dtype=IntType)
+    value_size = numpy.prod(constant.ufl_shape, dtype=int)
     return gem.reshape(gem.Variable(f"c_{number}", (value_size,)),
                        constant.ufl_shape)
 
@@ -509,7 +508,7 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
     """
     finat_element = create_element(coefficient.ufl_element())
     shape = finat_element.index_shape
-    size = numpy.prod(shape, dtype=IntType)
+    size = numpy.prod(shape, dtype=int)
     domain = extract_unique_domain(coefficient)
     integral_type = domain_integral_type_map[domain]
     if integral_type is None:
@@ -574,7 +573,7 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
         return gem.Indexed(gem.reshape(restricted, *shapes),
                            tuple(chain(*multiindices)))
 
-    u_shape = numpy.array([numpy.prod(shape, dtype=IntType) for shape in shapes])
+    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
     c_shape = copy.deepcopy(u_shape)
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):

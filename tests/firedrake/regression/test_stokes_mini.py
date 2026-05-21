@@ -62,7 +62,7 @@ def run_stokes_mini(mat_type, n):
     return errornorm(uexact, u, degree_rise=0), errornorm(pexact, p, degree_rise=0)
 
 
-@pytest.mark.skipsingle  # Schur complement fieldsplit stalls in fp32; needs a separate fp32 solver test
+@pytest.mark.skipsingle  # Schur complement fieldsplit does not converge in fp32; tracked in https://github.com/firedrakeproject/firedrake/pull/5033
 @pytest.mark.parametrize('mat_type', ["aij", "nest"])
 def test_stokes_mini(mat_type):
     u_err = []

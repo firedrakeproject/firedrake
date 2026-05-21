@@ -57,7 +57,7 @@ extern PetscInt locate_cell(struct Function *f,
 		       PetscInt* cells_ignore);
 
 /* x is physical coordinates: always double (libspatialindex requires float64).
- * Return value is a status code (-1 = not found, 0 = success), not a cell index. */
+ * Returns 0 on success, -1 if the point is not in the domain. */
 extern int evaluate(struct Function *f,
 		    double *x,
 		    PetscScalar *result);

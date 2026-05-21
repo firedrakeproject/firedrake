@@ -1,5 +1,4 @@
 import pytest
-
 from firedrake import *
 from firedrake.adjoint import *
 

@@ -641,10 +641,10 @@ class MixedMatPack(Pack):
         # Need to compute row and col shape based on individual pack shapes
         for p in self.packs[:, 0]:
             shape, _ = p.shapes
-            rshape += numpy.prod(shape, dtype=IntType)
+            rshape += numpy.prod(shape, dtype=int)
         for p in self.packs[0, :]:
             _, shape = p.shapes
-            cshape += numpy.prod(shape, dtype=IntType)
+            cshape += numpy.prod(shape, dtype=int)
         shape = (rshape, cshape)
         if self.access in {WRITE, INC}:
             val = Zero((), self.dtype)

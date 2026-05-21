@@ -1,6 +1,6 @@
 import pytest
-
 import numpy as np
+from firedrake.utils import single_mode
 from scipy.sparse import csr_array
 import petsctools
 from firedrake import *
@@ -146,7 +146,6 @@ def test_vom_white_noise(dim, mesh_type, rng):
     assert np.mean(rate) > 0.4
 
 
-@pytest.mark.skipsingle  # tol=1e-10 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -195,12 +194,11 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-10
+    tol = 1e-5 if single_mode else 1e-10
 
     assert errornorm(w, wcheck) < tol
 
 
-@pytest.mark.skipsingle  # tol=1e-8 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -234,12 +232,12 @@ def test_covariance_inverse_action_hdiv(m):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-8
+    tol = 1e-3 if single_mode else 1e-8
 
     assert errornorm(w, wcheck) < tol
 
 
-@pytest.mark.skipsingle  # tol=1e-12 exceeds fp32 precision (~1e-7)
+@pytest.mark.skipsingle  # asserts ksp.its == 1 (exact algebraic inverse); not achievable in fp32
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -328,7 +326,7 @@ def test_covariance_mat(m, family, operation):
     assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
 
 
-@pytest.mark.skipsingle  # tol=1e-12 exceeds fp32 precision (~1e-7)
+@pytest.mark.skipsingle  # asserts ksp.its == 1 (exact algebraic inverse); not achievable in fp32
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("operation", ("action", "inverse"))
 def test_mixed_covariance(operation):

@@ -237,7 +237,8 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
-            # Cast initializer to match dtype — necessary for non-double precision (e.g., float32)
+            # loopy validates that TemporaryVariable.initializer.dtype matches the declared dtype
+            # and raises at kernel-generation time if they differ (e.g. float64 GEM constant in fp32 build).
             initializer = temp.array.astype(dtype) if temp.array.dtype != dtype else temp.array
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=initializer, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:

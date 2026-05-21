@@ -406,7 +406,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
     def _coefficient(self, coefficient, name):
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
-        size = numpy.prod(shape, dtype=IntType)
+        size = numpy.prod(shape, dtype=int)
         funarg = lp.GlobalArg(name, dtype=ScalarType, shape=(size,))
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
