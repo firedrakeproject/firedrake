@@ -1,6 +1,5 @@
 import pytest
 pytestmark = pytest.mark.skipsingle
-
 import numpy
 from firedrake import *
 from firedrake.utils import IntType

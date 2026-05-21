@@ -1,6 +1,5 @@
 import pytest
 pytestmark = pytest.mark.skipsingle  # VertexBasedLimiter performs cell-location queries; fp32 point-location tolerance is too coarse for the limiter stencil checks
-
 from firedrake import *
 import numpy as np
 

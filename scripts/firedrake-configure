@@ -13,10 +13,12 @@
 import sys
 import time
 
+
 def print_and_stop(msg: str) -> None:
     """Print a message to stdout and stop the script."""
     print(msg, file=sys.stdout, end="")
     exit(0)
+
 
 def error(msg: str):
     """Print an error message to stderr and stop the script.
@@ -29,6 +31,7 @@ def error(msg: str):
     time.sleep(3)
     exit(1)
 
+
 def warn(msg: str):
     """Print a warning message to stderr.
 
@@ -39,11 +42,13 @@ def warn(msg: str):
     # wait so users have a chance to see the message before it gets swamped by stdout
     time.sleep(1)
 
+
 # Start by checking the Python version, older Pythons may not be able to run
 # this script.
 MINIMUM_PYTHON_VERSION = "3.10"
 if sys.version < MINIMUM_PYTHON_VERSION:
     error(f"Firedrake requires Python {MINIMUM_PYTHON_VERSION} or greater")
+
 
 import argparse
 import dataclasses
@@ -52,9 +57,11 @@ import os
 import platform
 from collections.abc import Mapping, Sequence
 
+
 # Attributes that we expect to change occasionally
 
 SUPPORTED_PETSC_VERSION = "v3.25.0"
+
 
 def main():
     parser = make_parser()
@@ -102,6 +109,7 @@ please consider passing '--os unknown' or building manually""")
     else:
         assert args.show_env
         arch.show_env()
+
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -188,6 +196,7 @@ Please see https://firedrakeproject.org/install for more information."""
 
     return parser
 
+
 def detect_os() -> "OS":
     if platform.system() == "Linux":
         try:
@@ -216,6 +225,7 @@ Cannot identify operating system, to configure Firedrake please specify the
 operating system manually. Run 'python3 firedrake-configure --help' to see
 the available options.""")
 
+
 class OS(enum.Enum):
     UBUNTU_2404_X86_64 = "ubuntu24.04-x86_64"
     UBUNTU_2404_AARCH64 = "ubuntu24.04-aarch64"
@@ -223,6 +233,7 @@ class OS(enum.Enum):
     UBUNTU_2604_AARCH64 = "ubuntu26.04-aarch64"
     MACOS_ARM64 = "macos-arm64"
     UNKNOWN = "unknown"
+
 
 class ScalarType(enum.Enum):
     DEFAULT = "default"
@@ -234,8 +245,10 @@ class GPUPlatform(enum.Enum):
     NO_GPU = "none"
     CUDA = "cuda"
 
+
 class InvalidConfigurationError(Exception):
     pass
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Arch:
@@ -331,6 +344,7 @@ class Arch:
         env_str = " ".join(f"{name}={replace_vars(value)}" for name, value in env.items())
         print_and_stop(env_str)
 
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CommunityArch(Arch):
     maintainer: str
@@ -359,6 +373,7 @@ class CommunityArch(Arch):
     submitted configurations.
 
     """
+
 
 ArchKey = tuple[OS, ScalarType, GPUPlatform]
 
