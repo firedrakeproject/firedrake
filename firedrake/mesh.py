@@ -3932,36 +3932,8 @@ values from f.)"""
             coords = mesh.coordinates
 
         cell_node_list = mesh.coordinates.function_space().cell_node_list
-        if not mesh.extruded:
-            all_coords = coords.dat.data_ro_with_halos[cell_node_list]
-            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
-
-        # Extruded case: calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
-        coords_min = function.Function(V, dtype=RealType)
-        coords_max = function.Function(V, dtype=RealType)
-
-        coords_min.dat.data.fill(np.inf)
-        coords_max.dat.data.fill(-np.inf)
-
-        _, nodes_per_cell = cell_node_list.shape
-
-        domain = f"{{[d, i]: 0 <= d < {self.geometric_dimension} and 0 <= i < {nodes_per_cell}}}"
-        instructions = """
-        for d, i
-            f_min[0, d] = fmin(f_min[0, d], f[i, d])
-            f_max[0, d] = fmax(f_max[0, d], f[i, d])
-        end
-        """
-        par_loop((domain, instructions), ufl.dx,
-                 {'f': (coords, op3.READ),
-                  'f_min': (coords_min, op3.RW),
-                  'f_max': (coords_max, op3.RW)})
-
-        # Reorder bounding boxes according to the cell indices we use
-        column_list = V.cell_node_list.flatten()
-
-        return coords_min.dat.data_ro[column_list], coords_max.dat.data_ro[column_list]
+        all_coords = coords.dat.data_ro_with_halos[cell_node_list]
+        return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
     @property
     @PETSc.Log.EventDecorator()

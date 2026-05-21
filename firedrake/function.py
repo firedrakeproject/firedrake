@@ -44,8 +44,7 @@ __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cells", c_int),
-                ("coords", c_void_p),
+    _fields_ = [("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
@@ -559,7 +558,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)

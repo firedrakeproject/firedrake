@@ -16,6 +16,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.arrayref
+import pyop3.device
 import pyop3.record
 from pyop3 import utils
 from ..base import LoopIndexVar
@@ -459,7 +460,7 @@ class Dat(Tensor):
     @property
     @deprecated(".buffer.state")
     def dat_version(self):
-        return self.buffer.state
+        return self.buffer.state[pyop3.device.get_current_device()]
 
     @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:

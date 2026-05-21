@@ -888,7 +888,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
         if self.rank == 1:
             f = tensor or self._get_tensor(mat_type)
-            self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
+            self.mat = self._build_python_mat(get_mpi_dtype(f.dat.dtype, f.function_space().block_size)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
@@ -911,7 +911,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             if mat_type == "matfree":
                 # Create a temporary function to get the correct MPI type
                 temp_source_func = Function(self.interpolate_args[1].function_space())
-                self.mat = self._build_python_mat(_get_mtype(temp_source_func.dat)[0])
+                self.mat = self._build_python_mat(get_mpi_dtype(temp_source_func.dat.dtype, temp_source_func.function_space().block_size)[0])
             else:
                 self.mat = self._create_permutation_mat(mat_type)
 

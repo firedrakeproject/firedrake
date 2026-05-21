@@ -8,9 +8,6 @@ extern "C" {
 #endif
 
 struct Function {
-	/* Number of cells */
-	int n_cells;
-
 	/* Coordinate values and node mapping */
 	PetscScalar *coords;
 	PetscInt *coords_map;
@@ -18,7 +15,6 @@ struct Function {
 	/* Field values and node mapping */
 	PetscScalar *f;
 	PetscInt *f_map;
-	int f_offset;
 
 	/* rtree */
 	void *rtree;
