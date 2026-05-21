@@ -128,7 +128,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         self.b = b
         # a buffer for intermediate values when assembling b = Gk - Fk
-        self._b_wrk
+        self._b_wrk = Cofunction(V.dual())
 
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
