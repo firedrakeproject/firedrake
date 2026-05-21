@@ -3,8 +3,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Argument, TestFunction
 from firedrake.petsc import PETSc
-from firedrake.variational_solver import (
-    NonlinearVariationalSolver, NonlinearVariationalProblem)
 from ufl import replace
 from firedrake.dmhooks import get_function_space, get_appctx as get_dm_appctx
 
@@ -102,6 +100,8 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def initialize(self, snes):
+        from firedrake.variational_solver import (  # circular import at file level
+            NonlinearVariationalSolver, NonlinearVariationalProblem)
 
         ctx = get_dm_appctx(snes.dm)
 
