@@ -241,6 +241,7 @@ class ScalarType(enum.Enum):
     SINGLE = "single"
     SINGLE_COMPLEX = "single-complex"
 
+
 class GPUPlatform(enum.Enum):
     NO_GPU = "none"
     CUDA = "cuda"
