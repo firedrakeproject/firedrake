@@ -323,6 +323,7 @@ jobs:
           deps: ci
 
       - name: Confirm GPU usage in OffloadPC test
+        shell: bash
         if: matrix.gpu == 'cuda'
         run: |
           . venv/bin/activate
