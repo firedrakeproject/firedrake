@@ -46,13 +46,12 @@ def test_goal_adaptive_poisson():
         "snes_type": "ksponly",
         "ksp_type": "preonly",
         "pc_type": "lu",
-    }
-    goal_adaptive_options = {
-        "max_iterations": 8,
-        "use_adjoint_residual": False,
-        "dual_low_method": "interpolate",
-        "write_solution": False,
-        "verbose": False,
+        "goal_adaptive": {
+            "max_iterations": 8,
+            "use_adjoint_residual": False,
+            "dual_low_method": "interpolate",
+            "verbose": False,
+        },
     }
 
     J_exact = assemble(replace(J, {u: u_exact}))
@@ -61,8 +60,7 @@ def test_goal_adaptive_poisson():
     problem = NonlinearVariationalProblem(F, u, bcs)
     adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(
         problem, J, tolerance,
-        goal_adaptive_options=goal_adaptive_options,
-        primal_solver_parameters=solver_parameters,
+        solver_parameters=solver_parameters,
     )
     adaptive_solver.solve()
     assert abs(adaptive_solver.Juh - J_exact) < tolerance
