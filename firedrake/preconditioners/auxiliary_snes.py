@@ -125,7 +125,10 @@ class AuxiliaryOperatorSNES(SNESBase):
         # with forcing b = G(k) - F(k)
         Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
-        Gk1 -= b
+        # This is the form we will solve:
+        # G(u^{k+1}) - b = 0
+        # and we will assemble G(u^{k}) - F(u^{k}) into b.
+        Gk1b = Gk1 - b
 
         # assemble the forcing terms to avoid having to
         # re-evaluate at every iteration of the inner snes.
@@ -135,13 +138,11 @@ class AuxiliaryOperatorSNES(SNESBase):
             options_prefix=prefix
         ).assemble
 
-        self.Gk = Gk
-        self.Gk1 = Gk1
         self.b = b
 
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
-                Gk1, uk1, bcs=bcs,
+                Gk1b, uk1, bcs=bcs,
                 form_compiler_parameters=ctx.fcp),
             nullspace=ctx._nullspace,
             transpose_nullspace=ctx._nullspace_T,
