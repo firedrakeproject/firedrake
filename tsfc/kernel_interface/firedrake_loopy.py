@@ -255,7 +255,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             args.append(kernel_args.CellOrientationsKernelArg(funarg))
         if self.cell_sizes:
             cell_sizes, = tuple(self._cell_sizes.values())
-            funarg = self.generate_arg_from_expression(cell_sizes)
+            funarg = self.generate_arg_from_expression(cell_sizes[0])
             args.append(kernel_args.CellSizesKernelArg(funarg))
         for _, expr in self.coefficient_map.items():
             # coefficient_map is OrderedDict.

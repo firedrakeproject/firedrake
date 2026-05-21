@@ -169,7 +169,6 @@ class ASMStarPC(ASMPatchPC):
             raise NotImplementedError("Not implemented for general mixed meshes")
         if mesh.extruded:
             raise NotImplementedError
-        mesh_dm = mesh.topology_dm
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -179,13 +178,20 @@ class ASMStarPC(ASMPatchPC):
         use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
+        if _get_columns_option(opts, mesh):
+            mesh_dm = mesh._base_mesh.topology_dm
+            sections = [Vsub._base_mesh_section for Vsub in V]
+        else:
+            mesh_dm = mesh.topology_dm
+            sections = [Vsub.local_section for Vsub in V]
+
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
         colors = get_colors(mesh_dm, use_coloring, depth, distance=1)
-        ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, self.prefix, color)
+        ises = [build_star_indices(sections, V_local_ises_indices, mesh_dm, ordering, self.prefix, color)
                 for color in colors]
         return ises
 
@@ -418,10 +424,10 @@ def get_local_ises_indices(V):
     """Return the local indices of each subspace of V.
     The restricted DOFs will be masked for a RestrictedFunctionSpace.
     """
-    V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+    V_local_ises_indices = tuple(iset.indices for iset in V.local_ises)
     for Vi, indices in zip(V, V_local_ises_indices):
         if Vi.boundary_set:
-            indices[Vi.dof_dset.lgmap.indices == -1] = -1
+            indices[Vi.lgmap().indices == -1] = -1
     return V_local_ises_indices
 
 
@@ -505,7 +511,7 @@ def get_colors(mesh_dm, use_coloring, depth, distance=1):
     return colors
 
 
-def get_entity_dofs(V, V_local_ises_indices, points):
+def get_entity_dofs(sections, V_local_ises_indices, points):
     """Return degrees of freedom associated with mesh entities (points of the DMPlex).
 
     :arg V: the FunctionSpace to extract DOFs from
@@ -515,16 +521,14 @@ def get_entity_dofs(V, V_local_ises_indices, points):
     :returns: a list with the DOFs of V associated with the mesh entities
     """
     indices = []
-    for (i, W) in enumerate(V):
-        section = W.dm.getLocalSection()
+    for i, section in enumerate(sections):
         for p in points:
             dof = section.getDof(p)
             if dof <= 0:
                 continue
             off = section.getOffset(p)
             # Local indices within W
-            W_slice = slice(off*W.block_size, W.block_size * (off + dof))
-            indices.extend(V_local_ises_indices[i][W_slice])
+            indices.extend(V_local_ises_indices[i][off:off+dof])
     return indices
 
 
@@ -545,7 +549,7 @@ def get_star_points(mesh_dm, ordering, prefix, seed_points):
     points = []
     for seed in seed_points:
         # Only build patches over owned DoFs
-        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+        if mesh_dm.getLabelValue("firedrake_is_ghost", seed) != -1:
             continue
         # Create point list from mesh DM
         star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
@@ -554,7 +558,7 @@ def get_star_points(mesh_dm, ordering, prefix, seed_points):
     return points
 
 
-def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
+def build_star_indices(sections, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
     """Return DOFs in the star of each point in seed_points.
 
     :arg V: the FunctionSpace to extract DOFs from
@@ -567,7 +571,7 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
     :returns: A PETSc.IS with the degrees of freedom in the star patches
     """
     points = get_star_points(mesh_dm, ordering, prefix, seed_points)
-    indices = get_entity_dofs(V, V_local_ises_indices, points)
+    indices = get_entity_dofs(sections, V_local_ises_indices, points)
     indices = numpy.array(indices, dtype=PETSc.IntType)
     indices = indices[indices >= 0]
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
@@ -612,6 +616,7 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         # Grab unique points with stable ordering
         closure = reversed(dict.fromkeys(closure))
         V_points.extend(closure)
+        raise NotImplementedError("new api")
         indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
         indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
 

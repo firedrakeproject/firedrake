@@ -407,10 +407,8 @@ class Executable:
     def __call__(self, *args) -> None:
         # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
         #     breakpoint()
-        # if "slate_wrapper" in str(self.code):
-        #     breakpoint()
-            # import pyop3.debug
-            # pyop3.debug.maybe_breakpoint()
+        #     import pyop3.debug
+        #     pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:

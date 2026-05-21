@@ -218,7 +218,7 @@ class FDMPC(PCBase):
 
         # Create data structures needed for assembly
         # FIXME: This won't work as there is not mat_spec
-        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        self.lgmaps = {Vsub: Vsub.lgmap([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], self.allow_repeated) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
@@ -1784,7 +1784,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
         allow_repeated = False
     spaces = (Vf, Vc)
     bcs = (fbcs, cbcs)
-    lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+    lgmaps = tuple(V.lgmap(bcs) for V, bcs in zip(spaces, bcs))
     indices_acc = tuple(mask_local_indices(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
     if mat_type == "is":
         lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))

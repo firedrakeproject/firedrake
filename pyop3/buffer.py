@@ -257,6 +257,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
+    # TODO: I don't think that this should be a defaultdict, key misses are meaningful
     _state: collections.defaultdict[Device, int]
     _max_value: np.number | None = None
 
@@ -352,7 +353,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     name: ClassVar[property] = pyop3.record.attr("_name")
     constant: ClassVar[property] = pyop3.record.attr("_constant")
     rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
-    state: ClassVar[property] = pyop3.record.attr("_state")
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
@@ -369,12 +369,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.get_array().dtype
 
     @property
-    def _last_updated_device(self) -> Device:
-        return max(self.state, key=self.state.get)
+    def state(self) -> int:
+         return max(self._state.values())
 
     def inc_state(self) -> None:
         curr_dev = get_current_device() 
-        self.state[curr_dev] = self.state.get(curr_dev, 0) + 1
+        self._state[curr_dev] = self.state + 1
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
@@ -511,6 +511,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         return self._lazy_data[curr_dev]
 
+    @property
+    def _last_updated_device(self) -> Device:
+        return max(self._state, key=self._state.get)
+
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array. Ah, but maybe we want to
     # avoid halo exchanges
@@ -643,7 +647,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def _is_data_available_and_synced(self, device: Device) -> bool:
         is_available = device in self._lazy_data
-        is_synced = self.state[device] == max(self.state.values())
+        is_synced = self._state[device] == max(self._state.values())
         return is_available and is_synced
 
     # {{{ PETSc interop
@@ -993,7 +997,7 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return mat.duplicate(copy=copy)
 
 
-class DensePythonMatContext(abc.ABC):
+class DensePythonMatContext:
     """Matrix context for storing narrow and dense (usually Nx1 or 1xN) matrices as PETSc Vecs.
 
     This is important in massively parallel settings where a single dense row would

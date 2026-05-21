@@ -2498,7 +2498,7 @@ class MeshTopology(AbstractMeshTopology):
         base_integral_type = iter_spec.integral_type
         base_plex_points = iter_spec.plex_indices.indices
 
-        common = self.submesh_youngest_common_ancester(base_mesh)
+        common = self.submesh_youngest_common_ancestor(base_mesh)
         if common is None:
             raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
         elif base_mesh is self:
@@ -3784,7 +3784,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self._bounding_box_coords = None
         self._rtree = None
-        self._saved_coordinate_dat_version = coordinates.dat.buffer.state.copy()
+        self._saved_coordinate_dat_version = coordinates.dat.buffer.state
 
         self._cache = {}
 

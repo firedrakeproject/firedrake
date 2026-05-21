@@ -1349,7 +1349,7 @@ class FunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        size = self.layout_axes.owned.unconstrained.local_size
+        size = self.axes.buffer_size
         start = self.comm.exscan(size) or 0
         is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
         is_.setBlockSize(self.block_size)
@@ -1357,8 +1357,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        size = self.layout_axes.owned.local_size  # discard parent information
-        is_ = PETSc.IS().createStride(self.axes.unindexed.local_size, comm=MPI.COMM_SELF)
+        is_ = PETSc.IS().createStride(self.axes.buffer_size, comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
 
@@ -1934,9 +1933,9 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers."""
         ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.axes.owned.unconstrained.local_size) or 0
+            start = icomm.exscan(self.axes.buffer_size) or 0
         for subspace in self:
-            size = subspace.axes.owned.unconstrained.local_size
+            size = subspace.axes.buffer_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)

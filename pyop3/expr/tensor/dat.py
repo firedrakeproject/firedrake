@@ -460,7 +460,7 @@ class Dat(Tensor):
     @property
     @deprecated(".buffer.state")
     def dat_version(self):
-        return self.buffer.state[pyop3.device.get_current_device()]
+        return self.buffer.state
 
     @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:

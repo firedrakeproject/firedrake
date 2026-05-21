@@ -1082,7 +1082,7 @@ def _get_ctypes_arg(arg: Any):
 
 @_get_ctypes_arg.register
 def _(dat: op3.Dat):
-    return dat.buffer._data.ctypes.data
+    return dat.buffer._lazy_data[op3.HOST_DEVICE].ctypes.data
 
 
 @_get_ctypes_arg.register

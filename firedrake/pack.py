@@ -487,6 +487,7 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
         yield
         return
 
+    # print(lgmaps[0].indices)
     petscmat = mat.handle
     assert mat.buffer.mat is petscmat
     if petscmat.type == "nest":

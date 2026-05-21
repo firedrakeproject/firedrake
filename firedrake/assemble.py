@@ -1850,6 +1850,22 @@ class ParloopBuilder:
     def get_indicess(self):
         return (self._local_knl.indices,)
 
+    def _filter_bcs(self, row, col):
+        assert len(self._form.arguments()) == 2 and not self._diagonal
+        if len(self.test_function_space) > 1:
+            bcrow = tuple(bc for bc in self._bcs
+                          if bc.function_space_index() == row)
+        else:
+            bcrow = self._bcs
+
+        if len(self.trial_function_space) > 1:
+            bccol = tuple(bc for bc in self._bcs
+                          if bc.function_space_index() == col
+                          and isinstance(bc, DirichletBC))
+        else:
+            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
+        return bcrow, bccol
+
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
 
@@ -1878,19 +1894,8 @@ class ParloopBuilder:
         if petscmat.type == PETSc.Mat.Type.PYTHON:
             return None
 
-        # filter the bcs to match the subspace
-        def filter_bcs(space, index):
-            if len(space) > 1:
-                return tuple(
-                    bc for bc in self._bcs
-                    if bc.function_space_index() == index
-                )
-            else:
-                return self._bcs
-
         # TODO: it's annoying that we have to do this in a global sense?
-        row_bcs = filter_bcs(self.test_function_space, indices[0])
-        column_bcs = filter_bcs(self.trial_function_space, indices[1])
+        row_bcs, column_bcs = self._filter_bcs(*indices)
         return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
 
     @property

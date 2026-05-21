@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pyop3.buffer
+import pyop3.collections
 import pyop3.record
 import pyop3.utils
 from .base import NamedTerminalExpression
@@ -21,13 +22,12 @@ class OpaqueTerminal(NamedTerminalExpression):
     _name: str
 
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet({self.buffer})
+        return pyop3.collections.OrderedFrozenSet({self.buffer})
 
-    def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
-        return (
-            type(self),
-            self.buffer.instruction_executor_cache_key(buffer_counter),
-        )
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.buffer))
+
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None):
         name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)

@@ -35,7 +35,6 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
 
 
 def linear_poisson(solver_parameters, mesh_num, porder):
-
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
