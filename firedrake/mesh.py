@@ -4397,8 +4397,8 @@ values from f.)"""
         curved = ng_element.NumPy()["curved"]
 
         # Distribute curved cell data
-        cell_node_map = new_coordinates.cell_node_map()
-        num_cells = cell_node_map.values.shape[0]
+        cell_node_map = new_coordinates.function_space().cell_node_list
+        num_cells = cell_node_map.shape[0]
         DG0 = FunctionSpace(self, "DG", 0)
         own_curved = netgen_distribute(DG0, curved)
         own_curved = np.flatnonzero(own_curved[:num_cells])
@@ -4409,8 +4409,8 @@ values from f.)"""
 
         # Get broken indices
         cstart, cend = self.topology_dm.getHeightStratum(0)
-        cellNum = np.array(list(map(self._cell_numbering.getOffset, range(cstart, cend))))
-        broken_indices = cell_node_map.values[cellNum[own_curved]]
+        cellNum = np.array(list(map(self._old_to_new_cell_numbering.getOffset, range(cstart, cend))))
+        broken_indices = cell_node_map[cellNum[own_curved]]
 
         # Find the correct coordinate permutation for each cell
         permutation = find_permutation(
