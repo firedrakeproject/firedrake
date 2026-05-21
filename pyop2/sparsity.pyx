@@ -45,8 +45,7 @@ np.import_array()
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
-    # NOTE: Cython typedef is a nominal hint; the C compiler resolves
-    # PetscScalar from petsc.h, so fp32 builds work despite 'double' here.
+    # Nominal hint only: C compiler resolves PetscScalar from petsc.h, so fp32 builds are correct.
     ctypedef double PetscScalar
     ctypedef enum PetscBool:
         PETSC_TRUE, PETSC_FALSE

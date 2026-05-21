@@ -8,9 +8,7 @@ cdef extern from "mpi-compat.h":
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
-    # NOTE: The Cython typedefs below are nominal hints; the C compiler
-    # resolves PetscReal/PetscScalar from petsc.h at build time, so
-    # single-precision (fp32) builds work correctly despite the 'double' here.
+    # Nominal hints only: C compiler resolves PetscReal/PetscScalar from petsc.h, so fp32 builds are correct.
     ctypedef double PetscReal
     ctypedef double PetscScalar
     ctypedef enum PetscBool:

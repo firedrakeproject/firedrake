@@ -564,8 +564,6 @@ def supermesh_setup(vector=False):
     return source, target_space
 
 
-# The following tests use supermesh projection; libsupermesh uses double
-# precision internally so they are skipped in single-precision (fp32) builds.
 @pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_supermesh_project():

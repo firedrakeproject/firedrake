@@ -23,7 +23,6 @@ IntType_c = as_cstr(IntType)
 complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 single_mode = (petsctools.get_petscvariables()["PETSC_PRECISION"].lower() == "single")
 
-# Newton convergence tolerance for reference-coordinate mapping.
 # float32 cannot represent 1e-12, so we use a looser tolerance in single mode.
 REFERENCE_COORD_CONVERGENCE_EPS = 1e-6 if single_mode else 1e-12
 

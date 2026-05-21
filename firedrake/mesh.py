@@ -2692,8 +2692,7 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        # Physical coordinates use float64 for the spatial index (libspatialindex requires double).
-        # Reference coordinates and distances use RealType (follows PETSc precision).
+        # Physical coordinates: always float64 (libspatialindex requires double).
         xs = np.asarray(xs, dtype=np.float64)
         xs = xs.real.copy()
         if xs.shape[1] != self.geometric_dimension:
