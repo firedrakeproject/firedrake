@@ -1,7 +1,5 @@
 import pytest
 
-pytestmark = pytest.mark.skipsingle
-
 import numpy as np
 from scipy.sparse import csr_array
 import petsctools
@@ -92,6 +90,7 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng, garbage_
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
+@pytest.mark.skipsingle  # VertexOnlyMesh point location has fp32 precision issues
 @pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_vom_white_noise(dim, mesh_type, rng):
@@ -147,6 +146,7 @@ def test_vom_white_noise(dim, mesh_type, rng):
     assert np.mean(rate) > 0.4
 
 
+@pytest.mark.skipsingle  # tol=1e-10 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -200,6 +200,7 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     assert errornorm(w, wcheck) < tol
 
 
+@pytest.mark.skipsingle  # tol=1e-8 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -238,6 +239,7 @@ def test_covariance_inverse_action_hdiv(m):
     assert errornorm(w, wcheck) < tol
 
 
+@pytest.mark.skipsingle  # tol=1e-12 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -326,6 +328,7 @@ def test_covariance_mat(m, family, operation):
     assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
 
 
+@pytest.mark.skipsingle  # tol=1e-12 exceeds fp32 precision (~1e-7)
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("operation", ("action", "inverse"))
 def test_mixed_covariance(operation):

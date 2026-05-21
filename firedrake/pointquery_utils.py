@@ -9,7 +9,7 @@ from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS
 
 import ufl
 import finat.ufl
@@ -232,7 +232,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
-        "convergence_epsilon": 1e-6 if numpy.dtype(ScalarType) == numpy.float32 else 1e-12,
+        "convergence_epsilon": REFERENCE_COORD_CONVERGENCE_EPS,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension),
         "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
