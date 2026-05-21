@@ -202,11 +202,11 @@ The contract for the ``form`` method requires it to supply the boundary
 conditions. We could have obtained the boundary conditions by pulling them out
 of the global context. That will work for this particular set of solvers but
 can create problems for others, for example when using the multigrid method.
-Instead, we've opted to call the parent class's `form` method, which will
+Instead, we've opted to call the parent class's ``form`` method, which will
 return the original variational form and boundary conditions. We then discard
-the original variational form, which we aren't using here. For other nonlinear
-preconditioners, we might instead be building the preconditioning form by
-modifying ``F``.
+the original variational form ``F``, which we aren't using here. For other
+nonlinear preconditioners, we might instead be building the preconditioning
+form by modifying ``F``.
 
 We now set ``-snes_type nrichardson`` for nonlinear Richardson iterations,
 and specify the additional parameters for the nonlinear preconditioner under
