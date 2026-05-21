@@ -13,9 +13,10 @@ def f(u, v, w=0.):
 
 class AuxiliaryPolynomialSNES(fd.AuxiliaryOperatorSNES):
     def form(self, snes, state, func, test):
+        F, bcs = super().form(snes, state, func, test)
         prefix = (snes.getOptionsPrefix() or "") + f"snes_{self._prefix}"
-        w = fd.PETSc.Options().getScalar(prefix + "w")
-        return f(func, test, w=w), None
+        w = fd.PETSc.Options(prefix).getScalar("w")
+        return f(func, test, w=w), bcs
 
 
 def test_auxiliary_snes():
