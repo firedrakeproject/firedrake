@@ -206,7 +206,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Returns
         -------
-        G : :class:`ufl.Form` | :class:`ufl.BaseForm`
+        G : :class:`ufl.BaseForm`
             The preconditioning residual form.
         bcs : Iterable[:class:`~.firedrake.bcs.DirichletBC`] | None
             The boundary conditions.
