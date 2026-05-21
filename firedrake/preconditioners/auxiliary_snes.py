@@ -2,7 +2,6 @@ from firedrake.preconditioners.base import SNESBase
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Argument, TestFunction
-from firedrake.assemble import get_assembler
 from firedrake.petsc import PETSc
 from firedrake.variational_solver import (
     NonlinearVariationalSolver, NonlinearVariationalProblem)
@@ -121,24 +120,15 @@ class AuxiliaryOperatorSNES(SNESBase):
         test = TestFunction(V)
         Gk1, bcs = self.form(snes, uk, uk1, test)
 
-        # Solve G(k+1) - b = 0
-        # with forcing b = G(k) - F(k)
-        Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
         # This is the form we will solve:
         # G(u^{k+1}) - b = 0
         # and we will assemble G(u^{k}) - F(u^{k}) into b.
         Gk1b = Gk1 - b
 
-        # assemble the forcing terms to avoid having to
-        # re-evaluate at every iteration of the inner snes.
-        self.assemble_gk = get_assembler(
-            Gk, bcs=bcs,
-            form_compiler_parameters=ctx.fcp,
-            options_prefix=prefix
-        ).assemble
-
         self.b = b
+        # a buffer for intermediate values when assembling b = Gk - Fk
+        self._b_wrk
 
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
@@ -161,18 +151,29 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
+        # x = u^{k} is state at current iteration
         with self.uk.dat.vec_wo as vec:
             x.copy(vec)
+        # initial guess u^{k+1} = u^{k}
+        with self.uk1.dat.vec_wo as vec:
+            x.copy(vec)
 
-        # b = G(u^{k})
-        self.assemble_gk(tensor=self.b)
-
-        # b = G(u^{k}) - F(u^{k})
+        # b = F(u^{k})
         with self.b.dat.vec as vec:
-            vec -= f
+            f.copy(vec)
 
-        # G(u^{k+1}) - b = 0
-        self.uk1.assign(self.uk)
+        # At this point we have:
+        # uk1 = x = u^{k}, and b = F(u^{k}),
+        # so the solver's assembler computes:
+        # b_wrk = G(uk1) - b = G(u^{k}) - F(u^{k})
+        # which is exactly the forcing we need.
+        self.solver._ctx._assemble_residual(tensor=self._b_wrk)
+
+        # we assign b = G(u^{k}) - F(u^{k}) so now the
+        # form in the solver has the correct forcing to
+        # calculate u^{k+1} using G(uk1) - b = 0
+        self.b.assign(self._b_wrk)
+
         self.solver.solve()
 
         # y = d = u^{k+1} - u^{k}
