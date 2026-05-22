@@ -744,7 +744,10 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         self.print(f'{"Computed goal J(uh):":40s}{Juh:15.12f}')
         self.Juh = Juh
         if self.goal_exact is not None:
-            Ju = assemble(self.goal_exact)
+            if isinstance(self.goal_exact, float):
+                Ju = self.goal_exact
+            else:
+                Ju = assemble(self.goal_exact)
         elif self.u_exact is not None:
             Ju = assemble(replace(J, {u: self.u_exact}))
         else:
