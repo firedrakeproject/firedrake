@@ -355,8 +355,6 @@ class Mat(Tensor):
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
-    from pyop3.axis_tree.visitors.layout import _collect_regions
-
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
         comm = utils.common_comm((row_axes, column_axes), "comm")
 
@@ -365,16 +363,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             column_spec = column_axes
             # return row_spec, column_spec
         else:
-            # we only care about the first region, all others aren't 'real' unknowns
-            region_selector = _collect_regions(row_axes.unindexed)[0]
-            if isinstance(region_selector, str):  # clean this up
-                region_selector = frozenset({region_selector})
-            nrows = row_axes.unindexed.with_region_labels(region_selector).local_size
-
-            region_selector = _collect_regions(column_axes.unindexed)[0]
-            if isinstance(region_selector, str):  # clean this up
-                region_selector = frozenset({region_selector})
-            ncolumns = column_axes.unindexed.with_region_labels(region_selector).local_size
+            nrows = row_axes.free.buffer_size
+            ncolumns = column_axes.free.buffer_size
 
             row_block_shape, column_block_shape = partial_spec.block_shape
             if row_block_shape:

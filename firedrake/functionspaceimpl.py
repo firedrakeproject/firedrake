@@ -1190,20 +1190,30 @@ class FunctionSpace(AbstractFunctionSpace):
     @cached_property
     def _nodes_axis(self) -> op3.Axis:
         scalar_axis_tree = self.layout_axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.size
-        return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+
+        if self.boundary_set:
+            region_sets = [
+                {a, b}
+                for a in ["owned", "ghost"]
+                for b in ["unconstrained", "constrained"]
+            ]
+        else:
+            region_sets = [{"owned"}, {"ghost"}]
+
+        regions = []
+        for region_set in region_sets:
+            region_size = scalar_axis_tree.with_region_labels(region_set).size
+            regions.append(op3.AxisComponentRegion(region_size, frozenset(region_set)))
+
+        return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
 
     @cached_property
-    def nodal_axes(self) -> op3.IndexedAxisTree:
-        # if self.parent is not None:
-        #     field_label = self.parent.field_axis.component_labels[self.index]
-        #     return self.parent.nodal_axes[field_label]
-
-        # Create the axis tree without index information
-        axis_tree = self._nodes_axis.as_tree()
+    def nodal_axes(self) -> op3.AxisTree:
+        axes = self._nodes_axis.as_tree()
         for i, dim in enumerate(self.shape):
-            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
-        assert axis_tree.sf == self.layout_axes.sf
+            axes = axes.add_axis(None, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
+        assert axes.sf == self.layout_axes.sf
+        return axes
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
@@ -1224,14 +1234,71 @@ class FunctionSpace(AbstractFunctionSpace):
         #
         # The excessive tabulations should not impose a performance penalty
         # because the mappings are compressed during compilation.
+        #
+        # For restricted function spaces we have the additional consideration
+        # that constrained nodes must come after unconstrained ones. This
+        # means that we may end up having the mapping:
+        #
+        #   n0  -> (p0, d0)
+        #   n1  -> (p0, d1)
+        #   n2  -> (p2, d0)
+        #   n3  -> (p2, d1)
+        #   n4  -> (p3, d0)
+        #   ...
+        #   n88 -> (p1, d0)
+        #   n89 -> (p1, d1)
+        #   ...
+        #
+        # where the point 'p1' is constrained and hence initially skipped over.
         dof_axis = utils.just_one(
             axis for axis in self.layout_axes.axes if axis.label == "dof"
         )
         ndofs = dof_axis.local_size.buffer.data_ro
-        node_to_points, node_to_dofs = dmcommon.prepare_node_maps(ndofs)
 
-        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_to_points)
-        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_to_dofs)
+        num_nodes = sum(ndofs)
+        node_to_point = numpy.empty(num_nodes, dtype=IntType)
+        node_to_dof = node_to_point.copy()
+
+        if self.layout_axes._all_region_labels == ():
+            region_sets = [set()]  # don't think this should happen, check
+        elif self.layout_axes._all_region_labels == ("owned", "ghost"):
+            region_sets = [{"owned"}, {"ghost"}]
+        else:
+            region_sets = [
+                {a, b}
+                for a in ["owned", "ghost"]
+                for b in ["unconstrained", "constrained"]
+            ]
+
+        if not self.boundary_set:
+            offset = 0
+            for region_set in region_sets:
+                region_axes = self.layout_axes.blocked(self.shape).with_region_labels(region_set)
+                if region_axes.local_size > 0:
+                    region_slice = region_axes._buffer_indices
+                    dmcommon.prepare_node_maps(ndofs, node_to_point, node_to_dof, region_slice, offset)
+                    offset += region_axes.local_size
+
+        else:
+            for region_set in region_sets:
+                region_axes = self.layout_axes.blocked(self.shape).with_region_labels(region_set)
+                if region_axes.local_size > 0:
+                    mesh_axis, dof_axis = region_axes.axes
+
+                    # Identify the mesh points that are a part of this region
+                    selected_points_expr = op3.utils.just_one(region_axes.targets[idict({mesh_axis.label: mesh_axis.component.label})][0]).expr
+                    selected_points_dat = op3.Dat.empty(mesh_axis, dtype=IntType)
+                    selected_points_dat.assign(selected_points_expr, eager=True, eager_strategy="compile")
+                    breakpoint()
+                    # selected_dofs_expr = ???  TODO
+                    # this is wrong... need the mesh points that are used in this region...
+                    # that's an expression?
+                    # region_slice = region_axes._buffer_indices
+                    # dmcommon.prepare_node_maps(ndofs, node_to_point, node_to_dof, region_slice, offset)
+                    # offset += region_axes.local_size
+
+        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_to_point)
+        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_to_dof)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
@@ -1349,7 +1416,7 @@ class FunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        size = self.axes.buffer_size
+        size = self.axes.free.buffer_size
         start = self.comm.exscan(size) or 0
         is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
         is_.setBlockSize(self.block_size)
@@ -1357,7 +1424,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        is_ = PETSc.IS().createStride(self.axes.buffer_size, comm=MPI.COMM_SELF)
+        is_ = PETSc.IS().createStride(self.axes.free.buffer_size, comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
 
@@ -1668,31 +1735,33 @@ class RestrictedFunctionSpace(FunctionSpace):
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
-    @cached_property
-    def nodal_axes(self) -> op3.IndexedAxisTree:
-        scalar_axis_tree = self.layout_axes.blocked(self.shape)
-
-        regions = []
-        for owned_or_ghost in ["owned", "ghost"]:
-            for maybe_constrained in ["unconstrained", "constrained"]:
-                region_size = scalar_axis_tree.with_region_labels({owned_or_ghost, maybe_constrained}).size
-                regions.append(op3.AxisComponentRegion(region_size, frozenset({owned_or_ghost, maybe_constrained})))
-
-        node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
-        axis_tree = op3.AxisTree(node_axis)
-        for i, dim in enumerate(self.shape):
-            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
-
-        # Reuse the targets from the unconstrained space as they do not affect
-        # the layout functions.
-        targets = self.function_space.nodal_axes.targets
-
-        return op3.IndexedAxisTree(
-            axis_tree,
-            unindexed=self.layout_axes,
-            targets=targets,
-        )
-
+    # do in parent class
+    # @cached_property
+    # def nodal_axes(self) -> op3.IndexedAxisTree:
+    #     scalar_axis_tree = self.layout_axes.blocked(self.shape)
+    #
+    #     breakpoint()  # nope
+    #     regions = []
+    #     for owned_or_ghost in ["owned", "ghost"]:
+    #         for maybe_constrained in ["unconstrained", "constrained"]:
+    #             region_size = scalar_axis_tree.with_region_labels({owned_or_ghost, maybe_constrained}).size
+    #             regions.append(op3.AxisComponentRegion(region_size, frozenset({owned_or_ghost, maybe_constrained})))
+    #
+    #     node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
+    #     axis_tree = op3.AxisTree(node_axis)
+    #     for i, dim in enumerate(self.shape):
+    #         axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
+    #
+    #     # Reuse the targets from the unconstrained space as they do not affect
+    #     # the layout functions.
+    #     targets = self.function_space.nodal_axes.targets
+    #
+    #     return op3.IndexedAxisTree(
+    #         axis_tree,
+    #         unindexed=self.layout_axes,
+    #         targets=targets,
+    #     )
+    #
 
 class MixedFunctionSpace(AbstractFunctionSpace):
     r"""A function space on a mixed finite element.
@@ -1933,9 +2002,9 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers."""
         ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.axes.buffer_size) or 0
+            start = icomm.exscan(self.axes.free.buffer_size) or 0
         for subspace in self:
-            size = subspace.axes.buffer_size
+            size = subspace.axes.free.buffer_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
@@ -1964,7 +2033,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         ises = []
         start = 0
         for subspace in self:
-            size = subspace.axes.unindexed.local_size
+            size = subspace.axes.free.buffer_size
             is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
@@ -2247,7 +2316,9 @@ class RealFunctionSpace(FunctionSpace):
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
             return False
-        # FIXME: Think harder about equality
+        # FIXME: Think harder about equality, for instance do we want a subspace
+        # of a mixed space to compare equal to a space that doesn't originally come
+        # from something mixed?
         return self.mesh() == other.mesh() and \
             self.ufl_element() == other.ufl_element()
 

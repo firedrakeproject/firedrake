@@ -142,7 +142,7 @@ class PMGBase(PCSNESBase):
             elements.append(ele)
 
         sf = odm.getPointSF()
-        section = odm.getDefaultSection()
+        section = odm.getLocalSection()
         attach_hooks(pdm, level=len(elements)-1, sf=sf, section=section)
         # Now overwrite some routines on the DM
         pdm.setRefine(None)

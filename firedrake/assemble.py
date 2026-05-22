@@ -1638,10 +1638,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             elif space.topological != spaces[1].topological:
                 raise RuntimeError("bc space does not match the trial function space")
 
-
-            if space.boundary_set:
-                raise NotImplementedError("Think cant directly use nodes here")
-
             if mat.buffer.mat.type == "is":
                 if len(space) > 1:
                     raise NotImplementedError("pyop3 todo")

@@ -435,11 +435,7 @@ class Dat(Tensor):
         if include_ghosts:  # TODO: this is now unclear, really is all constrained DoFs
             indices = self.axes.buffer_slice
         else:
-            from pyop3.axis_tree.visitors.layout import _collect_regions
-            region_selector = _collect_regions(self.axes)[0]
-            if isinstance(region_selector, str):
-                region_selector = frozenset({region_selector})
-            indices = self.axes.with_region_labels(region_selector).buffer_slice
+            indices = self.axes.free.buffer_slice
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)

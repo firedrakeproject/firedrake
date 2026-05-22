@@ -3745,20 +3745,23 @@ def partition_constrained_points(mesh, ndofs_array, block_size, boundary_set):
     # return num_unconstrained_dofs, num_constrained_dofs
 
 
-def prepare_node_maps(ndofs):
-    num_nodes = sum(ndofs)
-    node_to_point = np.empty(num_nodes, dtype=IntType)
-    node_to_dof = node_to_point.copy()
-
+def prepare_node_maps(ndofs, node_to_point, node_to_dof, indices, offset):
     node = 0
+    ptr = 0
     for point, ndof in enumerate(ndofs):
         for dof in range(ndof):
-            node_to_point[node] = point
-            node_to_dof[node] = dof
-            node += 1
-    assert node == num_nodes
+            if indices[ptr] == node:
+                node_to_point[ptr+offset] = point
+                node_to_dof[ptr+offset] = dof
+                ptr += 1
 
-    return node_to_point, node_to_dof
+                if ptr == len(indices):
+                    return
+
+            node += 1
+    # assert node == num_nodes
+
+    # return node_to_point, node_to_dof
 
 
 @cython.boundscheck(False)

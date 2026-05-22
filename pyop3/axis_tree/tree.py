@@ -794,6 +794,11 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
 
     @property
     @abc.abstractmethod
+    def unindexed(self) -> AbstractAxisTreeLike | None:
+        pass
+
+    @property
+    @abc.abstractmethod
     def owned(self) -> Self:
         pass
 
@@ -805,6 +810,11 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     @abc.abstractmethod
     def with_region_labels(self, *args, **kwargs) -> Self:
         pass
+
+    @property
+    @abc.abstractmethod
+    def region_sets(self) -> tuple[frozenset[str], ...]:
+         pass
 
     @property
     @abc.abstractmethod
@@ -865,6 +875,8 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     def with_region_labels(self, *args, **kwargs):
          raise NotImplementedError("unsure what to do here, legal?")
 
+    region_sets = ()
+
     buffer_size = 1
     block_shape = ()
 
@@ -881,7 +893,6 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     is_empty = False
 
     node_map = idict({idict(): None})
-
 
 
 class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, LabelledTree, DistributedObject):
@@ -928,6 +939,38 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     @classmethod
     def _(cls, num: numbers.Integral) -> Axis:
         return Axis(AxisComponent(num))
+
+    @cached_property
+    def region_sets(self) -> tuple[frozenset[str], ...]:
+        # First collect the sets of mutually exclusive region labels. For example this could be
+        # '[[{"owned"}, {"ghost"}], [{"unconstrained"}, {"constrained"}]]'.
+        mut_excl_region_label_sets = OrderedSet()
+        for axis in self.axes:
+            for component in axis.components:
+                if utils.strictly_all(rl is None for rl in component.region_labels):
+                    continue
+
+                # TODO: remove ick casting to frozenset by always making
+                # region labels frozensets
+                mut_excl_region_label_set = [
+                    frozenset({rl}) if isinstance(rl, str) else rl
+                    for rl in  component.region_labels
+                ]
+                mut_excl_region_label_sets.add(mut_excl_region_label_set)
+
+        # Eliminate label sets if they are a strict subset of another set
+        # (e.g. {"owned"} vs {"owned", "constrained"})
+        mut_excl_region_label_sets = [
+            label_set
+            for label_set in mut_excl_region_label_sets
+            if not any(label_set < label_set_ for label_set_ in mut_excl_region_label_sets)
+        ]
+
+        # Now take the product of these mutually exclusive sets to return the actual regions
+        merged_regions = []
+        for merged_region in itertools.product(*mut_excl_region_label_sets):
+            merged_regions.append(frozenset().union(*merged_region))
+        return tuple(merged_regions)
 
     # }}}
 
@@ -1294,6 +1337,7 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
         vec.setUp()
         return vec
 
+
 class _UnitAxisTree(AbstractUnitAxisTree):
 
     # {{{ instance attrs (there aren't any)
@@ -1612,7 +1656,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
     @property
     def buffer_slice(self) -> slice:
         assert isinstance(self.local_size, numbers.Integral)
-        return slice(self.local_size)
+        return slice(0, self.local_size, 1)
 
     @property
     def buffer_size(self) -> int:
@@ -1927,7 +1971,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
 
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!
-    
     # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
     @cached_property
     @on_host
@@ -2020,7 +2063,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
 
     # {{{ instance attrs
 
-    unindexed: AxisTree
+    _unindexed: AxisTree | None
     _targets: Any
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
@@ -2036,11 +2079,11 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
             )
         targets_key = idict(targets_key)
 
-        return (type(self), visitor(self.unindexed), targets_key)
+        return (type(self), visitor(self._unindexed), targets_key)
 
     def __init__(
         self,
-        unindexed,  # allowed to be None
+        unindexed: AxisTree | None,
         *,
         targets,
     ):
@@ -2048,7 +2091,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
             targets = targets | {idict(): ((),)}
 
         assert targets.keys() == {idict()}
-        object.__setattr__(self, "unindexed", unindexed)
+        object.__setattr__(self, "_unindexed", unindexed)
         object.__setattr__(self, "_targets", targets)
         self.__post_init__()
 
@@ -2058,6 +2101,8 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree):
     # }}}
 
     # {{{ interface impls
+
+    unindexed = pyop3.record.attr("_unindexed")
 
     @property
     def buffer_slice(self):
@@ -2227,6 +2272,7 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
     return utils.freeze(matching_target)
 
 
+# TODO: Make a __new__ that returns the single thing if only one tree provided
 @pyop3.record.frozenrecord()
 class AxisForest(AbstractAxisTreeLike):
     """A collection of equivalent axis trees.
@@ -2257,9 +2303,63 @@ class AxisForest(AbstractAxisTreeLike):
 
     # }}}
 
-    # {{{ interface impls
+    # {{{ interface impls (AbstractAxisTreeLike)
 
     trees = pyop3.record.attr("_trees")
+
+    @cached_property
+    def unindexed(self) -> AbstractAxisTreeLike | None:
+        unindexeds = utils.unique((t.unindexed for t in self.trees))
+        if len(unindexeds) == 1:
+            return utils.just_one(unindexeds)
+        else:
+            # TODO: when AxisForest(singleton) -> singleton then this logic can die
+            if utils.some_but_not_all((t is None for t in unindexeds)):
+                raise ValueError
+            return AxisForest(unindexeds)
+
+    @property
+    def owned(self) -> AxisForest:
+        return self.__record_init__(_trees=tuple(tree.owned for tree in self.trees))
+
+    @property
+    def unconstrained(self) -> AxisForest:
+        # TODO: nodal axes have labels like {"owned", "unconstrained"} and {"ghost", "unconstrained"}
+        # and so .unconstrained is ambiguous. Fixing it is tricky though so for now just discard the
+        # rogue axis tree - it will be larger because nothing is getting dropped in the indexing.
+        # Better fix: raise an exception about non-contiguous region numbering and drop in a generic way
+        # Also: we usually want .free which gets both at once - this may not be needed
+        new_trees = [tree.unconstrained for tree in self.trees]
+        min_size = min(tree.local_size for tree in new_trees)
+        new_trees = tuple(tree for tree in new_trees if tree.local_size == min_size)
+        return self.__record_init__(_trees=new_trees)
+
+    def with_region_labels(self, labels, **kwargs) -> AxisForest:
+        return type(self)((tree.with_region_labels(labels, **kwargs) for tree in self.trees))
+
+    @cached_property
+    def region_sets(self) -> tuple[frozenset[str], ...]:
+        return utils.single_valued(t.region_set for t in self.trees)
+
+    @property
+    def buffer_slice(self):
+        return utils.single_valued(t.buffer_slice for t in self.trees)
+
+    @property
+    def buffer_size(self) -> int:
+        return utils.single_valued(t.buffer_size for t in self.trees)
+
+    @property
+    def block_shape(self) -> tuple[int, ...]:
+        # Must use the shortest available block shape
+        block_shapes = tuple(tree.block_shape for tree in self.trees)
+        min_block_shape_size = min(map(len, block_shapes))
+        if min_block_shape_size == 0:
+            return ()
+        else:
+            return utils.single_valued((
+                tree.block_shape[-min_block_shape_size:] for tree in self.trees
+            ))
 
     # }}}
 
@@ -2328,18 +2428,6 @@ class AxisForest(AbstractAxisTreeLike):
     def comm(self) -> MPI.Comm:
         return utils.common_comm(self.trees, "comm")
 
-    @property
-    def block_shape(self) -> tuple[int, ...]:
-        # Must use the shortest available block shape
-        block_shapes = tuple(tree.block_shape for tree in self.trees)
-        min_block_shape_size = min(map(len, block_shapes))
-        if min_block_shape_size == 0:
-            return ()
-        else:
-            return utils.single_valued((
-                tree.block_shape[-min_block_shape_size:] for tree in self.trees
-            ))
-
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
 
@@ -2351,9 +2439,6 @@ class AxisForest(AbstractAxisTreeLike):
 
     def regionless(self) -> AxisForest:
         return type(self)((tree.regionless() for tree in self.trees))
-
-    def with_region_labels(self, labels, **kwargs) -> AxisForest:
-        return type(self)((tree.with_region_labels(labels, **kwargs) for tree in self.trees))
 
     def prune(self) -> AxisForest:
         return type(self)((tree.prune() for tree in self.trees))
@@ -2396,14 +2481,6 @@ class AxisForest(AbstractAxisTreeLike):
         return type(self)((tree.with_context(context) for tree in self.trees))
 
     @cached_property
-    def unindexed(self):
-        unindexeds = [tree.unindexed for tree in self.trees]
-        if utils.is_single_valued(unindexeds):
-            return utils.single_valued(unindexeds)
-        else:
-            return AxisForest(unindexeds)
-
-    @cached_property
     def global_numbering(self) -> Dat:
         from pyop3 import Dat
 
@@ -2412,28 +2489,6 @@ class AxisForest(AbstractAxisTreeLike):
         if (retval.data_ro < 0).any():
             breakpoint()
         return retval
-
-    @property
-    def owned(self) -> AxisForest:
-        return type(self)((tree.owned for tree in self.trees))
-
-    @property
-    def unconstrained(self) -> AxisForest:
-        # TODO: nodal axes have labels like {"owned", "unconstrained"} and {"ghost", "unconstrained"}
-        # and so .unconstrained is ambiguous. Fixing it is tricky though so for now just discard the
-        # rogue axis tree - it will be larger because nothing is getting dropped in the indexing.
-        new_trees = [tree.unconstrained for tree in self.trees]
-        min_size = min(tree.local_size for tree in new_trees)
-        new_trees = [tree for tree in new_trees if tree.local_size == min_size]
-        return type(self)(new_trees)
-
-    @property
-    def buffer_slice(self):
-        return utils.single_valued(t.buffer_slice for t in self.trees)
-
-    @property
-    def buffer_size(self) -> int:
-        return utils.single_valued(t.buffer_size for t in self.trees)
 
 
 @pyop3.record.frozenrecord()

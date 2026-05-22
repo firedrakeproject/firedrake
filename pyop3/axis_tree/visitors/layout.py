@@ -196,7 +196,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     # this.
     starts = [0] * len(to_tabulate)
     visited_regions_per_offset_dat = collections.defaultdict(set)
-    for regions in _collect_regions(axis_tree):
+    for regions in axis_tree.region_sets:
         for i, (offset_axes, offset_dat) in enumerate(to_tabulate):
             matching_regions = regions.intersection(offset_axes._all_region_labels)
 
@@ -323,42 +323,6 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
     return idict(layouts)
 
 
-# region_sets? and attr of tree?
-def _collect_regions(axes: AxisTree):
-    if isinstance(axes, AxisForest):
-        return utils.single_valued(map(_collect_regions, axes.trees))
-
-    # First collect the sets of mutually exclusive region labels. For example this could be
-    # '[[{"owned"}, {"ghost"}], [{"unconstrained"}, {"constrained"}]]'.
-    mut_excl_region_label_sets = OrderedSet()
-    for axis in axes.axes:
-        for component in axis.components:
-            if utils.strictly_all(rl is None for rl in component.region_labels):
-                continue
-
-            # TODO: remove ick casting to frozenset by always making
-            # region labels frozensets
-            mut_excl_region_label_set = [
-                frozenset({rl}) if isinstance(rl, str) else rl
-                for rl in  component.region_labels
-            ]
-            mut_excl_region_label_sets.add(mut_excl_region_label_set)
-
-    # Eliminate label sets if they are a strict subset of another set
-    # (e.g. {"owned"} vs {"owned", "constrained"})
-    mut_excl_region_label_sets = [
-        label_set
-        for label_set in mut_excl_region_label_sets
-        if not any(label_set < label_set_ for label_set_ in mut_excl_region_label_sets)
-    ]
-
-    # Now take the product of these mutually exclusive sets to return the actual regions
-    merged_regions = []
-    for merged_region in itertools.product(*mut_excl_region_label_sets):
-        merged_regions.append(frozenset().union(*merged_region))
-    return tuple(merged_regions)
-
-
 @memory_cache(heavy=True)
 def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
     from pyop3.expr.visitors import get_shape, replace
@@ -454,7 +418,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # available entries and so on.
     locs = np.full(offset_axes.local_size, -1, dtype=IntType)
     ptr = 0
-    for regions in _collect_regions(offset_axes):
+    for regions in offset_axes.region_sets:
         regioned_offset_axes = offset_axes.with_region_labels(regions).regionless()
 
         # regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless())
