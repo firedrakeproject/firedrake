@@ -1062,6 +1062,7 @@ class FunctionSpace(AbstractFunctionSpace):
         facet_points = numpy.asarray(facet_points, dtype=IntType)
         return (closure_section, closure_indices, facet_points)
 
+    # TODO: rename this to 'dm_axes'
     @cached_property
     @_mesh_cached
     def layout_axes(self) -> AxisTree:
@@ -1460,6 +1461,29 @@ class FunctionSpace(AbstractFunctionSpace):
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
         return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
+
+    @cached_property
+    def _restricted_section(self):
+        """A PETSc section that stores restricted values at the end.
+
+        This is different to the usual section where restricted values are
+        skipped.
+
+        This section should only be used to apply boundary condition values
+        to restricted function spaces.
+
+        """
+        from firedrake.cython import dmcommon
+
+        if not self.boundary_set:
+            return self.section
+
+        return dmcommon.restrict_section(
+            self.function_space.section,
+            self.mesh().topology_dm,
+            self.boundary_set,
+            self.extruded,
+        )
 
     @cached_property
     def topological(self):

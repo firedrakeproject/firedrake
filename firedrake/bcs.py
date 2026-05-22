@@ -127,7 +127,6 @@ class BCBase:
         These must be unique.
 
         '''
-
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \

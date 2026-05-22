@@ -1372,35 +1372,72 @@ def entity_orientations(mesh, np.ndarray cell_closure):
     return entity_orientations
 
 
-def restrict_plex_renumbering(dm: PETSc.DM, boundary_set) -> PETSc.IS:
-    # TODO: Make this a generic routine
-    boundary_pts = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), comm=COMM_SELF)
+def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool) -> PETSc.IS:
+    """Return the points in the DM that match the boundary set."""
+    points = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), comm=MPI.COMM_SELF)
     for marker in boundary_set:
         if marker == "on_boundary":
-            label = "exterior_facets"
-            marker = 1
+            if extruded:
+                marker_pointss = [dm.getStratumIS("base_exterior_facets", 1)]
+            else:
+                marker_pointss = [dm.getStratumIS("exterior_facets", 1)]
+        elif marker == "top":
+            assert extruded
+            marker_pointss = [dm.getStratumIS("exterior_facets_top", 1)]
+        elif marker == "bottom":
+            assert extruded
+            marker_pointss = [dm.getStratumIS("exterior_facets_bottom", 1)]
+        elif isinstance(marker, tuple | list):
+            marker_pointss = [dm.getStratumIS(FACE_SETS_LABEL, i) for i in marker]
         else:
-            label = FACE_SETS_LABEL
-        # if dm.getStratumSize(label, marker) == 0:
-        #     continue
-        boundary_pts.union(dm.getStratumIS(label, marker))
+            marker_pointss = [dm.getStratumIS(FACE_SETS_LABEL, marker)]
 
-    orig_renumbering = dm._dm_renumbering
-    unrestricted_points = orig_renumbering.difference(boundary_pts)
-    restricted_points = orig_renumbering.intersection(boundary_pts)
-    return PETSc.IS().union([unrestricted_points, restricted_points])
+        for marker_points in marker_pointss:
+            points = points.union(marker_points)
+    return points
+
+def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, boundary_set, extruded: bool) -> PETSc.IS:
+    """'Restrict' a renumbering of DM points by moving constrained points to the end."""
+    boundary_pts = get_boundary_set_points(dm, boundary_set, extruded)
+
+    # very inefficient to do this
+    new_renumbering = np.empty_like(orig_renumbering)
+    ptr1 = 0
+    ptr2 = orig_renumbering.size - boundary_pts.size
+    for i, n in enumerate(orig_renumbering.indices):
+        if n in boundary_pts.indices:
+            new_renumbering[ptr2] = n
+            ptr2 += 1
+        else:
+            new_renumbering[ptr1] = n
+            ptr1 += 1
+    assert ptr1 == orig_renumbering.size - boundary_pts.size
+    assert ptr2 == orig_renumbering.size
+
+    return PETSc.IS().createGeneral(new_renumbering, comm=MPI.COMM_SELF)
 
 
-def restrict_section(section: PETSc.Section, boundary_set) -> PETSc.Section:
-    """
+def restrict_section(
+    section: PETSc.Section,
+    dm: PETSc.DM,
+    boundary_set: Iterable,
+    extruded: bool,
+) -> PETSc.Section:
+    """'Restrict' a section by moving constrained DoFs to the end."""
+    restricted_section = PETSc.Section().create(comm=section.comm)
+    start, end = section.getChart()
+    restricted_section.setChart(start, end)
 
-    """
     # To build the restricted section we need a custom permutation of the plex
     # points that put the restricted points at the end
-    restricted_section = PETSc.Section().create(comm=section.comm)
+    restricted_perm = restrict_dm_renumbering(section.getPermutation(), dm, boundary_set, extruded)
+    restricted_section.setPermutation(restricted_perm)
 
-    breakpoint()
-
+    # the rest of the section is unchanged from the original
+    for pt in range(start, end):
+        d = section.getDof(pt)
+        restricted_section.setDof(pt, d)
+    restricted_section.setUp()
     return restricted_section
 
 
@@ -1817,47 +1854,35 @@ def facet_closure_nodes(V, sub_domain):
     """
     cdef:
         PETSc.DM dm = V.mesh().topology_dm
+        PETSc.Section sec = V._restricted_section
+
         PetscInt nnodes, p, i, dof, offset, n, j, d
         np.ndarray points
         np.ndarray nodes
 
     # Identify the facets we want to mark
-    if sub_domain == "on_boundary":
-        if V.extruded:
-            pointss = (dm.getStratumIS("base_exterior_facets", 1),)
-        else:
-            pointss = (dm.getStratumIS("exterior_facets", 1),)
-    elif sub_domain == "top":
-        pointss = (dm.getStratumIS("exterior_facets_top", 1),)
-    elif sub_domain == "bottom":
-        pointss = (dm.getStratumIS("exterior_facets_bottom", 1),)
-    else:
-        pointss = tuple(dm.getStratumIS(FACE_SETS_LABEL, i) for i in sub_domain)
+    points_is = get_boundary_set_points(dm, [sub_domain], V.extruded)
 
-    if all(not pts or pts.size == 0 for pts in pointss):
+    if points_is.size == 0:
         return np.empty(0, dtype=IntType)
 
-    sec: PETSc.Section= V.dm.getSection()
-
     nnodes = 0
-    for points_is in pointss:
-        points = points_is.indices
-        for i in range(points.size):
-            p = points[i]
-            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
-            nnodes += dof // V.block_size
+    points = points_is.indices
+    for i in range(points.size):
+        p = points[i]
+        CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+        nnodes += dof // V.block_size
 
     nodes = np.empty(nnodes, dtype=IntType)
     j = 0
-    for points_is in pointss:
-        points = points_is.indices
-        for i in range(points.size):
-            p = points[i]
-            CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
-            CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
-            for d in range(dof//V.block_size):
-                nodes[j] = offset//V.block_size + d
-                j += 1
+    points = points_is.indices
+    for i in range(points.size):
+        p = points[i]
+        CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
+        CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
+        for d in range(dof//V.block_size):
+            nodes[j] = offset//V.block_size + d
+            j += 1
     assert j == nnodes
     return np.unique(nodes)
 
