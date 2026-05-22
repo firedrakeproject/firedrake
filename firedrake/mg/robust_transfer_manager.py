@@ -58,7 +58,7 @@ class RobustTransferManager(TransferManager):
         ctx = dmhooks.get_appctx(V.dm)
         if ctx is not None:
             form = ctx._problem.Jp or ctx._problem.J
-            # Only return form when the trial function is in V
+            # Only return form if the trial space is V
             if form.arguments()[1].function_space() != V:
                 form = None
         return form
