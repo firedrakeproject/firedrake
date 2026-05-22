@@ -253,6 +253,14 @@ factor of 2 or more at each iteration.
      21 SNES Function norm 2.018693509573e-09
       Nonlinear firedrake_1_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 21
 
+We've chosen to use nonlinear Richardson here because it's the simplest scheme
+with the fewest knobs to turn. There are more sophisticated strategies which can
+offer a faster convergence rate. For example, you can run this demo again with
+`"snes_type": "ngmres"` to use a nonlinear variant of the generalised minimum
+residual algorithm. NGMRES with the default options cuts the number of
+iterations in half for this problem. But it has more algorithmic knobs to turn
+and those can require tweaking depending on the problem.
+
 The Allen-Cahn equation is derivable through minimization of the free energy
 functional
 
