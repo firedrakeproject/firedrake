@@ -220,10 +220,11 @@ class CoarsePatchTransferManager(RobustTransferManager):
             # If the element is a split variant, reconstruct the unsplit one
             element = element.reconstruct(variant=None)
 
-        entity_dofs = V.finat_element.entity_dofs()
-        sd = max(entity_dofs)
-        if len(entity_dofs[sd][0]) > 0:
-            element = element["facet"]
+        if not V.finat_element.is_dg():
+            entity_dofs = V.finat_element.entity_dofs()
+            sd = max(entity_dofs)
+            if len(entity_dofs[sd][0]) > 0:
+                element = element["facet"]
 
         if element == V.ufl_element():
             return V
