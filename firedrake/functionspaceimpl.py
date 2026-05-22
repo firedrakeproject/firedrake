@@ -450,8 +450,9 @@ class WithGeometryBase:
         key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
         return self.get_facet_closure_nodes(self.mesh(), key)
 
-    @utils.deprecated("mask_lgmap")
+    @utils.deprecated("lgmap")
     def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+        assert False, "FIXME"
         if lgmap is None:
             lgmap = self._lgmap
         return mask_lgmap(self, self.axes, lgmap, bcs, self.block_shape)

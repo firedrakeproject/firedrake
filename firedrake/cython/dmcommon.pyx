@@ -1372,6 +1372,38 @@ def entity_orientations(mesh, np.ndarray cell_closure):
     return entity_orientations
 
 
+def restrict_plex_renumbering(dm: PETSc.DM, boundary_set) -> PETSc.IS:
+    # TODO: Make this a generic routine
+    boundary_pts = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), comm=COMM_SELF)
+    for marker in boundary_set:
+        if marker == "on_boundary":
+            label = "exterior_facets"
+            marker = 1
+        else:
+            label = FACE_SETS_LABEL
+        # if dm.getStratumSize(label, marker) == 0:
+        #     continue
+        boundary_pts.union(dm.getStratumIS(label, marker))
+
+    orig_renumbering = dm._dm_renumbering
+    unrestricted_points = orig_renumbering.difference(boundary_pts)
+    restricted_points = orig_renumbering.intersection(boundary_pts)
+    return PETSc.IS().union([unrestricted_points, restricted_points])
+
+
+def restrict_section(section: PETSc.Section, boundary_set) -> PETSc.Section:
+    """
+
+    """
+    # To build the restricted section we need a custom permutation of the plex
+    # points that put the restricted points at the end
+    restricted_section = PETSc.Section().create(comm=section.comm)
+
+    breakpoint()
+
+    return restricted_section
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary_set=None):
@@ -1805,13 +1837,7 @@ def facet_closure_nodes(V, sub_domain):
     if all(not pts or pts.size == 0 for pts in pointss):
         return np.empty(0, dtype=IntType)
 
-    sec: PETSc.Section
-    # The sections of restricted function spaces do not see constrained DoFs
-    # so we have to use the unrestricted section instead.
-    if V.boundary_set:
-        sec = V.function_space.dm.getSection()
-    else:
-        sec = V.dm.getSection()
+    sec: PETSc.Section= V.dm.getSection()
 
     nnodes = 0
     for points_is in pointss:
