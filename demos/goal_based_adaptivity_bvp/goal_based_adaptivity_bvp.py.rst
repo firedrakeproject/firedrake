@@ -87,8 +87,7 @@ the DWR automation can compute effectivity indices, but this is not generally re
     problem = NonlinearVariationalProblem(F, u, bcs)
 
     adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance,
-                                                             goal_adaptive_options=goal_adaptive_options,
-                                                             primal_solver_parameters=solver_parameters,
+                                                             solver_parameters={**solver_parameters, "goal_adaptive": goal_adaptive_options},
                                                              exact_solution=u_exact)
     adaptive_solution, error_estimate = adaptive_solver.solve()
 
