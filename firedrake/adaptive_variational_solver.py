@@ -2,7 +2,7 @@ import numbers
 from dataclasses import dataclass
 from typing import ClassVar
 
-from petsctools import OptionsManager, flatten_parameters
+from petsctools import OptionsManager
 
 from firedrake.assemble import assemble
 from firedrake.petsc import PETSc
@@ -22,9 +22,8 @@ from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
 from firedrake.mg.adaptive_transfer_manager import AdaptiveTransferManager
 
 from finat.ufl import BrokenElement, FiniteElement
-from ufl import avg, dx, ds, dS, inner, as_vector, replace
+from ufl import avg, dx, ds, dS, inner, replace
 import ufl
-import numpy as np
 
 
 __all__ = ["GoalAdaptiveSolverBase",
@@ -39,16 +38,18 @@ class GoalAdaptiveOptions:
 
     Parameters
     ----------
+    tolerance
+        Terminate the adaptive loop when ``|eta_h| < tolerance``.
+    max_it
+        Maximum number of SOLVE–ESTIMATE–MARK–REFINE cycles.  The loop also
+        terminates early if the error estimate falls below the requested tolerance.
+        Defaults to ``10``.
     dorfler_alpha
         Threshold parameter for Dörfler (bulk) marking: cells whose local error
         indicator exceeds ``dorfler_alpha * max_indicator`` are marked for
         refinement.  Must lie in ``(0, 1]``.  Larger values mark fewer cells and
         produce more targeted (but potentially slower-converging) refinement.
         Defaults to ``0.5``.
-    max_iterations
-        Maximum number of SOLVE–ESTIMATE–MARK–REFINE cycles.  The loop also
-        terminates early if the error estimate falls below the requested tolerance.
-        Defaults to ``10``.
     primal_extra_degree
         Extra polynomial degree used when solving the primal problem in an
         enriched space (only relevant when ``use_adjoint_residual=True``).
@@ -108,8 +109,9 @@ class GoalAdaptiveOptions:
         iteration via :func:`PETSc.Sys.Print`.
     """
 
+    tolerance: float = 1e-4
+    max_it: int = 10
     dorfler_alpha: float = 0.5
-    max_iterations: int = 10
     primal_extra_degree: int = 1
     dual_extra_degree: int = 1
     cell_residual_extra_degree: int = 1
@@ -142,8 +144,6 @@ class GoalAdaptiveSolverBase:
 
     Parameters
     ----------
-    tolerance
-        Terminate the adaptive loop when ``|eta_h| < tolerance``.
     goal_adaptive_options
         A ``GoalAdaptiveOptions`` instance, or a dict of keyword
         arguments to construct one.  Defaults to ``{}``.
@@ -152,26 +152,48 @@ class GoalAdaptiveSolverBase:
         by subclasses to compute efficiency indices.
     """
 
-    def __init__(self,
-                 tolerance: float,
+    def __init__(self, base_mesh,
                  goal_adaptive_options: "GoalAdaptiveOptions | dict | None" = None,
                  exact_goal=None,
+                 post_iteration_callback=None,
                  ):
         if goal_adaptive_options is None:
             goal_adaptive_options = {}
-        self.tolerance = tolerance
         self.options = self._make_options(goal_adaptive_options)
         self.goal_exact = exact_goal
+        self.post_iteration_callback = post_iteration_callback
 
         self.Ndofs_vec: list[int] = []
         self.eta_vec: list[float] = []
         self.etah_vec: list[float] = []
 
+        # Set up an AdaptiveMeshHierarchy for every mesh of the problem.
+        # For a MeshSequenceGeometry, iterating over it yields the component meshes;
+        # we also need a separate AMH for the sequence geometry itself.
+        meshes = {*base_mesh, base_mesh}  # component meshes + the sequence geometry (same object for a regular mesh)
+        for mesh in meshes:
+            mh, level = get_level(mesh)
+            if mh is None:
+                amh = AdaptiveMeshHierarchy(mesh)
+            else:
+                amh = AdaptiveMeshHierarchy(mh[0])
+                for m in mh[1:level+1]:
+                    amh.add_mesh(m)
+
+        amh, _ = get_level(base_mesh)
+        self.amh = amh
+        self.base_levels = len(amh)
+        self.atm = AdaptiveTransferManager()
+
     def _make_options(self, d):
         """Construct a ``GoalAdaptiveOptions`` from a dict or pass through as-is.  Override in subclasses."""
         if isinstance(d, GoalAdaptiveOptions):
             return d
-        return GoalAdaptiveOptions(**d)
+        # FIXME
+        return GoalAdaptiveOptions(**d["goal_adaptive"])
+
+    def get_error_estimate(self):
+        return self.etah_vec[-1]
 
     # ------------------------------------------------------------------
     # Main loop
@@ -179,7 +201,7 @@ class GoalAdaptiveSolverBase:
 
     def solve(self):
         """Run the adaptive SOLVE→ESTIMATE→MARK→REFINE loop to convergence."""
-        for it in range(self.options.max_iterations):
+        for it in range(self.options.max_it):
             try:
                 self.step(it=it)
             except StopIteration:
@@ -197,7 +219,7 @@ class GoalAdaptiveSolverBase:
         ------
         StopIteration
             Raised (instead of returning) when the error estimate falls below
-            ``tolerance`` or when ``it`` reaches ``max_iterations - 1``.
+            ``tolerance`` or when ``it`` reaches ``max_it - 1``.
             :meth:`solve` catches this automatically; callers driving the loop
             manually with :meth:`step` must handle it themselves.
         """
@@ -205,11 +227,11 @@ class GoalAdaptiveSolverBase:
         # SOLVE + ESTIMATE
         eta_h, eta = self.solve_and_estimate()
         self.post_iteration(it)
-        if abs(eta_h) < self.tolerance:
+        if abs(eta_h) < self.options.tolerance:
             self.print("Error estimate below tolerance, finished.")
             raise StopIteration
-        elif it == self.options.max_iterations - 1:
-            self.print(f"Maximum iteration ({self.options.max_iterations}) reached. Exiting.")
+        elif it == self.options.max_it - 1:
+            self.print(f"Maximum iteration ({self.options.max_it}) reached. Exiting.")
             raise StopIteration
         # MARK
         self.print("Computing local refinement indicators eta_K ...")
@@ -219,6 +241,12 @@ class GoalAdaptiveSolverBase:
         # REFINE
         self.print("Transferring problem to new mesh ...")
         self.refine_problem(markers)
+
+    def post_iteration(self, it: int):
+        """Hook called after SOLVE+ESTIMATE, before convergence check.
+           Invokes the user-supplied ``post_iteration_callback``, if any."""
+        if self.post_iteration_callback is not None:
+            self.post_iteration_callback(self, it)
 
     # ------------------------------------------------------------------
     # Common machinery (mark + refine + efficiency)
@@ -260,12 +288,12 @@ class GoalAdaptiveSolverBase:
             new_mesh = mesh.refine_marked_elements(marker)
             amh, _ = get_level(mesh)
             amh.add_mesh(new_mesh)
+
         # Reconstruct MeshSequence with the refined meshes
-        mesh = self.problem.u.function_space().mesh()
+        mesh = self.amh[-1]
         if len(mesh) > 1:
             new_mesh = type(mesh)([get_level(m)[0][-1] for m in mesh])
-            amh, _ = get_level(mesh)
-            amh.add_mesh(new_mesh)
+            self.amh.add_mesh(new_mesh)
         if coef_map is None:
             coef_map = {}
         self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)
@@ -306,10 +334,6 @@ class GoalAdaptiveSolverBase:
         """
         raise NotImplementedError
 
-    def post_iteration(self, it):
-        """Hook called after SOLVE+ESTIMATE, before convergence check.  Default no-op."""
-        pass
-
 
 class SteadyGoalAdaptiveSolver(GoalAdaptiveSolverBase):
     """Intermediate base for steady-state goal-adaptive solvers.
@@ -333,8 +357,8 @@ class SteadyGoalAdaptiveSolver(GoalAdaptiveSolverBase):
         Ratio ``sum(eta_K) / eta_h`` when no exact goal is available.
     """
 
-    def __init__(self, tolerance, goal_adaptive_options=None, exact_goal=None):
-        super().__init__(tolerance, goal_adaptive_options, exact_goal)
+    def __init__(self, base_mesh, goal_adaptive_options=None, exact_goal=None, post_iteration_callback=None):
+        super().__init__(base_mesh, goal_adaptive_options, exact_goal, post_iteration_callback)
         self.eta_cell_sum_vec: list[float] = []
         self.eff1_vec: list[float] = []
         self.eff2_vec: list[float] = []
@@ -373,14 +397,15 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
     flattening becomes a ``goal_adaptive_`` prefix), e.g.::
 
         solver_parameters = {
-            "snes_type": "ksponly",
-            "ksp_type": "preonly",
-            "pc_type": "lu",
             "goal_adaptive": {
-                "max_iterations": 8,
+                "tolerance": 1e-4,
+                "max_it": 8,
                 "dual_low_method": "interpolate",
                 "verbose": False,
             },
+            "snes_type": "ksponly",
+            "ksp_type": "preonly",
+            "pc_type": "lu",
         }
 
     Parameters
@@ -389,8 +414,6 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         The variational problem defined on the initial (coarse) mesh.
     goal_functional
         The goal functional — a zero-form in terms of the primal solution.
-    tolerance
-        Terminate when the DWR error estimate falls below this value.
     solver_parameters
         Unified parameter dictionary.  Keys prefixed by ``goal_adaptive_``
         (or nested under a ``"goal_adaptive"`` sub-dict) configure the
@@ -401,9 +424,6 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         PETSc options prefix, forwarded to ``petsctools.OptionsManager``.
         Allows command-line overrides, e.g.
         ``-mysolve_snes_type ksponly``.
-    dual_solver_parameters
-        Separate PETSc solver parameters for the dual problem.
-        Defaults to the non-goal-adaptive part of ``solver_parameters``.
     primal_solver_kwargs
         Extra keyword arguments for the primal :class:`~.NonlinearVariationalSolver`.
     dual_solver_kwargs
@@ -426,11 +446,9 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
     def __init__(self,
                  problem: NonlinearVariationalProblem,
                  goal_functional: ufl.BaseForm,
-                 tolerance: float,
                  *,
                  solver_parameters: dict | None = None,
                  options_prefix: str | None = None,
-                 dual_solver_parameters: dict | None = None,
                  primal_solver_kwargs: dict | None = None,
                  dual_solver_kwargs: dict | None = None,
                  exact_solution: ufl.classes.Expr | None = None,
@@ -440,40 +458,19 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         if not (isinstance(goal_functional, ufl.BaseForm) and len(goal_functional.arguments()) == 0):
             raise ValueError("goal_functional must be a 0-form")
 
-        # Split solver_parameters into goal-adaptive options and SNES/KSP options.
-        sp = flatten_parameters(solver_parameters or {})
-        goal_sp = {k[len(self._GOAL_PREFIX):]: v
-                   for k, v in sp.items() if k.startswith(self._GOAL_PREFIX)}
-        snes_sp = {k: v for k, v in sp.items() if not k.startswith(self._GOAL_PREFIX)}
-
-        SteadyGoalAdaptiveSolver.__init__(self, tolerance, goal_sp, exact_goal=exact_goal)
-        OptionsManager.__init__(self, snes_sp, options_prefix)
+        if options_prefix is None:
+            options_prefix = ""
+        base_mesh = problem.u.function_space().mesh()
+        SteadyGoalAdaptiveSolver.__init__(self, base_mesh, solver_parameters,
+                                          exact_goal=exact_goal,
+                                          post_iteration_callback=post_iteration_callback)
+        OptionsManager.__init__(self, solver_parameters, options_prefix)
 
         self.problem = problem
         self.goal_functional = goal_functional
-        self.sp_dual = flatten_parameters(dual_solver_parameters) if dual_solver_parameters is not None else snes_sp
         self.primal_solver_kwargs = primal_solver_kwargs or {}
         self.dual_solver_kwargs = dual_solver_kwargs or {}
-        self.u_exact = as_mixed(exact_solution) if isinstance(exact_solution, (tuple, list)) else exact_solution
-        self.post_iteration_callback = post_iteration_callback
-
-        # Set up an AdaptiveMeshHierarchy for every mesh of the problem.
-        # For a MeshSequenceGeometry, iterating over it yields the component meshes;
-        # we also need a separate AMH for the sequence geometry itself.
-        V = problem.u.function_space()
-        mesh = V.mesh()
-        meshes = {*mesh, mesh}  # component meshes + the sequence geometry (same object for a regular mesh)
-        for mesh in meshes:
-            mh, level = get_level(mesh)
-            if mh is None:
-                amh = AdaptiveMeshHierarchy(mesh)
-            else:
-                amh = AdaptiveMeshHierarchy(mh[0])
-                for m in mh[1:level+1]:
-                    amh.add_mesh(m)
-
-        self.atm = AdaptiveTransferManager()
-        self.base_levels = len(amh)
+        self.u_exact = exact_solution
 
         self.u_high = None
         # Internal state set by solve_and_estimate, used by compute_error_indicators
@@ -498,7 +495,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             finest mesh reached and ``error_estimate`` is the final ``|eta_h|``.
         """
         super().solve()
-        return self._current_solution(), self.etah_vec[-1]
+        return self._current_solution()
 
     def step(self, it=None):
         """Compute one SOLVE→ESTIMATE→MARK→REFINE step and return the current solution.
@@ -524,7 +521,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             When the error estimate is below ``tolerance`` or the maximum
             iteration count is reached.  Callers must catch this::
 
-                for it in range(solver.options.max_iterations):
+                for it in range(solver.options.max_it):
                     try:
                         u, eta = solver.step(it)
                     except StopIteration:
@@ -534,12 +531,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             V = self.problem.u.function_space()
             _, it = get_level(V.mesh())
         super().step(it)
-        return self._current_solution(), self.etah_vec[-1]
-
-    def post_iteration(self, it: int):
-        """Invoke the user-supplied ``post_iteration_callback``, if any."""
-        if self.post_iteration_callback is not None:
-            self.post_iteration_callback(self, it)
+        return self._current_solution()
 
     def solve_and_estimate(self):
         """Solve primal and dual, compute global error estimate."""
@@ -574,11 +566,12 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         bcs = self.problem.bcs
         V = self.problem.u.function_space()
         self.Ndofs_vec.append(V.dim())
+        primal_options_prefix = self.options_prefix + "primal_"
 
         def solve_uh():
             self.print(f'Solving primal (degree: {V.ufl_element().degree()}, dofs: {V.dim()}) ...')
             solver = NonlinearVariationalSolver(self.problem, solver_parameters=self.parameters,
-                                                options_prefix=self.options_prefix,
+                                                options_prefix=primal_options_prefix,
                                                 **self.primal_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
@@ -595,14 +588,14 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             u_high.interpolate(u)
 
             v_old, = F.arguments()
-            v_high = TestFunction(V_high)
+            v_high = v_old.reconstruct(function_space=V_high)
             F_high = replace(F, {v_old: v_high, u: u_high})
             bcs_high = [bc.reconstruct(V=V_high, indices=bc._indices) for bc in bcs]
             problem_high = NonlinearVariationalProblem(F_high, u_high, bcs_high)
 
             self.print(f"Solving primal with higher order for error estimate (degree: {high_degree}, dofs: {V_high.dim()}) ...")
             solver = NonlinearVariationalSolver(problem_high, solver_parameters=self.parameters,
-                                                options_prefix=self.options_prefix,
+                                                options_prefix=primal_options_prefix,
                                                 **self.primal_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
@@ -644,6 +637,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             J = self.goal_functional
             F = self.problem.F
             u = self.problem.u
+            dual_options_prefix = self.options_prefix + "dual_"
 
             Z = z.function_space()
             self.print(f"Solving dual (degree: {Z.ufl_element().degree()}, dofs: {Z.dim()}) ...")
@@ -659,8 +653,8 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
 
             bcs_dual = [bc.reconstruct(V=Z, indices=bc._indices, g=0) for bc in bcs]
             problem = LinearVariationalProblem(a, dJ, z, bcs_dual)
-            solver = LinearVariationalSolver(problem, solver_parameters=self.sp_dual,
-                                             options_prefix=self.options_prefix,
+            solver = LinearVariationalSolver(problem, solver_parameters=self.parameters,
+                                             options_prefix=dual_options_prefix,
                                              **self.dual_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
@@ -907,7 +901,7 @@ def vtk_output_callback(output_dir="./output", run_name="default"):
 
         from firedrake import *
         solver = GoalAdaptiveNonlinearVariationalSolver(
-            problem, J, tolerance,
+            problem, goal_functional,
             solver_parameters={...},
             post_iteration_callback=vtk_output_callback(
                 output_dir="./output", run_name="myproblem"
@@ -951,11 +945,6 @@ def residual(F, *args):
 def both(u):
     """Add u on both sides of a facet."""
     return u("+") + u("-")
-
-
-def as_mixed(exprs):
-    """Flatten a list of ufl.Expr objects into a vector."""
-    return as_vector([e[idx] for e in exprs for idx in np.ndindex(e.ufl_shape)])
 
 
 def reconstruct_degree(V, degree):
