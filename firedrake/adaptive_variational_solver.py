@@ -1,3 +1,4 @@
+import numbers
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -144,7 +145,7 @@ class GoalAdaptiveSolverBase:
     tolerance
         Terminate the adaptive loop when ``|eta_h| < tolerance``.
     goal_adaptive_options
-        A :class:`GoalAdaptiveOptions` instance, or a dict of keyword
+        A ``GoalAdaptiveOptions`` instance, or a dict of keyword
         arguments to construct one.  Defaults to ``{}``.
     exact_goal
         Exact value of the goal functional (or eigenvalue).  Optional; used
@@ -167,7 +168,7 @@ class GoalAdaptiveSolverBase:
         self.etah_vec: list[float] = []
 
     def _make_options(self, d):
-        """Construct a :class:`GoalAdaptiveOptions` from a dict or pass through as-is.  Override in subclasses."""
+        """Construct a ``GoalAdaptiveOptions`` from a dict or pass through as-is.  Override in subclasses."""
         if isinstance(d, GoalAdaptiveOptions):
             return d
         return GoalAdaptiveOptions(**d)
@@ -196,7 +197,7 @@ class GoalAdaptiveSolverBase:
         ------
         StopIteration
             Raised (instead of returning) when the error estimate falls below
-            :attr:`tolerance` or when ``it`` reaches ``max_iterations - 1``.
+            ``tolerance`` or when ``it`` reaches ``max_iterations - 1``.
             :meth:`solve` catches this automatically; callers driving the loop
             manually with :meth:`step` must handle it themselves.
         """
@@ -393,11 +394,11 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
     solver_parameters
         Unified parameter dictionary.  Keys prefixed by ``goal_adaptive_``
         (or nested under a ``"goal_adaptive"`` sub-dict) configure the
-        adaptive loop (see :class:`GoalAdaptiveOptions`); all other keys are
+        adaptive loop (see ``GoalAdaptiveOptions``); all other keys are
         passed to the inner :class:`~.NonlinearVariationalSolver` /
         :class:`~.LinearVariationalSolver`.
     options_prefix
-        PETSc options prefix, forwarded to :class:`~petsctools.OptionsManager`.
+        PETSc options prefix, forwarded to ``petsctools.OptionsManager``.
         Allows command-line overrides, e.g.
         ``-mysolve_snes_type ksponly``.
     dual_solver_parameters
@@ -520,7 +521,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         Raises
         ------
         StopIteration
-            When the error estimate is below :attr:`tolerance` or the maximum
+            When the error estimate is below ``tolerance`` or the maximum
             iteration count is reached.  Callers must catch this::
 
                 for it in range(solver.options.max_iterations):
@@ -744,7 +745,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         self.print(f'{"Computed goal J(uh):":40s}{Juh:15.12f}')
         self.Juh = Juh
         if self.goal_exact is not None:
-            if isinstance(self.goal_exact, float):
+            if isinstance(self.goal_exact, numbers.Real):
                 Ju = self.goal_exact
             else:
                 Ju = assemble(self.goal_exact)
@@ -986,7 +987,7 @@ def _compute_residual_indicators(F, z_err, options):
     z_err
         Dual error representative ``z_p - z_h`` (UFL expression or Function).
     options
-        :class:`GoalAdaptiveOptions` (or subclass) instance for degree
+        ``GoalAdaptiveOptions`` (or subclass) instance for degree
         parameters and solver parameters.
 
     Returns
