@@ -170,8 +170,6 @@ from firedrake.matrix import (  # noqa: F401
     MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
 )
 from firedrake.adaptive_variational_solver import (  # noqa: F401
-    GoalAdaptiveSolverBase,
-    SteadyGoalAdaptiveSolver,
     GoalAdaptiveNonlinearVariationalSolver,
     vtk_output_callback,
 )
