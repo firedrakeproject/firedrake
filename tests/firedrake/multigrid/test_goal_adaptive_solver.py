@@ -40,26 +40,27 @@ def test_goal_adaptive_poisson():
     top = tuple(i + 1 for (i, name) in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "top")
     n = FacetNormal(mesh)
     J = inner(grad(u), n)*ds(top)
+    tolerance = 1e-3
 
     solver_parameters = {
-        "mat_type": "aij",
-        "snes_type": "ksponly",
-        "ksp_type": "preonly",
-        "pc_type": "lu",
         "goal_adaptive": {
-            "max_iterations": 8,
+            "tolerance": tolerance,
+            "max_it": 8,
             "use_adjoint_residual": False,
             "dual_low_method": "interpolate",
             "verbose": False,
         },
+        "mat_type": "aij",
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
     }
 
     J_exact = assemble(replace(J, {u: u_exact}))
 
-    tolerance = 1e-3
     problem = NonlinearVariationalProblem(F, u, bcs)
     adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(
-        problem, J, tolerance,
+        problem, J,
         solver_parameters=solver_parameters,
     )
     adaptive_solver.solve()
