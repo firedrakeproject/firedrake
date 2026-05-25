@@ -639,7 +639,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             is the dual error representative used to weight the residuals.
         """
 
-        def solve_zh(z):
+        def solve_zh(z, linearise_at_high=True):
             bcs = self.problem.bcs
             J = self.goal_functional
             F = self.problem.F
@@ -653,7 +653,7 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
             dJ = derivative(J, u, TestFunction(Z))
             a = adjoint(dF)
 
-            if self.u_high is not None:
+            if linearise_at_high and self.u_high is not None:
                 a = replace(a, {u: self.u_high})
                 dJ = replace(dJ, {u: self.u_high})
 
@@ -670,13 +670,15 @@ class GoalAdaptiveNonlinearVariationalSolver(SteadyGoalAdaptiveSolver, OptionsMa
         dual_degree = V.ufl_element().degree() + self.options.dual_extra_degree
         V_dual = reconstruct_degree(V, dual_degree)
         z = Function(V_dual, name="dual_high_order_solution")
-        solve_zh(z)
+        solve_zh(z, linearise_at_high=True)
 
         # Lower-order dual solution
         z_lo = Function(V, name="dual_low_order_solution")
         if self.options.dual_low_method == "solve":
             z_lo.interpolate(z)
-            solve_zh(z_lo)
+            # Linearise at the low-order primal (self.problem.u), not u_high,
+            # so the low-order adjoint matches the derivation of the cubic DWR estimate.
+            solve_zh(z_lo, linearise_at_high=False)
         elif self.options.dual_low_method == "project":
             z_lo.project(z)
         elif self.options.dual_low_method == "interpolate":
