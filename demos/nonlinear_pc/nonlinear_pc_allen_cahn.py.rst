@@ -96,7 +96,7 @@ make Newton's method converge... to the wrong solution!
 ::
 
   v = TestFunction(Q)
-  F = (eps * inner(grad(u), grad(v)) + (u**3 - u) * v) * dx
+  F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
 
   problem = NonlinearVariationalProblem(F, u, bcs)
 
@@ -196,7 +196,7 @@ the current value :math:`u` to be solved for; and a test function.
   class AllenCahnAuxSNES(firedrake.AuxiliaryOperatorSNES):
       def form(self, snes, u_k, u, v):
           F, bcs = super().form(snes, u_k, u, v)
-          return (eps * inner(grad(u), grad(v)) + (u**3 - u_k) * v) * dx, bcs
+          return (eps * inner(grad(u), grad(v)) + inner(u**3 - u_k, v)) * dx, bcs
 
 The contract for the ``form`` method requires it to supply the boundary
 conditions. We could have obtained the boundary conditions by pulling them out
@@ -276,8 +276,8 @@ computed solution.
   E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
   E_initial = firedrake.assemble(firedrake.replace(E, {u: initial_guess}))
   E_final = firedrake.assemble(E)
-  print(f"Initial free energy: {E_initial:0.04f}")
-  print(f"Final:               {E_final:0.04f}")
+  print(f"Initial free energy: {E_initial.real:0.04f}")
+  print(f"Final:               {E_final.real:0.04f}")
 
 .. code-block:: console
 
