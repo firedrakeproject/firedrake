@@ -80,7 +80,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, quad_scheme=None):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, _labels=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -115,7 +115,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels)
 
 
 @PETSc.Log.EventDecorator()
@@ -266,7 +266,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -323,7 +323,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         unmixed_spaces.append(unmixed_space)
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
-    new = impl.MixedFunctionSpace(unmixed_spaces, mixed_mesh_geometry.topology, name=name)
+    new = impl.MixedFunctionSpace(unmixed_spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)
     return cls(new, mixed_mesh_geometry)
 
 

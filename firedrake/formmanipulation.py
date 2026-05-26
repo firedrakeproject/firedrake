@@ -20,7 +20,8 @@ def subspace(V, indices):
     if len(indices) == 1:
         W = V[indices[0]]
     else:
-        W = MixedFunctionSpace([V[i] for i in indices])
+        labels = [V._labels[i] for i in indices]
+        W = MixedFunctionSpace([V[i] for i in indices], _labels=labels)
     return W.collapse()
 
 

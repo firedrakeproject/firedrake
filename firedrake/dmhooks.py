@@ -54,14 +54,14 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref_tuple, element, indices, (name, names), boundary_sets = info
+    meshref_tuple, element, indices, (name, names), boundary_sets, labels = info
     if len(meshref_tuple) == 1:
         mesh = meshref_tuple[0]()
     else:
         mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
-    V = firedrake.FunctionSpace(mesh, element, name=name)
+    V = firedrake.FunctionSpace(mesh, element, name=name, _labels=labels)
     if any(boundary_sets):
         V = firedrake.bcs.restricted_function_space(V, boundary_sets)
     if len(V) > 1:
@@ -97,9 +97,12 @@ def set_function_space(dm, V):
     mesh = V.mesh()
     if len(V) > 1:
         names = tuple(V_.name for V_ in V)
+        labels = V._labels
+    else:
+        labels = None
     element = V.ufl_element()
     boundary_sets = tuple(V_.boundary_set for V_ in V)
-    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets)
+    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets, labels)
     dm.setAttr("__fs_info__", info)
 
 
@@ -386,7 +389,8 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        labels = [W._labels[f] for f in fields]
+        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
 
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)

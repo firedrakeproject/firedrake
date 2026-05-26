@@ -381,7 +381,10 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
 def _(label: str, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
-    component = just_one(c for c in axis.components if c.label == label)
+    try:
+        component = just_one(c for c in axis.components if c.label == label)
+    except:
+        breakpoint()
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)

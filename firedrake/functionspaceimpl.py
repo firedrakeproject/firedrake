@@ -479,7 +479,7 @@ class WithGeometryBase:
         return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
-    def make_function_space(cls, mesh, element, name=None, **kwargs):
+    def make_function_space(cls, mesh, element, name=None, _labels=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
@@ -491,8 +491,9 @@ class WithGeometryBase:
                 if not isinstance(mesh, MeshSequenceGeometry):
                     raise TypeError(f"mesh must be MeshSequenceGeometry: got {mesh}")
             spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
-            new = MixedFunctionSpace(spaces, topology, name=name)
+            new = MixedFunctionSpace(spaces, topology, name=name, _labels=_labels)
         else:
+            assert _labels is None
             if isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
@@ -2096,9 +2097,8 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
-    # FIXME: This loses information for proxy spaces
     def collapse(self):
-        return type(self)([V_ for V_ in self], self.mesh())
+        return type(self)([V_ for V_ in self], self.mesh(), _labels=self._labels)
 
 
 class ProxyFunctionSpace(FunctionSpace):
