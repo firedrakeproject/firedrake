@@ -1554,7 +1554,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     def getNestSubMatrix(self, i, j):
         if i == j:
             s = self._standalones[i]
-            sizes = (s.uf.template_vec.getSizes(), s.uc.template_vec.getSizes())
+            sizes = (s.uf.function_space().template_vec.sizes, s.uc.function_space().template_vec.sizes)
             M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
             M_shll.setUp()
             return M_shll

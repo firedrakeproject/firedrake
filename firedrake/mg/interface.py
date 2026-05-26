@@ -308,10 +308,12 @@ def inject(fine, coarse):
     return coarse
 
 
+# Think this isnt needed any more
 def _regionless(dat):
     """Drop all region (i.e. unconstrained vs constrained) information from a dat.
 
     This is needed for multigrid because otherwise the node-wise loops fail.
 
     """
+    return dat
     return dat.with_axes(dat.axes.regionless())
