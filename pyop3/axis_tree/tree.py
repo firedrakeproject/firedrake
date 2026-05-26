@@ -2008,10 +2008,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
         n = len(indices)
 
         if n == 0:
-            return slice(0, 0)
+            return slice(0, 0, 1)
         elif n == 1:
             start = indices[0]
-            return slice(start, start+1)
+            return slice(start, start+1, 1)
         else:
             step = indices[1] - indices[0]
 

@@ -1882,24 +1882,28 @@ class MixedFunctionSpace(AbstractFunctionSpace):
                 leaf_path, subaxes.materialize()
             )
 
-            # Target a full slice of the 'field' component
-            targets[leaf_path] = [[
-                op3.AxisTarget(
-                    self.field_axis.label,
-                    field_component.label,
-                    op3.AxisVar(self.field_axis.linearize(field_component.label)),
-                ),
-            ]]
-            for subpath, subaxis_targets in subaxes.targets.items():
-                if subpath:
-                    targets[leaf_path | subpath] = subaxis_targets
-                else:
-                    assert subaxis_targets == ((),)
+            if mode == "plex":
+                # Target a full slice of the 'field' component
+                targets[leaf_path] = [[
+                    op3.AxisTarget(
+                        self.field_axis.label,
+                        field_component.label,
+                        op3.AxisVar(self.field_axis.linearize(field_component.label)),
+                    ),
+                ]]
+                for subpath, subaxis_targets in subaxes.targets.items():
+                    if subpath:
+                        targets[leaf_path | subpath] = subaxis_targets
+                    else:
+                        assert subaxis_targets == ((),)
 
-        targets = utils.freeze(targets)
-        return op3.IndexedAxisTree(
-            axis_tree, unindexed=self.layout_axes, targets=targets,
-        )
+        if mode == "plex":
+            targets = utils.freeze(targets)
+            return op3.IndexedAxisTree(
+                axis_tree, unindexed=self.layout_axes, targets=targets,
+            )
+        else:
+            return axis_tree
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:

@@ -3983,7 +3983,7 @@ values from f.)"""
 
         with PETSc.Log.Event("rtree_build"):
             self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state.copy()
+        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state
         return self._rtree
 
     @PETSc.Log.EventDecorator()
