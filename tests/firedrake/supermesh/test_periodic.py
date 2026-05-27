@@ -1,7 +1,7 @@
 from firedrake import *
 import pytest
 
-pytestmark = pytest.mark.skipsingle
+pytestmark = pytest.mark.skipsingle  # supermesh projection uses libsupermesh which is double precision internally
 
 
 @pytest.fixture(params=["scalar", "vector", "tensor"])

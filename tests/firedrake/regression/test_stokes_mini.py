@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 
@@ -44,7 +45,7 @@ def run_stokes_mini(mat_type, n):
 
     solve(a == L, w, bcs=bcs,
           solver_parameters={'pc_type': 'fieldsplit',
-                             'ksp_rtol': 1e-15,
+                             'ksp_rtol': 1e-6 if single_mode else 1e-15,
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
                              'fieldsplit_0_pc_type': 'redundant',
@@ -62,7 +63,6 @@ def run_stokes_mini(mat_type, n):
     return errornorm(uexact, u, degree_rise=0), errornorm(pexact, p, degree_rise=0)
 
 
-@pytest.mark.skipsingle  # Schur complement fieldsplit does not converge in fp32; tracked in https://github.com/firedrakeproject/firedrake/pull/5033
 @pytest.mark.parametrize('mat_type', ["aij", "nest"])
 def test_stokes_mini(mat_type):
     u_err = []

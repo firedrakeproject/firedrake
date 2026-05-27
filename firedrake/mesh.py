@@ -2606,7 +2606,8 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         with PETSc.Log.Event("rtree_build"):
-            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
+            # rtree C API requires float64 regardless of PETSc scalar precision.
+            self._rtree = rtree.build_from_aabb(np.asarray(coords_min, dtype=np.float64), np.asarray(coords_max, dtype=np.float64))
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._rtree
 
@@ -2729,10 +2730,11 @@ values from f.)"""
             return cache[tolerance]
         except KeyError:
             IntTypeC = as_cstr(IntType)
-            RealTypeC = RealType_c
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                {IntTypeC} locator(struct Function *f, double *x, {RealTypeC} *X, {RealTypeC} *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, {IntTypeC}* cells_ignore)
+                /* x is double (not {RealType_c}) because libspatialindex requires double for the
+                   spatial index lookup; xs is always cast to float64 before this call. */
+                {IntTypeC} locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, {IntTypeC}* cells_ignore)
                 {{
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{

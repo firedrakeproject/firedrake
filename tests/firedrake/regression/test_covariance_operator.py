@@ -90,7 +90,6 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng, garbage_
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
-@pytest.mark.skipsingle  # VertexOnlyMesh point location has fp32 precision issues
 @pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_vom_white_noise(dim, mesh_type, rng):

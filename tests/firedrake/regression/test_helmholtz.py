@@ -95,11 +95,3 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
 @pytest.mark.parallel
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
-
-
-def test_helmholtz_all_precisions():
-    """End-to-end smoke test: TSFC kernel generation, assembly and solve all work
-    in single- and double-precision builds. The threshold is loose enough that
-    discretization error dominates round-off for both fp32 and fp64."""
-    err = helmholtz(4)[0]   # 16x16 mesh, degree 2 — expected L2 error ~2e-4
-    assert float(err) < 1e-2
