@@ -133,6 +133,9 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
             iremote: [[0, 0], [0, 1], [0, 2], [0, 3]]
 
     """
+    # drop zero-sized forests
+    star_forests = [sf for sf in star_forests if sf.size > 0]
+
     if len(star_forests) == 1:
         return star_forests[0]
 
@@ -155,8 +158,9 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
         comm = utils.single_comm(star_forests, "comm")
         return StarForest.from_graph(size, ilocal, iremote, comm)
 
-
+    # because ghost points are already at the back?
     assert False, "This is old code, I think we can just stick things together..."
+
     # total_size = sum(sf.size for sf in star_forests)
     #
     # local_leaf_indicess = []

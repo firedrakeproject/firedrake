@@ -25,6 +25,7 @@ import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
 from pyop3.cache import cached_method, memory_cache
+from pyop3.insn.base import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -137,6 +138,8 @@ class InstructionExecutionContext:
     def __call__(self, **kwargs) -> None:
         executable = self.compile()
 
+        # unpack instruction arguments into buffers, as these are what are
+        # actually passed to the compiled code
         new_buffers = {}
         for arg_name, new_arg in kwargs.items():
             buffer_names = self._argument_name_to_buffer_name_map[arg_name]
@@ -249,7 +252,11 @@ class InstructionExecutionContext:
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
         loopy_code, buffer_index_map = _compile_static(self, compiler_parameters)
-        executable = Executable(loopy_code, compiler_parameters, self.comm)
+        if compiler_parameters.add_petsc_event:
+            petsc_events = (loopy_code.default_entrypoint.name,)
+        else:
+            petsc_events = ()
+        executable = Executable(loopy_code, self.comm, petsc_events=petsc_events)
 
         # TODO: We don't do anything with nest indices yet because we have always already
         # unpacked things
@@ -345,36 +352,36 @@ class InstructionExecutionContext:
         return tuple(buf for submat in agg_mat.submats.flatten() for buf in self._extract_buffers(submat))
 
 
-# TODO: This class is a bit redundant and can/should probably be folded into CompiledCodeExecutor
+@dataclasses.dataclass(frozen=True)
 class Executable:
-    def __init__(self, code: lp.TranslationUnit, compiler_parameters: Mapping, comm: Pyop3Comm):
-        self.code = code
-        self.compiler_parameters = compiler_parameters
-        self.comm = comm
+    """A callable function.
+
+    Parameters
+    ----------
+    code:
+        The computation to be performed.
+    comm
+        The communicator.
+
+    Notes
+    -----
+    This class is intentionally distinct from `CompiledCodeExecutor` because
+    the executable may be reused by multiple executors (for instance if the
+    buffers are changed) and we want to reuse the work needed to generate
+    the function pointer.
+
+    """
+    code: lp.TranslationUnit
+    comm: MPI.Comm
+    petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+    def __call__(self, *args: int) -> None:
+        self._callable(*args)
 
     @cached_property
-    def callable(self):
-        """build a shared library and return a function pointer from it.
-
-        :arg jitmodule: the jit module which can generate the code to compile, or
-            the string representing the source code.
-        :arg extension: extension of the source file (c, cpp)
-        :arg fn_name: the name of the function to return from the resulting library
-        :arg cppargs: a tuple of arguments to the c compiler (optional)
-        :arg ldargs: a tuple of arguments to the linker (optional)
-        :arg argtypes: A list of ctypes argument types matching the arguments of
-             the returned function (optional, pass ``None`` for ``void``). This is
-             only used when string is passed in instead of JITModule.
-        :arg restype: The return type of the function (optional, pass
-             ``None`` for ``void``).
-        :kwarg comm: Optional communicator to compile the code on (only
-            rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
-        """
-        code = lp.generate_code_v2(self.code).device_code()
-        argtypes = [
-            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.default_entrypoint.args
-        ]
-        restype = None
+    def _callable(self) -> collections.abc.Callable[[int, ...], None]:
+        """Compile the code and return a function pointer."""
+        device_code = lp.generate_code_v2(self.code).device_code()
 
         # ideally move this logic somewhere else
         cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
@@ -390,101 +397,19 @@ class Executable:
             cppargs += ("-DLIKWID_PERFMON",)
             ldargs += ("-llikwid",)
 
-        dll = pyop3.compile.load(code, "c", cppargs, ldargs, comm=self.comm)
+        dll = pyop3.compile.load(device_code, "c", cppargs, ldargs, comm=self.comm)
 
-        if self.compiler_parameters.add_petsc_event:
+        for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
             # allocating memory over and over again in the C kernel.
-            event_name = self.code.default_entrypoint.name
-            ctypes.c_int.in_dll(dll, f"id_{event_name}").value = PETSc.Log.Event(event_name).id
+            ctypes.c_int.in_dll(dll, f"id_{event}").value = PETSc.Log.Event(event).id
 
         func = getattr(dll, self.code.default_entrypoint.name)
-        func.argtypes = argtypes
-        func.restype = restype
+        func.argtypes = [
+            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.default_entrypoint.args
+        ]
+        func.restype = None
         return func
-
-    # TODO: this should live on the executor class
-    def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
-        #     breakpoint()
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
-
-        if self.comm.size > 1:
-            if self.compiler_parameters.interleave_comp_comm:
-                raise NotImplementedError
-                # new_index, (icore, iroot, ileaf) = partition_iterset(
-                #     self.index, [a for a, _ in self.function_arguments]
-                # )
-                # #buffer_intents
-                # # assert self.index.id == new_index.id
-                # #
-                # # # substitute subsets into loopexpr, should maybe be done in partition_iterset
-                # # parallel_loop = self.copy(index=new_index)
-                #
-                # for init in initializers:
-                #     init()
-                #
-                # # replace the parallel axis subset with one for the specific indices here
-                # extent = utils.just_one(icore.axes.root.components).count
-                # core_kwargs = utils.merge_dicts(
-                #     [kwargs, {icore.name: icore, extent.name: extent}]
-                # )
-                #
-                # with PETSc.Log.Event(f"compute_{self.name}_core"):
-                #     code(**core_kwargs)
-                #
-                # # await reductions
-                # for red in reductions:
-                #     red()
-                #
-                # # roots
-                # # replace the parallel axis subset with one for the specific indices here
-                # root_extent = utils.just_one(iroot.axes.root.components).count
-                # root_kwargs = utils.merge_dicts(
-                #     [kwargs, {icore.name: iroot, extent.name: root_extent}]
-                # )
-                # with PETSc.Log.Event(f"compute_{self.name}_root"):
-                #     code(**root_kwargs)
-                #
-                # # await broadcasts
-                # for broadcast in broadcasts:
-                #     broadcast()
-                #
-                # # leaves
-                # leaf_extent = utils.just_one(ileaf.axes.root.components).count
-                # leaf_kwargs = utils.merge_dicts(
-                #     [kwargs, {icore.name: ileaf, extent.name: leaf_extent}]
-                # )
-                # with PETSc.Log.Event(f"compute_{self.name}_leaf"):
-                #     code(**leaf_kwargs)
-
-            initializers = []
-            reductions = []
-            broadcasts = []
-            for buffer_ref, intent in self.buffer_map.values():
-                if isinstance(buffer_ref, PetscMatBuffer):
-                    continue
-                else:
-                    assert isinstance(buffer_ref, pyop3.buffer.ArrayBuffer)
-
-                inits, reds, bcasts = self._buffer_exchanges(buffer_ref, intent)
-                initializers.extend(inits)
-                reductions.extend(reds)
-                broadcasts.extend(bcasts)
-
-            # Unoptimised case: perform all transfers eagerly
-            for init in initializers:
-                init()
-            for red in reductions:
-                red()
-            for bcast in broadcasts:
-                bcast()
-
-            # Now all the data is correct, compute!
-            self.callable(*args)
-        else:
-            self.callable(*args)
 
 
 class CompiledCodeExecutor:
@@ -559,6 +484,93 @@ class CompiledCodeExecutor:
             "Attempting to pass a null pointer to the executable",
         )
 
+        if self.comm.size == 1:
+            self.executable(*exec_arguments)
+            return
+
+        # TODO
+        # if self.compiler_parameters.interleave_comp_comm:
+        if False:
+            raise NotImplementedError
+            # new_index, (icore, iroot, ileaf) = partition_iterset(
+            #     self.index, [a for a, _ in self.function_arguments]
+            # )
+            # #buffer_intents
+            # # assert self.index.id == new_index.id
+            # #
+            # # # substitute subsets into loopexpr, should maybe be done in partition_iterset
+            # # parallel_loop = self.copy(index=new_index)
+            #
+            # for init in initializers:
+            #     init()
+            #
+            # # replace the parallel axis subset with one for the specific indices here
+            # extent = utils.just_one(icore.axes.root.components).count
+            # core_kwargs = utils.merge_dicts(
+            #     [kwargs, {icore.name: icore, extent.name: extent}]
+            # )
+            #
+            # with PETSc.Log.Event(f"compute_{self.name}_core"):
+            #     code(**core_kwargs)
+            #
+            # # await reductions
+            # for red in reductions:
+            #     red()
+            #
+            # # roots
+            # # replace the parallel axis subset with one for the specific indices here
+            # root_extent = utils.just_one(iroot.axes.root.components).count
+            # root_kwargs = utils.merge_dicts(
+            #     [kwargs, {icore.name: iroot, extent.name: root_extent}]
+            # )
+            # with PETSc.Log.Event(f"compute_{self.name}_root"):
+            #     code(**root_kwargs)
+            #
+            # # await broadcasts
+            # for broadcast in broadcasts:
+            #     broadcast()
+            #
+            # # leaves
+            # leaf_extent = utils.just_one(ileaf.axes.root.components).count
+            # leaf_kwargs = utils.merge_dicts(
+            #     [kwargs, {icore.name: ileaf, extent.name: leaf_extent}]
+            # )
+            # with PETSc.Log.Event(f"compute_{self.name}_leaf"):
+            #     code(**leaf_kwargs)
+
+        # This is a bit of a misnomer - the idea here is that for data to be ready to compute we
+        # must first update all roots and then update all leaves from these roots.
+        # Recall that points on a rank may be partitioned into 'core', 'root' and 'leaf' where a
+        # 'leaf' is a point owned by another process, 'root' is a point that exists as a ghost on
+        # another process, and 'core' are the rest.
+        # * It is valid to compute on parts of the iteration set that only touch 'core' points
+        # before any communication takes place
+        # * it is valid to compute on parts that touch core and root once all roots have been
+        # updated via reductions
+        # * you can only compute using leaf values once these have been updated
+        initializers = []
+        reductions = []
+        broadcasts = []
+        for buffer_ref, (_, intent) in zip(buffers, self.buffer_map.values(), strict=True):
+            if isinstance(buffer_ref, pyop3.buffer.PetscMatBuffer):
+                continue
+            else:
+                assert isinstance(buffer_ref, pyop3.buffer.ArrayBuffer)
+
+            inits, reds, bcasts = self._buffer_exchanges(buffer_ref, intent)
+            initializers.extend(inits)
+            reductions.extend(reds)
+            broadcasts.extend(bcasts)
+
+        # Unoptimised case: perform all transfers eagerly
+        for init in initializers:
+            init()
+        for red in reductions:
+            red()
+        for bcast in broadcasts:
+            bcast()
+
+        # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
     def __str__(self) -> str:
@@ -666,7 +678,7 @@ class CompiledCodeExecutor:
         # For now we just disregard the optimisation
         touches_ghost_points = True
 
-        if intent in {pyop3.insn.base.READ, pyop3.insn.base.RW}:
+        if intent in {READ, RW}:
             if touches_ghost_points:
                 if not buffer._roots_valid:
                     initializers.append(buffer.reduce_leaves_to_roots_begin)
