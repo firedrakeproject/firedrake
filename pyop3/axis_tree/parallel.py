@@ -137,6 +137,44 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
     star_forests = [sf for sf in star_forests if sf.size > 0]
 
     if len(star_forests) == 1:
+        return utils.just_one(star_forests)
+
+    total_size = sum(sf.size for sf in star_forests)
+
+    local_leaf_indicess = []
+    remote_leaf_indicess = []
+    total_num_owned = sum(sf.num_owned for sf in star_forests)
+    local_leaf_index_start = total_num_owned
+    start = 0
+    for sf in star_forests:
+        size, local_leaf_indices, remote_leaf_indices = sf.graph
+        new_local_leaf_indices = local_leaf_indices - sf.num_owned + local_leaf_index_start
+
+        new_offsets = np.arange(start, start+size, dtype=IntType)
+        sf.broadcast(new_offsets, MPI.REPLACE)
+        new_remote_leaf_indices = new_offsets[sf.num_owned:]
+
+        # but PETSc expects rank information along with the remote indices
+        new_remote_leaf_indices = np.stack([remote_leaf_indices[:, 0], new_remote_leaf_indices], axis=1)
+
+        local_leaf_indicess.append(new_local_leaf_indices)
+        remote_leaf_indicess.append(new_remote_leaf_indices)
+
+        start += sf.num_owned
+        local_leaf_index_start += sf.num_ghost
+    assert start == total_num_owned
+
+    ilocal = np.concatenate(local_leaf_indicess)
+    iremote = np.concatenate(remote_leaf_indicess)
+    comm = utils.single_comm(star_forests, "comm")
+    return StarForest.from_graph(total_size, ilocal, iremote, comm)
+
+    # old code, it fixed some bug or other...
+
+    # drop zero-sized forests
+    star_forests = [sf for sf in star_forests if sf.size > 0]
+
+    if len(star_forests) == 1:
         return star_forests[0]
 
     elif all(sf.num_ghost == 0 for sf in star_forests):
