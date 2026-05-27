@@ -27,10 +27,9 @@ int locate_cell(struct Function *f,
     pointers refer to is updated as necessary. */
     double ref_cell_dist_l1 = DBL_MAX;
     double current_ref_cell_dist_l1 =  -0.5;
-    /* NOTE: `tolerance`, which is used throughout this funciton, is a static
-       variable defined outside this function when putting together all the C
-       code that needs to be compiled - see pointquery_utils.py */
-
+    /* NOTE: `user_tolerance` is a static variable defined in the
+    `compile_coordinate_element` function in pointquery_utils.py. */
+    PetscReal tolerance = PetscMax(user_tolerance, PETSC_MACHINE_EPSILON);
     size_t *ids = NULL;
     size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);

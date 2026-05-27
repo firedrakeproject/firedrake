@@ -249,7 +249,7 @@ struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
 };
 
-static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
+static %(RealType)s user_tolerance = %(tolerance)s; /* used in locate_cell */
 
 %(to_reference_coords_newton_step)s
 
