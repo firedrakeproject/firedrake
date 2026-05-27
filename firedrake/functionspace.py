@@ -342,7 +342,17 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
         An optional name for the function space.
 
     """
-    return impl.WithGeometry(impl.RestrictedFunctionSpace(function_space,
-                                                          boundary_set=boundary_set,
-                                                          name=name),
-                             function_space.mesh())
+    if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
+        raise TypeError(f"Can't make restricted space with {type(function_space).__name__}")
+
+    make_space = type(function_space)
+    mesh = function_space.mesh()
+
+    if function_space.boundary_set:
+        boundary_set = frozenset(boundary_set) | function_space.boundary_set
+        function_space = function_space.function_space
+
+    return make_space(impl.RestrictedFunctionSpace(function_space.topological,
+                                                   boundary_set=boundary_set,
+                                                   name=name),
+                      mesh)
