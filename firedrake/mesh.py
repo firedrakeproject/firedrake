@@ -3987,11 +3987,6 @@ def _pic_swarm_in_mesh(
         parent_mesh.tolerance = tolerance
 
     coords = np.asarray(coords, dtype=RealType)
-
-    plex = parent_mesh.topology.topology_dm
-    tdim = parent_mesh.topological_dimension
-    gdim = parent_mesh.geometric_dimension
-    comm = parent_mesh.comm
     int_unit = MPI._typedict[np.dtype(IntType).char]
 
     (
@@ -4022,16 +4017,11 @@ def _pic_swarm_in_mesh(
     nroots = len(winner_cells)
     n_recv_total = len(parent_cell_nums_leaves)
 
-    if exclude_halos:
-        valid_halo_mask = np.zeros(n_recv_total, dtype=bool)
-    else:
-        valid_halo_mask = (
-            is_min_candidate
-            & ~leaf_is_winner
-            & (winner_ranks_on_leaves != -1)
-        )
     owned_indices = np.flatnonzero(leaf_is_winner)
-    halo_indices = np.flatnonzero(valid_halo_mask)
+    if exclude_halos:
+        halo_indices = np.empty(0, dtype=IntType)
+    else:
+        halo_indices = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
     n_owned = len(owned_indices)
     n_halo = len(halo_indices)
     # Owned first, then halo
@@ -4074,8 +4064,8 @@ def _pic_swarm_in_mesh(
 
     swarm = _dmswarm_create(
         fields,
-        comm,
-        plex,
+        parent_mesh.comm,
+        parent_mesh.topology.topology_dm,
         swarm_physical_coords,
         plex_swarm_parent_cell_nums,
         swarm_global_idxs,
@@ -4087,8 +4077,8 @@ def _pic_swarm_in_mesh(
         swarm_base_cells_visible,
         swarm_extrusion_heights_visible,
         parent_mesh.extruded,
-        tdim,
-        gdim,
+        parent_mesh.topological_dimension,
+        parent_mesh.geometric_dimension,
     )
 
     # Build swarm point SF
@@ -4103,15 +4093,6 @@ def _pic_swarm_in_mesh(
     embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
     embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
 
-    # Drop halo points which are not owned by any rank
-    if n_halo:
-        valid_halo_owners = owner_swarm_idx_on_leaves[halo_indices] != -1
-        if not np.all(valid_halo_owners):
-            halo_indices = halo_indices[valid_halo_owners]
-            n_halo = len(halo_indices)
-            all_indices = np.concatenate([owned_indices, halo_indices])
-            n_total = n_owned + n_halo
-
     n_total = n_owned + n_halo
     sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
     swarm_remote = np.empty(2 * n_halo, dtype=IntType)
@@ -4122,8 +4103,8 @@ def _pic_swarm_in_mesh(
     swarm.setPointSF(swarm_point_sf)
 
     # Build original ordering swarm
-    if redundant and comm.rank != 0:
-        original_ordering_coords = np.empty((0, gdim), dtype=RealType)
+    if redundant and parent_mesh.comm.rank != 0:
+        original_ordering_coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
     else:
         original_ordering_coords = coords
 
@@ -4137,7 +4118,7 @@ def _pic_swarm_in_mesh(
 
     original_ordering_swarm = _dmswarm_create(
         [],
-        comm,
+        parent_mesh.comm,
         swarm,
         original_ordering_coords,
         owner_swarm_idx_roots.astype(IntType),
@@ -4145,13 +4126,13 @@ def _pic_swarm_in_mesh(
         winner_ref_coords,
         winner_cells,
         winner_ranks,
-        np.full(nroots, comm.rank, dtype=IntType),  # input rank
+        np.full(nroots, parent_mesh.comm.rank, dtype=IntType),  # input rank
         np.arange(nroots, dtype=IntType),  # input index
         original_ordering_base_cells,
         original_ordering_extrusion_heights,
         parent_mesh.extruded,
-        tdim,
-        gdim,
+        parent_mesh.topological_dimension,
+        parent_mesh.geometric_dimension,
     )
 
     # No halos in original_ordering_swarm: each point is unique to its input rank
