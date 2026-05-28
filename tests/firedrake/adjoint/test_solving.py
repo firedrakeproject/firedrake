@@ -314,6 +314,26 @@ def test_two_nonlinear_solves():
     assert rf.tape.recompute_count == 5
 
 
+@pytest.mark.skipcomplex
+def test_real_solve(rg):
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    u = TrialFunction(R)
+    v = TestFunction(R)
+    m = Function(V).assign(1.0)
+
+    def J(m):
+        a = u * v * dx
+        L = m * v * dx
+        solution = Function(R)
+        solve(a == L, solution)
+        return assemble(solution**2 * dx)
+
+    _test_adjoint(J, m, rg)
+
+
 def convergence_rates(E_values, eps_values):
     from numpy import log
     r = []
