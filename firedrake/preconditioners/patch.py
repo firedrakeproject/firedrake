@@ -190,7 +190,7 @@ def matrix_funptr(form, state):
         mat = LocalMat(dofset)
 
         arg = mat(op2.INC, (entity_node_map, entity_node_map))
-        args.append(arg)
+        args.append(arg.global_kernel_arg)
         statedat = LocalDat(dofset)
         state_entity_node_map = op2.Map(iterset,
                                         toset, arity,
@@ -200,42 +200,48 @@ def matrix_funptr(form, state):
         for i in kinfo.active_domain_numbers.coordinates:
             c = all_meshes[i].coordinates
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for i in kinfo.active_domain_numbers.cell_orientations:
             c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for i in kinfo.active_domain_numbers.cell_sizes:
             c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
                     raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
-                args.append(statearg)
+                args.append(statearg.global_kernel_arg)
                 continue
             for ind in indices:
                 c_ = c.subfunctions[ind]
                 map_ = get_map(c_.function_space(), mesh, integral_type)
-                arg = c_.dat(op2.READ, map_)
+                if c_.function_space().ufl_element().family() == "Real":
+                    # Interior facet integrals double Real coefficients for the
+                    # two sides of the facet, matching the TSFC-generated kernel.
+                    arg = op2.GlobalKernelArg(
+                        (c_.function_space().block_size,), double=integral_type.startswith("interior_facet")
+                    )
+                else:
+                    arg = c_.dat(op2.READ, map_).global_kernel_arg
                 args.append(arg)
 
         all_constants = extract_firedrake_constants(form)
         for constant_index in kinfo.constant_numbers:
-            args.append(all_constants[constant_index].dat(op2.READ))
+            args.append(all_constants[constant_index].dat(op2.READ).global_kernel_arg)
 
         if integral_type == "interior_facet":
             arg = mesh.interior_facets.local_facet_dat(op2.READ)
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         elif integral_type == "exterior_facet":
             arg = mesh.exterior_facets.local_facet_dat(op2.READ)
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         iterset = op2.Subset(iterset, [])
 
-        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
-        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        mod = op2.GlobalKernel(kinfo.kernel, args, subset=True)
         kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels, ext_facet_kernels
 
@@ -294,47 +300,55 @@ def residual_funptr(form, state):
         statearg = statedat(op2.READ, state_entity_node_map)
 
         arg = dat(op2.INC, entity_node_map)
-        args.append(arg)
+        args.append(arg.global_kernel_arg)
 
         for i in kinfo.active_domain_numbers.coordinates:
             c = all_meshes[i].coordinates
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for i in kinfo.active_domain_numbers.cell_orientations:
             c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for i in kinfo.active_domain_numbers.cell_sizes:
             c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c.function_space(), mesh, integral_type))
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
                     raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
-                args.append(statearg)
+                args.append(statearg.global_kernel_arg)
                 continue
             for ind in indices:
                 c_ = c.subfunctions[ind]
                 map_ = get_map(c_.function_space(), mesh, integral_type)
-                arg = c_.dat(op2.READ, map_)
+                if c_.function_space().ufl_element().family() == "Real":
+                    # Interior facet integrals double Real coefficients for the
+                    # two sides of the facet, matching the TSFC-generated kernel.
+                    arg = op2.GlobalKernelArg(
+                        (c_.function_space().block_size,), double=integral_type.startswith("interior_facet")
+                    )
+                else:
+                    arg = c_.dat(op2.READ, map_).global_kernel_arg
                 args.append(arg)
 
         all_constants = extract_firedrake_constants(form)
         for constant_index in kinfo.constant_numbers:
-            args.append(all_constants[constant_index].dat(op2.READ))
+            args.append(all_constants[constant_index].dat(op2.READ).global_kernel_arg)
 
         if kinfo.integral_type == "interior_facet":
             arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         elif kinfo.integral_type == "exterior_facet":
             arg = extract_unique_domain(test).exterior_facets.local_facet_dat(op2.READ)
-            args.append(arg)
+            args.append(arg.global_kernel_arg)
         iterset = op2.Subset(iterset, [])
 
-        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
-        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        breakpoint()
+
+        mod = op2.GlobalKernel(kinfo.kernel, args, subset=True)
         kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels, ext_facet_kernels
 
