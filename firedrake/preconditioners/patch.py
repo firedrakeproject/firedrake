@@ -346,8 +346,6 @@ def residual_funptr(form, state):
             args.append(arg.global_kernel_arg)
         iterset = op2.Subset(iterset, [])
 
-        breakpoint()
-
         mod = op2.GlobalKernel(kinfo.kernel, args, subset=True)
         kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels, ext_facet_kernels
