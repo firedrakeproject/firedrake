@@ -220,7 +220,9 @@ class CoarsePatchTransferManager(RobustTransferManager):
             # If the element is a split variant, reconstruct the unsplit one
             element = element.reconstruct(variant=None)
 
-        if not V.finat_element.is_dg():
+        # FIXME
+        restrict = False
+        if not V.finat_element.is_dg() and restrict:
             entity_dofs = V.finat_element.entity_dofs()
             sd = max(entity_dofs)
             if len(entity_dofs[sd][0]) > 0:
