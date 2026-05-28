@@ -4450,13 +4450,10 @@ def _embedding_star_forest(
 
     MPI.Request.Waitall(requests)
 
-    remote = np.empty(2 * n_recv_total, dtype=IntType)
-    recv_offset = 0
-    for source_rank, count in zip(fromranks, recv_counts):
-        end = recv_offset + count
-        remote[2 * recv_offset:2 * end:2] = source_rank
-        remote[2 * recv_offset + 1:2 * end:2] = recv_buffer[recv_offset:end]
-        recv_offset = end
+    input_ranks_on_leaves = np.repeat(fromranks, recv_counts)
+    remote = np.empty((n_recv_total, 2), dtype=IntType)
+    remote[:, 0] = input_ranks_on_leaves
+    remote[:, 1] = recv_buffer
 
     sf = PETSc.SF().create(comm=comm)
     sf.setGraph(nroots, None, remote)
