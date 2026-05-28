@@ -2074,12 +2074,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             parent = self._parent_mesh.topology_dm
             cell_id_name = swarm.getCellDMActive().getCellID()
             swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
+            swarm_global_indices = swarm.getField("globalindex").ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-            # Use kind = 'stable' to make the ordering deterministic.
-            perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+            parent_order = parent_renum_inv[swarm_parent_cell_nums - pStart]
+            # sort by parent cell order, with ties broken by point global index
+            perm = np.lexsort((swarm_global_indices, parent_order)).astype(IntType)
+            swarm.restoreField("globalindex")
             swarm.restoreField(cell_id_name)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
