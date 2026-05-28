@@ -13,6 +13,9 @@ from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_
 
 import ufl
 import finat.ufl
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.element_factory import as_fiat_cell
 from ufl.corealg.map_dag import map_expr_dag
 
 import gem
@@ -301,3 +304,35 @@ static inline void wrap_to_reference_coords(
 """
 
     return evaluate_template_c % code
+
+def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
+    """Construct a Quadrature FiniteElement for interpolation onto a
+    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
+    (1, tdim) where tdim is the topological dimension of domain.ufl_cell(). The
+    weight is [1.0], since the single local dof in the VertexOnlyMesh function
+    space corresponds to a point evaluation at the vertex.
+
+    Parameters
+    ----------
+    domain : ufl.AbstractDomain
+        The source domain.
+    ufl_element : finat.ufl.finiteelement.FiniteElement
+        The UFL element of the target FunctionSpace.
+    rt_var_name : str
+        String beginning with ``'rt_'`` which is used as the name of the
+        gem.Variable used to represent the UnknownPointSet. The ``'rt_'`` prefix
+        forces TSFC to do runtime tabulation.
+    """
+    assert rt_var_name.startswith("rt_")
+
+    cell = domain.ufl_cell()
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+
+    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
+    rt_element = finat.ufl.FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if shape:
+        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
+        rt_element = finat.ufl.TensorElement(rt_element, shape=shape, symmetry=symmetry)
+    return rt_element
