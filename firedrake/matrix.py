@@ -187,11 +187,6 @@ class Matrix(MatrixBase):
             self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = _get_mat_type(self.petscmat)
 
-    def assemble(self):
-        raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
-                                  has been removed.  Use 'assemble(a, bcs=bcs)', which\
-                                  now returns an assembled matrix.")
-
 
 class ImplicitMatrix(MatrixBase):
     """A representation of the action of bilinear form operating without
