@@ -18,9 +18,8 @@ Primary API: Interpolation onto a vertex-only mesh
 Firedrake's principal API for evaluating functions at arbitrary points,
 interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
 function at many points, or repeatedly, and for creating expressions which
-contain point evaluations. It is parallel-safe. Whilst :meth:`~.Function.at`
-produces a list of values, cross-mesh interpolation onto
-:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
+contain point evaluations. It is parallel-safe. Interpolation onto
+:func:`~.VertexOnlyMesh` returns Firedrake :py:class:`~.Function`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
 the idea is that the :func:`~.VertexOnlyMesh` is a mesh that represents a
