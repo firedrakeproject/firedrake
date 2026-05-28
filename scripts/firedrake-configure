@@ -883,7 +883,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
             # Avoid macos + openmpi + mumps segmentation violation issue;
             # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
-            "-download-mumps-avoid-mpi-in-place",
+            "--download-mumps-avoid-mpi-in-place",
         ],
         cflags=["-O3", "-march=native", "-mtune=native"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
@@ -937,7 +937,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
             # Avoid macos + openmpi + mumps segmentation violation issue;
             # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
-            "-download-mumps-avoid-mpi-in-place",
+            "--download-mumps-avoid-mpi-in-place",
         ],
         cflags=["-O3", "-march=native", "-mtune=native"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
