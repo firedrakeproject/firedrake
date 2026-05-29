@@ -14,6 +14,7 @@ from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 from pyop3.cache import memory_cache
+import pyop3.axis_tree
 import pyop3.expr
 import pyop3.expr.visitors
 from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
@@ -412,8 +413,15 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
     if (
         isinstance(bare_assignee.buffer, PetscMatBuffer)
         and isinstance(bare_expression, Mat)
-        and not all(isinstance(tree, AxisTree | type(UNIT_AXIS_TREE)) for tree in {bare_expression.row_axes, bare_expression.column_axes})
+        and not all(
+            isinstance(t, pyop3.axis_tree.AbstractUnindexedAxisTree)
+            for t in bare_expression.axis_trees
+        )
     ):
+        assert not any(
+            isinstance(t, pyop3.axis_tree.AxisForest)
+            for t in bare_expression.axis_trees
+        )
         expression_temp = bare_expression.materialize()
         expression_insns += (expression_temp.assign(bare_expression),)
         bare_expression = expression_temp

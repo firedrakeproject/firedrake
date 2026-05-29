@@ -92,10 +92,7 @@ class BufferCollector(LabelledTreeVisitor):
         super().__init__()
 
     def __call__(self, tree):
-        result = super().__call__(tree) | self._collect_expr_buffers(tree.size)
-        if "array_54" in str(result):
-            breakpoint()
-        return result
+        return super().__call__(tree) | self._collect_expr_buffers(tree.size)
 
     @classmethod
     # @memory_cache(heavy=True)

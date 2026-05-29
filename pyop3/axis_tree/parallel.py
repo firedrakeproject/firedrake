@@ -132,9 +132,6 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
             iremote: [[0, 0], [0, 1], [0, 2], [0, 3]]
 
     """
-    # drop zero-sized forests
-    star_forests = [sf for sf in star_forests if sf.size > 0]
-
     if len(star_forests) == 1:
         return utils.just_one(star_forests)
 
@@ -169,9 +166,6 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
     return StarForest.from_graph(total_size, ilocal, iremote, comm)
 
     # old code, it fixed some bug or other...
-
-    # drop zero-sized forests
-    star_forests = [sf for sf in star_forests if sf.size > 0]
 
     if len(star_forests) == 1:
         return star_forests[0]

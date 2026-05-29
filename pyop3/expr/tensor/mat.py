@@ -124,7 +124,6 @@ class Mat(Tensor):
         return f"{self.name}[?, ?]"
 
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        breakpoint()
         raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}

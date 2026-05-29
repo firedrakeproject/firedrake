@@ -1009,10 +1009,7 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-    try:
-        return utils.just_one(iname_maps)[axis_var.axis.label]
-    except:
-        breakpoint()
+    return utils.just_one(iname_maps)[axis_var.axis.label]
 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)

@@ -126,18 +126,9 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         component_size = replace(component_size, axis_to_loop_var_replace_map)
         subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
-        # if "{constrained" in str(axis_tree):
-        #      import pyop3.debug
-        #      pyop3.debug.enable_conditional_breakpoints()
-
         Loop(i,
-            component_size.iassign(subtree_size_expr)
-        )()
-
-        # if "{constrained" in str(axis_tree):
-        #      import pyop3.debug
-        #      pyop3.debug.disable_conditional_breakpoints()
-
+            component_size.iassign(subtree_size_expr), eager=True,
+        )
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this

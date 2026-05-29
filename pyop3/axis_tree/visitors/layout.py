@@ -303,8 +303,6 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
         # Tabulate
         else:
-            # if str(subtree) == "{dof: {XXX: (dat_71_buffer[i_{mesh}] + dat_73_buffer[i_{mesh}])}}":
-            #     breakpoint()
             step_expr = _accumulate_step_sizes(subtree.size, linear_axis, axis_tree.comm)
 
             # if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:

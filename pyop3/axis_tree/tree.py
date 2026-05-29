@@ -147,7 +147,6 @@ class ContextSensitive(ContextAware, abc.ABC):
         try:
             return self.context_map[context]
         except KeyError:
-            breakpoint()
             raise ContextMismatchException
 
     def filter_context(self, context):
@@ -255,10 +254,7 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):
-            try:
-                assert self.size.value >= 0
-            except:
-                breakpoint()
+            assert self.size.value >= 0
 
     # }}}
 
@@ -2304,14 +2300,34 @@ class AxisForest(AbstractAxisTreeLike):
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self.trees)))
 
-    def __init__(self, trees: Sequence[AbstractNonUnitAxisTree]) -> None:
-        # TODO: Should check the trees for compatibility (e.g. do they have the same SF?)
-        trees = tuple(trees)
+    def __new__(
+        cls,
+        trees: Sequence[AbstractNonUnitAxisTree]
+    ) -> AbstractAxisTreeLike:
+        # eagerly consume iterators, as they are empty if reused
+        if isinstance(trees, collections.abc.Iterator):
+            trees = tuple(trees)
 
-        if not all(isinstance(tree, AbstractAxisTree) for tree in trees):
-            raise TypeError
+        # drop duplicates
+        unique_trees = utils.unique(trees)
 
-        object.__setattr__(self, "_trees", trees)
+        # return singletons
+        if len(unique_trees) == 1:
+            return utils.just_one(unique_trees)
+        else:
+            # no argument modification, build as normal
+            self = object.__new__(cls)
+            object.__setattr__(self, "_trees", unique_trees)
+            return self
+
+    def __init__(self, *args, **kwargs) -> None:
+        # To correctly handle generators, which get consumed at first use,
+        # we do all initialisation inside __new__ instead of here
+        assert hasattr(self, "_trees")
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
 
     # }}}
 

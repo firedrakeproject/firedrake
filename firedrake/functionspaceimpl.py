@@ -1761,33 +1761,6 @@ class RestrictedFunctionSpace(FunctionSpace):
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
-    # do in parent class
-    # @cached_property
-    # def nodal_axes(self) -> op3.IndexedAxisTree:
-    #     scalar_axis_tree = self.layout_axes.blocked(self.shape)
-    #
-    #     breakpoint()  # nope
-    #     regions = []
-    #     for owned_or_ghost in ["owned", "ghost"]:
-    #         for maybe_constrained in ["unconstrained", "constrained"]:
-    #             region_size = scalar_axis_tree.with_region_labels({owned_or_ghost, maybe_constrained}).size
-    #             regions.append(op3.AxisComponentRegion(region_size, frozenset({owned_or_ghost, maybe_constrained})))
-    #
-    #     node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
-    #     axis_tree = op3.AxisTree(node_axis)
-    #     for i, dim in enumerate(self.shape):
-    #         axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
-    #
-    #     # Reuse the targets from the unconstrained space as they do not affect
-    #     # the layout functions.
-    #     targets = self.function_space.nodal_axes.targets
-    #
-    #     return op3.IndexedAxisTree(
-    #         axis_tree,
-    #         unindexed=self.layout_axes,
-    #         targets=targets,
-    #     )
-    #
 
 class MixedFunctionSpace(AbstractFunctionSpace):
     r"""A function space on a mixed finite element.

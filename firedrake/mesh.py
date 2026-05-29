@@ -3194,9 +3194,12 @@ class ExtrudedMeshTopology(MeshTopology):
     @cached_property
     def extr_cell_to_base_cell_map(self):
         """Return the map from extruded cells to cells of the base mesh."""
-        base_cell_nums = np.arange(self._base_mesh.num_cells, dtype=IntType)
+        base_cell_nums = np.arange(
+            self._base_mesh.cells.owned.local_size, dtype=IntType
+        )
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
+        src_axis = self.cells.owned.root
         dest_axis = self._base_mesh.name
         dest_stratum = self._base_mesh.cell_label
 
@@ -3208,7 +3211,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
         return op3.Map(
             {
-                idict({self.name: self.cell_label}): [[
+                idict({src_axis.label: src_axis.component.label}): [[
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]]
             },

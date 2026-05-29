@@ -82,7 +82,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # breakpoint()
 
         src_axis = Vc.nodal_axes.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])

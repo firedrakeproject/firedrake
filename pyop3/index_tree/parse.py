@@ -281,10 +281,6 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
 
     # match on component label
     else:
-        # try:
-        #     component = just_one(c for c in axis.components if c.label == num)
-        # except:
-        #     breakpoint()
         try:
             component = just_one(c for c in axis.components if c.label == num)
         except pyop3.exceptions.EmptyIterableException as err:
@@ -381,10 +377,7 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
 def _(label: str, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
-    try:
-        component = just_one(c for c in axis.components if c.label == label)
-    except:
-        breakpoint()
+    component = just_one(c for c in axis.components if c.label == label)
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
@@ -544,10 +537,7 @@ def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
     if loop_index.is_context_free:
         return (loop_index,)
     else:
-        try:
-            path = loop_context[loop_index.id]
-        except:
-            breakpoint()
+        path = loop_context[loop_index.id]
         linear_iterset = loop_index.iterset.linearize(path)
         return (loop_index.__record_init__(iterset=linear_iterset),)
 
