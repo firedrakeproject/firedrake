@@ -129,7 +129,6 @@ class RobustTransferManager(TransferManager):
                 partial(u_aux.dat.copy, uf.dat),
             )
         else:
-            btest, = r_patch.arguments()
             if len(set(f.ufl_element() for f in (uf, u_aux, u_patch))) == 1:
                 copy_update = partial(uf.assign, u_aux - u_patch)
             else:
@@ -137,7 +136,8 @@ class RobustTransferManager(TransferManager):
                 Iv = get_interpolator(interpolate(u_aux - u_patch, wtest))
                 copy_update = partial(Iv.assemble, tensor=uf)
 
-            residual = get_assembler(form(btest, u_aux))
+            v_patch, = r_patch.arguments()
+            residual = get_assembler(form(v_patch, u_aux))
             callables = (
                 partial(TransferManager.prolong, self, uc, u_aux),
                 partial(residual.assemble, tensor=r_patch),
@@ -161,22 +161,21 @@ class RobustTransferManager(TransferManager):
                 partial(TransferManager.restrict, self, r_aux, rc),
             )
         else:
-            btest, = r_patch.arguments()
-            vtest = TestFunction(V_aux)
-            if len(set(f.ufl_element() for f in (rf, r_aux, r_patch))) == 1:
-                copy_aux = partial(r_aux.assign, rf)
-                copy_rhs = partial(r_patch.assign, rf)
-            else:
-                Iv = get_interpolator(interpolate(vtest, rf))
-                Ib = get_interpolator(interpolate(btest, rf))
-                copy_aux = partial(Iv.assemble, tensor=r_aux)
-                copy_rhs = partial(Ib.assemble, tensor=r_patch)
-            residual = get_assembler(form(u_patch, vtest))
+
+            def copy_callable(source, dest):
+                if source.ufl_element() == dest.ufl_element():
+                    return partial(dest.assign, source)
+                else:
+                    R = get_interpolator(interpolate(dest.arguments()[0], source))
+                    return partial(R.assemble, tensor=dest)
+
+            v_aux, = r_aux.arguments()
+            residual = get_assembler(form(u_patch, v_aux))
             callables = (
-                copy_rhs,
+                copy_callable(rf, r_aux),
+                copy_callable(rf, r_patch),
                 solver,
                 partial(residual.assemble, tensor=Au),
-                copy_aux,
                 partial(r_aux.assign, r_aux - Au),
                 partial(TransferManager.restrict, self, r_aux, rc),
             )
@@ -280,8 +279,8 @@ class FinePatchTransferManager(RobustTransferManager):
         if V.finat_element.is_dg():
             return V
 
-        quad_scheme = None
         element = V.ufl_element()
+        quad_scheme = element._quad_scheme
         if V.finat_element.complex.is_macrocell():
             # Macroelements require a composite quadrature scheme
             if element.sobolev_space == H1 and V.finat_element.degree < 4:
@@ -299,10 +298,15 @@ class FinePatchTransferManager(RobustTransferManager):
                 element = TensorElement(element, shape=V.value_shape)
         else:
             # Take the facet element with the new quadrature scheme
-            if quad_scheme is not None:
+            if quad_scheme != element._quad_scheme:
                 element = element.reconstruct(quad_scheme=quad_scheme)
-            element = element["facet"]
+            entity_dofs = V.finat_element.entity_dofs()
+            sd = max(entity_dofs)
+            if len(entity_dofs[sd][0]) > 0:
+                element = element["facet"]
 
+        if element == V.ufl_element():
+            return V
         return V.collapse().reconstruct(element=element)
 
     def build_patch_solver(self, form, V):
