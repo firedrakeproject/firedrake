@@ -2385,6 +2385,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self._bounding_box_coords = None
         self._rtree = None
+        self._distributed_rtree = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
         # Cache mesh object on the coordinateless coordinates function
@@ -2462,8 +2463,9 @@ values from f.)"""
 
         Notes
         -----
-        After changing tolerance any requests for :attr:`rtree` will cause
-        the rtree to be rebuilt with the new tolerance which may take some time.
+        After changing tolerance any requests for :attr:`rtree` or
+        :attr:`distributed_rtree` will cause the tree to be rebuilt with the
+        new tolerance which may take some time.
         """
         return self._tolerance
 
@@ -2473,6 +2475,7 @@ values from f.)"""
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
             self.clear_rtree()
+            self.clear_distributed_rtree()
             self._tolerance = value
 
     def clear_rtree(self):
@@ -2482,7 +2485,20 @@ values from f.)"""
         the coordinate field)."""
         self._rtree = None
 
-    @cached_property
+    def clear_distributed_rtree(self):
+        """Reset the :attr:`distributed_rtree` on this mesh geometry."""
+        self._distributed_rtree = None
+
+    def _clear_geometry_caches(self):
+        self._bounding_box_coords = None
+        self.clear_rtree()
+        self.clear_distributed_rtree()
+
+    def _check_coordinate_dat_version(self):
+        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
+            self._clear_geometry_caches()
+
+    @property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates bounding boxes for the mesh rtree.
@@ -2499,6 +2515,10 @@ values from f.)"""
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
         Hence the bounding box will contain the entire element.
         """
+        self._check_coordinate_dat_version()
+        if self._bounding_box_coords is not None:
+            return self._bounding_box_coords
+
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
 
@@ -2562,7 +2582,8 @@ values from f.)"""
         coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
-        return coords_min, coords_max
+        self._bounding_box_coords = (coords_min, coords_max)
+        return self._bounding_box_coords
 
     @property
     @PETSc.Log.EventDecorator()
@@ -2582,12 +2603,9 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
-            if "bounding_box_coords" in self.__dict__:
-                del self.bounding_box_coords
-        else:
-            if self._rtree:
-                return self._rtree
+        self._check_coordinate_dat_version()
+        if self._rtree is not None:
+            return self._rtree
 
         coords_min, coords_max = self.bounding_box_coords
         if self.geometric_dimension == 1:
@@ -2652,7 +2670,7 @@ values from f.)"""
     
     @property
     @PETSc.Log.EventDecorator()
-    def box_ratio_heuristic(self):
+    def _box_ratio_heuristic(self):
         """Return partition bounding boxes at some 'optimal' Rtree level.
 
         Descends the local Rtree top-down breadth-first, stopping when the total
@@ -2695,10 +2713,14 @@ values from f.)"""
         :class:`~firedrake.cython.rtree.RTree`
             A global Rtree whose leaf ids are MPI rank numbers.
         """
+        self._check_coordinate_dat_version()
+        if self._distributed_rtree is not None:
+            return self._distributed_rtree
+
         gdim = self.geometric_dimension
         comm = self.comm
 
-        local_bboxes = self.box_ratio_heuristic  # (n_local, 2, gdim)
+        local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
         n_local = local_bboxes.shape[0]
 
         # Allgather per-rank box counts
@@ -2718,7 +2740,8 @@ values from f.)"""
         # Set the owning rank as the leaf id so queries return rank numbers.
         ids = np.repeat(np.arange(comm.size, dtype=np.uintp), counts)
 
-        return rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        self._distributed_rtree = rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        return self._distributed_rtree
 
 
     @PETSc.Log.EventDecorator()
