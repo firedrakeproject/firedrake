@@ -494,9 +494,10 @@ class Dat(Tensor):
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
         is_view = isinstance(self.axes.owned.buffer_slice, slice)
+        if not is_view:
+            raise NotImplementedError("TODO")
 
-        assert is_view
-
+        # TODO: I would like to disallow this as it creates a lot of confusion
         if self._vec_context_is_active:
             assert is_view
             # NOTE: Have to be careful that we aren't violating any 'mode' contracts
@@ -525,9 +526,6 @@ class Dat(Tensor):
                 self._work_vec.stateIncrease()
             self._vec_context_is_active = True
             yield self._work_vec
-            if mode in {"wo", "rw"}:
-                self.buffer.inc_state()
-                self._work_vec.stateIncrease()
 
         else:
             # Not a view, need to copy in and out
@@ -536,9 +534,6 @@ class Dat(Tensor):
                 self.has_yielded = True
                 self._vec_context_is_active = True
                 yield self._work_vec
-                if mode in {"wo", "rw"}:
-                    self.buffer.inc_state()
-                    self._work_vec.stateIncrease()
 
             else:
                 # Buffer data != vec data - copy required
@@ -555,15 +550,16 @@ class Dat(Tensor):
                 self._vec_context_is_active = True
                 yield self._work_vec
 
+        # Record any state changes on the buffer
+        if mode in {"rw", "wo"}:
+            self.buffer.inc_state()
+            self.buffer._leaves_valid = False
+            self._work_vec.stateIncrease()
+
         # At this point the vec is synchronised with the buffer
         self._work_vec_buffer_state = self.buffer.state
         self._vec_context_is_active = False
 
-    def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
-        assert False, "old code"
-        assert self.dtype == IntType
-        block_size = np.prod(block_shape, dtype=IntType)
-        return PETSc.LGMap().create(self.data_ro_with_halos, bsize=block_size, comm=self.comm)
 
     @property
     def norm(self) -> numbers.Real:

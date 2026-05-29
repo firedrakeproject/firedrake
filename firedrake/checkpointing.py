@@ -1477,7 +1477,8 @@ class CheckpointFile:
                 path = os.path.join(base_path, str(i))
                 fsub_name = self.get_attr(path, PREFIX + "_function")
                 fsub = self.load_function(mesh, fsub_name, idx=idx)
-                dat[i].assign(fsub.dat, eager=True)
+                dat_idx = V._labels[i] if len(V) > 1 else Ellipsis
+                dat[dat_idx].assign(fsub.dat, eager=True)
             return Function(V, val=dat, name=name)
         elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
             # Load function space

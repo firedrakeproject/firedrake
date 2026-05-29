@@ -458,6 +458,9 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
+        # if "inverse" in str(self):
+        #     breakpoint()
+
         if not kwargs:  # shortcut for the most common case
             buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
