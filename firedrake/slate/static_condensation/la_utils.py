@@ -317,8 +317,12 @@ class SchurComplementBuilder(object):
 
     def _split_mixed_operator(self):
         split_mixed_op = dict(split_form(self.Atilde.form))
-        id0, id1 = (self.vidx, self.pidx)
-        A00 = Tensor(split_mixed_op[(id0, id0)])
+
+        if self.nfields > 1:
+            id0, id1 = (self.vidx, self.pidx)
+            A00 = Tensor(split_mixed_op[(id0, id0)])
+        else:
+            A00 = Tensor(split_mixed_op[(None, None)])
         self.list_split_mixed_ops = [A00, None, None, None]
 
         if self.nfields > 1:

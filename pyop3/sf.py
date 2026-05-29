@@ -324,10 +324,3 @@ def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
     return StarForest.from_graph(size, ilocal, iremote, comm)
-
-
-def _check_sf(sf: PETSc.SF):
-    # sanity check: leaves should always be at the end of the array
-    size, leaf_indices, _ = sf.getGraph()
-    num_leaves = len(leaf_indices)
-    assert (leaf_indices == np.arange(size-num_leaves, size, dtype=IntType)).all()

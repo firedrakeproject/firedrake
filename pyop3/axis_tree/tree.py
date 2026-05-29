@@ -836,6 +836,11 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     def block_shape(self) -> tuple[int, ...]:
         pass
 
+    @property
+    @abc.abstractmethod
+    def sf(self) -> StarForest:
+        pass
+
     # }}}
 
     @cached_property
@@ -899,11 +904,6 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
     """Base class for non-unit axis trees."""
 
     # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def unindexed(self) -> AxisTree:
-        pass
 
     @property
     @abc.abstractmethod
@@ -1042,22 +1042,6 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
 
     def prune(self) -> AxisTree:
         return self.pruned
-
-    @property
-    @abc.abstractmethod
-    def unindexed(self):
-        pass
-
-    @cached_property
-    def sf(self) -> StarForest:
-        from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
-
-        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
-        if has_sfs:
-            sfs = collect_star_forests(self)
-            return concatenate_star_forests(sfs)
-        else:
-            return NullStarForest(self.local_size)
 
     @cached_property
     def block_shape(self) -> tuple[int, ...]:
@@ -1338,7 +1322,27 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
         return vec
 
 
-class _UnitAxisTree(AbstractUnitAxisTree):
+class AbstractUnindexedAxisTree(AbstractAxisTreeLike):
+    """Base class for axis trees that are not indexed."""
+
+    @property
+    def unindexed(self) -> Self:
+        return self
+
+
+class AbstractIndexedAxisTree(AbstractAxisTreeLike):
+    """Base class for axis trees that are indexed."""
+
+    @cached_property
+    def sf(self) -> StarForest:
+        petsc_sf = pyop3.sf.filter_petsc_sf(
+            self.unindexed.sf.sf, self._buffer_indices, 0, self.local_size
+        )
+        return StarForest(petsc_sf, self.comm)
+
+
+# TODO: This should take a comm!
+class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
 
     # {{{ instance attrs (there aren't any)
 
@@ -1365,7 +1369,7 @@ class _UnitAxisTree(AbstractUnitAxisTree):
     alloc_size = 1
     local_size = 1
     depth = 1
-    sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
+    sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right, probably not since the comm is anything...
     leaf_paths = (idict(),)
     leaf_path = idict()
     nodes = ()
@@ -1375,7 +1379,6 @@ class _UnitAxisTree(AbstractUnitAxisTree):
 
     targets = idict({idict(): ((),)})
 
-    unindexed = property(lambda self: self)
     regionless = property(lambda self: self)
 
     nest_indices = ()
@@ -1448,7 +1451,7 @@ labels.
 
 
 @pyop3.record.frozenrecord()
-class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
+class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
 
     # {{{ instance attrs
 
@@ -1474,10 +1477,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
     # {{{ interface impls
 
     node_map = pyop3.record.attr("_node_map")
-
-    @property
-    def unindexed(self) -> AxisTree:
-        return self
 
     @cached_property
     def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
@@ -1584,6 +1583,17 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
         section.setUp()
         return section
 
+    @cached_property
+    def sf(self) -> StarForest:
+        from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+
+        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
+        if has_sfs:
+            sfs = collect_star_forests(self)
+            return concatenate_star_forests(sfs)
+        else:
+            return NullStarForest(self.local_size)
+
     # }}}
 
     @cached_method()
@@ -1667,6 +1677,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
+        # debugging
+        self.sf
+
         with temp_internal_comm(self.comm) as icomm:
             start = icomm.exscan(self.free.local_size) or 0
         numbering = np.arange(start, start + self.local_size, dtype=IntType)
@@ -1678,7 +1691,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree):
 
 
 @pyop3.record.frozenrecord()
-class IndexedAxisTree(AbstractNonUnitAxisTree):
+class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ instance attrs
 
@@ -1936,7 +1949,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
 
     # }}}
 
-
     @property
     def comm(self):
         return self.unindexed.comm
@@ -2058,7 +2070,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree):
 
 # TODO: Have an abstract indexed axis tree mixin type
 @pyop3.record.frozenrecord()
-class UnitIndexedAxisTree(AbstractUnitAxisTree):
+class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     """An indexed axis tree representing something indexed down to a scalar."""
 
     # {{{ instance attrs
@@ -2484,11 +2496,11 @@ class AxisForest(AbstractAxisTreeLike):
     def global_numbering(self) -> Dat:
         from pyop3 import Dat
 
-        # return Dat(self.localize(), buffer=self.trees[0].global_numbering.buffer)
-        retval = Dat(self, buffer=self.trees[0].global_numbering.buffer)
-        if (retval.data_ro < 0).any():
-            breakpoint()
-        return retval
+        buffers = [t.global_numbering.buffer for t in self.trees]
+        utils.debug_assert(lambda: utils.is_single_valued(
+            (b.data_ro_with_halos for b in buffers)
+        ))
+        return Dat(self, buffer=buffers[0])
 
 
 @pyop3.record.frozenrecord()
@@ -2551,7 +2563,6 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
     def datamap(self):
         return merge_dicts(axes.datamap for axes in self.context_map.values())
 
-    # seems a bit dodgy
     @cached_property
     def sf(self):
         return single_valued([ax.sf for ax in self.context_map.values()])

@@ -11,7 +11,7 @@ from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 
 from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype
-from pyop3.sf import StarForest, _check_sf, create_petsc_section_sf
+from pyop3.sf import StarForest, create_petsc_section_sf
 
 
 def reduction_op(op, invec, inoutvec, datatype):
@@ -74,7 +74,6 @@ def _collect_sf_graphs_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePat
                 # first region, here we don't want this to happen
                 section = axis_tree.regionless().section(path, component, indices)
                 petsc_sf = create_petsc_section_sf(component.sf.sf, section)
-                _check_sf(petsc_sf)
             else:
                 petsc_sf = component.sf.sf
             sf = StarForest(petsc_sf, component.sf.comm)
