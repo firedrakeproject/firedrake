@@ -281,8 +281,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         # LRU cache for expressions assembled onto this function
         self._expression_cache = cachetools.LRUCache(maxsize=50)
 
-        self._mesh_topo = self._function_space.topological.mesh()
-        self._mesh_geom = self._function_space.mesh()
+        self._mesh_topo = self._function_space.topological.mesh() # MeshTopology
+        self._mesh_geom = self._function_space.mesh() # MeshGeometry
 
         # Store the VOM topology version to detect topology changes
         if isinstance(self._mesh_topo, VertexOnlyMeshTopology):
@@ -317,9 +317,14 @@ class Function(ufl.Coefficient, FunctionMixin):
     
     def _match_mesh_topology_version(self):
         # Skip coordinate functions as they get rebuilt when the VOM is rebuilt
-        if self is self._mesh_geom.coordinates:
+        # While `coordinates` is a property of any MeshGeometry object, `reference_coordinates` is only a property of the VOM
+        if hasattr(self._mesh_geom, "coordinates") and self is self._mesh_geom.coordinates:
             return
-        if self is self._mesh_geom.reference_coordinates:
+        if hasattr(self._mesh_geom, "reference_coordinates") and self is self._mesh_geom.reference_coordinates:
+            return
+        
+        if not isinstance(self._mesh_topo, VertexOnlyMeshTopology):
+            # _topology_version only exists on VOM
             return
         
         current_mesh_version = self._mesh_topo._topology_version
@@ -400,8 +405,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         # SF maps new VOM (leaves) -> old VOM (roots)
         # The old function values are defined at the roots so we use a bcast operation 
         # to move them to the dofs at the leaves
-        # ilocal is used to write into the leaf buffer ()
-        # inputindex in remote
         new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype) 
         for c in range(dim):
             root_c = np.ascontiguousarray(old_func_vals_normalized[:, c])
@@ -411,8 +414,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             unit = MPI._typedict[np.dtype(root_c.dtype).char]
 
             # Bcast old (root) values into new (leaf) positions
-            # uses ilocal to determine where to write in the leaf buffer and inputindex is used as an offset into the root buffer
-            # executes leaf_c[ilocal[k]] = root_c[inputindex[k]] or leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
+            # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
+            # and (input_rank, input_index) an offset into the root buffer
+            # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
             latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
             latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
 
