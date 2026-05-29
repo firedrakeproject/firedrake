@@ -1,0 +1,3 @@
+[submodule "particles"]
+	path = particles
+	url = git@github.com:achanbour/firedrake-particles.git
