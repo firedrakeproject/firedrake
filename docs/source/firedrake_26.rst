@@ -53,7 +53,7 @@ Event               Dates                               Full    Student Full (no
 =================   =================================== ======  ======= ======================= ==========================
 PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170
 PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100
-Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100
+Firedrake only	    3 June (lunchtime) - 5 June (16:50) £550    £220    £250                    £100
 =================   =================================== ======  ======= ======================= ==========================
 
 International attendees will likely need to book a hotel for the night before
