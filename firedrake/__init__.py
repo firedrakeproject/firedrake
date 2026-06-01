@@ -3,8 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
-# TODO RELEASE set to ">=3.25"
-PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
+PETSC_SUPPORTED_VERSIONS = ">=3.25.0"
 
 
 def init_petsc():
@@ -89,7 +88,7 @@ from firedrake.preconditioners import (  # noqa: F401
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
     PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
-    CovariancePC
+    CovariancePC, OffloadPC
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
@@ -100,7 +99,7 @@ from firedrake.mesh import (  # noqa: F401
 )
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
-    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
     OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
     AdaptiveTransferManager

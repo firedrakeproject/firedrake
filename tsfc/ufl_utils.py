@@ -43,6 +43,7 @@ def compute_form_data(form,
                       do_apply_default_restrictions=True,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True,
+                      do_replace_functions=True,
                       coefficients_to_split=None,
                       complex_mode=False):
     """Preprocess UFL form in a format suitable for TSFC. Return
@@ -52,7 +53,9 @@ def compute_form_data(form,
     kwargs overriden in the way TSFC needs it and is provided for
     other form compilers based on TSFC.
     """
-    # breakpoint()
+    # Multidomain problems require further index simplifications to ensure
+    # that unwanted quantities do not appear inside single-domain integrals.
+    do_remove_component_tensors = len(form.ufl_domains()) > 1
     fd = ufl_compute_form_data(
         form,
         do_apply_function_pullbacks=do_apply_function_pullbacks,
@@ -62,9 +65,10 @@ def compute_form_data(form,
         do_apply_default_restrictions=do_apply_default_restrictions,
         do_apply_restrictions=do_apply_restrictions,
         do_estimate_degrees=do_estimate_degrees,
-        do_replace_functions=True,
+        do_replace_functions=do_replace_functions,
         coefficients_to_split=coefficients_to_split,
-        complex_mode=complex_mode
+        complex_mode=complex_mode,
+        do_remove_component_tensors=do_remove_component_tensors,
     )
     constants = extract_firedrake_constants(form)
     fd.constants = constants
@@ -109,7 +113,9 @@ def entity_avg(integrand, measure, argument_multiindices):
     degree = estimate_total_polynomial_degree(integrand)
     form = integrand * measure
     fd = compute_form_data(form, do_estimate_degrees=False,
-                           do_apply_function_pullbacks=False)
+                           do_apply_function_pullbacks=False,
+                           do_replace_functions=False,
+                           )
     itg_data, = fd.integral_data
     integral, = itg_data.integrals
     integrand = integral.integrand()

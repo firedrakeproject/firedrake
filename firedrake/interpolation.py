@@ -1759,7 +1759,7 @@ class MixedInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "nest", "matfree", None}
+        return {"aij", "nest", None}
 
 
 class CompositeInterpolator(Interpolator):

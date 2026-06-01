@@ -1007,7 +1007,7 @@ class FunctionSpace:
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
-        return type(self)(self.mesh(), self.ufl_element())
+        return type(self)(self.mesh(), self.ufl_element(), name=self.name)
 
 
 class RestrictedFunctionSpace(FunctionSpace):

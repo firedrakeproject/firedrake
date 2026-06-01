@@ -3360,13 +3360,16 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension <= V.value_size
+    orig_mesh = V.mesh()
+    assert orig_mesh.ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
     mesh._tolerance = tolerance
+    mesh._did_reordering = orig_mesh._did_reordering
+    mesh._distribution_parameters = orig_mesh._distribution_parameters
     return mesh
 
 
@@ -4188,16 +4191,19 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
             parent_cell_nums_local, parent_mesh.layers
         )
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
-        # numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            base_parent_cell_nums, -1
+        # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+        plex_parent_cell_nums = np.full_like(base_parent_cell_nums, -1)
+        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            base_parent_cell_nums[visible_idxs], -1
         ]
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local, -1
+        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+        plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
+        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            parent_cell_nums_local[visible_idxs], -1
         ]
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
@@ -5140,10 +5146,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     subdim : int | None
         Topological dimension of the submesh.
         Defaults to ``mesh.topological_dimension``.
-    subdomain_id : int | None
+    subdomain_id : int | Sequence | None
         Subdomain ID representing the submesh.
-        If `None` the submesh will cover the entire domain.
-        This is useful to obtain a codim-1 submesh over all facets or
+        If multiple subdomain IDs are provided, their union is taken.
+        If `None` the submesh will cover the entire domain,
+        this is useful to obtain a codim-1 submesh over all facets or
         a submesh over a different communicator.
     label_name : str | None
         Name of the label to search ``subdomain_id`` in.
@@ -5186,6 +5193,47 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     ridges to be contained in the quad mesh are shared by at most two
     facets to make the quad mesh orientation algorithm work.
 
+    Examples
+    --------
+    >>> mesh = UnitSquareMesh(4, 4)
+    >>> x, y = SpatialCoordinate(mesh)
+    >>> DG = FunctionSpace(mesh, "DG", 0)
+    >>> DGT = FunctionSpace(mesh, "DGT", 0)
+
+    Mark a cell subdomain and construct a codim-0 submesh from all cells in the subdomain
+
+    >>> cell_marker = assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG))
+    >>> mesh.mark_entities(cell_marker, 111)
+    >>> submesh = Submesh(mesh, subdomain_id=111)
+
+    Mark a facet subdomain and construct a codim-1 submesh from all facets in the subdomain
+
+    >>> facet_marker = assemble(interpolate(conditional(lt(abs(x-0.5), 1E-12), 1, 0), DGT))
+    >>> mesh.mark_entities(facet_marker, 222)
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=222)
+
+    Construct a codim-0 submesh of the union of multiple subdomains by passing a list
+
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(x, 0.5), 1, 0), DG)), 1)
+    >>> mesh.mark_entities(assemble(interpolate(conditional(lt(y, 0.5), 1, 0), DG)), 2)
+    >>> submesh = Submesh(mesh, subdomain_id=[1, 2])
+
+    Construct a codim-1 submesh of all the facets (the skeleton mesh)
+
+    >>> submesh = Submesh(mesh, subdim=1)
+
+    Construct a codim-1 submesh of the entire boundary
+
+    >>> submesh = Submesh(mesh, subdomain_id="on_boundary")
+
+    Construct a codim-1 submesh of the union of multiple boundaries
+
+    >>> submesh = Submesh(mesh, subdim=mesh.topological_dimension-1, subdomain_id=[1, 2, 3])
+
+    Construct a codim-0 submesh of the part of the mesh owned by each MPI rank
+
+    >>> submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
+
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
@@ -5193,6 +5241,18 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+
+    if subdomain_id == "on_boundary":
+        if subdim is None:
+            subdim = mesh.topological_dimension - 1
+        elif subdim != mesh.topological_dimension - 1:
+            raise ValueError('subdomain_id="on_boundary" requires subdim=dim-1')
+        if label_name is None:
+            label_name = "exterior_facets"
+        elif label_name != "exterior_facets":
+            raise ValueError('subdomain_id="on_boundary" requires label_name="exterior_facets"')
+        subdomain_id = 1
+
     if subdim is None:
         subdim = mesh.topological_dimension
     plex = mesh.topology_dm
@@ -5218,7 +5278,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
     if reorder is None:
-        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
 
     submesh = Mesh(
