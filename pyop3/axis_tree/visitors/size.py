@@ -127,8 +127,8 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
         Loop(i,
-            component_size.iassign(subtree_size_expr), eager=True,
-        )
+            component_size.iassign(subtree_size_expr)
+        )()
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this

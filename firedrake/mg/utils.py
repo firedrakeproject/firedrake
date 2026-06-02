@@ -127,9 +127,9 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cells
+        iterset = Vc.mesh().cells.owned
         arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.local_size, arity*level_ratio), -1, dtype=IntType)
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().num_cells, arity*level_ratio), -1, dtype=IntType)
         values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.local_size, arity)
 
         coarse_to_fine_nodes[:iterset.local_size, :] = values
