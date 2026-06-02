@@ -611,11 +611,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-ptscotch-include=/usr/include/scotch",
             "--with-scalapack-lib=-lscalapack-openmpi",
             "--with-zlib",
-            "--download-hypre",
         ],
-        # HYPRE built with single precision exposes code paths that call BLAS
-        # functions without declarations, which newer compilers reject.
-        cflags=["-O3", "-march=native", "-mtune=native", "-Wno-implicit-function-declaration"],
+        cflags=["-O3", "-march=native", "-mtune=native"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
