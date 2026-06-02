@@ -583,7 +583,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "python3-dev",
             "python3-pip",
 
-            # PETSc external packages (fftw and suitesparse excluded: no fp32 support)
+            # PETSc external packages (fftw, suitesparse, superlu_dist excluded:
+            # no single-complex support)
             "libhwloc-dev",
             "libhdf5-mpi-dev",
             "libmumps-ptscotch-dev",
@@ -594,8 +595,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libpnetcdf-dev",
             "libptscotch-dev",
             "libscalapack-openmpi-dev",
-            "libsuperlu-dev",
-            "libsuperlu-dist-dev",
         ],
         extra_petsc_configure_options=[
             "--with-precision=single",
@@ -611,7 +610,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
             "--with-ptscotch-include=/usr/include/scotch",
             "--with-scalapack-lib=-lscalapack-openmpi",
-            "--with-superlu_dist",
             "--with-zlib",
             "--download-hypre",
         ],
@@ -622,8 +620,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
-            "/usr/include/superlu",
-            "/usr/include/superlu-dist",
         ],
         library_dirs=[
             "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
