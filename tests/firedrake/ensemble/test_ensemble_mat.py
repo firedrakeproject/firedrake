@@ -4,6 +4,7 @@ import petsctools
 from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
 from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMat
+from firedrake.utils import ScalarType
 
 
 @pytest.mark.parallel([1, 2, 3, 4])
@@ -112,7 +113,7 @@ def test_ensemble_pc(default_options):
 
     # parameters: direct solve on blocks
     parameters = {
-        'ksp_rtol': 1e-14,
+        'ksp_rtol': float(np.finfo(ScalarType).eps * 100),
         'ksp_type': 'richardson',
         'pc_type': 'python',
         'pc_python_type': 'firedrake.EnsembleBJacobiPC',
