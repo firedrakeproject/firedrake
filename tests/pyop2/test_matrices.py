@@ -654,14 +654,14 @@ void zero_mat({} local_mat[1]) {{
                      coords(op2.READ, elem_node),
                      f(op2.READ, elem_node))
 
-        eps = 1.e-12
+        eps = np.finfo(ScalarType).eps * 100
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_solve(self, mass_mat, b_rhs, x, f):
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
         x = np.linalg.solve(mass_mat.values, b_rhs.data)
-        eps = 1.e-8
+        eps = np.finfo(ScalarType).eps * 1000
         assert_allclose(x, f.data, eps)
 
     def test_zero_matrix(self, mat):
