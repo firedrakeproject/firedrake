@@ -554,7 +554,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-zlib",
             "--download-hypre",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
+        # HYPRE built with single precision exposes code paths that call BLAS
+        # functions without declarations, which newer compilers reject.
+        cflags=["-O3", "-march=native", "-mtune=native", "-Wno-implicit-function-declaration"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
@@ -613,7 +615,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-zlib",
             "--download-hypre",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
+        # HYPRE built with single precision exposes code paths that call BLAS
+        # functions without declarations, which newer compilers reject.
+        cflags=["-O3", "-march=native", "-mtune=native", "-Wno-implicit-function-declaration"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
