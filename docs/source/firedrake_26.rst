@@ -33,6 +33,20 @@ Programme
 `The programme is now available
 <https://easychair.org/smart-program/PETScFiredrake26/>`__.
 
+Firedrake Tutorials
+-------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   Introduction to Firedrake and PETSc solvers<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/00-firedrake-petsc-hello-world.ipynb>
+   Solver Composition<https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/08-composable-solvers.ipynb>
+   Using Irksome for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/01-irksome-heat-equation.ipynb>
+   Composable solvers for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/02-preconditioning-heat-eq.ipynb>
+   Exploring the TimeStepper options<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/03-stagetype-heat-eq.ipynb>
+   Using Irksome for the Navier Stokes equations<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/04-Navier-Stokes.ipynb>
+   Implicit-explicit steppers for the monodomain equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/05-IMEX-Monodomain.ipynb>
+   Variational data assimilation in Firedrake <https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/06-Data-assimilation-inverse-problem.ipynb>
 
 Venue & registration
 --------------------
