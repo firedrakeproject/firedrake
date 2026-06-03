@@ -141,8 +141,9 @@ class PytorchOperator(MLOperator):
         J.setSizes([n, m])
         J.setType("dense")
         J.setUp()
-        # Set values using Jacobian computed by PyTorch
-        J.setValues(range(n), range(m), jac.numpy().flatten())
+        # Set values using Jacobian computed by PyTorch (cast to PetscScalar so
+        # single-precision PETSc builds accept the values).
+        J.setValues(range(n), range(m), jac.numpy().flatten().astype(PETSc.ScalarType))
         J.assemble()
         return J
 
