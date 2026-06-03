@@ -174,3 +174,43 @@ def test_patch_pc_exterior_facets_dx_dS_ds():
     L = inner(Constant(1.0), v) * dx
     star_its, patch_its = _patch_pc_exterior_facets_problem(a, L)
     assert star_its == patch_its
+
+
+def test_patch_pc_real():
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(4, 4, distribution_parameters=distribution)
+    V = FunctionSpace(mesh, "DG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    r = Function(R).assign(3)
+    # test a form with all types of integral
+    a = (
+        r * inner(u, v) * dx
+        + avg(r) * inner(avg(u), avg(v)) * dS
+        + r * inner(u, v) * ds
+    )
+    L = inner(Constant(1.0), v) * dx
+
+    patch_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.PatchPC",
+        "patch_pc_patch_construct_type": "star",
+        "patch_pc_patch_construct_dim": 0,
+    }
+    patch_solution = Function(V)
+    solve(a == L, patch_solution, solver_parameters=patch_solver_parameters)
+
+    star_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_construct_dim": 0,
+    }
+    star_solution = Function(V)
+    solve(a == L, star_solution, solver_parameters=star_solver_parameters)
+
+    assert errornorm(patch_solution, star_solution) < 1e-8
