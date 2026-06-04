@@ -2,13 +2,12 @@ import collections
 import time
 import sys
 from itertools import chain
-from finat.physically_mapped import NeedsCoordinateMappingElement
 
 import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
-from ufl.classes import Form, GeometricQuantity
+from ufl.classes import Form, GeometricQuantity, ReferenceGrad
 from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
@@ -16,6 +15,7 @@ import gem.impero_utils as impero_utils
 
 import finat
 from finat.element_factory import as_fiat_cell
+from finat.physically_mapped import NeedsCoordinateMappingElement
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
@@ -252,10 +252,10 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
 
     # Map into reference space
-    operand = apply_mapping(operand, ufl_element, domain)
+    reference_operand = apply_mapping(operand, ufl_element, domain)
 
     # Apply UFL preprocessing
-    operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+    operand = ufl_utils.preprocess_expression(reference_operand, complex_mode=complex_mode)
     operand = simplify_abs(operand, complex_mode)
 
     # Reconstructed Interpolate with mapped operand
@@ -307,6 +307,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # Split mixed coefficients
     coeff_splitter = CoefficientSplitter(builder.coefficient_split)
     expression = coeff_splitter(expression)
+    reference_operand = coeff_splitter(reference_operand)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
@@ -333,7 +334,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     dual_arg, operand = expression.argument_slots()
 
     # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(operand, kernel_cfg)
+    fn = DualEvaluationCallable(operand, kernel_cfg, reference_operand=reference_operand)
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
@@ -393,19 +394,48 @@ class DualEvaluationCallable(object):
     :param expression: UFL expression for the function to dual evaluate.
     :param kernel_cfg: A kernel configuration for creation of a
         :class:`GemPointContext` or a :class:`PointSetContext`
+    :param reference_operand: The mapped, unpreprocessed UFL expression.
+        This is used to build reference derivatives for derivative-node dual
+        evaluations.
 
     Not intended for use outside of
     :func:`compile_expression_dual_evaluation`.
     """
-    def __init__(self, expression, kernel_cfg):
+    def __init__(self, expression, kernel_cfg, reference_operand=None):
         self.expression = expression
+        self.reference_operand = reference_operand
         self.kernel_cfg = kernel_cfg
 
-    def __call__(self, ps):
+    def _reference_derivative(self, alpha):
+        expression = self.reference_operand or self.expression
+        value_shape = expression.ufl_shape
+        derivative_axes = tuple(axis
+                                for axis, count in enumerate(alpha)
+                                for _ in range(count))
+        if derivative_axes and extract_unique_domain(expression) is None:
+            return ufl.zero(*value_shape)
+        for _ in derivative_axes:
+            expression = ReferenceGrad(expression)
+
+        if derivative_axes:
+            value_indices = ufl.indices(len(value_shape))
+            if value_indices:
+                expression = ufl.as_tensor(expression[value_indices + derivative_axes],
+                                           value_indices)
+            else:
+                expression = expression[derivative_axes]
+
+        complex_mode = is_complex(self.kernel_cfg["scalar_type"])
+        expression = ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
+        return simplify_abs(expression, complex_mode)
+
+    def __call__(self, ps, alpha=None):
         """The function to dual evaluate.
 
         :param ps: The :class:`finat.point_set.AbstractPointSet` for
             evaluating at
+        :param alpha: Optional reference derivative multiindex to evaluate
+            before point evaluation.
         :returns: a gem expression representing the evaluation of the
             input UFL expression at the given point set ``ps``.
             For point set points with some shape ``(*value_shape)``
@@ -419,6 +449,11 @@ class DualEvaluationCallable(object):
 
         if not isinstance(ps, finat.point_set.AbstractPointSet):
             raise ValueError("Callable argument not a point set!")
+
+        if alpha is None or sum(alpha) == 0:
+            expression = self.expression
+        else:
+            expression = self._reference_derivative(alpha)
 
         # Avoid modifying saved kernel config
         kernel_cfg = self.kernel_cfg.copy()
@@ -434,7 +469,7 @@ class DualEvaluationCallable(object):
             kernel_cfg.update(point_set=ps)
             translation_context = fem.PointSetContext(**kernel_cfg)
 
-        gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
+        gem_expr, = fem.compile_ufl(expression, translation_context, point_sum=False)
         # In some cases ps.indices may be dropped from expr, but nothing
         # new should now appear
         argument_multiindices = kernel_cfg["argument_multiindices"].values()
