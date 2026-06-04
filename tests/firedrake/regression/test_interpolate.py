@@ -755,3 +755,13 @@ def test_interpolation_cell_subset():
     u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
 
     assert assemble((u-a/2)*dx) < 1e-14
+
+@pytest.mark.parametrize("element, degree",
+                         [("Hermite", 3), ("Argyris", 5), ("Bell", 5), ("Morley", 2)])
+def test_interpolate_derivative_nodes(element, degree):
+    mesh = UnitSquareMesh(5, 5)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, element, degree)
+    expr = (x + y)**2 + x + y + 1
+    f = assemble(interpolate(expr, V))
+    assert errornorm(expr, f) < 1e-12
