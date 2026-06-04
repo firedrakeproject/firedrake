@@ -458,7 +458,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "inverse" in str(self):
+        # if "my_kernel" in str(self):
         #     breakpoint()
 
         if not kwargs:  # shortcut for the most common case

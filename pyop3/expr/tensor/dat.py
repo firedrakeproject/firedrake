@@ -497,6 +497,10 @@ class Dat(Tensor):
         if not is_view:
             raise NotImplementedError("TODO")
 
+        # parallel correctness
+        if not self.buffer._roots_valid:
+            self.buffer.reduce_leaves_to_roots()
+
         # TODO: I would like to disallow this as it creates a lot of confusion
         if self._vec_context_is_active:
             assert is_view
