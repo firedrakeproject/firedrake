@@ -381,7 +381,7 @@ def apply_mapping(expression, element, domain):
     if expression.ufl_shape != pvs:
         raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {pvs}")
     mapping = element.mapping().lower()
-    if mapping == "identity":
+    if mapping in {"identity", "custom"}:
         rexpression = expression
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
