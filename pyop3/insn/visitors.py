@@ -14,6 +14,7 @@ from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 from pyop3.cache import memory_cache
+import pyop3.compile
 import pyop3.axis_tree
 import pyop3.expr
 import pyop3.expr.visitors
@@ -791,3 +792,23 @@ class LiteralInserter(NodeTransformer):
 
 def insert_literals(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
     return LiteralInserter()(insn)
+
+
+class CompilerOptionsCollector(NodeVisitor):
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /, *args, **kwargs) -> NoReturn:
+        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register
+    def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:
+        return insn.compiler_options
+
+    @process.register
+    @postorder
+    def _(self, insn: pyop3.insn.Loop, /, visited) -> pyop3.compile.CompilerOptions:
+        return sum(visited["statements"], pyop3.compile.CompilerOptions())
+
+
+def collect_compiler_options(insn: pyop3.insn.Instruction) -> pyop3.compile.CompilerOptions:
+    return CompilerOptionsCollector()(insn)

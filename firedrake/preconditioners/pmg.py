@@ -1231,6 +1231,8 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _build_custom_interpolators(self):
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+
         # We generate custom prolongation and restriction kernels because
         # dual evaluation of EnrichedElement is not yet implemented in FInAT
         uf_perm, _, _ = get_permutation_to_nodal_elements(self.Vf)
@@ -1433,54 +1435,46 @@ return;
 
         coeff_names = tuple(f"c{i}" for i in range(len(coefficients)))
 
-        prolong_loopy_kernel = lp.make_kernel(
-            ["{ : }"],
+        prolong_kernel = op3.Function.from_c_string(
+            "prolongation",
+            prolong_c_code,
             [
-                lp.CInstruction((), prolong_c_code, frozenset({"y", "x", "w", *coeff_names}), ("y",)),
+                ("y", ScalarType, op3.INC),
+                ("x", ScalarType, op3.READ),
+                ("w", ScalarType, op3.READ),
+                *(
+                    (f"c{i}", ScalarType, op3.READ)
+                    for i in range(len(coefficients))
+                ),
             ],
-            [
-                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=True),
-                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=False),
-                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
-                *[
-                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
-                    for coeff_name in coeff_names
-                ],
-            ],
-            name="prolongation",
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
             preambles=[
                 ("10_mapping", mapping_code),
                 ("10_kronmxv", kronmxv_code),
             ],
-        )
-        restrict_loopy_kernel = lp.make_kernel(
-            ["{ : }"],
-            [
-                lp.CInstruction((), restrict_c_code, frozenset({"x", "y", "w", *coeff_names}), ("x",)),
-            ],
-            [
-                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=True),
-                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=False),
-                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
-                *[
-                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
-                    for coeff_name in coeff_names
-                ],
-            ],
-            name="restriction",
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
-            preambles=[
-                ("10_mapping", mapping_code),
-                ("10_kronmxv", kronmxv_code),
-            ],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
         )
 
-        intents = [op3.INC, op3.READ, op3.READ] + [op3.READ] * len(coefficients)
-        prolong_kernel = op3.Function(prolong_loopy_kernel, intents)
-        restrict_kernel = op3.Function(restrict_loopy_kernel, intents)
+        restrict_kernel = op3.Function.from_c_string(
+            "restriction",
+            restrict_c_code,
+            [
+                ("x", ScalarType, op3.INC),
+                ("y", ScalarType, op3.READ),
+                ("w", ScalarType, op3.READ),
+                *(
+                    (f"c{i}", ScalarType, op3.READ)
+                    for i in range(len(coefficients))
+                ),
+            ],
+            preambles=[
+                ("10_mapping", mapping_code),
+                ("10_kronmxv", kronmxv_code),
+            ],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
+        )
+
         return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):

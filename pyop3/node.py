@@ -81,6 +81,10 @@ class Node(pyop3.obj.Pyop3Object, abc.ABC):
         return idict({attr: getattr(self, attr) for attr in self.child_attrs})
 
 
+class Operator(Node):
+    """A non-terminal."""
+
+
 class Terminal(Node, abc.ABC):
     child_attrs = ()
 

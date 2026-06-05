@@ -51,6 +51,15 @@ class CompilerParameters:
 
     # }}}
 
+    # {{{ compilation options
+
+    # TODO: handle these - need to build CompilerOptions
+
+    # extra_cflags: tuple[str, ...] = ()
+    # extra_ldflags: tuple[str, ...] = ()
+
+    # }}}
+
     # {{{ other options
 
     check_negatives: bool = False
@@ -224,6 +233,7 @@ class InstructionExecutionContext:
         heavy=True,
     )
     def _compile(self) -> CompiledCodeExecutor:
+        from pyop3.insn.visitors import collect_compiler_options
         from pyop3.lower.loopy import _compile_static
 
         # Preprocess the instruction. This is an expensive operation so we
@@ -252,11 +262,20 @@ class InstructionExecutionContext:
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
         loopy_code, buffer_index_map = _compile_static(self, compiler_parameters)
+
+        extra_compiler_options = collect_compiler_options(self._preprocessed)
+
         if compiler_parameters.add_petsc_event:
             petsc_events = (loopy_code.default_entrypoint.name,)
         else:
             petsc_events = ()
-        executable = Executable(loopy_code, self.comm, petsc_events=petsc_events)
+
+        executable = Executable(
+            loopy_code,
+            self.comm,
+            extra_compiler_options=extra_compiler_options,
+            petsc_events=petsc_events,
+        )
 
         # TODO: We don't do anything with nest indices yet because we have always already
         # unpacked things
@@ -373,6 +392,9 @@ class Executable:
     """
     code: lp.TranslationUnit
     comm: MPI.Comm
+    extra_compiler_options: pyop3.compile.CompilerOptions = dataclasses.field(
+        default=pyop3.compile.CompilerOptions(), kw_only=True
+    )
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __call__(self, *args: int) -> None:
@@ -384,11 +406,17 @@ class Executable:
         device_code = lp.generate_code_v2(self.code).device_code()
 
         # ideally move this logic somewhere else
-        cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+        cppargs = (
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+            *(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs),
+        )
         ldargs = (
-            petsctools.get_petsc_dirs(prefix="-L", subdir="lib")
-            + petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib")
-            + ("-lpetsc", "-lm")
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+            *(f"-L{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
+            *(f"-l{lib}" for lib in self.extra_compiler_options.libs),
         )
 
         # NOTE: no - instead of this inspect the compiler parameters!!!
@@ -458,7 +486,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "my_kernel" in str(self):
+        # if "form" in str(self):
         #     breakpoint()
 
         if not kwargs:  # shortcut for the most common case

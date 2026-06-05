@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Mapping, Iterable
 import dataclasses
 import enum
 import functools
@@ -12,7 +12,7 @@ from os import stat
 import textwrap
 import typing
 from functools import cached_property
-from typing import Any, ClassVar, Iterable, Tuple
+from typing import Any, ClassVar, Tuple
 
 from immutabledict import immutabledict as idict
 import loopy as lp
@@ -23,12 +23,13 @@ import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.compile
 import pyop3.expr
 import pyop3.record
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
-from pyop3.node import Node, Terminal
+from pyop3.node import Node, Terminal, Operator
 from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
 from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
@@ -128,13 +129,43 @@ class Instruction(Node, DistributedObject, abc.ABC):
         return InstructionExecutionContext(self, compiler_parameters)
 
 
+class NonTerminalInstruction(Instruction, Operator):
+    pass
+
+
+class TerminalInstruction(Instruction, Terminal, abc.ABC):
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def arguments(self) -> tuple[Any, ...]:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+        """Extra options needed to compile this terminal."""
+
+    # }}}
+
+    @property
+    def global_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
+        from pyop3.expr.visitors import collect_arguments
+
+        return OrderedFrozenSet().union(
+            *(collect_arguments(arg) for arg in self.arguments)
+        )
+
+
+
 
 # TODO not a useful thing to have any more
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
 @pyop3.record.frozenrecord()
-class Loop(Instruction):
+class Loop(NonTerminalInstruction):
 
     # {{{ instance attrs
 
@@ -192,7 +223,7 @@ class Loop(Instruction):
 
 
 @pyop3.record.frozenrecord()
-class InstructionList(Instruction):
+class InstructionList(NonTerminalInstruction):
     """A list of instructions."""
 
     # {{{ instance attrs
@@ -271,22 +302,6 @@ def filter_null(iterable: Iterable[Instruction]):
     return filter(non_null, iterable)
 
 
-class TerminalInstruction(Instruction, Terminal, abc.ABC):
-
-    @property
-    @abc.abstractmethod
-    def arguments(self) -> tuple[Any, ...]:
-        pass
-
-    @property
-    def global_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
-        from pyop3.expr.visitors import collect_arguments
-
-        return OrderedFrozenSet().union(
-            *(collect_arguments(arg) for arg in self.arguments)
-        )
-
-
 class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 
     @property
@@ -314,6 +329,7 @@ class Function(pyop3.obj.Pyop3Object):
 
     code: Any
     _access_descrs: tuple[Intent, ...]
+    _compiler_options: pyop3.compile.CompilerOptions
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
@@ -324,7 +340,15 @@ class Function(pyop3.obj.Pyop3Object):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, loopy_kernel, access_descrs):
+    def __init__(
+        self,
+        loopy_kernel,
+        access_descrs,
+        *,
+        include_dirs: Iterable[str] = (),
+        lib_dirs: Iterable[str] = (),
+        libs: Iterable[str] = (),
+    ):
         lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
             raise ValueError("Wrong number of access descriptors given")
@@ -337,10 +361,25 @@ class Function(pyop3.obj.Pyop3Object):
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
 
+        compiler_options = pyop3.compile.CompilerOptions(
+            include_dirs=tuple(include_dirs),
+            lib_dirs=tuple(lib_dirs),
+            libs=tuple(libs),
+        )
+
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)
+        object.__setattr__(self, "_compiler_options", compiler_options)
 
     # }}}
+
+    # {{{ interface impls
+
+    compiler_options = pyop3.record.attr("_compiler_options")
+
+    # }}}
+
+    # {{{ factory methods
 
     @classmethod
     def from_c_string(
@@ -351,6 +390,7 @@ class Function(pyop3.obj.Pyop3Object):
         args: Iterable[tuple[str, DTypeT, Intent]],
         *,
         preambles=(),
+        **kwargs,
     ) -> Function:
         from pyop3 import LOOPY_TARGET, LOOPY_LANG_VERSION
 
@@ -395,7 +435,9 @@ class Function(pyop3.obj.Pyop3Object):
         )
 
         intents = [intent for _, _, intent in args]
-        return cls(loopy_kernel, intents)
+        return cls(loopy_kernel, intents, **kwargs)
+
+    # }}}
 
     # unfortunately needed because loopy translation units aren't immediately hashable
     def __hash__(self) -> int:
@@ -452,19 +494,26 @@ class Function(pyop3.obj.Pyop3Object):
 
 class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
-    # def __init__(
-    #     self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
-    # ) -> None:
-    #     object.__setattr__(self, "function", function)
-    #     super().__init__(arguments, **kwargs)
-
-    def __str__(self) -> str:
-        return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
     def function(self) -> Function:
         pass
+
+    # }}}
+
+    # {{{ interface impls
+
+    # TODO: look at the arguments too
+    @cached_property
+    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+        return self.function.compiler_options
+
+    # }}}
+
+    def __str__(self) -> str:
+        return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
     @property
     def axis_trees(self) -> tuple[AxisTree, ...]:
@@ -613,7 +662,7 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
 
 class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
-    # {{{ Abstract methods
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
@@ -632,11 +681,16 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
+
+    # TODO: can do things like add #include <petscmat.h> here...
+    @cached_property
+    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+        return pyop3.compile.CompilerOptions()
 
     # }}}
 
@@ -919,6 +973,10 @@ class Exscan(TerminalInstruction):
     @cached_property
     def extent(self):
         return self.scan_axis.component.size - 1
+
+    @cached_property
+    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+        return pyop3.compile.CompilerOptions()
 
     # }}}
 

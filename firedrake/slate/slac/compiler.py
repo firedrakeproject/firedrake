@@ -56,6 +56,10 @@ else:
     BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
     BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
+# Strip leading '-l' and '-I's
+BLASLAPACK_LIB = tuple(lib[2:] for lib in BLASLAPACK_LIB.split())
+BLASLAPACK_INCLUDE = tuple(incdir[2:] for incdir in BLASLAPACK_INCLUDE.split())
+
 cell_to_facets_dtype = np.dtype(np.int8)
 
 

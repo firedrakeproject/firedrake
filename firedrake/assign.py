@@ -139,14 +139,14 @@ class AssignExprBuilder(DAGTraverser):
     @process.register
     @DAGTraverser.postorder
     def _(self, o: ufl.classes.Power, a, b):
-        breakpoint()
+        raise NotImplementedError("TODO")
         # Only valid if a and b are scalars
         return ((Constant(self._as_scalar(a) ** self._as_scalar(b)), 1),)
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Abs, a):
-        breakpoint()
+        raise NotImplementedError("TODO")
         # Only valid if a is a scalar
         return ((Constant(abs(self._as_scalar(a))), 1),)
 

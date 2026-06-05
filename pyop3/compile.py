@@ -33,6 +33,7 @@
 
 
 from abc import ABC
+import dataclasses
 import os
 import platform
 import shutil
@@ -47,7 +48,7 @@ from functools import partial
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import gettempdir, mkstemp
-from typing import Hashable
+from typing import Hashable, Self
 from random import randint
 
 import petsctools
@@ -75,6 +76,24 @@ _compiler = None
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+
+
+# TODO: This might not be best living here, could have stuff like #include <petscmat.h>
+@dataclasses.dataclass(frozen=True)
+class CompilerOptions:
+    include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+    def __add__(self, other, /) -> Self:
+        if not isinstance(other, CompilerOptions):
+            return NotImplemented
+
+        return type(self)(
+            include_dirs=self.include_dirs+other.include_dirs,
+            lib_dirs=self.lib_dirs+other.lib_dirs,
+            libs=self.libs+other.libs,
+        )
 
 
 def set_default_compiler(compiler):
