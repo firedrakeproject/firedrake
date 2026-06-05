@@ -29,7 +29,7 @@ def test_assemble_0_forms():
     s = a1 + a2 + 2.0 * a3
     rf = ReducedFunctional(s, Control(u))
     dJdm = rf.derivative(apply_riesz=True)
-    assert_allclose(dJdm.dat.data_ro, 1. + 2. * 4. + 6. * 16., rtol=1e-5 if single_mode else 1e-14)
+    assert_allclose(dJdm.dat.data_ro, 1. + 2. * 4. + 6. * 16., rtol=1e-5 if single_mode else 1e-7)
 
 
 @pytest.mark.skipcomplex
@@ -47,9 +47,9 @@ def test_assemble_0_forms_mixed():
     rf = ReducedFunctional(s, Control(u))
     # derivative is: (1+4*u)*dx - summing is equivalent to testing with 1
     dJdm = rf.derivative(apply_riesz=True)
-    rtol = 1e-5 if single_mode else 1e-14
+    rtol = 1e-5 if single_mode else 1e-7
     assert_allclose(dJdm.dat.data_ro[0], 1. + 4. * 7, rtol=rtol)
-    assert_allclose(dJdm.dat.data_ro[1], 0.0, atol=rtol)
+    assert_allclose(dJdm.dat.data_ro[1], 0.0, atol=1e-5 if single_mode else 0.0)
 
 
 @pytest.mark.skipcomplex

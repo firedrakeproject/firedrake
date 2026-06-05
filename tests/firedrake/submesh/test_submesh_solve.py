@@ -265,7 +265,7 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     nsub = FacetNormal(subm)
     u_exact = Function(DG).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
     sigma_exact = Function(BDM).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby), - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1e-14})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1.e-16})
     f = Function(DG).interpolate(- 8 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
@@ -397,7 +397,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     sigma_exact = Function(NCF).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * cos(2 * pi * suby) * sin(2 * pi * subz)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1e-14})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1.e-16})
     f = Function(DG).interpolate(- 12 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y) * cos(2 * pi * z))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))

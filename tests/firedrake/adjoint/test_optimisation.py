@@ -12,9 +12,6 @@ from pyadjoint.optimization.tao_solver import PETScVecInterface, TAOConvergenceE
 from pyadjoint.enlisting import Enlist
 import petsctools
 
-# fp32 machine epsilon ~1.2e-7; set gradient tolerance above it
-_tao_gttol = 1e-4 if single_mode else 1e-13
-
 
 @pytest.fixture(autouse=True)
 def autouse_set_test_tape(set_test_tape):
@@ -79,8 +76,8 @@ def minimize_tao_lmvm(rf):
                                  "tao_monitor": None,
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
-                                 "tao_grtol": _tao_gttol,
-                                 "tao_gttol": 0.0})
+                                 "tao_grtol": 1e-4 if single_mode else 0.0,
+                                 "tao_gttol": 0.0 if single_mode else 1.0e-7})
     return _tao_solve_best(solver)
 
 
@@ -91,7 +88,7 @@ def minimize_tao_nls(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": _tao_gttol})
+                                 "tao_gttol": 1e-4 if single_mode else 1.0e-7})
     return solver.solve()
 
 
@@ -242,6 +239,11 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
 
         if y.norm(PETSc.NormType.NORM_INFINITY) == 0:
             x.zeroEntries()
+        elif not single_mode:
+            with petsctools.inserted_options(mfn):
+                mfn.solve(y, x)
+            if mfn.getConvergedReason() <= 0:
+                raise RuntimeError("Convergence failure")
         else:
             mfn_failed = False
             try:
@@ -252,8 +254,6 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
             except Exception:
                 mfn_failed = True
             if mfn_failed:
-                if not single_mode:
-                    raise RuntimeError("Convergence failure")
                 # fp32 fallback: build dense matrix and use scipy.linalg.sqrtm
                 import scipy.linalg
                 y_arr = y.array_r.astype(np.float64)
@@ -311,9 +311,11 @@ def test_simple_inversion_riesz_representation(tao_type):
 
     riesz_representation = "L2"
     mfn_parameters = {"mfn_type": "krylov",
-                      "mfn_tol": 1e-4 if single_mode else 1e-13,
-                      "mfn_ncv": 200,
-                      "mfn_bv_orthog_type": "mgs"}
+                      "mfn_tol": 1e-4 if single_mode else 1.0e-12}
+    if single_mode:
+        # fp32: enlarge the Krylov subspace and use modified Gram-Schmidt for stability
+        mfn_parameters["mfn_ncv"] = 200
+        mfn_parameters["mfn_bv_orthog_type"] = "mgs"
     tao_parameters = {"tao_type": tao_type,
                       "tao_monitor": None,
                       "tao_converged_reason": None,

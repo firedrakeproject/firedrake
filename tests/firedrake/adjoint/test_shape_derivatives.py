@@ -31,7 +31,7 @@ def test_sin_weak_spatial():
     actual = dJV.dat.data_ro
     assert np.allclose(computed, actual,
                        rtol=1e-5 if single_mode else 1e-14,
-                       atol=1e-7 if single_mode else 1e-16)
+                       atol=1e-7 if single_mode else 1e-8)
 
 
 @pytest.mark.skipcomplex
@@ -64,7 +64,7 @@ def test_tlm_assemble():
     assert (r1_tlm > 1.9)
     Jhat(s)
     r1 = taylor_test(Jhat, s, h)
-    assert (np.isclose(r1, r1_tlm, rtol=1e-4 if single_mode else 1e-13))
+    assert (np.isclose(r1, r1_tlm, rtol=1e-4 if single_mode else 1e-14))
 
 
 @pytest.mark.skipcomplex

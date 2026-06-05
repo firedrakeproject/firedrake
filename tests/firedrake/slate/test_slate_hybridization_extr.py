@@ -62,7 +62,7 @@ def test_hybrid_extr_helmholtz(quad):
     params2 = {'pc_type': 'fieldsplit',
                'pc_fieldsplit_type': 'schur',
                'ksp_type': 'cg',
-               'ksp_rtol': 1e-5 if single_mode else 1e-14,
+               'ksp_rtol': 1e-5 if single_mode else 1e-8,
                'pc_fieldsplit_schur_fact_type': 'FULL',
                'fieldsplit_0': {'ksp_type': 'cg'},
                'fieldsplit_1': {'ksp_type': 'cg'}}

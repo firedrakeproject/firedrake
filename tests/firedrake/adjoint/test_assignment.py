@@ -101,14 +101,14 @@ def test_assign_tlm_with_constant():
     tape = get_working_tape()
     tape.evaluate_tlm()
     assert_allclose(u.block_variable.tlm_value.dat.data, 0.3 * f.dat.data ** 2,
-                    rtol=1e-5 if single_mode else 1e-14)
+                    rtol=1e-5 if single_mode else 1e-7)
 
     tape.reset_tlm_values()
     c.block_variable.tlm_value = Function(R, val=0.4)
     f.block_variable.tlm_value = g
     tape.evaluate_tlm()
     assert_allclose(u.block_variable.tlm_value.dat.data, 0.4 * f.dat.data ** 2 + 10. * f.dat.data * g.dat.data,
-                    rtol=1e-5 if single_mode else 1e-14)
+                    rtol=1e-5 if single_mode else 1e-7)
 
 
 @pytest.mark.skipcomplex

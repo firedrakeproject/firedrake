@@ -35,12 +35,17 @@
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
+import petsctools
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
 from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType, ScalarType, as_cstr
 
+
+# Mirror firedrake.utils.single_mode here: pyop2 sits below firedrake, so we
+# derive it from petsctools (a pyop2 dependency) rather than importing firedrake.
+single_mode = (petsctools.get_petscvariables()["PETSC_PRECISION"].lower() == "single")
 
 ScalarType_c = as_cstr(ScalarType)
 
@@ -654,15 +659,19 @@ void zero_mat({} local_mat[1]) {{
                      coords(op2.READ, elem_node),
                      f(op2.READ, elem_node))
 
-        eps = np.finfo(ScalarType).eps * 100
-        assert_allclose(b.data, expected_rhs, eps)
+        # fp32: near-zero RHS entries need an absolute floor the relative-only check lacks
+        rtol = 1e-5 if single_mode else 1.e-12
+        atol = 1e-5 if single_mode else 0.0
+        assert_allclose(b.data, expected_rhs, rtol=rtol, atol=atol)
 
     def test_solve(self, mass_mat, b_rhs, x, f):
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
         x = np.linalg.solve(mass_mat.values, b_rhs.data)
-        eps = np.finfo(ScalarType).eps * 1000
-        assert_allclose(x, f.data, eps)
+        # fp32: near-zero solution entries need an absolute floor the relative-only check lacks
+        rtol = 1e-4 if single_mode else 1.e-8
+        atol = 1e-4 if single_mode else 0.0
+        assert_allclose(x, f.data, rtol=rtol, atol=atol)
 
     def test_zero_matrix(self, mat):
         """Test that the matrix is zeroed correctly."""

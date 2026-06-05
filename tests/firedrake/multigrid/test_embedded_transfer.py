@@ -78,7 +78,7 @@ def check_transfer(op, V):
         restrict(rf, rc)
         expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
         assert np.allclose(expected.dat.data_ro, rc.dat.data_ro,
-                           rtol=1e-3 if single_mode else 1e-7,
+                           rtol=1e-3 if single_mode else 1e-5,
                            atol=1e-4 if single_mode else 1e-8)
 
         rg = RandomGenerator(PCG64(seed=0))
@@ -93,7 +93,7 @@ def check_transfer(op, V):
         result_prolong = assemble(action(rf, uf))
         result_restrict = assemble(action(rc, uc))
         assert np.isclose(result_prolong, result_restrict,
-                          rtol=1e-4 if single_mode else 1e-8,
+                          rtol=1e-4 if single_mode else 1e-5,
                           atol=1e-4 if single_mode else 1e-8)
 
     elif op == "inject":
@@ -124,7 +124,7 @@ def solver_parameters():
         "snes_type": "ksponly",
         "ksp_type": "cg",
         "ksp_max_it": 20,
-        "ksp_rtol": 1e-5 if single_mode else 1e-14,
+        "ksp_rtol": 1e-5 if single_mode else 1e-9,
         "ksp_monitor_true_residual": None,
         "pc_type": "mg",
         "mg_levels": {

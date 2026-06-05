@@ -1,11 +1,10 @@
-import numpy
-
 from pyop2.mpi import COMM_WORLD
 
 from firedrake import function
 from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
+from firedrake.utils import single_mode
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
@@ -119,7 +118,8 @@ class VectorSpaceBasis(object):
 
         :raises ValueError: If the basis is not orthogonal/orthonormal.
         """
-        eps = numpy.sqrt(numpy.finfo(PETSc.ScalarType).eps)
+        # fp32: sqrt(eps) orthogonality threshold (1e-8 in fp64) relaxes to ~3.4e-4
+        eps = 1e-4 if single_mode else 1e-8
         basis = self._petsc_vecs
         if orthonormal:
             for i, v in enumerate(basis):

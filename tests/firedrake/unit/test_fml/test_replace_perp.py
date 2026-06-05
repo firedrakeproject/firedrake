@@ -46,4 +46,4 @@ def test_replace_perp():
     u3, _ = U3.subfunctions
     u3.interpolate(as_vector([-2, 1]))
 
-    assert errornorm(u2, u3) < (1e-4 if single_mode else 1e-13)
+    assert errornorm(u2, u3) < (1e-4 if single_mode else 1e-14)

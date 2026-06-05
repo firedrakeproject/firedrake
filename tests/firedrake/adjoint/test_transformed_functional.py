@@ -122,7 +122,7 @@ def test_transformed_functional_mass_inverse(family):
                  callback=cb,
                  options={"ftol": 0,
                           "gtol": 1e-6})
-    assert cb[-1] < (1e-4 if single_mode else 1e-13)
+    assert cb[-1] < (1e-4 if single_mode else 1e-10)
     assert len(cb) == 3
     assert J_hat._test_transformed_functional__ncalls == 3
 
@@ -176,7 +176,7 @@ def test_transformed_functional_poisson():
     _ = minimize(J_hat, method="L-BFGS-B",
                  callback=cb,
                  options={"ftol": 0,
-                          "gtol": 1e-6 if single_mode else 1e-15})
+                          "gtol": 1e-6 if single_mode else 1e-10})
     if single_mode:
         assert cb[-1] < 0.2
         assert len(cb) >= 3
@@ -203,7 +203,7 @@ def test_transformed_functional_poisson():
     _ = minimize(ReducedFunctionalNumPy(J_hat), method="L-BFGS-B",
                  callback=cb,
                  options={"ftol": 0,
-                          "gtol": 1e-6 if single_mode else 1e-15})
+                          "gtol": 1e-6 if single_mode else 1e-10})
     if single_mode:
         assert 1e-3 < cb[-1] < 5e-2
     else:

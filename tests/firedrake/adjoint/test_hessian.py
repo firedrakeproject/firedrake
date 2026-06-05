@@ -256,7 +256,7 @@ def test_burgers(solve_type, rg):
     nt = 20
 
     params = {
-        'snes_rtol': 1e-5 if single_mode else 1e-14,
+        'snes_rtol': 1e-5 if single_mode else 1e-10,
         'ksp_type': 'preonly',
         'pc_type': 'lu',
     }

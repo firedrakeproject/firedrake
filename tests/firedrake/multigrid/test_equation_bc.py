@@ -103,7 +103,7 @@ def test_nested_equation_bc(dim):
 
     sp = {
         "ksp_type": "fgmres",
-        "ksp_rtol": 1e-5 if single_mode else 1e-14,
+        "ksp_rtol": 1e-5 if single_mode else 1e-10,
         "pc_type": "mg",
         "mg_levels": {
             "ksp_max_it": "2",

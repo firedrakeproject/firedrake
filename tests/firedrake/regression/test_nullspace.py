@@ -184,7 +184,7 @@ def test_near_nullspace(tmpdir):
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
-        'ksp_rtol': 1e-5 if single_mode else 1e-14, 'ksp_atol': 1e-5 if single_mode else 1e-14, 'ksp_type': 'cg',
+        'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'}, near_nullspace=nsp)
@@ -192,7 +192,7 @@ def test_near_nullspace(tmpdir):
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
-        'ksp_rtol': 1e-5 if single_mode else 1e-14, 'ksp_atol': 1e-5 if single_mode else 1e-14, 'ksp_type': 'cg',
+        'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'})
@@ -254,7 +254,7 @@ def test_nullspace_mixed_multiple_components():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
-            'ksp_rtol': 1e-5 if single_mode else 1e-14,
+            'ksp_rtol': 1e-5 if single_mode else 1e-9,
             'ksp_test_null_space': None,
             'ksp_converged_reason': None,
         },
@@ -265,7 +265,7 @@ def test_nullspace_mixed_multiple_components():
             'Mp_pc_type': 'ksp',
             'Mp_ksp_ksp_type': 'cg',
             'Mp_ksp_pc_type': 'sor',
-            'ksp_rtol': 1e-5 if single_mode else 1e-14,
+            'ksp_rtol': 1e-5 if single_mode else 1e-7,
             'ksp_monitor': None,
         }
     }

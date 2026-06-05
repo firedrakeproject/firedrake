@@ -18,7 +18,7 @@ def test_semicoarsened_poisson():
     v = TestFunction(H1)
     F = (inner(grad(u), grad(v)) - inner(f, v)) * dx
     params = {'snes_type': 'ksponly',
-              'ksp_rtol': 1e-5 if single_mode else 1e-14,
+              'ksp_rtol': 1e-5 if single_mode else 1e-8,
               'ksp_type': 'cg',
               'pc_type': 'mg'}
     solve(F == 0, u, bcs=[DirichletBC(H1, g, 1)], solver_parameters=params)

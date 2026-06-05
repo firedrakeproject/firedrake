@@ -117,7 +117,7 @@ def fieldsplit_gmg_params():
     return {
         "ksp_type": "cg",
         "ksp_monitor": None,
-        "ksp_rtol": 1e-5 if single_mode else 1e-14,
+        "ksp_rtol": 1e-5 if single_mode else 1e-10,
         "ksp_atol": 0,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "additive",
@@ -136,7 +136,7 @@ def monolithic_gmg_params():
     return {
         "ksp_type": "cg",
         "ksp_monitor": None,
-        "ksp_rtol": 1e-5 if single_mode else 1e-14,
+        "ksp_rtol": 1e-5 if single_mode else 1e-10,
         "ksp_atol": 0,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",

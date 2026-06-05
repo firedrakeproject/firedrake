@@ -249,7 +249,7 @@ def test_EquationBC_poisson_matfree(with_bbc):
     # Test standard poisson with EquationBCs
     # matfree
 
-    ksp_tol = 1e-5 if single_mode else 1e-14
+    ksp_tol = 1e-5 if single_mode else 1e-10
     solver_parameters = {'mat_type': mat_type,
                          'ksp_type': 'gmres',
                          'pc_type': 'none',
