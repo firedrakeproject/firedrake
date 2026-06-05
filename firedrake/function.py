@@ -607,6 +607,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
+        # Point location (libspatialindex) needs float64 coords, not ScalarType.
+        arg = np.asarray(arg, dtype=np.float64)
 
         dont_raise = kwargs.get('dont_raise', False)
 

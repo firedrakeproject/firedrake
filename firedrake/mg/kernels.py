@@ -2,7 +2,11 @@ import numpy
 import string
 from pyop2 import op2
 from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS, single_mode
+
+# fp32 reference-coord solve only converges to ~1e-6, so the fp64 inside-cell
+# tolerance (1e-8) is too tight; loosen it in single precision to avoid bad transfers.
+TRANSFER_INSIDE_CELL_EPS = 1e-4 if single_mode else 1e-8
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
@@ -51,7 +55,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     code = {
         "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension,
-        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype=RealType_c),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype=RealType),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 20,
         "convergence_epsilon": REFERENCE_COORD_CONVERGENCE_EPS,
@@ -242,7 +246,7 @@ def prolong_kernel(expression, Vf):
                "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "inside_cell": inside_check(element.cell, eps=TRANSFER_INSIDE_CELL_EPS, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
@@ -333,7 +337,7 @@ def restrict_kernel(Vf, Vc):
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
                "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "inside_cell": inside_check(element.cell, eps=TRANSFER_INSIDE_CELL_EPS, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
