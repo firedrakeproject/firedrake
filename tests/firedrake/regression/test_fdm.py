@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -150,6 +151,7 @@ def test_p_independence_hgrad(mesh, variant):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension == 3 else "RTCE"
     expected = [13, 10] if mesh.topological_dimension == 3 else [6, 6]
@@ -163,6 +165,7 @@ def test_p_independence_hcurl(mesh):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension == 3 else "RTCF"
     expected = [6, 6]
@@ -225,6 +228,7 @@ def fs(request, mesh):
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # ksp_rtol=1e-8 and solution norm checks are below fp32 eps
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
@@ -356,7 +360,7 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
     Bref = assemble(inner(grad(TrialFunction(V0)), TestFunction(V1))*dx).petscmat
     Bref.axpy(-1, B)
     _, _, vals = Bref.getValuesCSR()
-    assert numpy.allclose(vals, 0)
+    assert numpy.allclose(vals, 0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -379,7 +383,7 @@ def test_tabulate_curl(mesh, variant, degree, mat_type):
     Bref = assemble(inner(curl(TrialFunction(V1)), TestFunction(V2))*dx).petscmat
     Bref.axpy(-1, B)
     _, _, vals = Bref.getValuesCSR()
-    assert numpy.allclose(vals, 0)
+    assert numpy.allclose(vals, 0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=2)

@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_facet_split(quadrilateral, pc_type, refine=2):
@@ -61,10 +62,10 @@ def run_facet_split(quadrilateral, pc_type, refine=2):
 @pytest.mark.parametrize("quadrilateral", [True, False])
 @pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
 def test_facet_split(quadrilateral, pc_type):
-    assert run_facet_split(quadrilateral, pc_type) < 1E-10
+    assert run_facet_split(quadrilateral, pc_type) < (1e-4 if single_mode else 1E-10)
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
 def test_facet_split_parallel(pc_type):
-    assert run_facet_split(True, pc_type, refine=3) < 1E-10
+    assert run_facet_split(True, pc_type, refine=3) < (1e-4 if single_mode else 1E-10)

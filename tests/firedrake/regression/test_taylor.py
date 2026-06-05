@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy
 
 # Test the 1D Taylor DG elements from FIAT
@@ -14,9 +15,9 @@ def test_Taylor():
     v0 = Function(V0).project(v)
     vt = Function(VT).project(v)
 
-    assert numpy.abs(v0.dat.data - vt.dat.data[::3]).max() < 1.0e-10
+    assert numpy.abs(v0.dat.data - vt.dat.data[::3]).max() < (1e-5 if single_mode else 1.0e-10)
 
     vt.dat.data[2::3] = 0.
     v0_1 = Function(V0).project(vt)
 
-    assert numpy.abs(v0.dat.data - v0_1.dat.data).max() < 1.0e-10
+    assert numpy.abs(v0.dat.data - v0_1.dat.data).max() < (1e-5 if single_mode else 1.0e-10)

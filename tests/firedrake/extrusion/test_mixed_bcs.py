@@ -1,5 +1,8 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])
@@ -139,7 +142,7 @@ def test_stokes_taylor_hood(mat_type):
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
-                             'fieldsplit_0_ksp_rtol': 1e-8,
+                             'fieldsplit_0_ksp_rtol': 1e-5 if single_mode else 1e-14,
                              'fieldsplit_0_pc_type': 'bjacobi',
                              'fieldsplit_0_sub_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'none',

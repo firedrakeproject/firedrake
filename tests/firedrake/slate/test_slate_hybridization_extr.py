@@ -1,6 +1,9 @@
 import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 @pytest.mark.parametrize('quad', [False, True])
@@ -59,7 +62,7 @@ def test_hybrid_extr_helmholtz(quad):
     params2 = {'pc_type': 'fieldsplit',
                'pc_fieldsplit_type': 'schur',
                'ksp_type': 'cg',
-               'ksp_rtol': 1e-8,
+               'ksp_rtol': 1e-5 if single_mode else 1e-14,
                'pc_fieldsplit_schur_fact_type': 'FULL',
                'fieldsplit_0': {'ksp_type': 'cg'},
                'fieldsplit_1': {'ksp_type': 'cg'}}

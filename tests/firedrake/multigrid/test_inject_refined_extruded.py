@@ -1,5 +1,5 @@
 from firedrake import *
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, single_mode
 import pytest
 
 
@@ -48,4 +48,4 @@ def test_inject_refined_extmesh(quadrilateral, dg):
             inject(uf, uc)
     else:
         inject(uf, uc)
-        assert norm(uc - xc) < 1e-10
+        assert norm(uc - xc) < (1e-4 if single_mode else 1e-10)

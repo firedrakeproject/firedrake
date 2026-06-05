@@ -8,6 +8,7 @@ vector fields.
 """
 import pytest
 from firedrake import *
+from firedrake.utils import ScalarType
 import numpy
 import math
 
@@ -93,6 +94,8 @@ def run_test(family, degree, n):
 @pytest.mark.parametrize(('space'),
                          [("RT", 2), ("DG", 1), ("BDM", 1), ("BDM", 2)])
 def test_ip_viscosity(space):
+    if ScalarType == numpy.float32:
+        pytest.skip("fp32 round-off floor collapses the IP viscosity convergence rate on fine meshes")
     family, degree = space
     errs = numpy.array([run_test(family, degree, n) for n in range(4)])
     orders = numpy.log(errs[:-1]/errs[1:])/numpy.log(2)

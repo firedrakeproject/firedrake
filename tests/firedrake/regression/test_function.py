@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture
@@ -322,6 +323,6 @@ def test_function_assign_mixed_subset_3_quads_2_processes():
     f.assign(cg1cg3, subset=subset)
     xx = as_vector([x[0], x[1], x[0], x[1]])
     e = sqrt(assemble(inner(f, f) * dx(left)))
-    assert abs(e - 14.) < 1.e-14
+    assert abs(e - 14.) < (1e-5 if single_mode else 1.e-14)
     e = sqrt(assemble(inner(f - xx, f - xx) * dx(right)))
-    assert abs(e) < 1.e-15
+    assert abs(e) < (1e-5 if single_mode else 1.e-15)

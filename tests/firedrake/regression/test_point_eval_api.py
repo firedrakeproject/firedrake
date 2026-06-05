@@ -147,6 +147,7 @@ def test_nascent_parallel_support():
     assert np.allclose([0.2176, 0.2822], f._at([0.12, 0.68], [0.63, 0.34]))
 
 
+@pytest.mark.skipsingle  # exercises 1e-11/1e-12 point-location tolerances, far below fp32 epsilon
 def test_tolerance():
     mesh = UnitSquareMesh(1, 1)
     old_tol = mesh.tolerance
@@ -284,6 +285,7 @@ def test_point_evaluator_moving_mesh(mesh_and_points):
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
 
 
+@pytest.mark.skipsingle  # exercises 1e-11/1e-12 point-location tolerances, far below fp32 epsilon
 def test_point_evaluator_tolerance():
     mesh = UnitSquareMesh(1, 1)
     old_tol = mesh.tolerance

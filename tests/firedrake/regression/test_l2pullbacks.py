@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import ScalarType
 
 
 def get_complex(family, hdegree, vdegree=None):
@@ -106,6 +107,8 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
                           ('RT', 2, 'tri', True, 2.9),
                           ('BDM', 2, 'tri', True, 2.9)])
 def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action, threshold):
+    if ScalarType == np.float32 and threshold > 2.5:
+        pytest.skip("fp32 round-off floor collapses >2nd-order convergence on fine meshes")
     diff = np.array([helmholtz_mixed(r, 'planar-' + celltype, family, degree, useaction=action) for r in range(3, 6)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -134,6 +137,8 @@ def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action,
                               reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
                           ))])
 def test_firedrake_helmholtz_mixed_l2pullbacks_sphere(family, degree, celltype, md, action, threshold):
+    if ScalarType == np.float32 and threshold > 2.5:
+        pytest.skip("fp32 round-off floor collapses >2nd-order convergence on fine meshes")
     diff = np.array([helmholtz_mixed(r, 'spherical-' + celltype, family, degree, meshd=md, useaction=action) for r in range(2, 5)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -150,6 +155,8 @@ def test_firedrake_helmholtz_mixed_l2pullbacks_sphere(family, degree, celltype, 
                           (2, 2, 2.9, False),
                           (1, 1, 1.9, True)])
 def test_firedrake_helmholtz_mixed_l2pullbacks_extruded(hdegree, vdegree, threshold, action):
+    if ScalarType == np.float32 and threshold > 2.5:
+        pytest.skip("fp32 round-off floor collapses >2nd-order convergence on fine meshes")
     diff = np.array([helmholtz_mixed(i, 'extruded', 'ext', hdegree, vdegree=vdegree, useaction=action) for i in range(3, 6)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -233,6 +240,8 @@ def laplacian_IP(r, degree, meshd, meshtype):
                           (2, 2, 'spherical-tri', 2.9),
                           (3, 3, 'spherical-tri', 3.9)])
 def test_firedrake_laplacian_IP_l2pullbacks(degree, meshd, meshtype, threshold):
+    if ScalarType == np.float32 and threshold > 2.5:
+        pytest.skip("fp32 round-off floor collapses >2nd-order convergence on fine meshes")
     diff = np.array([laplacian_IP(i, degree, meshd, meshtype) for i in range(2, 5)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])

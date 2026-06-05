@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 
@@ -41,7 +42,7 @@ def run_no_manifold():
     exact = Function(V1).interpolate(x[0] - 0.5)
 
     u, p = up.subfunctions
-    assert errornorm(exact, p, degree_rise=0) < 1e-8
+    assert errornorm(exact, p, degree_rise=0) < (1e-4 if single_mode else 1e-8)
 
 
 def run_manifold():
@@ -83,7 +84,7 @@ def run_manifold():
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 
     u, p = up.subfunctions
-    assert errornorm(exact, p, degree_rise=0) < 1e-8
+    assert errornorm(exact, p, degree_rise=0) < (1e-4 if single_mode else 1e-8)
 
 
 def test_no_manifold_serial():
@@ -142,5 +143,6 @@ def test_covariant_piola_facet_integral(space):
     pos = inner(u('+'), n('+'))*dS
     neg = inner(u('-'), n('-'))*dS
 
-    assert np.allclose(assemble(pos) + assemble(neg), 0, atol=1e-7)
-    assert np.allclose(assemble(pos + neg), 0, atol=1e-7)
+    atol = 1e-3 if single_mode else 1e-7
+    assert np.allclose(assemble(pos) + assemble(neg), 0, atol=atol)
+    assert np.allclose(assemble(pos + neg), 0, atol=atol)

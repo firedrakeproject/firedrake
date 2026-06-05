@@ -45,7 +45,7 @@ def run_stokes_mini(mat_type, n):
 
     solve(a == L, w, bcs=bcs,
           solver_parameters={'pc_type': 'fieldsplit',
-                             'ksp_rtol': 1e-6 if single_mode else 1e-15,
+                             'ksp_rtol': 1e-7 if single_mode else 1e-15,
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
                              'fieldsplit_0_pc_type': 'redundant',

@@ -16,6 +16,7 @@ def element_pair(request):
     return request.param
 
 
+@pytest.mark.skipsingle  # fp32: minres floors at the ~7e-7 residual but the hardcoded ksp_rtol=1e-11 is below fp32 eps, so the solve cannot converge (DIVERGED_LINEAR_SOLVE)
 @pytest.mark.parallel(nprocs=3)
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []

@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module')
@@ -47,4 +48,4 @@ def test_mfs(mesh2D):
     a = (u[0]('+')*n[0]('+') + u[3]('-')*n[1]('+')
          + 10*u[1]('+')*n[0]('-') + 10*u[2]('-')*n[1]('-'))*dS
 
-    assert abs(assemble(a) - 22.0) < 1e-9
+    assert abs(assemble(a) - 22.0) < (1e-4 if single_mode else 1e-9)

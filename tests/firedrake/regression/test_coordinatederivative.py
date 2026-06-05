@@ -17,7 +17,9 @@ def test_first_shape_derivative():
     def test_first(J, dJ):
         actual = assemble(dJ).dat.data
         computed = assemble(derivative(J, X)).dat.data
-        assert np.allclose(computed, actual, rtol=1e-14)
+        assert np.allclose(computed, actual,
+                           rtol=1e-7 if utils.single_mode else 1e-14,
+                           atol=1e-4 if utils.single_mode else 1e-8)
 
     Ja = u * u * dx
     dJa = u * u * div(dX) * dx
@@ -62,8 +64,12 @@ def test_mixed_derivatives():
         computed1 = assemble(derivative(derivative(J, X), u)).M.values
         computed2 = assemble(derivative(derivative(J, u), X)).M.values
         actuala = assemble(dJ_manual).M.values
-        assert np.allclose(computed1, actuala, rtol=1e-14)
-        assert np.allclose(computed2.T, actuala, rtol=1e-14)
+        assert np.allclose(computed1, actuala,
+                           rtol=1e-7 if utils.single_mode else 1e-14,
+                           atol=1e-4 if utils.single_mode else 1e-8)
+        assert np.allclose(computed2.T, actuala,
+                           rtol=1e-7 if utils.single_mode else 1e-14,
+                           atol=1e-4 if utils.single_mode else 1e-8)
 
     Ja = u * u * dx
     dJa = 2 * u * v * div(dX) * dx
@@ -110,7 +116,9 @@ def test_second_shape_derivative():
     def test_second(J, ddJ):
         computed = assemble(derivative(derivative(J, X, dX1), X, dX2)).M.values
         actual = assemble(ddJ).M.values
-        assert np.allclose(computed, actual, rtol=1e-14)
+        assert np.allclose(computed, actual,
+                           rtol=1e-7 if utils.single_mode else 1e-14,
+                           atol=1e-4 if utils.single_mode else 1e-8)
 
     Ja = u * u * dx
     ddJa = u * u * div(dX1) * div(dX2) * dx - u * u * tr(grad(dX1)*grad(dX2)) * dx

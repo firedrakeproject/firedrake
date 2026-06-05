@@ -23,6 +23,7 @@ then
 as required.
 """
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -93,7 +94,7 @@ def run_test(quadrilateral):
 
     solve(a_mass == inner(div(Fs), phi) * dx, divFs)
 
-    assert errornorm(divFs, D1, degree_rise=0) < 1e-12
+    assert errornorm(divFs, D1, degree_rise=0) < (1e-5 if single_mode else 1e-12)
 
 
 def test_upwind_flux_icosahedral_sphere():

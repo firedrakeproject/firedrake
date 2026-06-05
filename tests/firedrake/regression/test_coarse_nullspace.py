@@ -1,6 +1,8 @@
+import pytest
 from firedrake import *
 
 
+@pytest.mark.skipsingle  # fp32: singular Neumann solve with GAMG coarse grid stalls at ~4e-2 relative residual (cannot reach default rtol); also the orthonormality check uses a 1e-12 tolerance below fp32 precision
 def test_coarse_nullspace():
     base = UnitSquareMesh(10, 10)
     mh = MeshHierarchy(base, 1)

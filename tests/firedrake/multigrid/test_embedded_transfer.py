@@ -1,6 +1,9 @@
 import pytest
-import numpy
+import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 from firedrake.mg.utils import get_level
 
 
@@ -67,14 +70,16 @@ def check_transfer(op, V):
         uc = Function(Vc)
         uc.interpolate(expr(Vc))
         prolong(uc, uf)
-        assert errornorm(expr(Vf), uf) < 1E-13
+        assert errornorm(expr(Vf), uf) < (1e-6 if single_mode else 1E-13)
 
     elif op == "restrict":
         rf = assemble(inner(expr(Vf), TestFunction(Vf))*dx)
         rc = Function(Vc.dual())
         restrict(rf, rc)
         expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
-        assert numpy.allclose(expected.dat.data_ro, rc.dat.data_ro)
+        assert np.allclose(expected.dat.data_ro, rc.dat.data_ro,
+                           rtol=1e-3 if single_mode else 1e-7,
+                           atol=1e-4 if single_mode else 1e-8)
 
         rg = RandomGenerator(PCG64(seed=0))
         uc = rg.uniform(Vc, -1, 1)
@@ -87,7 +92,9 @@ def check_transfer(op, V):
 
         result_prolong = assemble(action(rf, uf))
         result_restrict = assemble(action(rc, uc))
-        assert numpy.isclose(result_prolong, result_restrict)
+        assert np.isclose(result_prolong, result_restrict,
+                          rtol=1e-4 if single_mode else 1e-8,
+                          atol=1e-4 if single_mode else 1e-8)
 
     elif op == "inject":
         uf = Function(Vf)
@@ -95,7 +102,7 @@ def check_transfer(op, V):
         uc.interpolate(expr(Vc))
         uf.interpolate(expr(Vf))
         inject(uf, uc)
-        assert errornorm(expr(Vc), uc) < 1E-13
+        assert errornorm(expr(Vc), uc) < (1e-6 if single_mode else 1E-13)
 
 
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
@@ -117,7 +124,7 @@ def solver_parameters():
         "snes_type": "ksponly",
         "ksp_type": "cg",
         "ksp_max_it": 20,
-        "ksp_rtol": 1e-9,
+        "ksp_rtol": 1e-5 if single_mode else 1e-14,
         "ksp_monitor_true_residual": None,
         "pc_type": "mg",
         "mg_levels": {
@@ -172,7 +179,7 @@ def make_solver(V, solver_parameters):
 def test_riesz(V, solver_parameters):
     solver = make_solver(V, solver_parameters)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() < 15
+    assert solver.snes.ksp.getIterationNumber() < (20 if single_mode else 15)
 
 
 @pytest.fixture
@@ -192,4 +199,4 @@ def test_riesz_manifold(manifold, solver_parameters):
     V = FunctionSpace(manifold, "RT", 1)
     solver = make_solver(V, solver_parameters)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() < 15
+    assert solver.snes.ksp.getIterationNumber() < (20 if single_mode else 15)

@@ -3,7 +3,7 @@ import numpy
 import warnings
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, single_mode
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,8 @@ def test_transfer_manager_inside_coarsen(sub, mesh):
     mesh = V.mesh()
     x, y = SpatialCoordinate(mesh)
     expect = project(as_vector([-y, x]), V)
-    assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro)
+    assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro,
+                          atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.fixture(params=["CG", "DG", "RT"])

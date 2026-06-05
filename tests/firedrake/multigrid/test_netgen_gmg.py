@@ -2,6 +2,9 @@ import pytest
 import numpy
 from firedrake import *
 
+# fp32: netgen/ngsPETSc passes float64 coords (no RealType cast); skip until upstream fix.
+pytestmark = pytest.mark.skipsingle
+
 
 @pytest.fixture(params=[(2, "occ"), (2, "spline"), (2, "csg"), (3, "occ"), (3, "csg")],
                 ids=lambda val: "-".join(map(str, val)))

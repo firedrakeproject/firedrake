@@ -1,5 +1,8 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 def test_poisson_NLVP():
@@ -18,12 +21,13 @@ def test_poisson_NLVP():
     bcs = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V)]
     NLVP = NonlinearVariationalProblem(F, u, bcs=bcs)
 
-    sp = {"ksp_rtol": 1E-10, "pc_type": "mg"}
+    sp = {"ksp_rtol": 1e-5 if single_mode else 1E-10, "pc_type": "mg"}
     NLVS = NonlinearVariationalSolver(NLVP, solver_parameters=sp)
     NLVS.solve()
 
-    assert errornorm(u_exact, u) < 1e-9
-    assert NLVS.snes.getLinearSolveIterations() <= 9
+    assert errornorm(u_exact, u) < (1e-4 if single_mode else 1e-9)
+    # fp32 MG needs one extra Krylov iteration to reach the (halved) ksp_rtol.
+    assert NLVS.snes.getLinearSolveIterations() <= (10 if single_mode else 9)
     assert all(isinstance(bc, EquationBC) for bc in NLVP._coarse.bcs)
 
 
@@ -45,12 +49,13 @@ def test_poisson_LVP():
     bcs = [EquationBC(inner(u, v) * ds == inner(u_exact, v) * ds, u_, "on_boundary", V=V)]
     LVP = LinearVariationalProblem(a, L, u_, bcs=bcs)
 
-    sp = {"ksp_rtol": 1E-10, "pc_type": "mg"}
+    sp = {"ksp_rtol": 1e-5 if single_mode else 1E-10, "pc_type": "mg"}
     LVS = LinearVariationalSolver(LVP, solver_parameters=sp)
     LVS.solve()
 
-    assert errornorm(u_exact, u_) < 1e-9
-    assert LVS.snes.getLinearSolveIterations() <= 9
+    assert errornorm(u_exact, u_) < (1e-4 if single_mode else 1e-9)
+    # fp32 MG needs one extra Krylov iteration to reach the (halved) ksp_rtol.
+    assert LVS.snes.getLinearSolveIterations() <= (10 if single_mode else 9)
     assert all(isinstance(bc, EquationBC) for bc in LVP._coarse.bcs)
 
 
@@ -98,7 +103,7 @@ def test_nested_equation_bc(dim):
 
     sp = {
         "ksp_type": "fgmres",
-        "ksp_rtol": 1e-10,
+        "ksp_rtol": 1e-5 if single_mode else 1e-14,
         "pc_type": "mg",
         "mg_levels": {
             "ksp_max_it": "2",
@@ -114,6 +119,6 @@ def test_nested_equation_bc(dim):
 
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
-    assert errornorm(u_exact, u) < 1e-9
+    assert errornorm(u_exact, u) < (1e-4 if single_mode else 1e-9)
     assert solver.snes.getLinearSolveIterations() <= 10
     assert all(isinstance(bc, EquationBC) for bc in problem._coarse.bcs)

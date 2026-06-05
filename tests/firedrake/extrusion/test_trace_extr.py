@@ -2,6 +2,9 @@
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 @pytest.mark.parametrize('quad', [False, True])
@@ -25,7 +28,7 @@ def test_trace_galerkin_projection_extr(degree, quad):
     L = l_ds + l_dS
 
     sol = Function(T)
-    solve(A == L, sol, solver_parameters={'ksp_rtol': 1e-14})
+    solve(A == L, sol, solver_parameters={'ksp_rtol': 1e-5 if single_mode else 1e-14})
 
     m = FacetArea(mesh)
     diff = sol - f

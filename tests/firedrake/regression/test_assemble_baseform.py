@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, single_mode
 import ufl
 
 
@@ -96,20 +96,20 @@ def test_assemble_action(M, f):
     assert isinstance(res2, Cofunction)
     assert isinstance(res, Cofunction)
     for f, f2 in zip(res.subfunctions, res2.subfunctions):
-        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < (1e-6 if single_mode else 1.0e-12)
         if f.function_space().rank == 2:
-            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < (1e-6 if single_mode else 1.0e-12)
         else:
-            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < (1e-6 if single_mode else 1.0e-12)
 
     out = assemble(expr, tensor=res2)
     assert out is res2
     for f, f2 in zip(res.subfunctions, res2.subfunctions):
-        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < (1e-6 if single_mode else 1.0e-12)
         if f.function_space().rank == 2:
-            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < (1e-6 if single_mode else 1.0e-12)
         else:
-            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < (1e-6 if single_mode else 1.0e-12)
 
 
 @pytest.mark.parametrize("scale", ["float", "numpy", "ufl", "Constant", "Real"])
@@ -196,7 +196,7 @@ def test_formsum_vector_self(a):
 
     expected = assemble(Constant(sum(w)) * a)
     for f, f2 in zip(expected.subfunctions, result.subfunctions):
-        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-6 if single_mode else 1e-12)
 
 
 def test_formsum_matrix_self(M):
@@ -211,13 +211,15 @@ def test_formsum_matrix_self(M):
     assert result is tensor
 
     expected = assemble(Constant(sum(w)) * M)
-    assert np.allclose(expected.petscmat[:, :], result.petscmat[:, :], rtol=1E-14)
+    assert np.allclose(expected.petscmat[:, :], result.petscmat[:, :],
+                       rtol=1e-7 if single_mode else 1E-14,
+                       atol=1e-4 if single_mode else 1e-8)
 
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
-    assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+    assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < (1e-6 if single_mode else 1.0e-12)
 
 
 def test_tensor_output(a, M):
@@ -263,13 +265,13 @@ def test_cofunction_action(a, f):
     v = assemble(a)
 
     zero_form = assemble(action(v, f))
-    assert np.allclose(zero_form, zero_form_ref, rtol=1.0e-14)
+    assert np.allclose(zero_form, zero_form_ref, rtol=1e-7 if single_mode else 1.0e-14)
 
     zero_form = assemble(0.5 * action(v, f))
-    assert np.allclose(zero_form, 0.5 * zero_form_ref, rtol=1.0e-14)
+    assert np.allclose(zero_form, 0.5 * zero_form_ref, rtol=1e-7 if single_mode else 1.0e-14)
 
     zero_form = assemble(0.5 * action(v, f) - 0.25 * action(v, f))
-    assert np.allclose(zero_form, 0.25 * zero_form_ref, rtol=1.0e-14)
+    assert np.allclose(zero_form, 0.25 * zero_form_ref, rtol=1e-7 if single_mode else 1.0e-14)
 
 
 def test_cofunction_riesz_representation(a):
@@ -307,7 +309,9 @@ def test_cofunction_riesz_representation(a):
 
         # Check residual
         for a, b in zip(Mr.subfunctions, c.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data, b.dat.data,
+                               rtol=1e-7 if single_mode else 1e-14,
+                               atol=1e-4 if single_mode else 1e-8)
 
 
 def test_function_riesz_representation(f):
@@ -344,7 +348,9 @@ def test_function_riesz_representation(f):
 
         # Check residual
         for a, b in zip(Mf.subfunctions, r.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data, b.dat.data,
+                               rtol=1e-7 if single_mode else 1e-14,
+                               atol=1e-4 if single_mode else 1e-8)
 
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):

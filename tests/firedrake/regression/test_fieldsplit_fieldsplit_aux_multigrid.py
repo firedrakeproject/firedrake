@@ -40,6 +40,7 @@ class SchurApprox(AuxiliaryOperatorPC):
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
+@pytest.mark.skipsingle  # fp32: nested-fieldsplit aux MG solve stalls at the fp32 residual floor (~1e-7) and hits DIVERGED_ITS before reaching the default rtol (MG transfer crash itself is fixed)
 def test_fieldsplit_fieldsplit_aux_multigrid():
     # Setup
     mesh = UnitSquareMesh(10, 10)

@@ -1,5 +1,4 @@
 # The perp routine should come from UFL when it is fully implemented there
-import numpy as np
 from ufl import perp
 from firedrake import (
     UnitSquareMesh, FunctionSpace, MixedFunctionSpace, TestFunctions,
@@ -7,7 +6,7 @@ from firedrake import (
     as_vector, TrialFunctions, solve
 )
 from firedrake.fml import subject, replace_subject, all_terms
-from firedrake.utils import ScalarType
+from firedrake.utils import single_mode
 
 
 def test_replace_perp():
@@ -47,4 +46,4 @@ def test_replace_perp():
     u3, _ = U3.subfunctions
     u3.interpolate(as_vector([-2, 1]))
 
-    assert errornorm(u2, u3) < np.finfo(ScalarType).eps * 1000
+    assert errornorm(u2, u3) < (1e-4 if single_mode else 1e-13)

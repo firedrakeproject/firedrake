@@ -3,6 +3,9 @@ import pytest
 from os.path import abspath, dirname, join
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 from firedrake.cython import dmcommon
 from petsc4py import PETSc
 
@@ -262,7 +265,7 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     nsub = FacetNormal(subm)
     u_exact = Function(DG).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
     sigma_exact = Function(BDM).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby), - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1.e-16})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1e-14})
     f = Function(DG).interpolate(- 8 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
@@ -394,7 +397,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     sigma_exact = Function(NCF).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * cos(2 * pi * suby) * sin(2 * pi * subz)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1.e-16})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1e-14})
     f = Function(DG).interpolate(- 12 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y) * cos(2 * pi * z))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
@@ -651,10 +654,10 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
         "pc_fieldsplit_0_fields": "1",
         "pc_fieldsplit_1_fields": "0, 2",
         "fieldsplit_0_ksp_type": "cg",
-        "fieldsplit_0_ksp_rtol": 1e-14,
+        "fieldsplit_0_ksp_rtol": 1e-5 if single_mode else 1e-14,
         "fieldsplit_0_pc_type": "jacobi",
         "fieldsplit_1_ksp_type": "cg",
-        "fieldsplit_1_ksp_rtol": 1e-14,
+        "fieldsplit_1_ksp_rtol": 1e-5 if single_mode else 1e-14,
         "fieldsplit_1_pc_type": "jacobi",
     }
     solve(a == L, sol, bcs=[bc1, bc2], solver_parameters=solver_parameters)

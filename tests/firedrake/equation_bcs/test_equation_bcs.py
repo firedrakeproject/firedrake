@@ -6,7 +6,9 @@ import numpy as np
 
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 import math
 
 
@@ -247,7 +249,7 @@ def test_EquationBC_poisson_matfree(with_bbc):
     # Test standard poisson with EquationBCs
     # matfree
 
-    ksp_tol = float(np.finfo(ScalarType).eps * 100)
+    ksp_tol = 1e-5 if single_mode else 1e-14
     solver_parameters = {'mat_type': mat_type,
                          'ksp_type': 'gmres',
                          'pc_type': 'none',
