@@ -1,8 +1,9 @@
 import pytest
 
+import numpy as np
 from firedrake import *
 from firedrake.adjoint import *
-import numpy as np
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(autouse=True)
@@ -123,6 +124,8 @@ def test_fn_split_no_annotate(Z, V2, rng):
     rf = ReducedFunctional(j, Control(ic))
 
     h = rng.uniform(Z)
+    if single_mode:
+        h *= 100.0
     r = taylor_to_dict(rf, ic, h)
 
     assert min(r["R0"]["Rate"]) > 0.95
@@ -154,10 +157,10 @@ def test_merge_blocks():
     c = Control(w1_const)
     rf = ReducedFunctional(J, c)
     assert taylor_test(rf, Function(R, val=0.3), Function(R, val=0.1)) > 1.95
-    taylor = taylor_to_dict(rf, Function(R, val=0.3), Function(R, val=0.01))
+    taylor = taylor_to_dict(rf, Function(R, val=0.3), Function(R, val=1.0 if single_mode else 0.01))
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
-    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+    assert min(taylor['R2']['Rate']) > (2.75 if single_mode else 2.95), taylor['R2']
 
 
 @pytest.mark.skipcomplex
@@ -219,8 +222,8 @@ def test_writing_to_subfunctions():
         rf = ReducedFunctional(J, Control(kappa), tape=tape)
     pause_annotation()
 
-    taylor = taylor_to_dict(rf, kappa, Function(R, val=0.1))
+    taylor = taylor_to_dict(rf, kappa, Function(R, val=10.0 if single_mode else 0.1))
 
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
-    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+    assert min(taylor['R2']['Rate']) > (2.75 if single_mode else 2.95), taylor['R2']

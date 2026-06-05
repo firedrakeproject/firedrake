@@ -9,6 +9,7 @@ from firedrake.adjoint import *
 from checkpoint_schedules import Revolve, SingleMemoryStorageSchedule, MixedCheckpointSchedule, \
     NoneCheckpointSchedule, StorageType
 import numpy as np
+from firedrake.utils import single_mode
 set_log_level(CRITICAL)
 
 
@@ -302,4 +303,5 @@ def test_global_deps(nu_time_dependent, basics):
         assert nu.block_variable in tape._checkpoint_manager._global_deps
 
     assert np.allclose(Jhat(ic), val0)
-    assert taylor_test(Jhat, ic, Function(V).interpolate(0.1)) > 1.9
+    h_val = 10.0 if single_mode else 0.1
+    assert taylor_test(Jhat, ic, Function(V).interpolate(h_val)) > 1.9

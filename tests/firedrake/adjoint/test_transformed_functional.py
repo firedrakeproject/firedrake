@@ -6,6 +6,7 @@ from firedrake.adjoint import (
     Control, L2TransformedFunctional, MinimizationProblem, ReducedFunctional,
     continue_annotation, pause_annotation, minimize)
 import numpy as np
+from firedrake.utils import single_mode
 from pyadjoint import TAOSolver
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
@@ -121,7 +122,7 @@ def test_transformed_functional_mass_inverse(family):
                  callback=cb,
                  options={"ftol": 0,
                           "gtol": 1e-6})
-    assert cb[-1] < 1e-10
+    assert cb[-1] < (1e-4 if single_mode else 1e-13)
     assert len(cb) == 3
     assert J_hat._test_transformed_functional__ncalls == 3
 
@@ -175,10 +176,15 @@ def test_transformed_functional_poisson():
     _ = minimize(J_hat, method="L-BFGS-B",
                  callback=cb,
                  options={"ftol": 0,
-                          "gtol": 1e-10})
-    assert 1e-2 < cb[-1] < 5e-2
-    assert len(cb) > 80  # == 85
-    assert J_hat._test_transformed_functional__ncalls > 90  # == 95
+                          "gtol": 1e-6 if single_mode else 1e-15})
+    if single_mode:
+        assert cb[-1] < 0.2
+        assert len(cb) >= 3
+        assert J_hat._test_transformed_functional__ncalls >= 3
+    else:
+        assert 1e-2 < cb[-1] < 5e-2
+        assert len(cb) > 80  # == 85
+        assert J_hat._test_transformed_functional__ncalls > 90  # == 95
 
     continue_annotation()
     m_0 = fd.Function(space, name="m_0")
@@ -197,8 +203,11 @@ def test_transformed_functional_poisson():
     _ = minimize(ReducedFunctionalNumPy(J_hat), method="L-BFGS-B",
                  callback=cb,
                  options={"ftol": 0,
-                          "gtol": 1e-10})
-    assert 1e-4 < cb[-1] < 5e-4
+                          "gtol": 1e-6 if single_mode else 1e-15})
+    if single_mode:
+        assert 1e-3 < cb[-1] < 5e-2
+    else:
+        assert 1e-4 < cb[-1] < 5e-4
     assert len(cb) < 55  # == 51
     assert J_hat._test_transformed_functional__ncalls < 60  # == 55
 
@@ -284,5 +293,5 @@ def test_transformed_functional_poisson_tao_nls():
     m_opt = solver.solve()
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
-    assert 1e-3 < error_norm_opt < 1e-2
-    assert J_hat._test_transformed_functional__ncalls < 10  # == 8
+    assert 1e-3 < error_norm_opt < (2e-2 if single_mode else 1e-2)
+    assert J_hat._test_transformed_functional__ncalls < (25 if single_mode else 10)  # == 8

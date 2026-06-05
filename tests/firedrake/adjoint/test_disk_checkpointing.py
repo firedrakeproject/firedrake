@@ -68,6 +68,7 @@ def adjoint_example(fine, coarse=None):
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # supermesh projection uses libsupermesh which is double precision internally
 def test_disk_checkpointing():
     # Use a Firedrake Tape subclass that supports disk checkpointing.
     set_working_tape(Tape())
@@ -172,8 +173,10 @@ def test_adjoint_dependencies_set():
         u_n.assign(u_np1)
         J += assemble(u_np1 * u_np1 * dx)
 
+    from firedrake.utils import single_mode
+    h_val = 10.0 if single_mode else 0.1
     J_hat = ReducedFunctional(J, Control(c))
-    assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
+    assert taylor_test(J_hat, c, Function(V).interpolate(h_val)) > (1.8 if single_mode else 1.9)
 
 
 @pytest.mark.skipcomplex

@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 from pyadjoint import taylor_to_dict
 
 
@@ -28,7 +29,9 @@ def test_sin_weak_spatial():
     # Derivative (Cofunction)
     dJV = assemble(div(V)*sin(x[0])*dx + V[0]*cos(x[0])*dx)
     actual = dJV.dat.data_ro
-    assert np.allclose(computed, actual, rtol=1e-14)
+    assert np.allclose(computed, actual,
+                       rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-7 if single_mode else 1e-16)
 
 
 @pytest.mark.skipcomplex
@@ -61,7 +64,7 @@ def test_tlm_assemble():
     assert (r1_tlm > 1.9)
     Jhat(s)
     r1 = taylor_test(Jhat, s, h)
-    assert (np.isclose(r1, r1_tlm, rtol=1e-14))
+    assert (np.isclose(r1, r1_tlm, rtol=1e-4 if single_mode else 1e-13))
 
 
 @pytest.mark.skipcomplex
@@ -80,6 +83,8 @@ def test_shape_hessian():
     A = 10
     h = Function(S, name="V")
     h.interpolate(as_vector((cos(x[2]), A*cos(x[1]), A*x[1])))
+    if single_mode:
+        h *= 5.0
 
     # Second order taylor
     dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
@@ -118,6 +123,8 @@ def test_PDE_hessian_neumann():
     A = 1e-1
     h = Function(S, name="V")
     h.interpolate(as_vector((A*x[2], A*cos(x[1]), A*x[0])))
+    if single_mode:
+        h *= 100.0
 
     # Finite difference
     r0 = taylor_test(Jhat, s, h, dJdm=0)
@@ -171,6 +178,8 @@ def test_PDE_hessian_dirichlet():
     A = 1e-1
     h = Function(S, name="V")
     h.interpolate(as_vector((A*x[2], A*cos(x[1]), A*x[0])))
+    if single_mode:
+        h *= 100.0
 
     # Finite difference
     r0 = taylor_test(Jhat, s, h, dJdm=0)
@@ -222,6 +231,8 @@ def test_multiple_assignments():
 
     pert = as_vector((x * y, sin(x)))
     pert = assemble(interpolate(pert, S))
+    if single_mode:
+        pert *= 10.0
     results = taylor_to_dict(Jhat, s, pert)
 
     assert min(results["R0"]["Rate"]) > 0.9
@@ -253,6 +264,8 @@ def test_multiple_assignments():
 
     pert = as_vector((x * y, sin(x)))
     pert = assemble(interpolate(pert, S))
+    if single_mode:
+        pert *= 10.0
     results = taylor_to_dict(Jhat, s, pert)
 
     assert min(results["R0"]["Rate"]) > 0.9

@@ -3,6 +3,7 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 from checkpoint_schedules import SingleMemoryStorageSchedule
+from firedrake.utils import single_mode
 
 from numpy.testing import assert_approx_equal, assert_allclose
 
@@ -99,13 +100,15 @@ def test_assign_tlm_with_constant():
     c.block_variable.tlm_value = Function(R, val=0.3)
     tape = get_working_tape()
     tape.evaluate_tlm()
-    assert_allclose(u.block_variable.tlm_value.dat.data, 0.3 * f.dat.data ** 2)
+    assert_allclose(u.block_variable.tlm_value.dat.data, 0.3 * f.dat.data ** 2,
+                    rtol=1e-5 if single_mode else 1e-14)
 
     tape.reset_tlm_values()
     c.block_variable.tlm_value = Function(R, val=0.4)
     f.block_variable.tlm_value = g
     tape.evaluate_tlm()
-    assert_allclose(u.block_variable.tlm_value.dat.data, 0.4 * f.dat.data ** 2 + 10. * f.dat.data * g.dat.data)
+    assert_allclose(u.block_variable.tlm_value.dat.data, 0.4 * f.dat.data ** 2 + 10. * f.dat.data * g.dat.data,
+                    rtol=1e-5 if single_mode else 1e-14)
 
 
 @pytest.mark.skipcomplex
@@ -126,7 +129,7 @@ def test_assign_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V).assign(1.)
+    h = Function(V).assign(100.0 if single_mode else 1.)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
@@ -220,11 +223,11 @@ def test_assign_constant_scale():
     J = assemble(inner(f, f) ** 2 * dx)
 
     rf = ReducedFunctional(J, Control(c))
-    r = taylor_to_dict(rf, c, Constant(0.1))
+    r = taylor_to_dict(rf, c, Constant(10.0 if single_mode else 0.1))
 
     assert min(r["R0"]["Rate"]) > 0.9
     assert min(r["R1"]["Rate"]) > 1.9
-    assert min(r["R2"]["Rate"]) > 2.9
+    assert min(r["R2"]["Rate"]) > (2.5 if single_mode else 2.9)
 
 
 @pytest.mark.skipcomplex
@@ -267,5 +270,7 @@ def test_adjoint_cleanup(scheduler, rg):
 
     # Choosing fixed perturbation
     dtemp = rg.uniform(u_0.function_space())
+    if single_mode:
+        dtemp *= 100.0
 
-    assert taylor_test(reduced_functional, u_0, dtemp) > 1.99999999
+    assert taylor_test(reduced_functional, u_0, dtemp) > (1.9 if single_mode else 1.99999999)

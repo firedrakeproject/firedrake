@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 from numpy.testing import assert_approx_equal
 
 
@@ -309,7 +310,8 @@ def test_two_nonlinear_solves():
     solver.solve()
     J = assemble(dot(u1, u1)*dx)
     rf = ReducedFunctional(J, c)
-    assert taylor_test(rf, ui, Constant(0.1)) > 1.95
+    h = Constant(10.0 if single_mode else 0.1)
+    assert taylor_test(rf, ui, h) > (1.9 if single_mode else 1.95)
     # Taylor test recomputes the functional 5 times.
     assert rf.tape.recompute_count == 5
 
@@ -342,6 +344,8 @@ def test_multiple_meshes(rg):
     J = assemble(u1**4*dx(mesh1) + u2**4*dx(mesh2))
     rf = ReducedFunctional(J, Control(f))
     df = rg.uniform(V)
+    if single_mode:
+        df *= 100.0
 
     taylor = taylor_to_dict(rf, f, df)
 
@@ -382,6 +386,8 @@ def test_submesh(rg):
     J = assemble(u2**4*dx_sub)
     rf = ReducedFunctional(J, Control(f))
     df = rg.uniform(V1)
+    if single_mode:
+        df *= 100.0
 
     taylor = taylor_to_dict(rf, f, df)
 
@@ -462,7 +468,10 @@ def _test_adjoint_constant(J, c):
     tape = Tape()
     set_working_tape(tape)
 
-    h = Constant(1)
+    # fp32 second-order residuals are near machine epsilon floor with h=1;
+    # scale h and include h_val in the directional-derivative correction
+    h_val = 100.0 if single_mode else 1.0
+    h = Constant(h_val)
 
     eps_ = [0.01/2.0**i for i in range(4)]
     residuals = []
@@ -476,7 +485,7 @@ def _test_adjoint_constant(J, c):
 
         dJdc = c.block_variable.adj_value.dat.data_ro[0]
 
-        residual = abs(Jp - Jm - eps*dJdc)
+        residual = abs(Jp - Jm - eps * h_val * dJdc)
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
@@ -491,6 +500,10 @@ def _test_adjoint(J, f, rg):
 
     V = f.function_space()
     h = rg.uniform(V)
+    # fp32 second-order Taylor residuals are near fp32 floor with h~O(1);
+    # scale up so residuals are well above machine epsilon throughout the sequence
+    if single_mode:
+        h *= 100.0
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []
