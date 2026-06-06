@@ -15,7 +15,7 @@ from functools import cached_property
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, HDiv, JacobianDeterminant, div, dx, inner, replace
+from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import BrokenElement
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
@@ -118,7 +118,10 @@ class BDDCPC(PCBase):
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
         appctx = self.get_appctx(pc)
-        bddcpc.setCoordinates(get_entity_coordinates(V))
+        entity_dofs = V.finat_element.entity_dofs()
+        vdofs = entity_dofs[min(entity_dofs)]
+        if any(len(vdofs[v]) > 0 for v in vdofs):
+            bddcpc.setCoordinates(get_entity_coordinates(V))
 
         # Set coordinates only if corner selection is requested
         # There's no API to query from PC
@@ -293,8 +296,9 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    if mat_type == "is" and (V.ufl_element().sobolev_space != HDiv or V.finat_element.complex.is_macrocell()):
-        form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
+    if mat_type == "is" and (V.ufl_element().sobolev_space == H1 or V.finat_element.complex.is_macrocell()):
+        Jdet = JacobianDeterminant(V.mesh())
+        form = inner(div(TrialFunction(V))*Jdet/abs(Jdet), TestFunction(Q)) * dx
         B, _ = create_matis(form, "aij", allow_repeated)
     else:
         B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
@@ -362,11 +366,11 @@ def get_entity_coordinates(V):
     vstart, vend = plex.getDepthStratum(0)
     coords = numpy.empty((num_dofs, mesh.geometric_dimension))
 
-    plex_coords = plex.getCoordinates().getArray().reshape(-1, coords.shape[1])
-
-    P1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-    plex_coords = Function(P1).interpolate(mesh.coordinates).dat.data_ro_with_halos
-
+    if mesh.extruded:
+        P1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+        plex_coords = Function(P1).interpolate(mesh.coordinates).dat.data_ro_with_halos
+    else:
+        plex_coords = plex.getCoordinatesLocal().getArray().reshape(-1, mesh.geometric_dimension)
     for p in range(*plex.getChart()):
         dof = section.getDof(p)
         if dof <= 0:
