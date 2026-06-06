@@ -812,14 +812,12 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     def region_sets(self) -> tuple[frozenset[str], ...]:
          pass
 
-    @property
     @abc.abstractmethod
-    def buffer_slice(self) -> slice | np.ndarray:
+    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray:
         """Indices of the buffer entries corresponding to this axis tree."""
 
-    @property
     @abc.abstractmethod
-    def buffer_size(self) -> int:
+    def buffer_size(self, *, include_ghosts: bool) -> int:
         """The number of entries that a buffer built on this axis tree would have.
 
         Since an axis tree may contain degenerate entries (entries that map to the
@@ -1311,7 +1309,7 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
         vec = PETSc.Vec().create(comm=self.comm)
         # As far as PETSc is concerned, the only DoFs that it knows about are those
         # held in the first region (which is 'owned' + 'unconstrained').
-        size = self.free.buffer_size
+        size = self.free.buffer_size(include_ghosts=False)
         block_size = np.prod(block_shape, dtype=int)
         vec.setSizes((size, None), bsize=block_size)
         vec.setUp()
@@ -1332,7 +1330,7 @@ class AbstractIndexedAxisTree(AbstractAxisTreeLike):
     @cached_property
     def sf(self) -> StarForest:
         petsc_sf = pyop3.sf.filter_petsc_sf(
-            self.unindexed.sf.sf, self._buffer_indices, 0, self.local_size
+            self.unindexed.sf.sf, self._buffer_indices(include_ghosts=True), 0, self.local_size
         )
         return StarForest(petsc_sf, self.comm)
 
@@ -1664,9 +1662,11 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         assert isinstance(self.local_size, numbers.Integral)
         return slice(0, self.local_size, 1)
 
-    @property
-    def buffer_size(self) -> int:
-        return self.local_size
+    def buffer_size(self, *, include_ghosts: bool) -> int:
+        if include_ghosts:
+            return self.local_size
+        else:
+            return self.owned.local_size
 
     # This is a PETSc-specific attribute
     @cached_property
@@ -1977,39 +1977,35 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         """Return a new "unindexed" axis tree with the same shape."""
         return AxisTree(self.node_map)
 
-    # TODO: how do we know if buffer_slice will produce the same object across all ranks?
-    # Need to make forming a slice or a subset an active decision!
     # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
-    @cached_property
+    @cached_method()
     @on_host
-    def _buffer_indices(self) -> np.ndarray[IntType]:
-        from pyop3 import Dat, do_loop
+    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
+        from pyop3 import Dat, loop
 
-        if self.size == 0:
-            return slice(0, 0)
-
-        # NOTE: The below method might be better...
-        # mask_dat = Dat.zeros(self.unindexed.localize(), dtype=bool, prefix="mask")
-        # do_loop(p := self.index(), mask_dat[p].assign(1))
-        # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
-
-        indices_dat = Dat.full(self.materialize().regionless(), -1, dtype=IntType, prefix="indices")
+        indices_dat = Dat.full(
+            self.materialize().regionless(),
+            -1,
+            dtype=IntType,
+            prefix="indices",
+        )
         for leaf_path in self.leaf_paths:
-            iterset = self.linearize(leaf_path)
-            p = iterset.iter()
-            offset_expr = just_one(self[p].leaf_subst_layouts.values())
-            do_loop(p, indices_dat[p].assign(offset_expr))
-        indices = indices_dat.buffer.data_ro
-        indices = np.unique(np.sort(indices))
+            loop(
+                p := self.linearize(leaf_path).iter(),
+                indices_dat[p].assign(just_one(self[p].leaf_subst_layouts.values())),
+                eager=True,
+            )
+        indices = np.unique(np.sort(indices_dat.buffer.data_ro))
 
-        if len(indices) > 0:
-            assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
+        if not include_ghosts:
+            mask = indices < self.unindexed.buffer_size(include_ghosts=False)
+            indices = indices[mask]
 
         return indices
 
-    @cached_property
-    def buffer_slice(self) -> slice | np.ndarray[int]:
-        indices = self._buffer_indices
+    @cached_method()
+    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray[int]:
+        indices = self._buffer_indices(include_ghosts=include_ghosts)
 
         # then convert to a slice if possible, do in Cython?
         slice_ = None
@@ -2031,9 +2027,8 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
             return slice(indices[0], indices[-1]+1, step)
 
-    @property
-    def buffer_size(self) -> int:
-        return self._buffer_indices.size
+    def buffer_size(self, *, include_ghosts: bool) -> int:
+        return self._buffer_indices(include_ghosts=include_ghosts).size
 
     # {{{ parallel
 
@@ -2057,7 +2052,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     def unique_markers(self):
         raise TypeError(
             "'unique_markers' is not a valid attribute in pyop3, you probably "
-            "have to use 'mesh.facet_markers' instead"
+            "want to use 'mesh.facet_markers' instead"
         )
 
     # }}}
@@ -2369,13 +2364,15 @@ class AxisForest(AbstractAxisTreeLike):
     def region_sets(self) -> tuple[frozenset[str], ...]:
         return utils.single_valued(t.region_set for t in self.trees)
 
-    @property
-    def buffer_slice(self):
-        return utils.single_valued(t.buffer_slice for t in self.trees)
+    def buffer_slice(self, *, include_ghosts: bool):
+        return utils.single_valued(
+            t.buffer_slice(include_ghosts=include_ghosts) for t in self.trees
+        )
 
-    @property
-    def buffer_size(self) -> int:
-        return utils.single_valued(t.buffer_size for t in self.trees)
+    def buffer_size(self, *, include_ghosts: bool) -> int:
+        return utils.single_valued(
+            t.buffer_size(include_ghosts=include_ghosts) for t in self.trees
+        )
 
     @property
     def block_shape(self) -> tuple[int, ...]:

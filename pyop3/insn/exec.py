@@ -486,8 +486,8 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "form" in str(self):
-        #     breakpoint()
+        if "my_kernel" in str(self):
+            breakpoint()
 
         if not kwargs:  # shortcut for the most common case
             buffers = self._default_buffers

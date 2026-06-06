@@ -82,6 +82,9 @@ class Expression(Node, abc.ABC):
         else:
             return Div(self, other)
 
+    def __rtruediv__(self, other) -> Div | Self:
+        return Div(other, self)
+
     def __floordiv__(self, other) -> FloorDiv | Self:
         if not isinstance(other, numbers.Integral):
             return NotImplemented

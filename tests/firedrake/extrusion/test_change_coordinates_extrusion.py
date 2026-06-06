@@ -1,6 +1,7 @@
-from firedrake import *
-from firedrake.__future__ import interpolate
 import numpy as np
+import pytest
+
+from firedrake import *
 
 
 @pytest.mark.skip(reason="pyop3 TODO, R tensor product")

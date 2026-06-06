@@ -1166,10 +1166,6 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        # if self.parent is not None:
-        #     field_label = self.parent.field_axis.component_labels[self.index]
-        #     return self.parent.plex_axes[field_label]
-
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
@@ -1278,7 +1274,7 @@ class FunctionSpace(AbstractFunctionSpace):
             for region_set in region_sets:
                 region_axes = self.layout_axes.blocked(self.shape).with_region_labels(region_set)
                 if region_axes.local_size > 0:
-                    region_slice = region_axes._buffer_indices
+                    region_slice = region_axes._buffer_indices(include_ghosts=True)
                     dmcommon.prepare_node_maps(ndofs, node_to_point, node_to_dof, region_slice, offset)
                     offset += region_axes.local_size
 
@@ -1419,7 +1415,7 @@ class FunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        size = self.axes.free.buffer_size
+        size = self.axes.free.buffer_size(include_ghosts=False)
         start = self.comm.exscan(size) or 0
         is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
         is_.setBlockSize(self.block_size)
@@ -1427,7 +1423,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        is_ = PETSc.IS().createStride(self.axes.free.buffer_size, comm=MPI.COMM_SELF)
+        is_ = PETSc.IS().createStride(self.axes.free.buffer_size(include_ghosts=False), comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
 
@@ -2005,9 +2001,9 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers."""
         ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.axes.free.buffer_size) or 0
+            start = icomm.exscan(self.axes.free.buffer_size(include_ghosts=False)) or 0
         for subspace in self:
-            size = subspace.axes.free.buffer_size
+            size = subspace.axes.free.buffer_size(include_ghosts=False)
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
@@ -2036,7 +2032,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         ises = []
         start = 0
         for subspace in self:
-            size = subspace.axes.free.buffer_size
+            size = subspace.axes.free.buffer_size(include_ghosts=False)
             is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)

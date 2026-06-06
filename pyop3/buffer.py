@@ -14,13 +14,13 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.config
 import pyop3.obj
 import pyop3.record
 import pyop3.sf
 from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
-from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
@@ -417,7 +417,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if config.debug_checks:
+        if pyop3.config.debug_checks:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)
@@ -910,10 +910,10 @@ class PetscMatBuffer(ConcreteBuffer):
 
             if mat_type == "rvec":
                 mode = "row"
-                size = column_axes.buffer_size
+                size = column_axes.buffer_size(include_ghosts=False)
             else:
                 mode = "column"
-                size = row_axes.buffer_size
+                size = row_axes.buffer_size(include_ghosts=False)
             mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:

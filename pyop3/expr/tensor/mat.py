@@ -323,8 +323,8 @@ class Mat(Tensor):
                 context = mat.getPythonContext()
                 return mat.getPythonContext().data_ro
             else:
-                row_indices = self.row_axes.with_region_labels(regions).buffer_slice
-                column_indices = self.column_axes.with_region_labels(regions).buffer_slice
+                row_indices = self.row_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
+                column_indices = self.column_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
                 return mat[row_indices, column_indices]
         else:
             raise NotImplementedError
@@ -362,8 +362,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             column_spec = column_axes
             # return row_spec, column_spec
         else:
-            nrows = row_axes.free.buffer_size
-            ncolumns = column_axes.free.buffer_size
+            nrows = row_axes.free.buffer_size(include_ghosts=False)
+            ncolumns = column_axes.free.buffer_size(include_ghosts=False)
 
             row_block_shape, column_block_shape = partial_spec.block_shape
             if row_block_shape:

@@ -27,6 +27,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
 import pyop3.cache
+import pyop3.config
 import pyop3.dtypes
 import pyop3.expr
 from pyop3 import utils, mpi
@@ -35,7 +36,6 @@ from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
-from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
@@ -415,7 +415,7 @@ class SolveCallable(LACallable):
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     # NOTE: is config valid to include here?
-    return (op.disk_cache_key, compiler_parameters, config)
+    return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
 
 # NOTE: Some of this code is not specific to loopy, could be refactored

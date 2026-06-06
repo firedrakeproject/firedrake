@@ -19,9 +19,9 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
+import pyop3.config
 import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
-from pyop3.config import config
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
@@ -404,7 +404,7 @@ def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
     return view
 
 def debug_assert(predicate, msg=None):
-    if config.debug_checks:
+    if pyop3.config.debug_checks:
         if msg:
             assert predicate(), msg
         else:

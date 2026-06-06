@@ -433,9 +433,9 @@ class Dat(Tensor):
                 array = self.buffer.data_rw
 
         if include_ghosts:  # TODO: this is now unclear, really is all constrained DoFs
-            indices = self.axes.buffer_slice
+            indices = self.axes.buffer_slice(include_ghosts=True)
         else:
-            indices = self.axes.free.buffer_slice
+            indices = self.axes.free.buffer_slice(include_ghosts=False)
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)
@@ -493,7 +493,8 @@ class Dat(Tensor):
 
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
-        is_view = isinstance(self.axes.owned.buffer_slice, slice)
+        # TODO: can get this by just accessing the data and seeing if its an arrayref
+        is_view = isinstance(self.axes.owned.buffer_slice(include_ghosts=False), slice)
         if not is_view:
             raise NotImplementedError("TODO")
 

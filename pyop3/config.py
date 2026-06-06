@@ -273,4 +273,4 @@ def _prepare_configuration() -> Pyop3Configuration:
     return Pyop3Configuration(**parsed_options)
 
 
-config = _prepare_configuration()
+config_ = _prepare_configuration()

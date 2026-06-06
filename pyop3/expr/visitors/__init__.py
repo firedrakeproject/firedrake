@@ -13,11 +13,11 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
 from pyop3 import utils
 from pyop3.cache import memory_cache
-from pyop3.config import config
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
 from pyop3.expr.tensor import Scalar

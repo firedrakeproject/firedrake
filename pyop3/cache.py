@@ -28,9 +28,9 @@ from typing import Any, Callable, Hashable
 
 from petsc4py import PETSc
 
+import pyop3.config
 from pyop3 import utils
 from pyop3.collections import AlwaysEmptyDict
-from pyop3.config import config
 from pyop3.constants import _nothing
 from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
@@ -382,7 +382,7 @@ def print_cache_stats(*args, **kwargs):
         print(hline)
 
 
-if config.print_cache_stats:
+if pyop3.config.print_cache_stats:
     atexit.register(print_cache_stats)
 
 
@@ -615,7 +615,7 @@ def parallel_cache(
                         caches = (cache,)
                         cache_type = type(cache)
 
-                if config.debug_checks and heavy:
+                if pyop3.config.debug_checks and heavy:
                     key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
                 else:
                     key = hashkey(*args, **kwargs)
@@ -660,7 +660,7 @@ def parallel_cache(
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
                     if (
-                        config.spmd_strict
+                        pyop3.config.spmd_strict
                         and not utils.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
@@ -672,7 +672,7 @@ def parallel_cache(
                         value = func(*args, **kwargs) if comm.rank == 0 else None
                         value = comm.bcast(value, root=0)
                     else:
-                        if config.debug_checks and heavy:
+                        if pyop3.config.debug_checks and heavy:
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches))
                         else:
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))
@@ -700,11 +700,11 @@ def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 
-def disk_only_cache(*args, cachedir=config.cache_dir, **kwargs):
+def disk_only_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     return parallel_cache(*args, **kwargs, make_cache=lambda: DictLikeDiskAccess(cachedir))
 
 
-def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
+def memory_and_disk_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     def decorator(func):
         return memory_cache(*args, **kwargs)(disk_only_cache(*args, cachedir=cachedir, **kwargs)(func))
     return decorator
