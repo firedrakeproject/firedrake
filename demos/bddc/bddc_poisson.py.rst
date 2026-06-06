@@ -64,7 +64,7 @@ using cubic (:math:`Q_3`) Lagrange elements under a cellwise BDDC structure.
 The degrees of freedom are decoupled along the shared edges, preserving strict
 continuity exclusively at the shared primal vertices.
 
-.. figure:: cellwise_bddc_3x3_k.svg
+.. figure:: cellwise_bddc_3x3.svg
    :align: center
 
 
@@ -131,7 +131,7 @@ right-hand side. ::
       solver = LinearVariationalSolver(problem, solver_parameters=params)
       solver.solve()
 
-      # Gather execution metrics
+      # Gather execution statistics
       iterations = solver.snes.getLinearSolveIterations()
       evals = solver.snes.ksp.computeEigenvalues().real
       kappa = max(evals, key=abs) / min(evals, key=abs)
@@ -195,7 +195,7 @@ at the end of the runtime::
       results.append([level, dofs, iters, kappa])
 
   # Print a formatted table of performance statistics 
-  header = ["Level", "DoFs", "Iterations", "Est. Condition Number (kappa)"]
+  header = ["Level", "DoFs", "Iterations", "Est. Condition Number"]
   print(f"\n{header[0]:<7} | {header[1]:<8} | {header[2]:<10} | {header[3]}")
   print("-" * 65)
   for row in results:
@@ -215,10 +215,10 @@ Below is an example of what the performance output looks like when executed:
 ======== ======== ============ =====================
   Level    DoFs    Iterations  Est. Condition Number
 ======== ======== ============ =====================
-0         441        11           2.0226
-1         1681       11           2.0944
-2         6561       11           2.1077
-3         25921      11           2.1099
+0         441        20           5.6086
+1         1681       21           5.7795
+2         6561       21           5.8681
+3         25921      21           5.9042
 ======== ======== ============ =====================
 
 A runnable python version of this demo can be found :demo:`here
