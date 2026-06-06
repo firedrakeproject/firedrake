@@ -1657,10 +1657,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
         return compute_layouts(self)
 
-    @property
-    def buffer_slice(self) -> slice:
-        assert isinstance(self.local_size, numbers.Integral)
-        return slice(0, self.local_size, 1)
+    def buffer_slice(self, *, include_ghosts: bool) -> slice:
+        size = self.local_size if include_ghosts else self.owned.local_size
+        return slice(0, size, 1)
 
     def buffer_size(self, *, include_ghosts: bool) -> int:
         if include_ghosts:
@@ -2107,8 +2106,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
 
     unindexed = pyop3.record.attr("_unindexed")
 
-    @property
-    def buffer_slice(self):
+    def buffer_slice(self, **kwargs):
         raise NotImplementedError
 
     # }}}
