@@ -357,18 +357,22 @@ def get_primal_indices(V, primal_markers):
 def get_entity_coordinates(V):
     mesh = V.mesh()
     plex = mesh.topology_dm
-    num_dofs = V.dof_dset.layout_vec.getSizes()[0] * V.block_size
+    num_dofs = V.dof_dset.layout_vec.getSizes()[0]
     section = V.dm.getLocalSection()
-
     vstart, vend = plex.getDepthStratum(0)
     coords = numpy.empty((num_dofs, mesh.geometric_dimension))
+
     plex_coords = plex.getCoordinates().getArray().reshape(-1, coords.shape[1])
+
+    P1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+    plex_coords = Function(P1).interpolate(mesh.coordinates).dat.data_ro_with_halos
+
     for p in range(*plex.getChart()):
         dof = section.getDof(p)
         if dof <= 0:
             continue
         off = section.getOffset(p)
-        V_slice = slice(off*V.block_size, V.block_size * (off + dof))
+        V_slice = slice(off, off + dof)
 
         closure, _ = plex.getTransitiveClosure(p, useCone=True)
         pverts = [q - vstart for q in closure if vstart <= q < vend]
