@@ -1,7 +1,7 @@
 Cellwise Balancing Domain Decomposition by Constraints
 ======================================================
 
-Contributed by `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
+Contributed by `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_ and `Stefano Zampini <stefano.zampini@gmail.com>`_.
 
 In this demo, we demonstrate how to configure and use Firedrake's Balancing Domain
 Decomposition by Constraints (BDDC) preconditioners. BDDC is an 
@@ -15,36 +15,34 @@ Multielement subdomains in BDDC
 
 In standard substructuring and domain decomposition methods, a global mesh is 
 partitioned into subdomains consisting of clusters of elements (typically via graph partitioners like METIS). 
-Continuity across the subdomain edges/faces is removed and variationally enforced,
-with the exception of `primal nodes` located at the crossing points of the domain decomposition.
+Continuity across the subdomain edges/faces is removed and variationally enforced only at selected degrees of freedom (DOFs),
+refered to as `primal`; for example, continuity can be enforced at the DOFs located at crossing points of the domain decomposition.
 
 Applying the BDDC preconditioner involves solving three types of subproblems: 
 
-* **Dirichlet subproblems including primal nodes** which invert local interior degrees of freedom independently within each subdomain,
+* **Dirichlet subproblems** which solve for local interior degrees of freedom independently within each subdomain,
 
-* **Neumann subproblems excluding primal nodes** which handle the local boundary/interface variables subject to floating subdomain constraints,
+* **Neumann subproblems** which extend the Dirichlet subproblems by handling the local boundary/interface variables, and are constrained to have zero component on the primal dofs,
 
-* a global **coarse subproblem** which globally couples primal nodes to preserve long-range communication. 
+* a global **coarse subproblem** which globally couples primal degrees of freedom to preserve long-range communication and ensure scalability of the preconditioner.
 
-To evaluate these local Dirichlet and Neumann operators 
-efficiently without globally coupling the equations beforehand, the monolithic 
+To evaluate the Neumann operators, 
+equations must not be coupled at the interface among subdomains beforehand, and the monolithic 
 system matrix must not be assembled into a standard ``MatAIJ`` sparse format.
 For BDDC to work on subdomains aligned with the parallel mesh partition, it is
-crucial to to build the matrix using PETSc's native ``MatIS`` format by
+mandatory to build the matrix using PETSc's native ``MatIS`` format by
 specifying ``"mat_type": "is"`` in the solver parameters. By keeping the
 operator explicitly in this form, each subdomain maintains a local unassembled matrix.  
 The assembly is done implicitly through the local-to-global mapping index set (``IS``).
-This layout lets PETSc extract boundary topologies natively and
-perform local algebraic factorization in parallel.
 
 Algebraically, the ``MatIS`` format represents the global operator :math:`A_{\text{global}}`
-as a sum of products involving the local subdomain matrices and Boolean restriction matrices:
+as a sum of products involving the local subdomain matrices and the local-to-global maps:
 
 .. math::
-  A_{\text{global}} = \sum_{k=1}^{N_{\text{sub}}} R_k^\top A_{\text{local}}^{(k)} R_k
+  A_{\text{global}} = \sum_{k=1}^{N_{\text{sub}}} \Pi_k^\top A_{\text{local}}^{(k)} \Pi_k
 
 Where :math:`N_{\text{sub}}` is the number of subdomains, :math:`A_{\text{local}}^{(k)}` is the partially 
-assembled local matrix for subdomain :math:`\Omega_k`, and :math:`R_k` is the **Boolean restriction operator** 
+assembled local matrix for subdomain :math:`\Omega_k`, and :math:`\Pi_k` is the **local-to-global map** 
 mapping global degrees of freedom to local ones.
 
 
@@ -53,7 +51,7 @@ Cellwise Subdomains in BDDC
 
 When ``"bddc_cellwise": True`` is passed to Firedrake's BDDC configuration, the
 decomposition layout shifts to an extreme limit: **every individual element in
-the mesh becomes its own subdomain**.
+the mesh becomes a subdomain**.
 
 In this setting, ``BDDCPC`` constructs an internal ``MatIS`` matrix with the
 cellwise subdomains from a rediscretisation using a ``BrokenElement``. So the
@@ -116,17 +114,13 @@ right-hand side. ::
       u = TrialFunction(V)
       v = TestFunction(V)
 
-      # Right-hand side source term
-      x = SpatialCoordinate(mesh)
-      f = sin(x[0]*pi) * cos(x[1]*pi)
-
       # Bilinear and linear forms
       a = inner(grad(u), grad(v)) * dx
 
       rg = RandomGenerator(PCG64(seed=123456789))
       L = rg.uniform(V.dual(), -1, 1)
 
-      # Boundary conditions (zero on all external walls)
+      # Boundary conditions
       bcs = DirichletBC(V, 0, "on_boundary")
 
       # Define an empty solution function
@@ -145,7 +139,10 @@ right-hand side. ::
       return V.dim(), iterations, kappa
 
 Below we specify the BDDC solver parameters with cellwise subdomains,
-note that this option is only available with a matrix-free operator. ::
+note that this option is only available with a matrix-free operator. By default
+BDDC uses corner and edge-average primal dofs. In two dimensions, the latter
+are useful if we have heterogeneous coefficients in the PDE. In this example,
+we have a constant coefficient problem, and we thus disable edge averages. ::
 
   # Define the base direct solver configuration for the subproblems
   chol_params = {
@@ -174,6 +171,9 @@ note that this option is only available with a matrix-free operator. ::
       "bddc_pc_bddc_neumann": chol_params,
       "bddc_pc_bddc_dirichlet": chol_params,
       "bddc_pc_bddc_coarse": chol_params,
+      
+      # Use only corner primal dofs
+      "bddc_pc_bddc_use_edges" : False,
   }
 
 
@@ -194,7 +194,7 @@ at the end of the runtime::
       dofs, iters, kappa = run_poisson(mesh, cellwise_bddc_params)
       results.append([level, dofs, iters, kappa])
 
-  # Print a formatted table of performance characteristics
+  # Print a formatted table of performance statistics 
   header = ["Level", "DoFs", "Iterations", "Est. Condition Number (kappa)"]
   print(f"\n{header[0]:<7} | {header[1]:<8} | {header[2]:<10} | {header[3]}")
   print("-" * 65)
@@ -208,7 +208,7 @@ When executed, the script outputs a table showing the scaling behavior of the
 BDDC preconditioner. BDDC typically yields condition number bounds that grow
 quasi-optimally as :math:`\mathcal{O}(1 + \log^2(H/h))`, where :math:`H` is
 the subdomain size and :math:`h` is the mesh size. For cellwise subdomains
-the ratio :math:`H/h` is always 1.
+the ratio :math:`H/h` is equal to one.
 
 Below is an example of what the performance output looks like when executed:
 
