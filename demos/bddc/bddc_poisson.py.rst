@@ -13,16 +13,16 @@ high anisotropy in the mesh or the coefficients.
 Multielement subdomains in BDDC
 -------------------------------
 
-In standard substructuring and domain decomposition methods, a global mesh is 
-partitioned into subdomains consisting of clusters of elements (typically via graph partitioners like METIS). 
-Continuity across the subdomain edges/faces is removed and variationally enforced only at selected degrees of freedom (DOFs),
-refered to as `primal`; for example, continuity can be enforced at the DOFs located at crossing points of the domain decomposition.
+In standard domain decomposition methods, a global mesh is 
+partitioned into subdomains consisting of several elements (typically via graph partitioners like METIS). 
+Continuity across the subdomain edges/faces is removed and variationally enforced only at selected degrees of freedom (DoFs),
+refered to as `primal`; for example, continuity can be enforced at the DoFs located at crossing points of the domain decomposition.
 
 Applying the BDDC preconditioner involves solving three types of subproblems: 
 
 * **Dirichlet subproblems** which solve for local interior degrees of freedom independently within each subdomain,
 
-* **Neumann subproblems** which extend the Dirichlet subproblems by handling the local boundary/interface variables, and are constrained to have zero component on the primal dofs,
+* **Neumann subproblems** which extend the Dirichlet subproblems by handling the local boundary/interface variables, and are constrained to have zero component on the primal DoFs,
 
 * a global **coarse subproblem** which globally couples primal degrees of freedom to preserve long-range communication and ensure scalability of the preconditioner.
 
@@ -46,14 +46,14 @@ assembled local matrix for subdomain :math:`\Omega_k`, and :math:`\Pi_k` is the 
 mapping global degrees of freedom to local ones.
 
 
-Cellwise Subdomains in BDDC
+Cellwise subdomains in BDDC
 ---------------------------
 
 When ``"bddc_cellwise": True`` is passed to Firedrake's BDDC configuration, the
 decomposition layout shifts to an extreme limit: **every individual element in
 the mesh becomes a subdomain**.
 
-In this setting, ``BDDCPC`` constructs an internal ``MatIS`` matrix with the
+In this setting, :class:`~.BDDCPC` constructs an internal ``MatIS`` matrix with the
 cellwise subdomains from a rediscretisation using a ``BrokenElement``. So the
 matrix type set in the solver parameters only defines the matrix used in the
 residual update in the Krylov method and not the internal matrix in the
@@ -84,11 +84,10 @@ The weak problem statement is: find :math:`u \in V` such that
 .. math::
   a(u, v) = L(v) \quad \forall v \in V,
 
-where the bilinear form $a(\cdot, \cdot)$ and linear form $L(\cdot)$ are defined as:
+where the bilinear form :math:`a(\cdot, \cdot)` and linear form :math:`L(\cdot)` are defined as:
 
 .. math::
-  a(u, v) = \int_{\Omega} \nabla u \cdot \nabla v \, \mathrm{d}x,
-
+  a(u, v) = \int_{\Omega} \nabla u \cdot \nabla v \, \mathrm{d}x, \quad
   L(v) = \int_{\Omega} f v \, \mathrm{d}x.
 
 
@@ -97,7 +96,7 @@ Setting up the problem and the solver
 
 We wrap the problem definition and solver logic into a single reusable utility
 function. We then run this problem across a sequence of progressively refined
-meshes generated via a ``MeshHierarchy``, tracking how the condition number
+meshes generated via a :func:`~.MeshHierarchy`, tracking how the condition number
 behaves as the mesh is refined.
 
 We begin by importing Firedrake and defining the problem as usual.  To
@@ -107,8 +106,11 @@ right-hand side. ::
   from firedrake import *
 
   def run_poisson(mesh, params):
-      # Build a standard high-order Lagrange space
+      # Build a high-order Lagrange space
       V = FunctionSpace(mesh, "CG", 5)
+      
+      # Define an empty solution function
+      uh = Function(V, name="solution")
 
       # Define trial and test functions
       u = TrialFunction(V)
@@ -122,9 +124,6 @@ right-hand side. ::
 
       # Boundary conditions
       bcs = DirichletBC(V, 0, "on_boundary")
-
-      # Define an empty solution function
-      uh = Function(V)
 
       # Instantiate and invoke the variational solver
       problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
@@ -140,7 +139,7 @@ right-hand side. ::
 
 Below we specify the BDDC solver parameters with cellwise subdomains,
 note that this option is only available with a matrix-free operator. By default
-BDDC uses corner and edge-average primal dofs. In two dimensions, the latter
+BDDC uses corner and edge-average primal DoFs. In two dimensions, the latter
 are useful if we have heterogeneous coefficients in the PDE. In this example,
 we have a constant coefficient problem, and we thus disable edge averages. ::
 
@@ -172,7 +171,7 @@ we have a constant coefficient problem, and we thus disable edge averages. ::
       "bddc_pc_bddc_dirichlet": chol_params,
       "bddc_pc_bddc_coarse": chol_params,
       
-      # Use only corner primal dofs
+      # Use only corner primal DoFs
       "bddc_pc_bddc_use_edges" : False,
   }
 
@@ -180,21 +179,16 @@ we have a constant coefficient problem, and we thus disable edge averages. ::
 Next, we establish our mesh hierarchy loop and print out the performance metrics
 at the end of the runtime::
 
-  # --- Execution over a Mesh Hierarchy ---
-
-  # Define a base square mesh
+  refinements = 3
   base_mesh = UnitSquareMesh(4, 4)
-
-  # Generate a hierarchy of 3 refinement levels
-  n_levels = 3
-  mh = MeshHierarchy(base_mesh, n_levels)
+  mh = MeshHierarchy(base_mesh, refinements)
 
   results = []
   for level, mesh in enumerate(mh):
-      dofs, iters, kappa = run_poisson(mesh, cellwise_bddc_params)
-      results.append([level, dofs, iters, kappa])
+      ndofs, iters, kappa = run_poisson(mesh, cellwise_bddc_params)
+      results.append([level, ndofs, iters, kappa])
 
-  # Print a formatted table of performance statistics 
+  # Print a formatted table of solver statistics 
   header = ["Level", "DoFs", "Iterations", "Est. Condition Number"]
   print(f"\n{header[0]:<7} | {header[1]:<8} | {header[2]:<10} | {header[3]}")
   print("-" * 65)
