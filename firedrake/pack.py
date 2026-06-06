@@ -13,7 +13,7 @@ from immutabledict import immutabledict as idict
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
-from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry
+from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed
 from firedrake.matrix import Matrix
 from firedrake.mesh import IterationSpec
 
@@ -475,10 +475,13 @@ def _requires_orientation(space: WithGeometry) -> bool:
 
 def iter_space(space: WithGeometry):
     """Index-friendly iterator for function spaces."""
-    if len(space) == 1:
-        yield (Ellipsis, space)
+    if is_mixed(space):
+        yield from (
+            (label, subspace)
+            for label, subspace in zip(space._labels, space, strict=True)
+        )
     else:
-        yield from ((label, subspace) for label, subspace in zip(space._labels, space, strict=True))
+        yield (Ellipsis, space)
 
 
 @contextlib.contextmanager

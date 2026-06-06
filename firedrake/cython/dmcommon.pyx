@@ -4293,6 +4293,9 @@ def submesh_create(PETSc.DM dm,
     subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
+
+    set the new point sf on the dm...
+
     return subdm
 
 

@@ -113,7 +113,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if functionspaceimpl.is_mixed(self.function_space()):
             subfuncs = []
             for i, component in enumerate(self.dat.axes.trees[0].root.components):
                 subspace = self.function_space().sub(i)

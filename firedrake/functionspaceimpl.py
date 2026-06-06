@@ -660,7 +660,10 @@ class AbstractFunctionSpace:
     @cached_property
     @deprecated("axes.template_vec")
     def template_vec(self):
-        block_shape = self.shape if len(self) == 1 else ()
+        if is_mixed(self):
+            block_shape = ()
+        else:
+            block_shape = self.shape
         return self.layout_axes.template_vec(block_shape)
 
     @cached_method()
@@ -682,7 +685,7 @@ class AbstractFunctionSpace:
 
         """
         lgmap_axes = self.axes
-        if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
+        if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
@@ -692,7 +695,7 @@ class AbstractFunctionSpace:
         # track which BCs are used so we can warn if any are missed
         unused_bcs = set(bcs)
         if index is None:  # The lgmap is for the full space
-            if len(self) > 1:
+            if is_mixed(self):
                 split_bcs = []
                 for subspace in self:
                     matching_bcs = []
@@ -781,7 +784,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("cell_node_map_dat.data_ro")
     def cell_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize, "
                 "use a DoF list instead."
@@ -791,7 +794,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("exterior_facet_node_map_dat.data_ro")
     def exterior_facet_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize, "
                 "use a DoF list instead."
@@ -801,7 +804,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("interior_facet_node_map_dat.data_ro")
     def interior_facet_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize "
                 "because the strides between nodes are not constant as they are "
@@ -898,7 +901,7 @@ class AbstractFunctionSpace:
         #     └──➤ {field: [{functionspace0: 1}, {functionspace1: 1}]}
         #          ├──➤ {some_label: 2}
         #          └──➤ {some_label: 1}
-        if len(self) > 1:
+        if is_mixed(self):
             map_dof_axes = iterset_axes.add_axis(None, packed_offsets.axes.root)
             for label, subspace in zip(self._labels, self):
                 path = iterset_axes.leaf_path | {"field": label}
@@ -1606,7 +1609,7 @@ class FunctionSpace(AbstractFunctionSpace):
             Entity node map.
 
         """
-        if len(self) > 1:
+        if is_mixed(self):
             raise NotImplementedError("will this work?")
 
         iter_mesh = iteration_spec.mesh
@@ -2558,3 +2561,23 @@ def entity_permutations_key(entity_permutations):
         key.append(tuple(sub_key))
     key = tuple(key)
     return key
+
+
+@functools.singledispatch
+def is_mixed(obj) -> bool:
+    raise TypeError
+
+
+@is_mixed.register
+def _(elem: finat.ufl.FiniteElementBase) -> bool:
+    return type(elem) is finat.ufl.MixedElement
+
+
+@is_mixed.register
+def _(V: WithGeometryBase | AbstractFunctionSpace) -> bool:
+    return is_mixed(V.ufl_element())
+
+
+@is_mixed.register
+def _(arg: ufl.Argument, /) -> bool:
+    return is_mixed(arg.ufl_function_space())

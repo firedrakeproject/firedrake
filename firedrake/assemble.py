@@ -28,7 +28,7 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
+from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace, is_mixed
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
@@ -1504,7 +1504,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @staticmethod
     def _make_sparsity(test, trial, mat_spec, maps_and_regions):
         # Is this overly restrictive?
-        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_spec.mat_type == "baij":
+        if any(is_mixed(a) for a in [test, trial]) and mat_spec.mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
         sparsity = op3.Mat.sparsity(
@@ -1522,7 +1522,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         for loop_info, (test_index, trial_index) in maps_and_regions:
             # If indices are 'None' then this means all to allocate for all spaces
             if test_index is None:
-                if len(test.function_space()) > 1:
+                if is_mixed(test):
                     test_spaces = tuple(test.function_space())
                     test_indices = test.function_space().field_axis.component_labels
                 else:
@@ -1533,7 +1533,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 test_index = test.function_space().field_axis.component_labels[test_index]
                 test_indices = (test_index,)
             if trial_index is None:
-                if len(trial.function_space()) > 1:
+                if is_mixed(trial):
                     trial_spaces = tuple(trial.function_space())
                     trial_indices = trial.function_space().field_axis.component_labels
                 else:
