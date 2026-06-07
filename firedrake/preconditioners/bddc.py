@@ -297,8 +297,7 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
     if mat_type == "is" and (V.ufl_element().sobolev_space == H1 or V.finat_element.complex.is_macrocell()):
-        Jdet = JacobianDeterminant(V.mesh())
-        form = inner(div(TrialFunction(V))*Jdet/abs(Jdet), TestFunction(Q)) * dx
+        form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
         B, _ = create_matis(form, "aij", allow_repeated)
     else:
         B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
