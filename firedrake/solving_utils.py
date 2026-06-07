@@ -476,12 +476,12 @@ class _SNESContext(object):
         with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
-        if not ctx.pre_apply_bcs:
-            # Compute DirichletBC residual
+        if ctx.pre_apply_bcs:
+            # Apply DirichletBC on the solution
             for bc in ctx._problem.dirichlet_bcs():
-                bc.apply(ctx._bc_residual, u=ctx._x)
+                bc.apply(ctx._x)
 
-        return ctx._assemble_objective(current_state=ctx._x)
+        return ctx._assemble_objective()
 
     @staticmethod
     def form_function(snes, X, F):

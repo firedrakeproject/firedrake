@@ -40,7 +40,7 @@ def check_pde_args(F, J, Jp, E=None):
         if not isinstance(E, (ufl.BaseForm, slate.slate.TensorBase)):
             raise TypeError("Provided objective is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
         if len(E.arguments()) != 0:
-            raise ValueError("Provided objective is not a linear form")
+            raise ValueError("Provided objective is not a 0-form")
 
 
 def is_form_consistent(is_linear, bcs):
