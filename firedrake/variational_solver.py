@@ -23,7 +23,7 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
-def check_pde_args(F, J, Jp):
+def check_pde_args(F, J, Jp, E=None):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
@@ -36,6 +36,11 @@ def check_pde_args(F, J, Jp):
         raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
+    if E is not None:
+        if not isinstance(E, (ufl.BaseForm, slate.slate.TensorBase)):
+            raise TypeError("Provided objective is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+        if len(E.arguments()) != 0:
+            raise ValueError("Provided objective is not a linear form")
 
 
 def is_form_consistent(is_linear, bcs):
@@ -52,6 +57,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
+                 objective=None,
                  form_compiler_parameters=None,
                  is_linear=False, restrict=False):
         r"""
@@ -62,6 +68,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :param Jp: a form used for preconditioning the linear system,
                  optional, if not supplied then the Jacobian itself
                  will be used.
+        :param objective: a form used for line-search, optional
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
@@ -79,6 +86,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
+        self.E = objective
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
@@ -119,7 +127,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.Jp_eq_J = Jp is None
 
         # Argument checking
-        check_pde_args(self.F, self.J, self.Jp)
+        check_pde_args(self.F, self.J, self.Jp, E=self.E)
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
@@ -304,6 +312,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
 
+        ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
@@ -353,12 +362,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
            ``vinewtonssls`` or ``vinewtonrsls``.
         """
         # Make sure the DM has this solver's callback functions
+        self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp)
+        forms = (problem.F, problem.J, problem.Jp, problem.E)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem

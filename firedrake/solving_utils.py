@@ -231,6 +231,7 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
         Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
@@ -260,6 +261,12 @@ class _SNESContext(object):
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
+        self._assemble_objective = lambda *args, **kwargs: args
+        if self.E:
+            self._assemble_objective = get_assembler(self.E,
+                                                     form_compiler_parameters=self.fcp,
+                                                     ).assemble
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -341,6 +348,12 @@ class _SNESContext(object):
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
+
+    def set_objective(self, snes):
+        if self._problem.E:
+            snes.setObjective(self.form_objective)
+        else:
+            snes.setObjective(None)
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -448,6 +461,27 @@ class _SNESContext(object):
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
         return self._splits.setdefault(tuple(fields), splits)
+
+    @staticmethod
+    def form_objective(snes, X):
+        r"""Form the objective for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X: the current guess (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
+
+        if not ctx.pre_apply_bcs:
+            # Compute DirichletBC residual
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._bc_residual, u=ctx._x)
+
+        return ctx._assemble_objective(current_state=ctx._x)
 
     @staticmethod
     def form_function(snes, X, F):
