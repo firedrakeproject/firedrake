@@ -75,7 +75,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -100,9 +100,13 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
         HCurl: curl,
         HDiv: div,
     }[V.ufl_element().sobolev_space]
-
     formdegree = V.finat_element.formdegree
-    if formdegree == 0:
+
+    if elasticity:
+        gamma = Constant(1E4)
+        a = (inner(grad(u) + grad(u).T, grad(v)) * dx
+             + inner(div(u) * gamma, div(v)) * dx)
+    elif formdegree == 0:
         a = inner(d(u), d(v)) * dx
     else:
         a = (inner(u, v) + inner(d(u), d(v))) * dx
@@ -111,7 +115,17 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     L = replace(a, {u: u_exact})
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
     nsp = None
-    if formdegree == 0:
+    if elasticity:
+        x = SpatialCoordinate(mesh)
+        RM = [Constant(ej) for ej in np.eye(len(x))]
+        if len(x) == 2:
+            RM.append(perp(x))
+        else:
+            constants = list(RM)
+            RM.extend(cross(c, x) for c in constants)
+        nsp = VectorSpaceBasis([Function(V).interpolate(r) for r in RM])
+        nsp.orthonormalize()
+    elif formdegree == 0:
         b = np.zeros(V.value_shape)
         expr = Constant(b)
         basis = []
@@ -251,6 +265,17 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     base = UnitCubeMesh(2, 2, 2)
     meshes = MeshHierarchy(base, 2)
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise) for m in meshes]
+    assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parametrize("family,degree,cellwise", [("GN", 1, True), ("MTW", 1, True)])
+def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
+    """Test h-dependence of condition number by measuring iteration counts"""
+    variant = None
+    bcs = True
+    base = UnitSquareMesh(2, 2)
+    meshes = MeshHierarchy(base, 2)
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, elasticity=True) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 

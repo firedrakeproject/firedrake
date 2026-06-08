@@ -296,7 +296,7 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    if mat_type == "is" and (V.ufl_element().sobolev_space == H1 or V.finat_element.complex.is_macrocell()):
+    if V.finat_element.complex.is_macrocell():
         form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
         B, _ = create_matis(form, "aij", allow_repeated)
     else:
@@ -358,6 +358,9 @@ def get_primal_indices(V, primal_markers):
 
 
 def get_entity_coordinates(V):
+    """Return a Function with the coordinates of the entity associated to each
+    degree of freedom of a FunctionSpace.
+    """
     mesh = V.mesh()
     plex = mesh.topology_dm
     num_dofs = V.dof_dset.layout_vec.getSizes()[0]
