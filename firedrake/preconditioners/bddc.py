@@ -297,10 +297,12 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    tdim = V.mesh().topological_dimension
-    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != tdim-1:
+    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
         form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
-        B, _ = create_matis(form, "aij", allow_repeated)
+        if allow_repeated:
+            B, _ = create_matis(form, "aij", allow_repeated)
+        else:
+            B = assemble(form, mat_type=mat_type).petscmat
     else:
         B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
         Jdet = JacobianDeterminant(V.mesh())

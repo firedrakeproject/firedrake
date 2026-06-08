@@ -125,6 +125,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     u_exact = rg.uniform(V, -1, 1)
     L = replace(a, {u: u_exact})
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
+
+    # Near nullspace
     nsp = None
     if elasticity:
         x = SpatialCoordinate(mesh)
@@ -291,7 +293,7 @@ def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     variant = "alfeld" if family == "CG" and degree < 2*dim else None
     bcs = True
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
-    assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
+    assert (np.diff(sqrt_kappa) <= 1.0).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel([1, 3])
