@@ -193,7 +193,9 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-5 if single_mode else 1e-10
+    # fp32: the round-trip error grows with the autoregressive order m
+    # (each m adds nested solves whose round-off accumulates).
+    tol = ({0: 1e-5, 2: 1e-3, 4: 1e-2}[m] if single_mode else 1e-10)
 
     assert errornorm(w, wcheck) < tol
 
@@ -231,7 +233,8 @@ def test_covariance_inverse_action_hdiv(m):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-3 if single_mode else 1e-8
+    # fp32: round-trip error grows with the autoregressive order m (nested solves).
+    tol = ({0: 1e-5, 2: 1e-3, 4: 1e-2}[m] if single_mode else 1e-8)
 
     assert errornorm(w, wcheck) < tol
 

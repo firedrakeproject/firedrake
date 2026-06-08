@@ -3,6 +3,7 @@ import numpy as np
 
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 
 
 @pytest.mark.skipcomplex
@@ -160,8 +161,10 @@ def test_real_extruded_mixed_one_form_assembly(coefficient):
 
     AA = assemble(qq * dx)
 
+    # fp32: summing the extruded layers loses precision past ~5 decimals
     np.testing.assert_almost_equal(A.dat.data[1],
-                                   AA.dat.data)
+                                   AA.dat.data,
+                                   decimal=5 if single_mode else 7)
 
 
 @pytest.mark.skipcomplex

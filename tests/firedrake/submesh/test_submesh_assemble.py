@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.cython import dmcommon
+from firedrake.utils import single_mode
 from petsc4py import PETSc
 
 
@@ -282,11 +283,11 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_avg():
     assert abs(assemble(cell_avg(x_rl) * dx(label_rl)) - 2.5) < 5.e-16
     assert abs(assemble(cell_avg(x_rl) * dx_l(label_rl)) - 2.5) < 5.e-16
     assert abs(assemble(cell_avg(x_l) * dx_rl) - 2.5) < 5.e-16
-    assert abs(assemble(facet_avg(y * y) * dS(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y('+') * y('-')) * ds_rl(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y_rl * y_rl) * dS(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y_rl * y_rl) * dS_l(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y_l('+') * y_l('-')) * ds_rl(label_int)) - 1. / 3.) < 5.e-16
+    assert abs(assemble(facet_avg(y * y) * dS(label_int)) - 1. / 3.) < (1e-5 if single_mode else 5.e-16)
+    assert abs(assemble(facet_avg(y('+') * y('-')) * ds_rl(label_int)) - 1. / 3.) < (1e-5 if single_mode else 5.e-16)
+    assert abs(assemble(facet_avg(y_rl * y_rl) * dS(label_int)) - 1. / 3.) < (1e-5 if single_mode else 5.e-16)
+    assert abs(assemble(facet_avg(y_rl * y_rl) * dS_l(label_int)) - 1. / 3.) < (1e-5 if single_mode else 5.e-16)
+    assert abs(assemble(facet_avg(y_l('+') * y_l('-')) * ds_rl(label_int)) - 1. / 3.) < (1e-5 if single_mode else 5.e-16)
 
 
 def test_submesh_assemble_cell_cell_equation_bc():
@@ -456,28 +457,29 @@ def test_submesh_assemble_quad_triangle_base():
     ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     A_t = assemble(Constant(1) * dx_t)
     A_q = assemble(Constant(1) * dx_q)
-    assert abs(A_t + A_q - 1.0) < 1.e-13
+    assert abs(A_t + A_q - 1.0) < (1e-5 if single_mode else 1.e-13)
     HDiv_t = FunctionSpace(mesh_t, "BDM", 3)
     HDiv_q = FunctionSpace(mesh_q, "RTCF", 3)
     hdiv_t = Function(HDiv_t).interpolate(as_vector([x_t**2, y_t**2]))
-    hdiv_q = Function(HDiv_q).project(as_vector([x_q**2, y_q**2]), solver_parameters={"ksp_rtol": 1.e-13})
+    hdiv_q = Function(HDiv_q).project(as_vector([x_q**2, y_q**2]),
+                                      solver_parameters={"ksp_rtol": 1e-5 if single_mode else 1.e-13})
     v_t = assemble(dot(hdiv_q, as_vector([x_q, y_q])) * ds_t(label_interf))
     v_q = assemble(dot(hdiv_t, as_vector([x_t, y_t])) * ds_q(label_interf))
-    assert abs(v_q - v_t) < 1.e-13
+    assert abs(v_q - v_t) < (1e-5 if single_mode else 1.e-13)
     v_t = assemble(dot(hdiv_q, as_vector([x_t, y_t])) * ds_t(label_interf))
     v_q = assemble(dot(hdiv_t, as_vector([x_q, y_q])) * ds_q(label_interf))
-    assert abs(v_q - v_t) < 1.e-13
+    assert abs(v_q - v_t) < (1e-5 if single_mode else 1.e-13)
     v_t = assemble(dot(hdiv_q, as_vector([x_q, y_t])) * ds_t(label_interf))
     v_q = assemble(dot(hdiv_t, as_vector([x_t, y_q])) * ds_q(label_interf))
-    assert abs(v_q - v_t) < 1.e-13
+    assert abs(v_q - v_t) < (1e-5 if single_mode else 1.e-13)
     v = assemble(inner(n_t, as_vector([888., 999.])) * ds_t(label_interf))
-    assert abs(v) < 1.e-13
+    assert abs(v) < (1e-5 if single_mode else 1.e-13)
     v = assemble(inner(n_q, as_vector([888., 999.])) * ds_q(label_interf))
-    assert abs(v) < 1.e-13
+    assert abs(v) < (1e-5 if single_mode else 1.e-13)
     v = assemble(inner(n_q, as_vector([888., 999.])) * ds_t(label_interf))
-    assert abs(v) < 1.e-13
+    assert abs(v) < (1e-5 if single_mode else 1.e-13)
     v = assemble(inner(n_t, as_vector([888., 999.])) * ds_q(label_interf))
-    assert abs(v) < 1.e-13
+    assert abs(v) < (1e-5 if single_mode else 1.e-13)
     v = assemble(dot(n_q + n_t, n_q + n_t) * ds_t(label_interf))
     assert abs(v) < 1.e-30
     v = assemble(dot(n_q + n_t, n_q + n_t) * ds_q(label_interf))

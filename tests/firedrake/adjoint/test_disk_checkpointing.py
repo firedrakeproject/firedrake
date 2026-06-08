@@ -3,6 +3,7 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 from firedrake.adjoint_utils.checkpointing import disk_checkpointing
+from firedrake.utils import single_mode
 from pyadjoint.tape import set_working_tape, continue_annotation
 from checkpoint_schedules import SingleDiskStorageSchedule
 from mpi4py import MPI
@@ -68,7 +69,6 @@ def adjoint_example(fine, coarse=None):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.skipsingle  # supermesh projection uses libsupermesh which is double precision internally
 def test_disk_checkpointing():
     # Use a Firedrake Tape subclass that supports disk checkpointing.
     set_working_tape(Tape())
@@ -314,7 +314,7 @@ def test_checkpoint_comm_multi_mesh_parallel():
         with stop_annotating():
             m_new = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
 
-        h = Function(Va).interpolate(Constant(0.1))
+        h = Function(Va).interpolate(Constant(10.0 if single_mode else 0.1))
         assert taylor_test(Jhat, m_new, h) > 1.9
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -414,7 +414,7 @@ def test_sub_comm_multi_mesh_parallel():
         with stop_annotating():
             m_new = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
 
-        h = Function(Va).interpolate(Constant(0.1))
+        h = Function(Va).interpolate(Constant(10.0 if single_mode else 0.1))
         assert taylor_test(Jhat, m_new, h) > 1.9
     finally:
         if MPI.COMM_WORLD.rank == 0:
@@ -460,7 +460,8 @@ def test_sub_comm_adjoint_dependencies_parallel():
             J += assemble(u_np1 * u_np1 * dx)
 
         J_hat = ReducedFunctional(J, Control(c))
-        assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
+        h_val = 10.0 if single_mode else 0.1
+        assert taylor_test(J_hat, c, Function(V).interpolate(h_val)) > (1.8 if single_mode else 1.9)
     finally:
         if MPI.COMM_WORLD.rank == 0:
             shutil.rmtree(tmpdir, ignore_errors=True)

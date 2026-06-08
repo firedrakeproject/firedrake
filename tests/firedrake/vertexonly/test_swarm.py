@@ -372,7 +372,10 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         and not parentmesh.extruded
         and not parentmesh.coordinates.dat.dat_version > 0  # shifted mesh
     ):
-        swarm.setPointCoordinates(localpointcoords, redundant=False,
+        # DMSwarmPIC_coor is stored in double precision, but setPointCoordinates
+        # expects the PETSc real type, so cast (a no-op in double precision).
+        swarm.setPointCoordinates(localpointcoords.astype(PETSc.RealType),
+                                  redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
         cell_id = swarm.getCellDMActive().getCellID()
         petsclocalparentcellindices = np.copy(swarm.getField(cell_id).ravel())

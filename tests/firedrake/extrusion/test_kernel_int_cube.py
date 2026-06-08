@@ -1,6 +1,6 @@
 import numpy as np
 from firedrake import *
-from firedrake.utils import RealType
+from firedrake.utils import RealType, single_mode
 
 
 def integrate_unit_cube(family, degree):
@@ -36,4 +36,4 @@ def test_firedrake_extrusion_unit_cube():
     family = "Lagrange"
     degree = 1
 
-    assert integrate_unit_cube(family, degree) < 1.0e-12
+    assert integrate_unit_cube(family, degree) < (1e-3 if single_mode else 1.0e-12)

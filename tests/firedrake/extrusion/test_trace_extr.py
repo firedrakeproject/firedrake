@@ -36,4 +36,4 @@ def test_trace_galerkin_projection_extr(degree, quad):
              + m*inner(diff('+'), diff('+'))*dS_h + m*inner(diff('+'), diff('+'))*dS_v)
 
     trace_error = sqrt(assemble(error))
-    assert trace_error < 1e-12
+    assert trace_error < (1e-6 if single_mode else 1e-12)

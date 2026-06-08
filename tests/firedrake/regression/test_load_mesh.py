@@ -1,6 +1,7 @@
 from math import pi
 
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 import pytest
 from os.path import abspath, dirname, join
@@ -122,4 +123,4 @@ def test_periodic_3d_solve():
     bc = DirichletBC(V, u_exact_expr, [3, 4, 5, 6])
     solve(a == L, uh, bcs=bc, solver_parameters={"ksp_type": "cg"})
 
-    assert errornorm(u_exact_expr, uh, "L2") < 1e-12
+    assert errornorm(u_exact_expr, uh, "L2") < (1e-4 if single_mode else 1e-12)

@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +40,11 @@ def test_covariance_adjoint_norm(m, family):
 
     m = Function(V).project(sin(2*pi*(x+0.2)))
     h = Function(V).project(sin(4*pi*(x-0.2)))
+    if single_mode:
+        h *= 100.0
 
     taylor = taylor_to_dict(Jhat, m, h)
 
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
-    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+    assert min(taylor['R2']['Rate']) > (2.75 if single_mode else 2.95), taylor['R2']

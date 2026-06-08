@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -20,7 +21,7 @@ def test_left_inverse(mesh, degree):
     A = Tensor(form)
     Result = assemble(A.inv * A)
     nnode = V.node_count
-    assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
+    assert (Result.M.values - np.identity(nnode) <= (1e-5 if single_mode else 1e-13)).all()
 
 
 @pytest.mark.parametrize("degree", range(1, 4))
@@ -34,7 +35,7 @@ def test_right_inverse(mesh, degree):
     A = Tensor(form)
     Result = assemble(A * A.inv)
     nnode = V.node_count
-    assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
+    assert (Result.M.values - np.identity(nnode) <= (1e-5 if single_mode else 1e-13)).all()
 
 
 def test_symmetry(mesh):
@@ -115,7 +116,7 @@ def test_local_solve(decomp):
     b = Tensor(inner(f, v)*dx)
     x = assemble(A.solve(b, decomposition=decomp))
 
-    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1e-5 if single_mode else 1.e-13)
 
 
 @pytest.mark.parametrize("mat_type, rhs_type", [
@@ -149,7 +150,7 @@ def test_inverse_action(mat_type, rhs_type):
 
     x = Function(V)
     assemble(action(Ainv, b), tensor=x)
-    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1e-5 if single_mode else 1.e-13)
 
 
 @pytest.mark.parametrize("mat_type, rhs_type", [
@@ -188,4 +189,4 @@ def test_solve_interface(mat_type, rhs_type):
     problem = LinearVariationalProblem(A, b, x, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
-    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1e-5 if single_mode else 1.e-13)

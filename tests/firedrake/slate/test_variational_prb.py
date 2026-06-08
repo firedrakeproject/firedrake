@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
+from firedrake.utils import single_mode
 from itertools import product
 
 
@@ -89,4 +90,6 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
     solver = LinearVariationalSolver(lvp)
     solver.solve()
 
-    assert np.allclose(uhat_ref.dat.data, t.dat.data, rtol=1.E-12)
+    assert np.allclose(uhat_ref.dat.data, t.dat.data,
+                       rtol=1e-5 if single_mode else 1.E-12,
+                       atol=1e-6 if single_mode else 1e-8)

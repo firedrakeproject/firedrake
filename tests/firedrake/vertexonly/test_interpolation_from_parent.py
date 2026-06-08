@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 from functools import reduce
@@ -217,7 +218,8 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     expr = 2 * SpatialCoordinate(parentmesh)
     v = Function(V).interpolate(expr)
     w_v = assemble(interpolate(v, W))
-    assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
+    assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords),
+                       atol=1e-5 if single_mode else 1e-8)
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
@@ -331,8 +333,12 @@ def test_extruded_cell_parent_cell_list():
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
-    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._dm_renumbering]).all()
-    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._dm_renumbering]).all()
+    # Stored coordinates use the mesh coordinate dtype, so compare against the
+    # input truncated to that dtype (a no-op in double precision).
+    assert np.equal(vms.coordinates.dat.data_ro,
+                    coords[vms.topology._dm_renumbering].astype(vms.coordinates.dat.data_ro.dtype)).all()
+    assert np.equal(vmx.coordinates.dat.data_ro,
+                    coords[vmx.topology._dm_renumbering].astype(vmx.coordinates.dat.data_ro.dtype)).all()
 
     # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
     # per cell which is the expression evaluated at the cell midpoint.

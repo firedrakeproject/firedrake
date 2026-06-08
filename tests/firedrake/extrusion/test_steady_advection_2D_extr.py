@@ -6,6 +6,7 @@ facet integrals.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module')
@@ -67,7 +68,7 @@ def run_left_to_right(mesh, DGDPC0, W):
     # we only use inflow at the left wall, but since the velocity field
     # is parallel to the coordinate axis, the exact solution matches
     # the inflow function
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-14)
 
 
 def test_left_to_right(mesh, DGDPC0, W):
@@ -104,7 +105,7 @@ def run_right_to_left(mesh, DGDPC1, W):
     out = Function(DGDPC1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 2e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 2e-14)
 
 
 def test_right_to_left(mesh, DGDPC1, W):
@@ -141,7 +142,7 @@ def run_bottom_to_top(mesh, DGDPC0, W):
     out = Function(DGDPC0)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-14)
 
 
 def test_bottom_to_top(mesh, DGDPC0, W):
@@ -178,7 +179,7 @@ def run_top_to_bottom(mesh, DGDPC1, W):
     out = Function(DGDPC1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-14)
 
 
 def test_top_to_bottom(mesh, DGDPC1, W):

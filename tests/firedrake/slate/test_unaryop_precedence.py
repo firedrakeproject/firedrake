@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def test_unary_minus():
@@ -21,7 +22,7 @@ def test_unary_minus():
     expr = action(A, uh) - B
 
     assembled_expr = assemble(expr)
-    assert assembled_expr.dat.norm < 1e-9
+    assert assembled_expr.dat.norm < (1e-6 if single_mode else 1e-9)
 
     assembled_expr = assemble(-expr)
-    assert assembled_expr.dat.norm < 1e-9
+    assert assembled_expr.dat.norm < (1e-6 if single_mode else 1e-9)

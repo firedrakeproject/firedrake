@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["square", "cube"], scope="module")
@@ -54,4 +55,5 @@ def test_interpolate_vs_project(V):
 
     f = assemble(interpolate(expression, V))
     expect = project(expression, V)
-    assert np.allclose(f.dat.data, expect.dat.data, atol=1e-06)
+    assert np.allclose(f.dat.data, expect.dat.data,
+                       atol=1e-4 if single_mode else 1e-06)

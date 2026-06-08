@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 from numpy.testing import assert_allclose
@@ -24,7 +25,7 @@ def test_verification():
     assert_allclose(ensemble_J, size, rtol=1e-12)
     dJdm = rf.derivative()
     assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, x, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -68,7 +69,7 @@ def test_verification_gather_functional_adjfloat_taylor():
     rf = EnsembleReducedFunctional(J, Control(x), ensemble,
                                    scatter_control=False,
                                    gather_functional=Jg)
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, x, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -114,7 +115,7 @@ def test_verification_gather_functional_Function_taylor():
     rf = EnsembleReducedFunctional(J, Control(x), ensemble,
                                    scatter_control=False,
                                    gather_functional=Jghat)
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, x, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=3)

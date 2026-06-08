@@ -203,7 +203,12 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     # We create vertex-only meshes using redundant=True by default so check
     # that vm_input has vertices on rank 0 only
     if MPI.COMM_WORLD.rank == 0:
-        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+        # The input ordering stores coordinates in the mesh's coordinate
+        # dtype, so in single precision the round-trip is exact only against
+        # the input truncated to that dtype (a no-op in double precision).
+        assert np.array_equal(
+            vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape),
+            inputvertexcoords.astype(vm_input.coordinates.dat.data_ro.dtype))
     else:
         assert len(vm_input.coordinates.dat.data_ro) == 0
 

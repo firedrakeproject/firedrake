@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 cwd = abspath(dirname(__file__))
 
@@ -36,7 +37,10 @@ def test_bernstein(mesh, degree):
     # Convert Bernstein solution to Lagrange space, and compare it
     # with Lagrange solution
     xp = Function(L).interpolate(xb)
-    assert np.allclose(xl.dat.data, xp.dat.data)
+    # fp32: the two equivalent solves agree only to single-precision round-off
+    assert np.allclose(xl.dat.data, xp.dat.data,
+                       rtol=1e-4 if single_mode else 1e-5,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def helmholtz(V):

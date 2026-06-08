@@ -2,6 +2,7 @@
 of an extruded unit square to 42.
 """
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
@@ -35,8 +36,8 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
 
 
 def test_extrusion_rhs_bcs():
-    assert (run_test(1, 1, quadrilateral=False, test_mode=True) < 1.e-13)
+    assert (run_test(1, 1, quadrilateral=False, test_mode=True) < (1e-5 if single_mode else 1.e-13))
 
 
 def test_extrusion_rhs_bcs_quadrilateral():
-    assert (run_test(1, 1, quadrilateral=True, test_mode=True) < 1.e-13)
+    assert (run_test(1, 1, quadrilateral=True, test_mode=True) < (1e-5 if single_mode else 1.e-13))

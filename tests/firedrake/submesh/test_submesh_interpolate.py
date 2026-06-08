@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 from ufl.conditional import GT, LT
 from os.path import abspath, dirname, join
@@ -54,7 +55,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     interp = interpolate(v1, v0, allow_missing_dofs=True)
     A = assemble(interp)
     g = assemble(action(A, gsub))
-    assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
+    assert assemble(inner(g - f, g - f) * dx(label_value)).real < (1e-10 if single_mode else 1e-14)
 
 
 @pytest.mark.parametrize('nelem', [2, 4, 8, None])

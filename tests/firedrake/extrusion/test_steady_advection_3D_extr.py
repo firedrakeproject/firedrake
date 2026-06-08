@@ -6,6 +6,7 @@ facet integrals.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -79,7 +80,7 @@ def test_left_to_right(mesh, DGDPC1, W):
     # we only use inflow at the left wall, but since the velocity field
     # is parallel to the coordinate axis, the exact solution matches
     # the inflow function
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-6
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-6)
 
 
 def test_right_to_left(mesh, DGDPC0, W):
@@ -107,7 +108,7 @@ def test_right_to_left(mesh, DGDPC0, W):
     out = Function(DGDPC0)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-7
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-7)
 
 
 def test_near_to_far(mesh, DGDPC1, W):
@@ -135,7 +136,7 @@ def test_near_to_far(mesh, DGDPC1, W):
     out = Function(DGDPC1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 3.5e-7
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 3.5e-7)
 
 
 def test_far_to_near(mesh, DGDPC0, W):
@@ -163,7 +164,7 @@ def test_far_to_near(mesh, DGDPC0, W):
     out = Function(DGDPC0)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1.4e-7
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1.4e-7)
 
 
 def test_bottom_to_top(mesh, DGDPC1, W):
@@ -191,7 +192,7 @@ def test_bottom_to_top(mesh, DGDPC1, W):
     out = Function(DGDPC1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-13
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-13)
 
 
 def test_top_to_bottom(mesh, DGDPC0, W):
@@ -219,4 +220,4 @@ def test_top_to_bottom(mesh, DGDPC0, W):
     out = Function(DGDPC0)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1e-14)
