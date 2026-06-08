@@ -368,10 +368,11 @@ class NonlinearVariationalSolverMixin:
                         "MissingMathsError: we do not know how to differentiate through a variational inequality")
 
                 if len(self._ad_solver_cache) == 0:
-                    self._ad_cache_forward_solver()
-                    self._ad_cache_tlm_solver()
-                    self._ad_cache_adj_solver()
-                    self._ad_cache_hessian_solver()
+                    with stop_annotating():
+                        self._ad_cache_forward_solver()
+                        self._ad_cache_tlm_solver()
+                        self._ad_cache_adj_solver()
+                        self._ad_cache_hessian_solver()
 
                 block = CachedSolverBlock(self._ad_problem.u,
                                           self._ad_bcs,
