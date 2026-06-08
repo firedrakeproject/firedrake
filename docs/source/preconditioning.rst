@@ -144,6 +144,15 @@ operator instead.
    used to provide bilinear forms to the solver that were not there
    in the original problem, for example, the pressure mass matrix for
    block preconditioners of the Stokes equations.
+:class:`.AuxiliaryOperatorSNES`
+   Abstract base class for nonlinear preconditioners built from an
+   auxiliary form. This form can be nonlinear. One should subclass this
+   preconditioner and override the `:meth:`.AuxiliaryOperatorSNES.form`
+   method. This class can be used to provide more tractable approximations
+   to the original problem for iterative methods such as Anderson
+   acceleration or NGMRES. For example, you can use an auxiliary SNES to
+   implement the Picard method. Then you can speed up the Picard method
+   with Anderson acceleration.
 :class:`.FDMPC`
    An auxiliary operator that uses piecewise-constant coefficients
    that is assembled in the basis of shape functions that diagonalize
