@@ -86,10 +86,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.E = objective
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
+        self.E = objective
         if isinstance(J, MatrixBase):
             if bcs:
                 raise RuntimeError("It is not possible to apply or change boundary conditions to an already assembled Jacobian; pass any necessary boundary conditions to `assemble` when assembling the Jacobian.")
