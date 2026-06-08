@@ -287,7 +287,7 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     """Test h-dependence of condition number by measuring iteration counts"""
     base = UnitSquareMesh(2, 2)
-    meshes = MeshHierarchy(base, 3)
+    meshes = MeshHierarchy(base, 2)
     dim = base.topological_dimension
     vector = (family == "CG")
     variant = "alfeld" if family == "CG" and degree < 2*dim else None

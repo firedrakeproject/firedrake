@@ -299,7 +299,7 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
 
     if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
         form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
-        if allow_repeated:
+        if mat_type == "is" and allow_repeated:
             B, _ = create_matis(form, "aij", allow_repeated)
         else:
             B = assemble(form, mat_type=mat_type).petscmat
@@ -362,7 +362,7 @@ def get_primal_indices(V, primal_markers):
 
 
 def get_entity_coordinates(V):
-    """Return a Function with the coordinates of the entity associated to each
+    """Return a Function with the coordinates of the entity associated with each
     degree of freedom of a FunctionSpace.
     """
     mesh = V.mesh()
