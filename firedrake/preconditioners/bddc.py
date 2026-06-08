@@ -118,19 +118,16 @@ class BDDCPC(PCBase):
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
         appctx = self.get_appctx(pc)
+
+        # Set coordinates for spaces with DOFs on vertices
+        # or if corner selection is requested
+        # There's no API to query from PC
+        corner_selection = "pc_bddc_corner_selection" in opts
         entity_dofs = V.finat_element.entity_dofs()
         vdofs = entity_dofs[min(entity_dofs)]
-        if any(len(vdofs[v]) > 0 for v in vdofs):
+        has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
+        if corner_selection or has_vertex_dofs:
             bddcpc.setCoordinates(get_entity_coordinates(V))
-
-        # Set coordinates only if corner selection is requested
-        # There's no API to query from PC
-        if "pc_bddc_corner_selection" in opts:
-            degree = max(as_tuple(V.ufl_element().degree()))
-            variant = V.ufl_element().variant()
-            W = VectorFunctionSpace(mesh, "Lagrange", degree, variant=variant)
-            coords = Function(W).interpolate(mesh.coordinates)
-            bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
         tdim = mesh.topological_dimension
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:

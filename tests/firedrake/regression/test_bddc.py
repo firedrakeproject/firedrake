@@ -268,14 +268,16 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
-@pytest.mark.parametrize("family,degree,cellwise", [("GN", 1, True), ("MTW", 1, True)])
+@pytest.mark.parametrize("family,degree,cellwise", [("CG", 4, True), ("GN", 1, True), ("MTW", 1, True)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     """Test h-dependence of condition number by measuring iteration counts"""
-    variant = None
-    bcs = True
     base = UnitSquareMesh(2, 2)
     meshes = MeshHierarchy(base, 2)
-    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, elasticity=True) for m in meshes]
+    dim = base.topological_dimension
+    vector = (family == "CG")
+    variant = "alfeld" if family == "CG" and degree < 2*dim else None
+    bcs = True
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
