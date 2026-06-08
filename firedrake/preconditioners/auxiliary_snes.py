@@ -12,7 +12,7 @@ __all__ = ("AuxiliaryOperatorSNES",)
 class AuxiliaryOperatorSNES(SNESBase):
     """
     Solve a residual form :math:`F(u) = 0` using a nonlinear Richardson
-    iteration preconditioned with an auxiliary form :math:`G(u)`.
+    iteration preconditioned with an auxiliary form :math:`G`.
     This may be used to create nonlinear preconditioners for
     iterative methods such as Anderson acceleration or NGMRES.
 
@@ -20,20 +20,13 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     .. math ::
 
-        G(u^{k+1}) = G(u^{k}) - F(u^{k})
+        G(u_{k+1}; u_{k}) = G(u_{k}; u_{k}) - F(u_{k})
 
-    The solution :math:`u^{*}` of :math:`F(u^{*}) = 0` is a fixed point
-    of the Richardson iteration.
+    where :math:`u_{k}` is the current guess and :math:`u_{k + 1}` is the
+    next guess to be computed. A solution :math:`u_{*}` of :math:`F(u_{*}) = 0`
+    is a fixed point of the Richardson iteration.
 
-    .. math ::
-
-        G(u^{k+1}) = G(u^{*}) - F(u^{*})
-
-        G(u^{k+1}) = G(u^{*})
-
-        \\implies u^{k+1} = u^{*}
-
-    Options for the inner solve for :math:`G(u^{k+1})` are specified
+    Options for the inner solve for :math:`G(u_{k+1}; u_{k})` are specified
     using the ``"aux_"`` prefix.
 
     The following solver parameters will specify the above Richardson
@@ -89,11 +82,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     .. math ::
 
-        Au^{k+1} = Au^{k} - F(u^{k})
-
-        A\\delta u^{k} = - F(u^{k})
-
-        u^{k+1} = u^{k} + \\delta u^{k}
+        u_{k + 1} = u_{k} - A^{-1}F(u_{k}).
     """
 
     _prefix = "aux_"
@@ -155,45 +144,44 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
-        # x = u^{k} is state at current iteration
+        # x = u_{k} is state at current iteration
         with self.uk.dat.vec_wo as vec:
             x.copy(vec)
-        # initial guess u^{k+1} = u^{k}
+        # initial guess u_{k+1} = u_{k}
         with self.uk1.dat.vec_wo as vec:
             x.copy(vec)
 
-        # b = F(u^{k})
+        # b = F(u_{k})
         with self.b.dat.vec as vec:
             f.copy(vec)
 
         # At this point we have:
-        # uk1 = x = u^{k}, and b = F(u^{k}),
+        # uk1 = x = u_{k}, and b = F(u_{k}),
         # so the solver's assembler computes:
-        # b_wrk = G(uk1) - b = G(u^{k}) - F(u^{k})
+        # b_wrk = G(uk1) - b = G(u_{k}) - F(u_{k})
         # which is exactly the forcing we need.
         self.solver._ctx._assemble_residual(tensor=self._b_wrk)
 
-        # we assign b = G(u^{k}) - F(u^{k}) so now the
+        # we assign b = G(u_{k}) - F(u_{k}) so now the
         # form in the solver has the correct forcing to
-        # calculate u^{k+1} using G(uk1) - b = 0
+        # calculate u_{k+1} using G(uk1) - b = 0
         self.b.assign(self._b_wrk)
 
         self.solver.solve()
 
-        # y = d = u^{k+1} - u^{k}
+        # y = d = u_{k+1} - u_{k}
         with self.uk1.dat.vec_ro as vec:
             vec.copy(y)
             y.aypx(-1, x)
 
     @PETSc.Log.EventDecorator()
     def form(self, snes, uk: Function, uk1: Function, test: Argument):
-        """Return the auxiliary residual form and boundary conditions.
-        Subclasses should override this method.
-
-        The returned form is :math:`G(u^{k+1})` in the Richardson iteration.
+        """Return the auxiliary residual form :math:`G(u_{k + 1}; u_k)` in
+        the Richardson iteration and boundary conditions. Subclasses should
+        override this method.
 
         Defaults to returning a copy of :math:`F(u)`, i.e.
-        :math:`G(u^{k+1})=F(u^{k+1})`.
+        :math:`G(u_{k+1}; u_k)=F(u_{k+1})`.
         This means that ``AuxiliaryOperatorSNES`` can be used similarly
         to :class:`.AssembledPC`, in that it can be used to specify
         an alternative ``snes_type`` for solving the same residual form
@@ -204,9 +192,9 @@ class AuxiliaryOperatorSNES(SNESBase):
         snes : petsc4py.PETSc.SNES
             The PETSc nonlinear solver object.
         uk :
-            The current iterate :math:`u^{k}`.
+            The current iterate :math:`u_{k}`.
         uk1 :
-            The next iterate :math:`u^{k+1}` that will be solved for.
+            The next iterate :math:`u_{k+1}` that will be solved for.
         test :
             The test function.
 
@@ -219,15 +207,19 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Notes
         -----
-        :math:`G(u^{k+1})` can optionally be parameterised by the current
-        iterate :math:`u^{k}`, for example in Picard iterations for an
+        :math:`G(u_{k+1}; u_{k})` is parameterised by the current
+        iterate :math:`u_{k}`. For example, to use Picard iterations for the
         advection term:
 
         .. math::
 
-            F(u) = u + u\\cdot\\nabla u
+            F(u) = \\ldots + u\\cdot\\nabla u
 
-            G(u^{k+1}) = u^{k+1} + u^{k}\\cdot\\nabla u^{k+1}
+        in the Navier-Stokes equations, we would use
+
+        .. math::
+
+            G(u_{k+1}; u_{k}) = \\ldots + u_{k}\\cdot\\nabla u_{k+1}.
         """
         ctx = get_dm_appctx(snes.dm)
         u = ctx._x

@@ -148,26 +148,23 @@ To salvage the wreck, we'll use nonlinear preconditioning. Here we use
 the simplest solution strategy possible: preconditioned nonlinear
 Richardson iterations.
 The idea is that if :math:`F(u)=0` is too difficult to solve, we can
-instead solve a auxiliary operator :math:`G(u)=0` which is in some sense
+instead solve an auxiliary problem :math:`G(u; \ldots) = 0` which is
 *nearby* to :math:`F`, and use that solution to iterate towards a solution
-for :math:`F(u)=0`.
-At each iteration :math:`k` we solve the following system for the next
-iterate :math:`u_{k+1}` using the value of the current iterate :math:`u_k`.
+for :math:`F(u)=0`. In almost every scenario, the auxiliary problem uses
+the previous iterate :math:`u_{k}`.
+At each iteration :math:`k`, we solve the following system for the next
+iterate :math:`u_{k+1}` using the value of the current iterate :math:`u_k`:
 
 .. math::
 
-   G_{k}(u_{k+1}) = G_{k}(u_{k}) - F(u_{k}),
-   \quad
-   G_{k}(u) = G(u; u_{k}).
+   G(u_{k+1}; u_{k}) = G(u_{k}; u_{k}) - F(u_{k}).
 
-We can note several properties of this iteration. Firstly, if
-:math:`F(u_{*})=0` then :math:`u_{k}=u_{*}` is a fixed point of the iteration.
-Secondly, we never have to solve :math:`F(u)=0`, we only have to evaluate
-its residual at a given state. Thirdly, we can intuitively hope that if
-:math:`G` is *close enough* to :math:`F` then the iteration will converge,
-although proving this is much more difficult than in the linear case.
-Lastly, we can define a different :math:`G_k` at each iteration by
-parameterising with the current iterate, as we will see below.
+We note a few properties of this iteration. First, if
+:math:`F(u_{*})=0` then :math:`u_{*}` is a fixed point of the iteration.
+Second, we never have to solve :math:`F(u)=0`, we only have to evaluate
+its residual at a given state. Third, we can hope that if :math:`G` is
+*close enough* to :math:`F` then the iteration will converge,
+although proving this is more difficult than in the linear case.
 
 Our approach for defining :math:`G` here is to hold back the linear part of
 the reaction term in the Allen-Cahn equation to the value at the previous
@@ -185,11 +182,11 @@ time around for this inner problem.
 Here we define a custom nonlinear preconditioner which inherits from
 :class:`~firedrake.preconditioners.auxiliary_snes.AuxiliaryOperatorSNES`.
 Similar to ``AuxiliaryOperatorPC``, we have to implement the ``form`` method.
-This method returns (1) a residual form :math:`G(u; u^{k}, v)` where :math:`v`
-is the test function and (2) the boundary conditions for this sub-problem.
-The arguments that it takes are first the PETSc SNES object,
-then the value :math:`u_k` of the solution at the previous iteration;
-the current value :math:`u` to be solved for; and a test function.
+This method returns (1) a residual form :math:`G(u; u_{k})\cdot v` where
+:math:`v` is the test function and (2) the boundary conditions for this
+sub-problem. The arguments that it takes are: the PETSc SNES object; the value
+:math:`u_k` of the solution at the previous iteration; the current value
+:math:`u` to be solved for; and a test function.
 
 ::
 
