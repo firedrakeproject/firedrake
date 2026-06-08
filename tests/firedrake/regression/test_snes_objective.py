@@ -3,8 +3,8 @@ import pytest
 
 
 newtontr_params = {
-    "snes_atol": 1E-7,
-    "snes_rtol": 1E-7,
+    "snes_atol": 1E-8,
+    "snes_rtol": 1E-8,
     "snes_monitor": "::ascii_info_detail",
     "snes_type": "newtontr",
     "ksp_type": "cg",
