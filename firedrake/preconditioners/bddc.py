@@ -129,8 +129,11 @@ class BDDCPC(PCBase):
         if corner_selection or has_vertex_dofs:
             bddcpc.setCoordinates(get_entity_coordinates(V))
 
+        use_gradient = "use_discrete_gradient" in opts
+        use_divergence = "use_divergence_mat" in opts
+
         tdim = mesh.topological_dimension
-        if tdim >= 2 and V.finat_element.formdegree == tdim-1:
+        if use_divergence or (tdim >= 2 and V.finat_element.formdegree == tdim-1):
             allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
@@ -141,7 +144,7 @@ class BDDCPC(PCBase):
                 div_kwargs = dict()
             bddcpc.setBDDCDivergenceMat(*div_args, **div_kwargs)
 
-        elif tdim >= 3 and V.finat_element.formdegree == 1:
+        elif use_gradient or (tdim >= 3 and V.finat_element.formdegree == 1):
             get_gradient = appctx.get("get_discrete_gradient", get_discrete_gradient)
             gradient = get_gradient(V)
             try:
@@ -236,7 +239,8 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
 
     def local_to_global_map(V, cellwise):
         u = Function(V)
-        u.dat.data_wo[:] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+        shp = u.dat.data_ro.shape
+        u.dat.data_wo[...] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange()).reshape(shp)
 
         Vsub = local_space(V, False)
         usub = Function(Vsub).assign(u)
@@ -293,7 +297,8 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    if V.finat_element.complex.is_macrocell():
+    tdim = V.mesh().topological_dimension
+    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != tdim-1:
         form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
         B, _ = create_matis(form, "aij", allow_repeated)
     else:

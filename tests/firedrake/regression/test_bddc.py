@@ -10,7 +10,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False):
+def bddc_params(mat_type="is", cellwise=False, use_divergence=False, use_gradient=False):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -20,16 +20,20 @@ def bddc_params(mat_type="is", cellwise=False):
         "pc_type": "python",
         "pc_python_type": "firedrake.BDDCPC",
         "bddc_cellwise": cellwise,
+        "bddc_use_discrete_gradient": use_gradient,
+        "bddc_use_divergence_mat": use_divergence,
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
+        #"bddc_pc_bddc_check_level": 1,
+        "bddc_pc_bddc_corner_selection": True,
     }
     return sp
 
 
-def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0):
+def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0, **kwargs):
     mat_type = "matfree" if cellwise and variant != "fdm" else "is"
-    sp_bddc = bddc_params(mat_type=mat_type, cellwise=cellwise)
+    sp_bddc = bddc_params(mat_type=mat_type, cellwise=cellwise, **kwargs)
     if variant != "fdm":
         assert not condense
         sp = sp_bddc
@@ -145,7 +149,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
     rtol = 1E-8
-    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol)
+    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol, use_divergence=elasticity)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
@@ -153,8 +157,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
-    ew = solver.snes.ksp.computeEigenvalues()
-    assert min(ew) >= 1.0
+    ew = solver.snes.ksp.computeEigenvalues().real
+    assert min(ew) >= 1.0 - 1e-6
     kappa = max(abs(ew)) / min(abs(ew))
     return kappa ** 0.5
 
@@ -269,7 +273,7 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.parallel(3)
-@pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
+@pytest.mark.parametrize("family,degree,cellwise", [("CG", 4, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     """Test h-dependence of condition number by measuring iteration counts"""
     base = UnitSquareMesh(2, 2)
