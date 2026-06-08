@@ -10,7 +10,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, use_divergence=False, use_gradient=False):
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -25,9 +25,16 @@ def bddc_params(mat_type="is", cellwise=False, use_divergence=False, use_gradien
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
-        #"bddc_pc_bddc_check_level": 1,
         "bddc_pc_bddc_corner_selection": True,
     }
+    if adaptive:
+        sp.update({
+            "bddc_pc_bddc_use_deluxe_scaling": None,
+            "bddc_pc_bddc_adaptive_userdefined": None,
+            "bddc_pc_bddc_deluxe_zerorows": False,
+            "bddc_pc_bddc_adaptive_threshold": 5,
+            "bddc_pc_bddc_adaptive_nmin": 1,
+        })
     return sp
 
 
@@ -149,7 +156,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
     rtol = 1E-8
-    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol, use_divergence=elasticity)
+    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
+                           use_divergence=elasticity, adaptive=elasticity)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
@@ -273,11 +281,11 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.parallel(3)
-@pytest.mark.parametrize("family,degree,cellwise", [("CG", 4, False), ("GN", 1, False), ("MTW", 1, False)])
+@pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     """Test h-dependence of condition number by measuring iteration counts"""
     base = UnitSquareMesh(2, 2)
-    meshes = MeshHierarchy(base, 2)
+    meshes = MeshHierarchy(base, 3)
     dim = base.topological_dimension
     vector = (family == "CG")
     variant = "alfeld" if family == "CG" and degree < 2*dim else None
