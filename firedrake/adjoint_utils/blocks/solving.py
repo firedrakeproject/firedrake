@@ -66,7 +66,6 @@ class CachedSolverBlock(Block):
         self.adj_residual = adj_residual
 
         self.adj_sol = adj_sol
-        self.adj_sol_buf = adj_sol.copy(deepcopy=True)
         self.adj2_sol = adj2_sol
         self.tlm_output = tlm_output
         self.d2Fdu2_form = d2Fdu2_form
@@ -190,7 +189,6 @@ class CachedSolverBlock(Block):
         solver.solve()
 
         self.adj_sol.assign(adj_sol)
-        self.adj_sol_buf.assign(adj_sol)
 
         if compute_boundary:
             adj_sol_bc = firedrake.assemble(self.adj_residual)
@@ -214,7 +212,7 @@ class CachedSolverBlock(Block):
         # self.adj_sol is shared between all blocks that this NLVS
         # generates so we can't store it there. Instead store it
         # in self.adj_sol_buf which is owned by this block only.
-        self.adj_sol_buf.assign(adj_sol)
+        self.adj_sol.assign(adj_sol)
 
         prepared = {
             "adj_sol": adj_sol.copy(deepcopy=True),
@@ -239,7 +237,6 @@ class CachedSolverBlock(Block):
         return dFdm
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
-        self.adj_sol.assign(self.adj_sol_buf)
         self.update_dependencies(use_output=True)
         self.update_hessian_dependencies()
 
