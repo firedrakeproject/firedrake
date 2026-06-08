@@ -147,7 +147,7 @@ operator instead.
 :class:`.AuxiliaryOperatorSNES`
    Abstract base class for nonlinear preconditioners built from an
    auxiliary form. This form can be nonlinear. One should subclass this
-   preconditioner and override the `:meth:`.AuxiliaryOperatorSNES.form`
+   preconditioner and override the :meth:`.AuxiliaryOperatorSNES.form`
    method. This class can be used to provide more tractable approximations
    to the original problem for iterative methods such as Anderson
    acceleration or NGMRES. For example, you can use an auxiliary SNES to
