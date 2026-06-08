@@ -122,15 +122,17 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         b = Cofunction(V.dual())
         # This is the form we will solve:
-        # G(u^{k+1}) - b = 0
-        # and we will assemble G(u^{k}) - F(u^{k}) into b.
+        # G(u_{k+1}; u_{k}) - b = 0
+        # and we will assemble G(u_{k}; u_{k}) - F(u_{k}) into b.
         Gk1b = Gk1 - b
 
         self.b = b
         # a buffer for intermediate values when assembling b = Gk - Fk
         self._b_wrk = Cofunction(V.dual())
 
-        problem = NonlinearVariationalProblem(Gk1b, uk1, bcs=bcs, form_compiler_parameters=ctx.fcp)
+        problem = NonlinearVariationalProblem(
+            Gk1b, uk1, bcs=bcs, form_compiler_parameters=ctx.fcp
+        )
         self.solver = NonlinearVariationalSolver(
             problem,
             nullspace=ctx._nullspace,
