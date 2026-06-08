@@ -100,27 +100,27 @@ class AuxiliaryOperatorSNES(SNESBase):
         V = get_function_space(snes.getDM()).collapse()
 
         # buffers for current and next iterates
-        uk1 = Function(V)
-        uk = Function(V)
-        self.uk1 = uk1
-        self.uk = uk
+        u = Function(V)
+        u_k = Function(V)
+        self.u = u
+        self.u_k = u_k
 
         # auxiliary form G(k+1)
         test = TestFunction(V)
-        Gk1, bcs = self.form(snes, uk, uk1, test)
+        G, bcs = self.form(snes, u_k, u, test)
 
         b = Cofunction(V.dual())
         # This is the form we will solve:
         # G(u_{k+1}; u_{k}) - b = 0
         # and we will assemble G(u_{k}; u_{k}) - F(u_{k}) into b.
-        Gk1b = Gk1 - b
+        Gb = G - b
 
         self.b = b
         # a buffer for intermediate values when assembling b = Gk - Fk
         self._b_wrk = Cofunction(V.dual())
 
         problem = NonlinearVariationalProblem(
-            Gk1b, uk1, bcs=bcs, form_compiler_parameters=ctx.fcp
+            Gb, u, bcs=bcs, form_compiler_parameters=ctx.fcp
         )
         self.solver = NonlinearVariationalSolver(
             problem,
@@ -145,10 +145,10 @@ class AuxiliaryOperatorSNES(SNESBase):
     @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
         # x = u_{k} is state at current iteration
-        with self.uk.dat.vec_wo as vec:
+        with self.u_k.dat.vec_wo as vec:
             x.copy(vec)
         # initial guess u_{k+1} = u_{k}
-        with self.uk1.dat.vec_wo as vec:
+        with self.u.dat.vec_wo as vec:
             x.copy(vec)
 
         # b = F(u_{k})
@@ -156,26 +156,26 @@ class AuxiliaryOperatorSNES(SNESBase):
             f.copy(vec)
 
         # At this point we have:
-        # uk1 = x = u_{k}, and b = F(u_{k}),
+        # u = x = u_{k}, and b = F(u_{k}),
         # so the solver's assembler computes:
-        # b_wrk = G(uk1) - b = G(u_{k}) - F(u_{k})
+        # b_wrk = G(u) - b = G(u_{k}) - F(u_{k})
         # which is exactly the forcing we need.
         self.solver._ctx._assemble_residual(tensor=self._b_wrk)
 
         # we assign b = G(u_{k}) - F(u_{k}) so now the
         # form in the solver has the correct forcing to
-        # calculate u_{k+1} using G(uk1) - b = 0
+        # calculate u_{k+1} using G(u) - b = 0
         self.b.assign(self._b_wrk)
 
         self.solver.solve()
 
         # y = d = u_{k+1} - u_{k}
-        with self.uk1.dat.vec_ro as vec:
+        with self.u.dat.vec_ro as vec:
             vec.copy(y)
             y.aypx(-1, x)
 
     @PETSc.Log.EventDecorator()
-    def form(self, snes, uk: Function, uk1: Function, test: Argument):
+    def form(self, snes, u_k: Function, u: Function, test: Argument):
         """Return the auxiliary residual form :math:`G(u_{k + 1}; u_k)` in
         the Richardson iteration and boundary conditions. Subclasses should
         override this method.
@@ -191,9 +191,9 @@ class AuxiliaryOperatorSNES(SNESBase):
         ----------
         snes : petsc4py.PETSc.SNES
             The PETSc nonlinear solver object.
-        uk :
+        u_k :
             The current iterate :math:`u_{k}`.
-        uk1 :
+        u :
             The next iterate :math:`u_{k+1}` that will be solved for.
         test :
             The test function.
@@ -222,8 +222,7 @@ class AuxiliaryOperatorSNES(SNESBase):
             G(u_{k+1}; u_{k}) = \\ldots + u_{k}\\cdot\\nabla u_{k+1}.
         """
         ctx = get_dm_appctx(snes.dm)
-        u = ctx._x
-        form = replace(ctx._problem.F, {u: uk1})
+        form = replace(ctx._problem.F, {ctx._x: u})
         bcs = tuple(ctx._problem.bcs)
         return form, bcs
 

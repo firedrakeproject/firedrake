@@ -27,18 +27,18 @@ def test_auxiliary_snes():
     mesh = fd.UnitIntervalMesh(1)
     V = fd.FunctionSpace(mesh, "R", 0)
 
-    uk1 = fd.Function(V).zero()
-    uk = fd.Function(V).zero()
+    u = fd.Function(V).zero()
+    u_k = fd.Function(V).zero()
     v = fd.TestFunction(V)
 
     w = 1.0
     wg = 0.75
 
-    Fk = f(uk, v, w=w)
-    Gk = f(uk, v, w=wg)
-    Gk1 = f(uk1, v, w=wg)
+    F_k = f(u_k, v, w=w)
+    G_k = f(u_k, v, w=wg)
+    G = f(u, v, w=wg)
 
-    Fp = Gk1 - (Gk - Fk)
+    Fp = G - (G_k - F_k)
 
     inner_params = {
         "snes_monitor": None,
@@ -62,25 +62,25 @@ def test_auxiliary_snes():
     }
 
     solver_inner = fd.NonlinearVariationalSolver(
-        fd.NonlinearVariationalProblem(Fp, uk1),
+        fd.NonlinearVariationalProblem(Fp, u),
         solver_parameters=inner_params,
         options_prefix="Finner")
 
     solver_aux = fd.NonlinearVariationalSolver(
-        fd.NonlinearVariationalProblem(Fk, uk),
+        fd.NonlinearVariationalProblem(F_k, u_k),
         solver_parameters=aux_params,
         options_prefix="Faux")
 
     # Record the residual at each handrolled richardson iteration
-    uk1.zero()
-    uk.assign(uk1)
+    u.zero()
+    u_k.assign(u)
     res = []
-    with fd.assemble(Fk).dat.vec as rvec:
+    with fd.assemble(F_k).dat.vec as rvec:
         res.append(rvec.norm())
     for k in range(5):
         solver_inner.solve()
-        uk.assign(uk1)
-        with fd.assemble(Fk).dat.vec as rvec:
+        u_k.assign(u)
+        with fd.assemble(F_k).dat.vec as rvec:
             res.append(rvec.norm())
 
     # Custom monitor to compare residuals at each aux operator iteration
@@ -89,5 +89,5 @@ def test_auxiliary_snes():
 
     solver_aux.snes.setMonitor(comparison_monitor)
 
-    uk.zero()
+    u_k.zero()
     solver_aux.solve()
