@@ -130,14 +130,16 @@ class AuxiliaryOperatorSNES(SNESBase):
         # a buffer for intermediate values when assembling b = Gk - Fk
         self._b_wrk = Cofunction(V.dual())
 
+        problem = NonlinearVariationalProblem(Gk1b, uk1, bcs=bcs, form_compiler_parameters=ctx.fcp)
         self.solver = NonlinearVariationalSolver(
-            NonlinearVariationalProblem(
-                Gk1b, uk1, bcs=bcs,
-                form_compiler_parameters=ctx.fcp),
+            problem,
             nullspace=ctx._nullspace,
             transpose_nullspace=ctx._nullspace_T,
             near_nullspace=ctx._near_nullspace,
-            appctx=ctx.appctx, options_prefix=prefix)
+            appctx=ctx.appctx,
+            options_prefix=prefix,
+            pre_apply_bcs=ctx.pre_apply_bcs,
+        )
 
         # indent monitor outputs
         outer_snes = snes
