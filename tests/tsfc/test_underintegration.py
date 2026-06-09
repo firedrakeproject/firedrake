@@ -4,7 +4,7 @@ import numpy
 import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction, TensorProductCell, dx,
-                 action, interval, quadrilateral, dot, grad)
+                 action, interval, quadrilateral, hexahedron, dot, grad)
 from finat.ufl import FiniteElement, VectorElement
 
 from FIAT import ufc_cell
@@ -96,6 +96,22 @@ def test_mass_action(form, cell, order):
 def test_laplace(cell, order):
     degrees = numpy.arange(4, 10)
     flops = [count_flops(laplace(cell, int(degree))) for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees + 1))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'),
+                         [(quadrilateral, 3),
+                          (hexahedron, 4)])
+def test_laplace_action(cell, order):
+    # The matrix-free action of the collocated GLL Laplacian must sum factorise:
+    # flops should grow no faster than O(p^{d+1}), i.e. rate < d + 1.  On a
+    # genuine d-way tensor-product cell (e.g. hexahedron) the value tabulation
+    # is the identity but was previously materialised as a dense tabulation
+    # broadcast over the other quadrature directions, which defeated sum
+    # factorisation and made the action scale like O(p^{2d}) (rate ~5.8 in 3D).
+    degrees = numpy.arange(4, 10)
+    flops = [count_flops(action(laplace(cell, int(degree)))) for degree in degrees]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees + 1))
     assert (rates < order).all()
 
