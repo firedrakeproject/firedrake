@@ -7,7 +7,7 @@ import functools
 from pyop2.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
-from firedrake.utils import IntType
+from firedrake.utils import IntType, single_mode
 
 
 cwd = abspath(dirname(__file__))
@@ -147,7 +147,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     VB = fB.function_space()
     fBe = Function(VB)
     _initialise_function(fBe, _get_expr(VB), method)
-    assert assemble(inner(fB - fBe, fB - fBe) * dx) < 6.e-12
+    assert assemble(inner(fB - fBe, fB - fBe) * dx) < (1e-7 if single_mode else 6.e-12)
     # Save
     with CheckpointFile(filename, 'w', comm=comm) as afile:
         afile.save_function(fB)

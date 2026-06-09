@@ -13,7 +13,7 @@ import pytest
 
 from firedrake import *
 from firedrake.mesh import make_mesh_from_coordinates
-from firedrake.utils import IntType, complex_mode
+from firedrake.utils import IntType, complex_mode, single_mode
 
 
 cwd = abspath(dirname(__file__))
@@ -245,7 +245,10 @@ def test_io_backward_compat_base_load(version, params):
     V_ = f.function_space()
     f_ = Function(V_)
     _initialise_function(f_, _get_expr(V_))
-    assert assemble(inner(f - f_, f - f_) * dx) < 5.e-13
+    # fp32: historic checkpoints are stored in fp64; loading + casting to single
+    # precision and re-projecting incurs a representation gap well above the fp64
+    # floor (worst case ~6e-4 for the mixed BDM*DG case).
+    assert assemble(inner(f - f_, f - f_) * dx) < (5e-3 if single_mode else 5.e-13)
 
 
 def _get_expr_timestepping(V, i):
@@ -270,7 +273,7 @@ def test_io_backward_compat_timestepping_load(version):
             V_ = f.function_space()
             f_ = Function(V_)
             _initialise_function(f_, _get_expr_timestepping(V_, i))
-            assert assemble(inner(f - f_, f - f_) * dx) < 1.e-16
+            assert assemble(inner(f - f_, f - f_) * dx) < (1e-8 if single_mode else 1.e-16)
 
 
 @pytest.mark.skipcomplex
@@ -295,7 +298,7 @@ def test_io_backward_compat_timestepping_append(version, tmpdir):
             V_ = f.function_space()
             f_ = Function(V_)
             _initialise_function(f_, _get_expr_timestepping(V_, i))
-            assert assemble(inner(f - f_, f - f_) * dx) < 1.e-16
+            assert assemble(inner(f - f_, f - f_) * dx) < (1e-8 if single_mode else 1.e-16)
 
 
 if __name__ == "__main__":

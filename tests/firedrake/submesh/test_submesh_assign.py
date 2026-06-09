@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 import finat
 from os.path import abspath, dirname, join
 
@@ -157,27 +158,27 @@ def test_submesh_assign_function_unstructured_8_processes(simplex, distribution_
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert abs(e) / A_l < 1.e-14
+    assert abs(e) / A_l < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert abs(e) / A_r < 1.e-14
+    assert abs(e) / A_r < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert abs(e) / A_l < 1.e-14
+    assert abs(e) / A_l < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert abs(e) / A_r < 1.e-14
+    assert abs(e) / A_r < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert abs(e) / A_m < 1.e-14
+    assert abs(e) / A_m < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert abs(e) / A_m < 1.e-14
+    assert abs(e) / A_m < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=2)

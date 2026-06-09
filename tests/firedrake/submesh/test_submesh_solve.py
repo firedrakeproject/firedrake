@@ -45,7 +45,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
     mesh.mark_entities(indicator_function, 999)
     mesh = Submesh(mesh, dim, 999)
     suberror = _solve_helmholtz(mesh)
-    assert abs(error - suberror) < 1e-15
+    assert abs(error - suberror) < (1e-6 if single_mode else 1e-15)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -286,8 +286,8 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     a_ = (inner(sigma_, tau) + inner(u_, div(tau)) + inner(div(sigma_), v)) * dx1 + inner(u_ - u_exact, v) * dx0(label_submesh_compl)
     L_ = inner(f, v) * dx0(label_submesh) + inner((u_('+') + u_('-')) / 2., dot(tau, nsub)) * ds1_int(boun_int) + inner(u_exact, dot(tau, nsub)) * ds1_ext(boun_ext)
     solve(a_ - L_ == 0, w_, bcs=[bc])
-    assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < 1.e-20
-    assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < 1.e-20
+    assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < (1e-9 if single_mode else 1.e-20)
+    assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < (1e-9 if single_mode else 1.e-20)
     sigma_error = sqrt(assemble(inner(sigma - sigma_exact, sigma - sigma_exact) * dx1))
     u_error = sqrt(assemble(inner(u - u_exact, u - u_exact) * dx0(label_submesh)))
     return sigma_error, u_error
@@ -462,8 +462,8 @@ def test_submesh_solve_cell_cell_equation_bc(nref, degree, simplex):
     dbc = DirichletBC(V.sub(0), x_outer * y_outer, (1, 2, 3, 4))
     ebc = EquationBC(inner(u_outer - u_inner, v_outer) * ds_outer(label_interface) == inner(Constant(0.), v_outer) * ds_outer(label_interface), sol, label_interface, V=V.sub(0))
     solve(a == L, sol, bcs=[dbc, ebc])
-    assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < 1.e-12
-    assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < 1.e-12
+    assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < (5e-4 if single_mode else 1.e-12)
+    assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < (5e-4 if single_mode else 1.e-12)
 
 
 def _test_submesh_solve_quad_triangle_poisson(nref, degree):
@@ -606,7 +606,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     # Check sanity.
     vol1 = assemble(Constant(1) * dx1)
     vol2 = assemble(Constant(1) * dx2)
-    assert abs(vol1 + vol2 - 1.) < 1.e-13
+    assert abs(vol1 + vol2 - 1.) < (1e-5 if single_mode else 1.e-13)
     # Solve Poisson problem.
     V1 = FunctionSpace(mesh1, family, degree)
     V12 = FunctionSpace(mesh12, family, degree)

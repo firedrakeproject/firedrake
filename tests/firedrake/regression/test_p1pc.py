@@ -74,7 +74,9 @@ def test_p_independence(mesh, expected):
 
         nits.append(solver.snes.ksp.getIterationNumber())
     if single_mode:
-        # fp32 round-off in the matrix-free smoother can cost one extra iteration
-        assert all(n <= e + 1 for n, e in zip(nits, expected))
+        # fp32 round-off in the matrix-free Chebyshev smoother (eigenvalue
+        # estimates) can cost a couple of extra iterations; p-independence (the
+        # property under test) still holds since the counts stay bounded.
+        assert all(n <= e + 2 for n, e in zip(nits, expected))
     else:
         assert (nits == expected)

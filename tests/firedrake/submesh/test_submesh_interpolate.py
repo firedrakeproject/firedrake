@@ -219,7 +219,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
     value3d_int = assemble(inner(dg3d('+'), dg3d('-')) * dS(facet_value))
     value3d_ext = assemble(inner(dg3d, dg3d) * ds(facet_value))
     value2d = assemble(inner(dg2d, dg2d) * dx)
-    assert abs(value2d - (value3d_int + value3d_ext)) < 1.e-14
+    assert abs(value2d - (value3d_int + value3d_ext)) < (1e-5 if single_mode else 1.e-14)
     if facet_type == 'exterior':
         x, y, z = SpatialCoordinate(subm)
         RT2d = FunctionSpace(subm, "RTCE" if hexahedral else "RTE", 4)
@@ -231,12 +231,12 @@ def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
         rt2d = Function(RT2d).project(
             tangent_expr,
             solver_parameters={
-                "ksp_rtol": 1.e-14,
+                "ksp_rtol": 1e-5 if single_mode else 1.e-14,
             },
         )
         error_expr = rt2d - tangent_expr
         error = assemble(inner(error_expr, error_expr) * dx)**0.5
-        assert abs(error) < 1.e-14
+        assert abs(error) < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -267,12 +267,12 @@ def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
     value3d_int = assemble(inner(hdivt3d('+'), hdivt3d('-')) * dS(facet_value))
     value3d_ext = assemble(inner(hdivt3d, hdivt3d) * ds(facet_value))
     value2d = assemble(inner(dg2d, dg2d) * dx)
-    assert abs(value2d - (value3d_int + value3d_ext)) < 5.e-13
+    assert abs(value2d - (value3d_int + value3d_ext)) < (5e-4 if single_mode else 5.e-13)
     DG3d = FunctionSpace(mesh, "DG", degree)
     dg3d = Function(DG3d).interpolate(expr(mesh))
     dg2d_ = Function(DG2d).interpolate(dg3d)
     error = assemble(inner(dg2d_ - expr(subm), dg2d_ - expr(subm)) * dx)**0.5
-    assert abs(error) < 1.e-14
+    assert abs(error) < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=[1, 3])

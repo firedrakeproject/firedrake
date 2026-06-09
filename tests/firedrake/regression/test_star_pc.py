@@ -182,7 +182,13 @@ def test_star_equivalence(problem_type, backend):
     filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
-    assert star_its == comp_its
+    if single_mode:
+        # fp32: the two algebraically-identical patch PCs accumulate round-off in
+        # a different order, which can shift the Richardson iteration count by one
+        # near the convergence threshold.
+        assert abs(star_its - comp_its) <= 1
+    else:
+        assert star_its == comp_its
 
 
 def test_vanka_equivalence(problem_type):
@@ -356,7 +362,13 @@ def test_vanka_equivalence(problem_type):
     filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
-    assert star_its == comp_its
+    if single_mode:
+        # fp32: the two algebraically-identical patch PCs accumulate round-off in
+        # a different order, which can shift the Richardson iteration count by one
+        # near the convergence threshold.
+        assert abs(star_its - comp_its) <= 1
+    else:
+        assert star_its == comp_its
 
 
 @pytest.fixture(params=["interval", "square"])
