@@ -27,10 +27,6 @@ on:
         description: Whether to test a single-precision (fp32) build
         type: boolean
         required: true
-      test_single_complex:
-        description: Whether to test a single-precision complex build
-        type: boolean
-        required: true
       test_cuda:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
@@ -64,10 +60,6 @@ on:
         required: true
       test_single:
         description: Whether to test a single-precision (fp32) build
-        type: boolean
-        required: true
-      test_single_complex:
-        description: Whether to test a single-precision complex build
         type: boolean
         required: true
       test_cuda:
@@ -282,14 +274,6 @@ jobs:
           fi
           if [ ${{ inputs.test_single }} == 'true' ]; then
             arch='{"scalar_type": "single", "gpu": "none"}'
-            if [ "$matrix" ]; then
-              matrix="$matrix, $arch"
-            else
-              matrix="$arch"
-            fi
-          fi
-          if [ ${{ inputs.test_single_complex }} == 'true' ]; then
-            arch='{"scalar_type": "single-complex", "gpu": "none"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else

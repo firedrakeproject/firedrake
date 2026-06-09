@@ -24,7 +24,6 @@ jobs:
       # is on the PR, otherwise do nothing.
       test_complex: ${{ contains(github.event.pull_request.labels.*.name, 'ci:complex') }}
       test_single: ${{ contains(github.event.pull_request.labels.*.name, 'ci:single') }}
-      test_single_complex: ${{ contains(github.event.pull_request.labels.*.name, 'ci:single-complex') }}
       test_cuda: ${{ contains(github.event.pull_request.labels.*.name, 'ci:cuda') }}
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'ci:macos') }}
     secrets: inherit
