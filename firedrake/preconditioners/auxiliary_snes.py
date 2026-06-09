@@ -22,7 +22,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         G(u_{k+1}; u_{k}) = G(u_{k}; u_{k}) - F(u_{k})
 
-    where :math:`u_{k}` is the current guess and :math:`u_{k + 1}` is the
+    where :math:`u_{k}` is the current guess and :math:`u_{k+1}` is the
     next guess to be computed. A solution :math:`u_{*}` of :math:`F(u_{*}) = 0`
     is a fixed point of the Richardson iteration.
 
@@ -49,30 +49,9 @@ class AuxiliaryOperatorSNES(SNESBase):
             }
         }
 
-    The following parameters describe the same Richardson iteration
-    as the parameters above, but explicitly specifying the auxiliary
-    form as a nonlinear preconditioner using the ``npc_`` prefix.
-
-    .. code-block:: python3
-
-        solver_parameters = {
-            "snes_rtol": 1e-8,
-            "snes_type": "nrichardson",
-            "npc_snes_max_it": 1,
-            "npc_snes_type": "python",
-            "npc_snes_python_type": f"{__name__}.UserAuxiliarySNES",
-            "npc_aux": {
-                "snes_rtol": 1e-4,
-                "snes_type": "newtonls",
-                ...
-            }
-        }
-
-    Although using ``"npc_"`` to specify the parameters is more verbose
-    than the original, it allows for a wider variety of methods. For
-    example, by changing the outer ``"snes_type"`` to ``"anderson"``,
-    we can use preconditioned Anderson acceleration
-    (`<https://petsc.org/release/manualpages/SNES/SNESANDERSON/>`_)
+    More details, including how to use this class as a nonlinear
+    preconditioner with methods like Anderson acceleration, can
+    be found in the manual page on :doc:`preconditioning`.
 
     Notes
     -----
@@ -82,7 +61,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     .. math ::
 
-        u_{k + 1} = u_{k} - A^{-1}F(u_{k}).
+        u_{k+1} = u_{k} - A^{-1}F(u_{k}).
     """
 
     _prefix = "aux_"
@@ -176,7 +155,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def form(self, snes, u_k: Function, u: Function, test: Argument):
-        """Return the auxiliary residual form :math:`G(u_{k + 1}; u_k)` in
+        """Return the auxiliary residual form :math:`G(u_{k+1}; u_k)` in
         the Richardson iteration and boundary conditions. Subclasses should
         override this method.
 
