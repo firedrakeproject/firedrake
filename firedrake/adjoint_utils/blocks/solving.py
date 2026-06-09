@@ -65,7 +65,14 @@ class CachedSolverBlock(Block):
         self.adj_dFdm_forms = adj_dFdm_forms
         self.adj_residual = adj_residual
 
-        self.adj_sol = adj_sol
+        # this one belongs to this block specifically and
+        # stashes the adjoint solution for the hessian calculation
+        self.adj_sol = adj_sol.copy(deepcopy=True, annotate=False)
+        # this one is in the cached forms which are shared by all
+        # all solve blocks for this solver, it needs to be updated
+        # with the adj_sol value for this block before assembling
+        # the cached forms.
+        self._adj_sol = adj_sol
         self.adj2_sol = adj2_sol
         self.tlm_output = tlm_output
         self.d2Fdu2_form = d2Fdu2_form
@@ -132,6 +139,9 @@ class CachedSolverBlock(Block):
     def update_hessian_dependencies(self):
         # TODO: Anything else to do here?
         self.update_tlm_dependencies()
+        # update the adj_sol in the cached forms with
+        # the adj_sol value owned by this block.
+        self._adj_sol.assign(self.adj_sol)
 
     def _compute_boundary(self, relevant_dependencies):
         return any(isinstance(dep.output, firedrake.DirichletBC)
@@ -187,8 +197,6 @@ class CachedSolverBlock(Block):
         adj_sol.zero()
 
         solver.solve()
-
-        self.adj_sol.assign(adj_sol)
 
         if compute_boundary:
             adj_sol_bc = firedrake.assemble(self.adj_residual)
