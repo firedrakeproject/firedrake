@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["simplex", "hexahedron"])
@@ -40,7 +41,9 @@ def test_homogeneous_field(V, mat_type, interface):
         'pmat_type': 'aij',
         'ksp_type': 'cg',
         'ksp_max_it': '30',
-        'ksp_rtol': '2e-15',
+        # fp32: 2e-15 is far below single-precision eps, so CG can never reach it
+        # and hits ksp_max_it (DIVERGED). Relax to the achievable residual floor.
+        'ksp_rtol': '1e-5' if single_mode else '2e-15',
         'pc_type': 'python',
         'pc_python_type': 'firedrake.HypreAMS',
         'pc_hypre_ams_zero_beta_poisson': True
@@ -57,11 +60,13 @@ def test_homogeneous_field(V, mat_type, interface):
 
     V0 = VectorFunctionSpace(mesh, "DG", 0)
     B = project(curl(A), V0)
-    assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
+    # fp32: the curl-field accuracy is limited by the relaxed solve tolerance.
+    assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-4 if single_mode else 1e-6)
 
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # fp32: asserts exact Hypre-AMS CG iteration counts (9/6) at ksp_rtol 1e-8, which is below single-precision eps; the count is precision-specific and not reproducible in fp32
 def test_homogeneous_field_linear_convergence():
     N = 4
     mesh = UnitCubeMesh(2**N, 2**N, 2**N)

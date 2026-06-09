@@ -68,6 +68,12 @@ def adjoint_example(fine, coarse=None):
     return Jnew, grad_Jnew
 
 
+# fp32: uses cross-mesh (supermesh) projection, which relies on libsupermesh.
+# libsupermesh is built double-only (LIBSUPERMESH_DOUBLE_PRECISION), so in single
+# precision the supermesh kernel passes PetscScalar=float* to its double* API
+# (CompilationError) and the Cython intersection finder reinterprets float32
+# coordinates as double*. Full fp32 supermesh support is tracked separately.
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex
 def test_disk_checkpointing():
     # Use a Firedrake Tape subclass that supports disk checkpointing.

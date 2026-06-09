@@ -48,9 +48,12 @@ def test_linear_solver_api(a_L_out):
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     assert solver.snes.getKSP().getType() == solver.snes.getKSP().Type.CG
     rtol, _, _, _ = solver.snes.getKSP().getTolerances()
-    # PETSc stores rtol in working precision, so in single precision the
-    # returned value is the float32 rounding of the requested tolerance.
-    assert np.isclose(rtol, solver.parameters['ksp_rtol'])
+    if single_mode:
+        # PETSc stores rtol in working precision, so in single precision the
+        # returned value is the float32 rounding of the requested tolerance.
+        assert np.isclose(rtol, solver.parameters['ksp_rtol'])
+    else:
+        assert rtol == solver.parameters['ksp_rtol']
 
 
 def test_petsc_options_cleared(a_L_out):
@@ -118,8 +121,11 @@ def test_nonlinear_solver_api(a_L_out):
 
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
-    # The default SNES rtol is relaxed to 1e-5 in the single precision build.
-    assert np.isclose(rtol, 1e-5 if single_mode else 1e-8)
+    if single_mode:
+        # The default SNES rtol is relaxed to 1e-5 in the single precision build.
+        assert np.isclose(rtol, 1e-5)
+    else:
+        assert rtol == 1e-8
 
 
 def test_nonlinear_solver_flattens_params(a_L_out):

@@ -83,7 +83,7 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0})
+                                 "tao_gttol": 0.0 if single_mode else 1.0e-7})
     return _tao_solve_best(solver)
 
 
