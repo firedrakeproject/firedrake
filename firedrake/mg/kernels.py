@@ -3,10 +3,6 @@ import string
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS, single_mode
-
-# fp32 reference-coord solve only converges to ~1e-6, so the fp64 inside-cell
-# tolerance (1e-8) is too tight; loosen it in single precision to avoid bad transfers.
-TRANSFER_INSIDE_CELL_EPS = 1e-4 if single_mode else 1e-8
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
@@ -37,6 +33,10 @@ from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 from firedrake.pointeval_utils import runtime_quadrature_element
+
+# fp32 Newton iterate error is bounded by ~sqrt(eps_fp32) ≈ 3.45e-4, not just the
+# convergence tolerance (1e-6); inside-cell check must be larger than that error.
+TRANSFER_INSIDE_CELL_EPS = 5e-4 if single_mode else 1e-8
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):

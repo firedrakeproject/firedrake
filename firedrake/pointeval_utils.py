@@ -106,7 +106,8 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
+    # Reference coordinates are always real even in complex builds.
+    point_arg = lp.GlobalArg("X", dtype=utils.RealType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -171,7 +172,7 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(real_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 

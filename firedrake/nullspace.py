@@ -118,8 +118,8 @@ class VectorSpaceBasis(object):
 
         :raises ValueError: If the basis is not orthogonal/orthonormal.
         """
-        # fp32: sqrt(eps) orthogonality threshold (1e-8 in fp64) relaxes to ~3.4e-4
-        eps = 1e-4 if single_mode else 1e-8
+        # fp32: dot-product noise accumulates to ~sqrt(eps_fp32) ≈ 3.45e-4; use 4e-4.
+        eps = 4e-4 if single_mode else 1e-8
         basis = self._petsc_vecs
         if orthonormal:
             for i, v in enumerate(basis):

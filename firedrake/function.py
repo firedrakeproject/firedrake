@@ -602,8 +602,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
         if utils.complex_mode:
+            arg = np.asarray(arg, dtype=utils.ScalarType)
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
