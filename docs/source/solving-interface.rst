@@ -725,6 +725,19 @@ solving with.
    # Use the approximate inverse of Jp to precondition solves
    solve(a == L, ..., Jp=Jp)
 
+Providing an objective functional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An objective functional, usually the energy,
+can be provided to PETSc's linesearch and trust-region methods.
+
+.. code-block:: python3
+
+   E = 0.5*inner(grad(u), grad(u))*dx - inner(f, u)*dx
+   F = derivative(E, u)
+   # Solve an optimisation problem
+   solve(F == 0, u, ..., objective=E)
+
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
 

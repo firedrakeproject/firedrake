@@ -22,8 +22,9 @@ fas_newtontr_params = {
 }
 
 
+@pytest.mark.parametrize("interface", ("nlvp", "solve"))
 @pytest.mark.parametrize("refine", (0, 1))
-def test_bratu_energy(refine):
+def test_bratu_energy(interface, refine):
     base = UnitIntervalMesh(10)
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
@@ -41,9 +42,14 @@ def test_bratu_energy(refine):
     bcs = DirichletBC(V, 0, "on_boundary")
 
     sp = newtontr_params if refine == 0 else fas_newtontr_params
-    problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
-    solver.solve()
+    if interface == "solve":
+        solve(F == 0, u, bcs, objective=E, solver_parameters=sp)
+    elif interface == "nlvp":
+        problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+        solver.solve()
+    else:
+        raise ValueError(f"Unexpected interface {interface}")
     sol1.assign(u)
 
     u.assign(0)
