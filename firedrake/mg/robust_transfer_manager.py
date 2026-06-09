@@ -341,7 +341,7 @@ class FinePatchTransferManager(RobustTransferManager):
         tdim = V.mesh().topological_dimension
         if any(len(V_.finat_element.entity_dofs()[tdim][0]) == 0 for V_ in V):
             # The element has no interior DOFs
-            return (None, None, None)
+            return (None, lambda : None, None, None)
 
         # Reconstruct the space on the interior with standard quadrature
         element = V.ufl_element()
