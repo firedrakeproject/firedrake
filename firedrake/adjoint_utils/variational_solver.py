@@ -8,6 +8,53 @@ from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
 from ufl.algorithms import expand_derivatives
 from types import SimpleNamespace
+from collections import namedtuple
+
+
+ForwardSolveRecomputeCache = namedtuple(
+    'ForwardSolveRecomputeCache',
+    field_names=[
+        "func",
+        "bcs",
+        "solver",
+        "is_linear",
+        "replaced_deps",
+    ]
+)
+
+AdjointSolveRecomputeCache = namedtuple(
+    'AdjointSolveRecomputeCache',
+    field_names=[
+        "adj_sol",
+        "rhs",
+        "dFdm_forms",
+        "residual",
+        "solver",
+    ]
+)
+
+TangentSolveRecomputeCache = namedtuple(
+    "TangentSolveRecomputeCache",
+    field_names=[
+        "tlm_val",
+        "rhs",
+        "dFdm_forms",
+        "solver",
+        "replaced_tlms",
+    ]
+)
+
+HessianSolveRecomputeCache = namedtuple(
+    "HessianSolveRecomputeCache",
+    field_names=[
+        "adj2_sol",
+        "d2Fdu2_form",
+        "d2Fdmdu_forms",
+        "dFdm_adj2_forms",
+        "d2Fdm2_adj_forms",
+        "d2Fdudm_forms",
+    ]
+)
 
 
 class NonlinearVariationalProblemMixin:
@@ -73,6 +120,7 @@ class NonlinearVariationalSolverMixin:
 
         return wrapper
 
+    @no_annotations
     def _ad_cache_forward_solver(self):
         from firedrake import (
             DirichletBC,
@@ -125,10 +173,17 @@ class NonlinearVariationalSolverMixin:
         # The block need handles to the newly created
         # objects to update their values when recomputing.
         self._ad_dependencies_to_add = (*replace_map.keys(), *bcs)
-        self._ad_replaced_dependencies = tuple(replace_map.values())
-        self._ad_bcs = bcs_new
         self._ad_solver_cache[FORWARD] = nlvs
 
+        self._ad_forward_cache = ForwardSolveRecomputeCache(
+            func=self._ad_problem.u,
+            bcs=bcs_new,
+            solver=nlvs,
+            is_linear=self._ad_problem.is_linear,
+            replaced_deps=tuple(replace_map.values()),
+        )
+
+    @no_annotations
     def _ad_cache_tlm_solver(self):
         from firedrake import (
             Function, Cofunction, derivative, TrialFunction,
@@ -158,20 +213,20 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
-        lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_bcs)
+        lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_forward_cache.bcs)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.tlm_args,
             **self._ad_args_kwargs.tlm_kwargs)
 
         self._ad_solver_cache[TLM] = lvs
-        self._ad_tlm_rhs = dFdm
+        tlm_rhs = dFdm
 
         # Do all the symbolic work for calculating dF/dm up front
         # so we only pay for the numeric calculations at run time.
         replaced_tlms = []
         dFdm_tlm_forms = []
-        for m in self._ad_replaced_dependencies:
+        for m in self._ad_forward_cache.replaced_deps:
             mtlm = m.copy(deepcopy=True)
             replaced_tlms.append(mtlm)
 
@@ -180,11 +235,17 @@ class NonlinearVariationalSolverMixin:
             dFdm = expand_derivatives(dFdm)
             dFdm_tlm_forms.append(dFdm)
 
-        # We'll need to update the replaced_tlm
-        # values and assemble the dFdm forms
-        self._ad_tlm_dFdm_forms = dFdm_tlm_forms
-        self._ad_replaced_tlms = replaced_tlms
+        tlm_val = Function(V)
 
+        self._ad_tangent_cache = TangentSolveRecomputeCache(
+            tlm_val=tlm_val,
+            rhs=tlm_rhs,
+            dFdm_forms=dFdm_tlm_forms,
+            solver=lvs,
+            replaced_tlms=replaced_tlms,
+        )
+
+    @no_annotations
     def _ad_cache_adj_solver(self):
         from firedrake import (
             Function, Cofunction, TrialFunction, Argument,
@@ -223,7 +284,7 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
-        lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_bcs)
+        lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_forward_cache.bcs)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.adj_args,
@@ -235,7 +296,7 @@ class NonlinearVariationalSolverMixin:
         # Do all the symbolic work for calculating dJ/du up front
         # so we only pay for the numeric calculations at run time.
         dFdm_adj_forms = []
-        for m in self._ad_replaced_dependencies:
+        for m in self._ad_forward_cache.replaced_deps:
             # Action of adjoint solution on dFdm
             # TODO: Which of the two implementations should we use?
             dFdm = derivative(-F, m, TrialFunction(m.function_space()))
@@ -268,6 +329,7 @@ class NonlinearVariationalSolverMixin:
         # the adj_component for each dependency.
         self._ad_adj_dFdm_forms = dFdm_adj_forms
 
+    @no_annotations
     def _ad_cache_hessian_solver(self):
         from firedrake import (
             Function, TestFunction)
@@ -307,8 +369,8 @@ class NonlinearVariationalSolverMixin:
         # Contributions from each tlm_input
         dFdu_adj = action(self._ad_dFdu_adj, adj_sol)
         d2Fdmdu_forms = []
-        for m, dm in zip(self._ad_replaced_dependencies,
-                         self._ad_replaced_tlms):
+        for m, dm in zip(self._ad_forward_cache.replaced_deps,
+                         self._ad_tangent_cache.replaced_tlms):
             d2Fdmdu = expand_derivatives(
                 derivative(dFdu_adj, m, dm))
 
@@ -326,7 +388,7 @@ class NonlinearVariationalSolverMixin:
         dFdm_adj2_forms = []
         d2Fdm2_adj_forms = []
         d2Fdudm_forms = []
-        for m in self._ad_replaced_dependencies:
+        for m in self._ad_forward_cache.replaced_deps:
             dm = TestFunction(m.function_space())
             dFdm_adj2 = expand_derivatives(
                 derivative(Fadj2, m, dm))
@@ -341,8 +403,8 @@ class NonlinearVariationalSolverMixin:
             d2Fdudm_forms.append(d2Fdudm)
 
             d2Fdm2_adj_forms_k = []
-            for m2, dm2 in zip(self._ad_replaced_dependencies,
-                               self._ad_replaced_tlms):
+            for m2, dm2 in zip(self._ad_forward_cache.replaced_deps,
+                               self._ad_tangent_cache.replaced_tlms):
                 d2Fdm2_adj = expand_derivatives(
                     derivative(dFdm_adj, m2, dm2))
                 d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
@@ -368,36 +430,30 @@ class NonlinearVariationalSolverMixin:
                         "MissingMathsError: we do not know how to differentiate through a variational inequality")
 
                 if len(self._ad_solver_cache) == 0:
-                    with stop_annotating():
-                        self._ad_cache_forward_solver()
-                        self._ad_cache_tlm_solver()
-                        self._ad_cache_adj_solver()
-                        self._ad_cache_hessian_solver()
+                    self._ad_cache_forward_solver()
+                    self._ad_cache_tlm_solver()
+                    self._ad_cache_adj_solver()
+                    self._ad_cache_hessian_solver()
 
-                block = CachedSolverBlock(self._ad_problem.u,
-                                          self._ad_bcs,
-                                          self._ad_solver_cache,
-                                          self._ad_problem.is_linear,
-                                          self._ad_replaced_dependencies,
+                block = CachedSolverBlock(
+                    self._ad_forward_cache,
+                    self._ad_tangent_cache,
+                    self._ad_solver_cache,
 
-                                          self._ad_tlm_rhs,
-                                          self._ad_replaced_tlms,
-                                          self._ad_tlm_dFdm_forms,
+                    self._ad_adj_rhs,
+                    self._ad_adj_dFdm_forms,
+                    self._ad_adj_residual,
 
-                                          self._ad_adj_rhs,
-                                          self._ad_adj_dFdm_forms,
-                                          self._ad_adj_residual,
+                    self._ad_adj_sol,
+                    self._ad_adj2_sol,
+                    self._ad_tlm_output,
+                    self._ad_d2Fdu2_form,
+                    self._ad_d2Fdmdu_forms,
+                    self._ad_dFdm_adj2_forms,
+                    self._ad_d2Fdm2_adj_forms,
+                    self._ad_d2Fdudm_forms,
 
-                                          self._ad_adj_sol,
-                                          self._ad_adj2_sol,
-                                          self._ad_tlm_output,
-                                          self._ad_d2Fdu2_form,
-                                          self._ad_d2Fdmdu_forms,
-                                          self._ad_dFdm_adj2_forms,
-                                          self._ad_d2Fdm2_adj_forms,
-                                          self._ad_d2Fdudm_forms,
-
-                                          ad_block_tag=self.ad_block_tag)
+                    ad_block_tag=self.ad_block_tag)
 
                 for dep in self._ad_dependencies_to_add:
                     block.add_dependency(dep, no_duplicates=True)

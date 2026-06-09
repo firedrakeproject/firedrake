@@ -40,9 +40,8 @@ HESSIAN = SolverType.HESSIAN
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, func, bcs, cached_solvers,
-                 is_linear, replaced_dependencies,
-                 tlm_rhs, replaced_tlms, tlm_dFdm_forms,
+    def __init__(self, forward_cache, tangent_cache,
+                 cached_solvers,
                  adj_rhs, adj_dFdm_forms, adj_residual,
                  adj_sol, adj2_sol, tlm_output,
                  d2Fdu2_form, d2Fdmdu_forms,
@@ -51,15 +50,11 @@ class CachedSolverBlock(Block):
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
-        self.func = func
-        self.bcs = bcs
-        self.cached_solvers = cached_solvers
-        self.replaced_dependencies = replaced_dependencies
-        self.is_linear = is_linear
+        self.forward_cache = forward_cache
+        self.tangent_cache = tangent_cache
 
-        self.tlm_rhs = tlm_rhs
-        self.replaced_tlms = replaced_tlms
-        self.tlm_dFdm_forms = tlm_dFdm_forms
+        self.cached_solvers = cached_solvers
+        self.is_linear = forward_cache.is_linear
 
         self.adj_rhs = adj_rhs
         self.adj_dFdm_forms = adj_dFdm_forms
@@ -83,12 +78,12 @@ class CachedSolverBlock(Block):
 
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
-        return dependencies[:len(self.replaced_dependencies)]
+        return dependencies[:len(self.forward_cache.replaced_deps)]
 
     def _bc_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
-        if len(self.bcs) > 0:
-            return dependencies[-len(self.bcs):]
+        if len(self.forward_cache.bcs) > 0:
+            return dependencies[-len(self.forward_cache.bcs):]
         else:
             return []
 
@@ -97,7 +92,7 @@ class CachedSolverBlock(Block):
         """
         # Update the coefficients in the form.
         # Use the fact that zip will use the shorter length.
-        for replaced_dep, dep in zip(self.replaced_dependencies,
+        for replaced_dep, dep in zip(self.forward_cache.replaced_deps,
                                      self._coefficient_dependencies()):
             replaced_dep.assign(dep.saved_output)
 
@@ -108,24 +103,24 @@ class CachedSolverBlock(Block):
         # Jacobian is correct.
         if use_output:
             output = self.get_outputs()[0].saved_output
-            self.cached_solvers[FORWARD]._problem.u.assign(output)
+            self.forward_cache.solver._problem.u.assign(output)
 
         # Update the boundary conditions
-        for replaced_dep, dep in zip(self.bcs, self._bc_dependencies()):
+        for replaced_dep, dep in zip(self.forward_cache.bcs, self._bc_dependencies()):
             replaced_dep.set_value(dep.saved_output.function_arg)
 
     def update_tlm_dependencies(self):
         """Update all dependencies of the tlm solve.
         """
-        for replaced_dep, dep in zip(self.replaced_tlms,
+        for replaced_dep, dep in zip(self.tangent_cache.replaced_tlms,
                                      self._coefficient_dependencies()):
-            if dep.output == self.func and not self.is_linear:
+            if dep.output == self.forward_cache.func and not self.is_linear:
                 continue
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
             replaced_dep.assign(dep.tlm_value)
 
-        for replaced_dep, dep in zip(self.bcs, self._bc_dependencies()):
+        for replaced_dep, dep in zip(self.forward_cache.bcs, self._bc_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 bc_val = 0
             else:
@@ -153,7 +148,7 @@ class CachedSolverBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         self.update_dependencies(use_output=False)
 
-        solver = self.cached_solvers[FORWARD]
+        solver = self.forward_cache.solver
         solver.solve()
         result = solver._problem.u.copy(deepcopy=True)
 
@@ -171,13 +166,14 @@ class CachedSolverBlock(Block):
         self.update_tlm_dependencies()
 
         # Assemble the rhs of (dF/du)(du/dm) = -dF/dm
-        self.tlm_rhs.zero()
-        for dFdm, dep in zip(self.tlm_dFdm_forms, self.get_dependencies()):
+        tlm_rhs = self.tangent_cache.rhs
+        tlm_rhs.zero()
+        for dFdm, dep in zip(self.tangent_cache.dFdm_forms, self.get_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            if dep.output is self.func and not self.is_linear:  # Can't compute dependence on initial guess
+            if dep.output is self.forward_cache.func and not self.is_linear:  # Can't compute dependence on initial guess
                 continue
-            self.tlm_rhs += firedrake.assemble(dFdm)
+            tlm_rhs += firedrake.assemble(dFdm)
 
         # Solve for dudm
         solver = self.cached_solvers[TLM]
@@ -187,7 +183,7 @@ class CachedSolverBlock(Block):
         return result
 
     def solve_adj_equation(self, rhs, compute_boundary):
-        for bc in self.bcs:
+        for bc in self.forward_cache.bcs:
             bc.homogenize()
 
         solver = self.cached_solvers[ADJOINT]
@@ -229,7 +225,7 @@ class CachedSolverBlock(Block):
         return prepared
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        if block_variable.output == self.func and not self.is_linear:
+        if block_variable.output == self.forward_cache.func and not self.is_linear:
             return None
 
         if isinstance(block_variable.output, firedrake.DirichletBC):
@@ -270,7 +266,7 @@ class CachedSolverBlock(Block):
                                 self._coefficient_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            if dep.output is self.func and not self.is_linear:  # Can't compute dependence on initial guess
+            if dep.output is self.forward_cache.func and not self.is_linear:  # Can't compute dependence on initial guess
                 continue
             if len(d2Fdmdu.integrals()) > 0:
                 hessian_rhs -= firedrake.assemble(d2Fdmdu)
@@ -291,7 +287,7 @@ class CachedSolverBlock(Block):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs, block_variable, idx, relevant_dependencies, prepared=None):
         m = block_variable.output
 
-        if m is self.func and not self.is_linear:
+        if m is self.forward_cache.func and not self.is_linear:
             return None
 
         if isinstance(m, firedrake.DirichletBC):
@@ -307,7 +303,7 @@ class CachedSolverBlock(Block):
                 continue
             if dep.tlm_value is None:
                 continue
-            if dep.output is self.func and not self.is_linear:
+            if dep.output is self.forward_cache.func and not self.is_linear:
                 continue
             relevant_d2Fdm2_forms.append(self.d2Fdm2_adj_forms[idx][i])
 
