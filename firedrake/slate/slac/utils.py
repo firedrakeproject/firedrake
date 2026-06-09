@@ -28,15 +28,20 @@ class RemoveRestrictions(MultiFunction):
         return self(o.ufl_operands[0])
 
 
-def slate_to_gem(expression, options):
+def slate_to_gem(expression, options, scalar_type):
     """Convert a slate expression to gem.
 
     :arg expression: A slate expression.
+    :arg options: A dictionary of compiler options.
+    :arg scalar_type: The scalar type to use for gem literals, so that the
+        generated temporaries match the precision of the kernel arguments
+        (e.g. ``float32`` in single precision rather than the gem default
+        of ``float64``).
     :returns: A singleton list of gem expressions and a mapping from
         gem variables to UFL "terminal" forms.
     """
 
-    mapper, var2terminal = slate2gem(expression, options)
+    mapper, var2terminal = slate2gem(expression, options, scalar_type)
     return mapper, var2terminal
 
 
@@ -86,7 +91,8 @@ def _slate2gem_inverse(expr, self):
         # matrix which contains the reciprocal values of the diagonal tensor
         A, = map(self, expr.children)
         i, j = (Index(extent=s) for s in A.shape)
-        return ComponentTensor(Product(Division(Literal(1), Indexed(A, (i, i))),
+        return ComponentTensor(Product(Division(Literal(1, dtype=self.scalar_type),
+                                                Indexed(A, (i, i))),
                                        Delta(i, j)), (i, j))
     else:
         return Inverse(self(tensor))
@@ -96,7 +102,8 @@ def _slate2gem_inverse(expr, self):
 def _slate2gem_reciprocal(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
+    return ComponentTensor(Division(Literal(1., dtype=self.scalar_type),
+                                    Indexed(child, indices)), indices)
 
 
 @_slate2gem.register(sl.Solve)
@@ -115,7 +122,7 @@ def _slate2gem_transpose(expr, self):
 def _slate2gem_negative(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Product(Literal(-1),
+    return ComponentTensor(Product(Literal(-1, dtype=self.scalar_type),
                            Indexed(child, indices)),
                            indices)
 
@@ -145,10 +152,11 @@ def _slate2gem_factorization(expr, self):
     return A
 
 
-def slate2gem(expression, options):
+def slate2gem(expression, options, scalar_type):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
     mapper.matfree = options["replace_mul"]
+    mapper.scalar_type = scalar_type
     return mapper(expression), mapper.var2terminal
 
 
