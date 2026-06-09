@@ -3,7 +3,7 @@ from ufl import H1
 from finat.ufl import FiniteElement, NodalEnrichedElement, TensorElement
 
 from firedrake import dmhooks
-from firedrake.assemble import assemble, get_assembler
+from firedrake.assemble import get_assembler
 from firedrake.bcs import DirichletBC, restricted_function_space
 from firedrake.function import Function
 from firedrake.functionspace import MixedFunctionSpace
@@ -41,16 +41,21 @@ class RobustTransferManager(TransferManager):
         by transfering the input and output into local buffers
         referenced in the list of callables.
         """
-        def __init__(self, x_buffer, y_buffer, callables):
+        def __init__(self, x_buffer, y_buffer, action_callables, update_callables=()):
             self.x_buffer = x_buffer
             self.y_buffer = y_buffer
-            self.callables = callables
+            self.action_callables = action_callables
+            self.update_callables = update_callables
 
         def __call__(self, x, y):
             self.x_buffer.assign(x)
-            for c in self.callables:
+            for c in self.action_callables:
                 c()
             return y.assign(self.y_buffer)
+
+        def update(self):
+            for c in self.update_callables:
+                c()
 
     def form(self, V):
         """Get the preconditioning Form in the _SNESContext of a FunctionSpace."""
@@ -121,7 +126,7 @@ class RobustTransferManager(TransferManager):
         V_aux = self.build_auxiliary_target_space(V)
         u_aux = Function(V_aux)
 
-        solver, r_patch, u_patch = self.get_patch_solver(form, V)
+        solver, update_solver, r_patch, u_patch = self.get_patch_solver(form, V)
         if solver is None:
             # patch problem is empty
             callables = (
@@ -144,7 +149,7 @@ class RobustTransferManager(TransferManager):
                 solver,
                 copy_update,
             )
-        return self.TransferCallable(uc, uf, callables)
+        return self.TransferCallable(uc, uf, callables, [update_solver])
 
     def restrict_callable(self, form, rf, rc):
         """Return a TransferCallable with the adjoint of prolong."""
@@ -153,7 +158,7 @@ class RobustTransferManager(TransferManager):
         r_aux = Function(V_aux.dual())
         Au = Function(V_aux.dual())
 
-        solver, r_patch, u_patch = self.get_patch_solver(form, V)
+        solver, update_solver, r_patch, u_patch = self.get_patch_solver(form, V)
         if solver is None:
             # patch problem is empty
             callables = (
@@ -179,13 +184,33 @@ class RobustTransferManager(TransferManager):
                 partial(r_aux.assign, r_aux - Au),
                 partial(TransferManager.restrict, self, r_aux, rc),
             )
-        return self.TransferCallable(rf, rc, callables)
+        return self.TransferCallable(rf, rc, callables, [update_solver])
+
+    def needs_update(self, form):
+        from tsfc.ufl_utils import extract_firedrake_constants
+        state = form._cache.get("dat_versions", None)
+        new_state = []
+        for c in form.coefficients():
+            new_state.append(c.dat.dat_version)
+        for c in extract_firedrake_constants(form):
+            new_state.append(c.dat.data.copy())
+        new_state = tuple(new_state)
+        if state is None:
+            state = new_state
+        form._cache["dat_versions"] = new_state
+        return state != new_state
+
+    def update(self, Vc, Vf):
+        for c in self.get_transfer_callables(Vc, Vf):
+            c.update()
 
     def prolong(self, uc, uf):
         Vc = uc.function_space()
         Vf = uf.function_space()
         form = self.form(Vf)
         if form is not None:
+            if self.needs_update(form):
+                self.update(Vc, Vf)
             P, R = self.get_transfer_callables(Vc, Vf)
             return P(uc, uf)
         else:
@@ -196,6 +221,8 @@ class RobustTransferManager(TransferManager):
         Vf = rf.function_space().dual()
         form = self.form(Vf)
         if form is not None:
+            if self.needs_update(form):
+                self.update(Vc, Vf)
             P, R = self.get_transfer_callables(Vc, Vf)
             return R(rf, rc)
         else:
@@ -245,12 +272,12 @@ class CoarsePatchTransferManager(RobustTransferManager):
             bcs = [DirichletBC(V_patch.sub(i), 0, V_.boundary_set)
                    for i, V_ in enumerate(V_patch) if len(V_.boundary_set) > 0]
 
-        a = assemble(form(test, trial), bcs=bcs)
-        problem = LinearVariationalProblem(a, r_patch, u_patch)
+        a = form(test, trial)
+        problem = LinearVariationalProblem(a, r_patch, u_patch, bcs=bcs, constant_jacobian=True)
         solver = LinearVariationalSolver(problem,
                                          solver_parameters=DEFAULT_PATCH_PARAMETERS,
                                          options_prefix=self.options_prefix(V))
-        return (solver.solve, r_patch, u_patch)
+        return (solver.solve, solver.invalidate_jacobian, r_patch, u_patch)
 
     def get_patch_function_space(self, V):
         """Construct a space with boundary conditions on the coarse facets."""
@@ -329,14 +356,16 @@ class FinePatchTransferManager(RobustTransferManager):
 
         use_slate_for_inverse = not complex_mode
         if use_slate_for_inverse:
-            ainv = assemble(Inverse(Tensor(a)))
+            updater = get_assembler(Inverse(Tensor(a)))
+            ainv = updater.assemble()
             assembler = get_assembler(action(ainv, r_patch))
             solve = partial(assembler.assemble, tensor=u_patch)
+            update = partial(updater.assemble, tensor=ainv)
         else:
-            a = assemble(a)
-            problem = LinearVariationalProblem(a, r_patch, u_patch)
+            problem = LinearVariationalProblem(a, r_patch, u_patch, constant_jacobain=True)
             solver = LinearVariationalSolver(problem,
                                              solver_parameters=DEFAULT_PATCH_PARAMETERS,
                                              options_prefix=self.options_prefix(V))
             solve = solver.solve
-        return (solve, r_patch, u_patch)
+            update = solver.invalidate_jacobian
+        return (solve, update, r_patch, u_patch)
