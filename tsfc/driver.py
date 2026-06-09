@@ -7,6 +7,7 @@ import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
+from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.classes import Form, GeometricQuantity, ReferenceGrad
 from ufl.domain import extract_unique_domain, extract_domains
 
@@ -414,6 +415,7 @@ class DualEvaluationCallable(object):
                                 for _ in range(count))
         if derivative_axes and extract_unique_domain(expression) is None:
             return ufl.zero(*value_shape)
+        expression = apply_function_pullbacks(expression)
         for _ in derivative_axes:
             expression = ReferenceGrad(expression)
 
@@ -426,7 +428,8 @@ class DualEvaluationCallable(object):
                 expression = expression[derivative_axes]
 
         complex_mode = is_complex(self.kernel_cfg["scalar_type"])
-        expression = ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
+        expression = ufl_utils.preprocess_expression(expression, complex_mode=complex_mode,
+                                                    do_apply_function_pullbacks=False)
         return simplify_abs(expression, complex_mode)
 
     def __call__(self, ps, alpha=None):

@@ -123,7 +123,8 @@ def entity_avg(integrand, measure, argument_multiindices):
 
 
 def preprocess_expression(expression, complex_mode=False,
-                          do_apply_restrictions=False):
+                          do_apply_restrictions=False,
+                          do_apply_function_pullbacks=True):
     """Imitates the compute_form_data processing pipeline.
 
     :arg complex_mode: Are we in complex UFL mode?
@@ -138,7 +139,8 @@ def preprocess_expression(expression, complex_mode=False,
         expression = remove_complex_nodes(expression)
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
-    expression = apply_function_pullbacks(expression)
+    if do_apply_function_pullbacks:
+        expression = apply_function_pullbacks(expression)
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
