@@ -136,8 +136,8 @@ def test_extruded_periodic_annulus():
     # Check projection
     RTCF0 = FunctionSpace(mesh0, "RTCF", 3)
     RTCF1 = FunctionSpace(mesh1, "RTCF", 3)
-    f0 = Function(RTCF0).project(as_vector([sin(x0) + 2.0, cos(y0) + 3.0]), solver_parameters={"ksp_rtol": 1.e-13})
-    f1 = Function(RTCF1).project(as_vector([sin(x1) + 2.0, cos(y1) + 3.0]), solver_parameters={"ksp_rtol": 1.e-13})
+    f0 = Function(RTCF0).project(as_vector([sin(x0) + 2.0, cos(y0) + 3.0]), solver_parameters={"ksp_rtol": 1.e-5 if single_mode else 1.e-13})
+    f1 = Function(RTCF1).project(as_vector([sin(x1) + 2.0, cos(y1) + 3.0]), solver_parameters={"ksp_rtol": 1.e-5 if single_mode else 1.e-13})
     int0 = assemble(inner(f0, as_vector([x0 + 5.0, y0 + 7.0])) * dx)
     int1 = assemble(inner(f1, as_vector([x1 + 5.0, y1 + 7.0])) * dx)
     assert abs(int1 - int0) < (1e-4 if single_mode else 1.e-12)

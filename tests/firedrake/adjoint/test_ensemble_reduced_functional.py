@@ -22,9 +22,9 @@ def test_verification():
     J = assemble(x * x * dx(domain=mesh))
     rf = EnsembleReducedFunctional(J, Control(x), ensemble)
     ensemble_J = rf(x)
-    assert_allclose(ensemble_J, size, rtol=1e-12)
+    assert_allclose(ensemble_J, size, rtol=1e-5 if single_mode else 1e-12)
     dJdm = rf.derivative()
-    assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-12)
+    assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-5 if single_mode else 1e-12)
     assert taylor_test(rf, x, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
