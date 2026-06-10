@@ -373,7 +373,7 @@ def test_simple_inversion_riesz_representation(tao_type):
     with stop_annotating():
         solver_transform = TAOSolver(
             MinimizationProblem(rf_transform), tao_parameters)
-        x_transform = transform(_tao_solve_best(solver_transform), TransformType.PRIMAL,
+        x_transform = transform(solver_transform.solve(), TransformType.PRIMAL,
                                 riesz_representation,
                                 mfn_parameters=mfn_parameters)
         assert_allclose(x_transform.dat.data, source_ref.dat.data, rtol=1e-2)
