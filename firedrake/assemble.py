@@ -2102,33 +2102,12 @@ class ParloopBuilder:
             assert all(i is not None for i in self._local_knl.indices)
             return self._local_knl.indices,
 
-    @staticmethod
-    def _bc_root_space(bc):
-        """Return the top-level function space the boundary condition belongs to."""
-        V = bc.function_space()
-        while V.parent is not None:
-            V = V.parent
-        return V
-
-    @staticmethod
-    def _bc_index(bc):
-        """Return the top-level mixed-space index of a boundary condition."""
-        V = bc.function_space()
-        indices = []
-        while V.parent is not None:
-            if V.index is not None:
-                indices.append(V.index)
-            V = V.parent
-        if not indices:
-            raise RuntimeError("This function should only be called when function space is indexed")
-        return indices[-1]
-
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
         row_bcs = []
         col_bcs = []
         for bc in self._bcs:
-            V = self._bc_root_space(bc)
+            V = bc.function_space_root()
             on_row = V == self.test_function_space
             on_col = V == self.trial_function_space
             if not on_row and not on_col:
@@ -2140,13 +2119,13 @@ class ParloopBuilder:
 
         if len(self.test_function_space) > 1:
             bcrow = tuple(bc for bc in row_bcs
-                          if self._bc_index(bc) == row)
+                          if bc.function_space_index() == row)
         else:
             bcrow = tuple(row_bcs)
 
         if len(self.trial_function_space) > 1:
             bccol = tuple(bc for bc in col_bcs
-                          if self._bc_index(bc) == col
+                          if bc.function_space_index() == col
                           and isinstance(bc, DirichletBC))
         else:
             bccol = tuple(bc for bc in col_bcs if isinstance(bc, DirichletBC))
