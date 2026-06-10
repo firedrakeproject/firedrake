@@ -91,14 +91,11 @@ class BCBase(object):
 
     def function_space_index(self):
         fs = self._function_space
-        index = None
-        while fs.parent is not None:
-            if fs.index is not None:
-                index = fs.index
+        if fs.component is not None:
             fs = fs.parent
-        if index is None:
+        if fs.index is None:
             raise RuntimeError("This function should only be called when function space is indexed")
-        return index
+        return fs.index
 
     @cached_property
     def domain_args(self):

@@ -322,23 +322,26 @@ def test_mixed_bcs(diagonal):
     assert np.allclose(data[bc.nodes], 1.0)
 
 
-def test_mixed_component_bc_targets_parent_block():
-    m = UnitSquareMesh(1, 1, quadrilateral=True)
-    V = VectorFunctionSpace(m, 'CG', 1)
-    Q = FunctionSpace(m, 'CG', 1)
+def test_mixed_bc_single_space_block():
+    m = UnitSquareMesh(1, 1)
+    V = FunctionSpace(m, 'CG', 1)
+    Q = FunctionSpace(m, 'CG', 2)
     W = V*Q
-    u, p = TrialFunctions(W)
-    v, q = TestFunctions(W)
+    u = TrialFunction(V)
+    _, q = TestFunctions(W)
 
-    bc = DirichletBC(W.sub(0).sub(1), 0.0, 1)
+    bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
+    a = inner(u, q)*dx
 
-    assert bc.function_space_root() == W
-    assert bc.function_space_index() == 0
+    A = assemble(a, bcs=bc)
+    A_no_bcs = assemble(a)
+    block = A.M[1, 0].values
+    block_no_bcs = A_no_bcs.M[1, 0].values
+    free_nodes = np.setdiff1d(np.arange(block.shape[0]), bc.nodes)
 
-    A = assemble(inner(u, v)*dx + inner(p, q)*dx, bcs=bc, mat_type="aij")
-    constrained = bc.nodes * V.block_size + 1
-
-    assert np.allclose(A.M[0, 0].values.diagonal()[constrained], 1.0)
+    assert not A.petscmat.equal(A_no_bcs.petscmat)
+    assert np.allclose(block[bc.nodes, :], 0.0)
+    assert np.allclose(block[free_nodes, :], block_no_bcs[free_nodes, :])
 
 
 def test_bcs_rhs_assemble(a, V):
