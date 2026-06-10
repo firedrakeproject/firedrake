@@ -1456,6 +1456,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, Vrow in enumerate(test.function_space()):
                 for j, Vcol in enumerate(trial.function_space()):
                     mesh = Vrow.mesh()
+                    if Vcol.mesh().topology.submesh_youngest_common_ancestor(mesh.topology) is None:
+                        # The row and column spaces are defined on unrelated
+                        # meshes, so no integral can directly couple this
+                        # block. Cross-mesh coupling is handled separately.
+                        continue
                     rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
                     cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
