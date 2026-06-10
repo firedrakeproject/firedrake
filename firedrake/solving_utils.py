@@ -476,7 +476,7 @@ class _SNESContext(object):
         with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
-        if ctx.pre_apply_bcs:
+        if not ctx.pre_apply_bcs:
             # Apply DirichletBC on the solution
             for bc in ctx._problem.dirichlet_bcs():
                 bc.apply(ctx._x)
