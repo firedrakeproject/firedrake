@@ -129,7 +129,7 @@ def test_assign_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V).assign(100.0 if single_mode else 1.)
+    h = Function(V).assign(100.0)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
