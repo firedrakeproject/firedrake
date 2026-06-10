@@ -422,7 +422,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
-                 objective=None,
                  form_compiler_parameters=None,
                  constant_jacobian=False, restrict=False):
         r"""
@@ -433,7 +432,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be
                  computed from ``a``)
-        :param objective: a form used for line-search, optional
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         :param constant_jacobian: (optional) flag indicating that the
@@ -454,7 +452,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         F = self.compute_bc_lifting(a, u, L=L)
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
-                                                       objective=objective,
                                                        form_compiler_parameters=form_compiler_parameters,
                                                        is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian

@@ -167,9 +167,10 @@ def _solve_varproblem(*args, **kwargs):
         raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
 
     if len(eq.lhs.arguments()) == 2:
+        if objective is not None:
+            raise ValueError(f"the objective functional only makes sense for nonlinear problems.")
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              objective=objective,
                                               form_compiler_parameters=form_compiler_parameters,
                                               restrict=restrict)
         create_solver = vs.LinearVariationalSolver
@@ -203,7 +204,6 @@ def _la_solve(A, x, b, **kwargs):
     :kwarg P: an optional :class:`~.MatrixBase` to construct any
          preconditioner from; if none is supplied ``A`` is
          used to construct the preconditioner.
-    :kwarg objective: a form used for line-search.
     :kwarg solver_parameters: optional solver parameters.
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
@@ -236,8 +236,7 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    (P, bcs, objective, solver_parameters,
-     nullspace, nullspace_T, near_nullspace,
+    (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
      options_prefix, pre_apply_bcs,
      ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
@@ -245,9 +244,7 @@ def _la_solve(A, x, b, **kwargs):
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
     appctx = solver_parameters.get("appctx", {})
-    solver = ls.LinearSolver(A=A, P=P,
-                             objective=objective,
-                             solver_parameters=solver_parameters,
+    solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
@@ -258,7 +255,7 @@ def _la_solve(A, x, b, **kwargs):
 
 
 def _extract_linear_solver_args(*args, **kwargs):
-    valid_kwargs = ["P", "bcs", "objective", "solver_parameters", "nullspace",
+    valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix",
                     "pre_apply_bcs"]
     if len(args) != 3:
@@ -271,7 +268,6 @@ def _extract_linear_solver_args(*args, **kwargs):
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
-    objective = kwargs.get("objective", None)
     solver_parameters = kwargs.get("solver_parameters", {}) or {}
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
@@ -279,7 +275,7 @@ def _extract_linear_solver_args(*args, **kwargs):
     options_prefix = kwargs.get("options_prefix", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return P, bcs, objective, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
 
 
 def _extract_args(*args, **kwargs):
