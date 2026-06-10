@@ -216,6 +216,11 @@ class ExtractSubBlock(MultiFunction):
         sub_dual_arg = self(dual_arg)
         W = sub_dual_arg.function_space()
 
+        if o.ufl_operands[0].ufl_shape != V.value_shape:
+            if operand.ufl_shape != W.value_shape:
+                return self(ZeroBaseForm(o.arguments()))
+            return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+
         # Unflatten the expression into the target shape
         cur = 0
         components = []

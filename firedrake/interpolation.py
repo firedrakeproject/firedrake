@@ -8,9 +8,10 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
+from ufl.tensors import as_vector
 from ufl.duals import is_dual
 from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
@@ -100,6 +101,20 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
+def split_mixed_coefficients(expr: Expr) -> Expr:
+    replacements = {}
+    for c in extract_coefficients(expr):
+        if isinstance(c, Function) and len(c.function_space()) > 1:
+            flat_components = []
+            for sub in c.subfunctions:
+                if sub.ufl_shape == ():
+                    flat_components.append(sub)
+                else:
+                    flat_components.extend(sub[i] for i in numpy.ndindex(sub.ufl_shape))
+            replacements[c] = as_vector(flat_components)
+    return replace(expr, replacements) if replacements else expr
+
+
 class Interpolate(UFLInterpolate):
 
     def __init__(self, expr: Expr, V: WithGeometry | BaseForm, **kwargs):
@@ -174,9 +189,16 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
-            raise NotImplementedError(
-                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-            )
+            if extract_arguments(operand):
+                return MixedInterpolator(self)
+            split_operand = split_mixed_coefficients(operand)
+            try:
+                extract_unique_domain(split_operand)
+            except ValueError:
+                raise NotImplementedError(
+                    "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+                )
+            return get_interpolator(self._ufl_expr_reconstruct_(split_operand))
 
         try:
             target_mesh = target_mesh.unique()
