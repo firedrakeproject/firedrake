@@ -102,7 +102,7 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         requests = ensemble.iallreduce(urank, u_reduce)
         MPI.Request.Waitall(requests)
 
-    parallel_assert(errornorm(urank_sum, u_reduce) < (1e-4 if single_mode else 1e-12))
+    parallel_assert(errornorm(urank_sum, u_reduce) < (1e-6 if single_mode else 1e-12))
 
 
 @pytest.mark.parallel(nprocs=2)
