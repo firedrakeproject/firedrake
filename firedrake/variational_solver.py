@@ -68,7 +68,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :param Jp: a form used for preconditioning the linear system,
                  optional, if not supplied then the Jacobian itself
                  will be used.
-        :param objective: a form used for line-search, optional
+        :param objective: a form used for line-search or trust-region methods, optional
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
