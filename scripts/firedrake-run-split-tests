@@ -28,7 +28,10 @@ Requires:
   * pytest
   * pytest-split
   * mpi-pytest
-  * GNU parallel"
+
+Optional:
+
+  * GNU parallel (if unavailable, the script falls back to bash job control)"
 
 # Print out help message with no arguments or "-h" or "--help"
 if [[ "$#" -eq "0" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
@@ -60,10 +63,26 @@ set -x
 # * Runs pytest under GNU parallel using the right number of jobs
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
-parallel --line-buffer --tag \
-    "${pytest_cmd} 2>&1 | tee ${log_file_prefix}{#}.log; \
-    echo \${PIPESTATUS[0]} > job{#}.errcode" \
-    ::: $(seq ${num_jobs})
+if command -v parallel >/dev/null 2>&1; then
+    parallel --line-buffer --tag \
+        "${pytest_cmd} 2>&1 | tee ${log_file_prefix}{#}.log; \
+        echo \${PIPESTATUS[0]} > job{#}.errcode" \
+        ::: $(seq ${num_jobs})
+else
+    # Fallback when GNU parallel is not available: use bash job control.
+    # We keep per-job logs and errcodes to match the GNU parallel behavior.
+    pids=()
+    for i in $(seq ${num_jobs}); do
+        (
+            eval "${pytest_cmd/\{#\}/$i}" 2>&1 | tee ${log_file_prefix}${i}.log
+            echo ${PIPESTATUS[0]} > job${i}.errcode
+        ) &
+        pids+=($!)
+    done
+    for pid in "${pids[@]}"; do
+        wait ${pid} || true
+    done
+fi
 
 set +x
 
