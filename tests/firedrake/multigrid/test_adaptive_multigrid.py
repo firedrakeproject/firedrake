@@ -6,6 +6,7 @@ and AdaptiveTransferManager
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=[2, 3])
@@ -282,7 +283,7 @@ def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.set_transfer_manager(atm)
     solver.solve()
-    assert errornorm(u_ex, u) <= 1e-8
+    assert errornorm(u_ex, u) <= (1e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel([1, 2])
@@ -366,4 +367,4 @@ def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
     solver.set_transfer_manager(atm)
 
     solver.solve()
-    assert errornorm(u_ex, u) <= 1e-8
+    assert errornorm(u_ex, u) <= (1e-6 if single_mode else 1e-8)

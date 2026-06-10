@@ -126,8 +126,8 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < (1e-3 if single_mode else 1e-11)
+    assert u_err < (1e-3 if single_mode else 1e-11)
 
 
 def test_slate_hybridization_wrong_option(setup_poisson, petsc_raises):
@@ -188,8 +188,8 @@ def test_slate_hybridization_nested_schur(setup_poisson):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < (1e-6 if single_mode else 1e-11)
+    assert u_err < (1e-6 if single_mode else 1e-11)
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
@@ -271,8 +271,8 @@ def test_mixed_poisson_approximated_schur(setup_poisson):
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-6 if single_mode else 1e-8)
+    assert u_err < (2e-6 if single_mode else 1e-8)
 
 
 def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
@@ -333,8 +333,8 @@ def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-5 if single_mode else 1e-8)
+    assert u_err < (2e-5 if single_mode else 1e-8)
 
 
 def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
@@ -396,8 +396,8 @@ def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-5 if single_mode else 1e-8)
+    assert u_err < (2e-5 if single_mode else 1e-8)
 
 
 def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
@@ -460,8 +460,8 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-6 if single_mode else 1e-8)
+    assert u_err < (2e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize('counts', [(10001, 10002), (10002, 10001)])
