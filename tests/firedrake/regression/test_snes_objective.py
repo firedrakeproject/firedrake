@@ -8,10 +8,10 @@ newtonls_params = {
     "snes_rtol": 1E-8,
     "snes_converged_reason": None,
     "snes_monitor": "::ascii_info_detail",
-    "snes_ksp_ew": True,  # TODO: why pre_apply_bcs=False allows use to compute the correct solution?
+    "snes_ksp_ew": True,
     "ksp_type": "cg",
     "ksp_norm_type": "natural",
-    "pc_type": "gamg",
+    "pc_type": "hypre",
 }
 
 newtontr_params = {
@@ -22,7 +22,7 @@ newtontr_params = {
     "snes_type": "newtontr",
     "ksp_type": "cg",
     "ksp_norm_type": "natural",
-    "pc_type": "gamg",
+    "pc_type": "hypre",
 }
 
 
@@ -67,7 +67,7 @@ def test_poisson_boltzmann_energy(interface, refine):
 
     sp = newtontr_params if refine == 0 else fas_newtontr_params
     pre_apply_bcs = False
-    # pre_apply_bcs = True # does not work with trust region or newton + Eisenstant and Walker
+    # pre_apply_bcs = True # does not work with trust region or newton + Eisenstant and Walker and gamg as preconditioner
     if interface == "solve":
         solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
     elif interface == "nlvp":

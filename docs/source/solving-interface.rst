@@ -745,7 +745,7 @@ value of the objective functional.
          'snes_tr_delta0': 1e-4,
          "snes_monitor": "::ascii_info_detail",
          'ksp_type': 'cg',
-         'pc_type': 'gamg'}
+         'pc_type': 'hypre'}
    solve(F == 0, u, ..., objective=E, solver_parameters=sp, pre_apply_bcs=False)
 
 Default solver options

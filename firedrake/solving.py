@@ -168,7 +168,7 @@ def _solve_varproblem(*args, **kwargs):
 
     if len(eq.lhs.arguments()) == 2:
         if objective is not None:
-            raise ValueError(f"the objective functional only makes sense for nonlinear problems.")
+            raise ValueError("The objective functional only makes sense for nonlinear problems.")
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
