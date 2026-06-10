@@ -40,37 +40,23 @@ HESSIAN = SolverType.HESSIAN
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, forward_cache, tangent_cache, adjoint_cache,
+    def __init__(self, forward_cache, tangent_cache, adjoint_cache, hessian_cache,
                  cached_solvers,
-                 adj_sol, adj2_sol, tlm_output,
-                 d2Fdu2_form, d2Fdmdu_forms,
-                 dFdm_adj2_forms, d2Fdm2_adj_forms,
-                 d2Fdudm_forms,
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
         self.forward_cache = forward_cache
         self.tangent_cache = tangent_cache
         self.adjoint_cache = adjoint_cache
+        self.hessian_cache = hessian_cache
 
         self.cached_solvers = cached_solvers
         self.is_linear = forward_cache.is_linear
 
-        # this one belongs to this block specifically and
-        # stashes the adjoint solution for the hessian calculation
-        self.adj_sol = adj_sol.copy(deepcopy=True, annotate=False)
-        # this one is in the cached forms which are shared by all
-        # all solve blocks for this solver, it needs to be updated
-        # with the adj_sol value for this block before assembling
-        # the cached forms.
-        self._adj_sol = adj_sol
-        self.adj2_sol = adj2_sol
-        self.tlm_output = tlm_output
-        self.d2Fdu2_form = d2Fdu2_form
-        self.d2Fdmdu_forms = d2Fdmdu_forms
-        self.dFdm_adj2_forms = dFdm_adj2_forms
-        self.d2Fdm2_adj_forms = d2Fdm2_adj_forms
-        self.d2Fdudm_forms = d2Fdudm_forms
+        # The adj_sol in the cached forms is shared by all blocks.
+        # This adj_sol belongs to this block specifically so we can
+        # stash the adjoint solution for the hessian calculation.
+        self.adj_sol = adjoint_cache.adj_sol.copy(deepcopy=True, annotate=False)
 
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
@@ -132,7 +118,7 @@ class CachedSolverBlock(Block):
         self.update_tlm_dependencies()
         # update the adj_sol in the cached forms with
         # the adj_sol value owned by this block.
-        self._adj_sol.assign(self.adj_sol)
+        self.hessian_cache.adj_sol.assign(self.adj_sol)
 
     def _compute_boundary(self, relevant_dependencies):
         return any(isinstance(dep.output, firedrake.DirichletBC)
@@ -253,11 +239,11 @@ class CachedSolverBlock(Block):
         hessian_rhs = hessian_input.copy(deepcopy=True)
 
         # tlm_output contribution
-        self.tlm_output.assign(tlm_output)
-        hessian_rhs -= firedrake.assemble(self.d2Fdu2_form)
+        self.hessian_cache.tlm_output.assign(tlm_output)
+        hessian_rhs -= firedrake.assemble(self.hessian_cache.d2Fdu2_form)
 
         # tlm_input contribution
-        for d2Fdmdu, dep in zip(self.d2Fdmdu_forms,
+        for d2Fdmdu, dep in zip(self.hessian_cache.d2Fdmdu_forms,
                                 self._coefficient_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
@@ -270,7 +256,7 @@ class CachedSolverBlock(Block):
         compute_boundary = self._compute_boundary(relevant_dependencies)
         adj2_sol, adj2_sol_bc = self.solve_adj_equation(hessian_rhs, compute_boundary)
 
-        self.adj2_sol.assign(adj2_sol)
+        self.hessian_cache.adj2_sol.assign(adj2_sol)
 
         prepared = {
             "adj2_sol": adj2_sol,
@@ -300,12 +286,12 @@ class CachedSolverBlock(Block):
                 continue
             if dep.output is self.forward_cache.func and not self.is_linear:
                 continue
-            relevant_d2Fdm2_forms.append(self.d2Fdm2_adj_forms[idx][i])
+            relevant_d2Fdm2_forms.append(self.hessian_cache.d2Fdm2_adj_forms[idx][i])
 
         hessian_output = 0
 
-        for form in (self.d2Fdudm_forms[idx],
-                     self.dFdm_adj2_forms[idx],
+        for form in (self.hessian_cache.d2Fdudm_forms[idx],
+                     self.hessian_cache.dFdm_adj2_forms[idx],
                      *relevant_d2Fdm2_forms):
             if not form.empty():
                 hessian_output += firedrake.assemble(-form)
