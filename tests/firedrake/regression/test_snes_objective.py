@@ -60,8 +60,8 @@ def test_poisson_boltzmann_energy(interface, refine):
     )
     F = (
         inner(grad(u), grad(v))*dx
-        + kappa**2 * sinh(u)*v*dx
-        - f*v*dx
+        + kappa**2 * inner(sinh(u), v)*dx
+        - inner(f, v)*dx
     )
     bcs = DirichletBC(V, 0, "on_boundary")
 
