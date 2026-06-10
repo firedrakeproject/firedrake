@@ -275,7 +275,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, or a UFL expression that can be interpolated into
+        ``V``, or a :class:`.Function` on a different space or UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
