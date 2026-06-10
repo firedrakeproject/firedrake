@@ -350,7 +350,7 @@ def test_simple_inversion_riesz_representation(tao_type):
     rf = forward(source)
     with stop_annotating():
         solver = TAOSolver(MinimizationProblem(rf), tao_parameters)
-        x = _tao_solve_best(solver)
+        x = solver.solve()
         assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
         get_working_tape().clear_tape()
