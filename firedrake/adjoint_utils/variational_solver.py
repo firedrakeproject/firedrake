@@ -30,6 +30,7 @@ AdjointSolveRecomputeCache = namedtuple(
         "dFdm_forms",
         "residual",
         "solver",
+        "dFdu_adj",
     ]
 )
 
@@ -41,6 +42,7 @@ TangentSolveRecomputeCache = namedtuple(
         "dFdm_forms",
         "solver",
         "replaced_tlms",
+        "dFdu",
     ]
 )
 
@@ -208,8 +210,6 @@ class NonlinearVariationalSolverMixin:
         dFdm = Cofunction(V.dual())
         dudm = Function(V)
 
-        self._ad_dFdu = dFdu
-
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
@@ -243,6 +243,7 @@ class NonlinearVariationalSolverMixin:
             dFdm_forms=dFdm_tlm_forms,
             solver=lvs,
             replaced_tlms=replaced_tlms,
+            dFdu=dFdu,
         )
 
     @no_annotations
@@ -267,15 +268,13 @@ class NonlinearVariationalSolverMixin:
         # Then for the _partial_ derivatives:
         # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
         # (dF/du)*(du/dm) = -dF/dm
-        dFdu = self._ad_dFdu
+        dFdu = self._ad_tangent_cache.dFdu
         try:
             dFdu_adj = adjoint(dFdu)
         except ValueError:
             # Try again without expanding derivatives,
             # as dFdu might have been simplied to an empty Form
             dFdu_adj = adjoint(dFdu, derivatives_expanded=True)
-
-        self._ad_dFdu_adj = dFdu_adj
 
         # This will be the rhs of the adjoint problem
         dJdu = Cofunction(V.dual())
@@ -291,8 +290,9 @@ class NonlinearVariationalSolverMixin:
             **self._ad_args_kwargs.adj_kwargs)
 
         self._ad_solver_cache[ADJOINT] = lvs
-        self._ad_adj_rhs = dJdu
 
+        # We'll need to assemble these forms to calculate
+        # the adj_component for each dependency.
         # Do all the symbolic work for calculating dJ/du up front
         # so we only pay for the numeric calculations at run time.
         dFdm_adj_forms = []
@@ -323,11 +323,16 @@ class NonlinearVariationalSolverMixin:
         # we'll need the residual of the adjoint equation without
         # any DirichletBC using the solution calculated with
         # homogeneous DirichletBCs.
-        self._ad_adj_residual = dJdu - action(dFdu_adj, adj_sol)
+        adj_residual = dJdu - action(dFdu_adj, adj_sol)
 
-        # We'll need to assemble these forms to calculate
-        # the adj_component for each dependency.
-        self._ad_adj_dFdm_forms = dFdm_adj_forms
+        self._ad_adjoint_cache = AdjointSolveRecomputeCache(
+            adj_sol=adj_sol,
+            rhs=dJdu,
+            dFdm_forms=dFdm_adj_forms,
+            residual=adj_residual,
+            solver=lvs,
+            dFdu_adj=dFdu_adj,
+        )
 
     @no_annotations
     def _ad_cache_hessian_solver(self):
@@ -344,7 +349,7 @@ class NonlinearVariationalSolverMixin:
 
         # Calculate d^2F/du^2 * du/dm * dm
         # where dm is direction for tlm action so du/dm * dm is tlm output
-        dFdu = self._ad_dFdu
+        dFdu = self._ad_tangent_cache.dFdu
         tlm_output = Function(V)
         d2Fdu2 = derivative(dFdu, u, tlm_output)
         # print()
@@ -367,7 +372,7 @@ class NonlinearVariationalSolverMixin:
         self._ad_d2Fdu2_form = d2Fdu2_form
 
         # Contributions from each tlm_input
-        dFdu_adj = action(self._ad_dFdu_adj, adj_sol)
+        dFdu_adj = action(self._ad_adjoint_cache.dFdu_adj, adj_sol)
         d2Fdmdu_forms = []
         for m, dm in zip(self._ad_forward_cache.replaced_deps,
                          self._ad_tangent_cache.replaced_tlms):
@@ -438,11 +443,8 @@ class NonlinearVariationalSolverMixin:
                 block = CachedSolverBlock(
                     self._ad_forward_cache,
                     self._ad_tangent_cache,
+                    self._ad_adjoint_cache,
                     self._ad_solver_cache,
-
-                    self._ad_adj_rhs,
-                    self._ad_adj_dFdm_forms,
-                    self._ad_adj_residual,
 
                     self._ad_adj_sol,
                     self._ad_adj2_sol,

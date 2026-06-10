@@ -40,9 +40,8 @@ HESSIAN = SolverType.HESSIAN
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, forward_cache, tangent_cache,
+    def __init__(self, forward_cache, tangent_cache, adjoint_cache,
                  cached_solvers,
-                 adj_rhs, adj_dFdm_forms, adj_residual,
                  adj_sol, adj2_sol, tlm_output,
                  d2Fdu2_form, d2Fdmdu_forms,
                  dFdm_adj2_forms, d2Fdm2_adj_forms,
@@ -52,13 +51,10 @@ class CachedSolverBlock(Block):
 
         self.forward_cache = forward_cache
         self.tangent_cache = tangent_cache
+        self.adjoint_cache = adjoint_cache
 
         self.cached_solvers = cached_solvers
         self.is_linear = forward_cache.is_linear
-
-        self.adj_rhs = adj_rhs
-        self.adj_dFdm_forms = adj_dFdm_forms
-        self.adj_residual = adj_residual
 
         # this one belongs to this block specifically and
         # stashes the adjoint solution for the hessian calculation
@@ -176,7 +172,7 @@ class CachedSolverBlock(Block):
             tlm_rhs += firedrake.assemble(dFdm)
 
         # Solve for dudm
-        solver = self.cached_solvers[TLM]
+        solver = self.tangent_cache.solver
         solver._problem.u.zero()
         solver.solve()
         result = solver._problem.u.copy(deepcopy=True)
@@ -186,21 +182,20 @@ class CachedSolverBlock(Block):
         for bc in self.forward_cache.bcs:
             bc.homogenize()
 
-        solver = self.cached_solvers[ADJOINT]
-        adj_sol = solver._problem.u
+        adj_rhs = self.adjoint_cache.rhs
+        adj_sol = self.adjoint_cache.adj_sol
 
-        self.adj_rhs.assign(rhs)
+        adj_rhs.assign(rhs)
         adj_sol.zero()
-
-        solver.solve()
+        self.adjoint_cache.solver.solve()
 
         if compute_boundary:
-            adj_sol_bc = firedrake.assemble(self.adj_residual)
+            adj_sol_bc = firedrake.assemble(self.adjoint_cache.residual)
             adj_sol_bc = adj_sol_bc.riesz_representation("l2")
         else:
             adj_sol_bc = None
 
-        return adj_sol, adj_sol_bc
+        return adj_sol.copy(deepcopy=True), adj_sol_bc
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         self.update_dependencies(use_output=True)
@@ -219,7 +214,7 @@ class CachedSolverBlock(Block):
         self.adj_sol.assign(adj_sol)
 
         prepared = {
-            "adj_sol": adj_sol.copy(deepcopy=True),
+            "adj_sol": adj_sol,
             "adj_sol_bc": adj_sol_bc
         }
         return prepared
@@ -236,7 +231,7 @@ class CachedSolverBlock(Block):
             )
 
         # assemble sensititivy comment
-        dFdm = firedrake.assemble(self.adj_dFdm_forms[idx])
+        dFdm = firedrake.assemble(self.adjoint_cache.dFdm_forms[idx])
 
         return dFdm
 
@@ -278,7 +273,7 @@ class CachedSolverBlock(Block):
         self.adj2_sol.assign(adj2_sol)
 
         prepared = {
-            "adj2_sol": adj2_sol.copy(deepcopy=True),
+            "adj2_sol": adj2_sol,
             "adj2_sol_bc": adj2_sol_bc,
         }
 
