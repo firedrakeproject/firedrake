@@ -32,7 +32,7 @@ def mesh_hierarchy(request):
     return mh
 
 
-@pytest.mark.skipsingle  # fp32: warped-mesh high-order stress-element system is too ill-conditioned for fp32 (DIVERGED_LINEAR_SOLVE); MG transfer crash itself is fixed
+@pytest.mark.skipsingle  # fp32: warped-mesh high-order stress-element system is too ill-conditioned for fp32 (DIVERGED_LINEAR_SOLVE)
 def test_stress_displacement_convergence(stress_element, mesh_hierarchy):
     mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
