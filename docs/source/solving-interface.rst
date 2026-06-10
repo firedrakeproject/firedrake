@@ -738,15 +738,15 @@ value of the objective functional.
 
 .. code-block:: python3
 
-   E = 0.5*inner(grad(u), grad(u))*dx - inner(f, u)*dx
-   F = derivative(E, u)
+   E = 0.5 * inner(grad(u), grad(u))*dx + kappa**2 * cosh(u)*dx - inner(f, u)*dx
+   F = inner(grad(u), grad(v))*dx + kappa**2 * inner(sinh(u), v)*dx - inner(f, v)*dx
    # Solve an optimisation problem
    sp = {'snes_type': 'newtontr',
          'snes_tr_delta0': 1e-4,
          "snes_monitor": "::ascii_info_detail",
          'ksp_type': 'cg',
          'pc_type': 'gamg'}
-   solve(F == 0, u, ..., objective=E, solver_parameters=sp)
+   solve(F == 0, u, ..., objective=E, solver_parameters=sp, pre_apply_bcs=False)
 
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~

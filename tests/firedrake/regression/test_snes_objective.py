@@ -56,7 +56,7 @@ def test_poisson_boltzmann_energy(interface, refine):
     E = (
         0.5 * inner(grad(u), grad(u))*dx
         + kappa**2 * cosh(u)*dx
-        - f*u*dx
+        - inner(f, u)*dx
     )
     F = (
         inner(grad(u), grad(v))*dx
