@@ -1,7 +1,11 @@
 from firedrake import *
+from petsc4py import PETSc
 import pytest
 import math
 
+pc_type = "hypre" if PETSc.Sys.hasExternalPackage("hypre") else "gamg"
+# pc_type = "gamg"
+# pc_type = "jacobi"
 
 newtonls_params = {
     "snes_atol": 1E-8,
@@ -11,7 +15,7 @@ newtonls_params = {
     "snes_ksp_ew": True,
     "ksp_type": "cg",
     "ksp_norm_type": "natural",
-    "pc_type": "hypre",
+    "pc_type": pc_type,
 }
 
 newtontr_params = {
@@ -22,7 +26,7 @@ newtontr_params = {
     "snes_type": "newtontr",
     "ksp_type": "cg",
     "ksp_norm_type": "natural",
-    "pc_type": "hypre",
+    "pc_type": pc_type,
 }
 
 
