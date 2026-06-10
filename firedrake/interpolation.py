@@ -126,7 +126,9 @@ class Interpolate(UFLInterpolate):
 
         self.target_space = V.arguments()[0].function_space()
         if expr.ufl_shape != self.target_space.value_shape:
-            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
+            component_shapes = tuple(V_.value_shape for V_ in self.target_space) if len(self.target_space) > 1 else ()
+            if not expr_arg_numbers or expr.ufl_shape not in component_shapes:
+                raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
         super().__init__(expr, V)
 
