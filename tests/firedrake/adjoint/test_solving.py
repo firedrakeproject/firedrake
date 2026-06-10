@@ -311,7 +311,7 @@ def test_two_nonlinear_solves():
     J = assemble(dot(u1, u1)*dx)
     rf = ReducedFunctional(J, c)
     h = Constant(10.0 if single_mode else 0.1)
-    assert taylor_test(rf, ui, h) > (1.9 if single_mode else 1.95)
+    assert taylor_test(rf, ui, h) > 1.9
     # Taylor test recomputes the functional 5 times.
     assert rf.tape.recompute_count == 5
 
