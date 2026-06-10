@@ -322,6 +322,25 @@ def test_mixed_bcs(diagonal):
     assert np.allclose(data[bc.nodes], 1.0)
 
 
+def test_mixed_component_bc_targets_parent_block():
+    m = UnitSquareMesh(1, 1, quadrilateral=True)
+    V = VectorFunctionSpace(m, 'CG', 1)
+    Q = FunctionSpace(m, 'CG', 1)
+    W = V*Q
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    bc = DirichletBC(W.sub(0).sub(1), 0.0, 1)
+
+    assert bc.function_space_root() == W
+    assert bc.function_space_index() == 0
+
+    A = assemble(inner(u, v)*dx + inner(p, q)*dx, bcs=bc, mat_type="aij")
+    constrained = bc.nodes * V.block_size + 1
+
+    assert np.allclose(A.M[0, 0].values.diagonal()[constrained], 1.0)
+
+
 def test_bcs_rhs_assemble(a, V):
     bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
     b1 = assemble(a)

@@ -82,13 +82,23 @@ class BCBase(object):
 
         return self._function_space
 
+    def function_space_root(self):
+        """The top-level :class:`.FunctionSpace` containing this boundary condition."""
+        fs = self._function_space
+        while fs.parent is not None:
+            fs = fs.parent
+        return fs
+
     def function_space_index(self):
         fs = self._function_space
-        if fs.component is not None:
+        index = None
+        while fs.parent is not None:
+            if fs.index is not None:
+                index = fs.index
             fs = fs.parent
-        if fs.index is None:
+        if index is None:
             raise RuntimeError("This function should only be called when function space is indexed")
-        return fs.index
+        return index
 
     @cached_property
     def domain_args(self):
