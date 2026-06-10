@@ -39,10 +39,9 @@ v = Function(V).project(0.5*cos(4*pi*x))
         Jhat = ReducedFunctional(J, Control(u), tape=tape)
     pause_annotation()
 
-    m = Function(V).project(sin(2*pi*(x+0.2)))
-    h = Function(V).project(sin(4*pi*(x-0.2)))
-    if single_mode:
-        h *= 100.0
+    m = Function(V).project(cos(2*pi*(x)))
+    h = Function(V).project(cos(4*pi*(x)))
+    h *= 100.0
 
     taylor = taylor_to_dict(Jhat, m, h)
 
