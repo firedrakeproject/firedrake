@@ -437,7 +437,6 @@ class NonlinearVariationalSolverMixin:
                     self._ad_tangent_cache,
                     self._ad_adjoint_cache,
                     self._ad_hessian_cache,
-                    self._ad_solver_cache,
                     ad_block_tag=self.ad_block_tag)
 
                 for dep in self._ad_dependencies_to_add:

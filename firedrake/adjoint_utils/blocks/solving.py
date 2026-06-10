@@ -41,7 +41,6 @@ HESSIAN = SolverType.HESSIAN
 
 class CachedSolverBlock(Block):
     def __init__(self, forward_cache, tangent_cache, adjoint_cache, hessian_cache,
-                 cached_solvers,
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
@@ -49,8 +48,6 @@ class CachedSolverBlock(Block):
         self.tangent_cache = tangent_cache
         self.adjoint_cache = adjoint_cache
         self.hessian_cache = hessian_cache
-
-        self.cached_solvers = cached_solvers
         self.is_linear = forward_cache.is_linear
 
         # The adj_sol in the cached forms is shared by all blocks.
