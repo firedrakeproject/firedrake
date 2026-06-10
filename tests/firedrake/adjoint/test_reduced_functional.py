@@ -121,7 +121,7 @@ def test_time_dependent():
     # Some variables
     # fp32: reduce to 1 step to avoid accumulated rounding noise that prevents
     # Taylor residuals from converging cleanly; fp64 keeps the full 5 steps.
-    T, dt = (0.1, 0.1) if single_mode else (0.5, 0.1)
+    T, dt = (0.2, 0.1) if single_mode else (0.5, 0.1)
     f = Function(V)
     f.assign(1.)
 
