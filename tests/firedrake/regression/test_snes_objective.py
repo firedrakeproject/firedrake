@@ -1,48 +1,53 @@
 from firedrake import *
-from petsc4py import PETSc
 import pytest
 import math
 
-pc_type = "hypre" if PETSc.Sys.hasExternalPackage("hypre") else "gamg"
-# pc_type = "gamg"
-# pc_type = "jacobi"
-
-newtonls_params = {
-    "snes_atol": 1E-8,
-    "snes_rtol": 1E-8,
-    "snes_converged_reason": None,
-    "snes_monitor": "::ascii_info_detail",
-    "snes_ksp_ew": True,
-    "ksp_type": "cg",
-    "ksp_norm_type": "natural",
-    "pc_type": pc_type,
-}
-
-newtontr_params = {
-    "snes_atol": 1E-8,
-    "snes_rtol": 1E-8,
-    "snes_converged_reason": None,
-    "snes_monitor": "::ascii_info_detail",
-    "snes_type": "newtontr",
-    "ksp_type": "cg",
-    "ksp_norm_type": "natural",
-    "pc_type": pc_type,
-}
-
-
-fas_newtontr_params = {
-    "snes_monitor": "::ascii_info_detail",
-    "snes_max_it": 1,
-    "snes_type": "fas",
-    "snes_fas_type": "kaskade",
-    "fas_levels": newtontr_params,
-    "fas_coarse": newtontr_params,
-}
+# GAMG and Jacobi have issues with FAS
+pc_types = ("gamg",
+            "jacobi",  # this is very very strange!
+            "hypre",
+            "ilu")
 
 
 @pytest.mark.parametrize("interface", ("nlvp", "solve"))
 @pytest.mark.parametrize("refine", (0, 1))
-def test_poisson_boltzmann_energy(interface, refine):
+@pytest.mark.parametrize("pre_apply_bcs", (False, True))
+@pytest.mark.parametrize("pc_type", pc_types)
+def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
+    if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
+        return
+
+    newtonls_params = {
+        "snes_atol": 1E-8,
+        "snes_rtol": 1E-8,
+        "snes_converged_reason": None,
+        "snes_monitor": "::ascii_info_detail",
+        "snes_ksp_ew": True,
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "pc_type": pc_type,
+    }
+
+    newtontr_params = {
+        "snes_atol": 1E-8,
+        "snes_rtol": 1E-8,
+        "snes_converged_reason": None,
+        "snes_monitor": "::ascii_info_detail",
+        "snes_type": "newtontr",
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "pc_type": pc_type,
+    }
+
+    fas_newtontr_params = {
+        "snes_monitor": "::ascii_info_detail",
+        "snes_max_it": 1,
+        "snes_type": "fas",
+        "snes_fas_type": "kaskade",
+        "fas_levels": newtontr_params,
+        "fas_coarse": newtontr_params,
+    }
+
     base = UnitIntervalMesh(10)
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
@@ -70,8 +75,6 @@ def test_poisson_boltzmann_energy(interface, refine):
     bcs = DirichletBC(V, 0, "on_boundary")
 
     sp = newtontr_params if refine == 0 else fas_newtontr_params
-    pre_apply_bcs = False
-    # pre_apply_bcs = True # does not work with trust region or newton + Eisenstant and Walker and gamg as preconditioner
     if interface == "solve":
         solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
     elif interface == "nlvp":
