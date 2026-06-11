@@ -39,11 +39,11 @@ def _control_bvs(controls):
     # The control block variables legitimately retain their checkpoint
     # across forward/adjoint replays (that is how the user-supplied
     # control value is plumbed through to the next evaluation), so the
-    # post-replay clear-down assertions must skip them. Accepts either
-    # Control objects or the underlying overloaded variables.
+    # post-replay clear-down assertions must skip them. Expects the
+    # control overloaded variables.
     if controls is None:
         return set()
-    return {getattr(c, "block_variable", c) for c in controls}
+    return {c.block_variable for c in controls}
 
 
 def _check_forward(tape, controls=None):

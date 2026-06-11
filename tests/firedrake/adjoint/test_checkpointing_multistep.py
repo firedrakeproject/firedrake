@@ -61,11 +61,11 @@ def test_multisteps(V):
     c = Control(displacement_0)
     J_hat = ReducedFunctional(val, c)
     dJ = J_hat.derivative()
-    _check_reverse(tape, controls=[c])
+    _check_reverse(tape, controls=[displacement_0])
     # Recomputing the functional with a modified control variable
     # before the recompute test.
     J_hat(Function(V).assign(0.5))
-    _check_recompute(tape, controls=[c])
+    _check_recompute(tape, controls=[displacement_0])
     # Recompute test
     assert (np.allclose(J_hat(displacement_0), val))
     # Test recompute adjoint-based gradient
