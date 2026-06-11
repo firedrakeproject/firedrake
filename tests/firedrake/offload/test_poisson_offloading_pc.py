@@ -55,6 +55,9 @@ def run_test_poisson_offload(ksp_type, pc_type, homogeneous_bcs):
     problem = LinearVariationalProblem(L, R, u_f, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
+
+    assert solver.snes.ksp.pc.getOperators()[1].getType() == "seqaij"
+
     return errornorm(u_f, sol)
 
 
