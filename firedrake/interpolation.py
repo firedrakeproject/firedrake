@@ -564,9 +564,8 @@ class CrossMeshInterpolator(Interpolator):
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
     def _bc_mask(self, space: WithGeometry, bcs: Iterable[DirichletBC]) -> Function:
-        """Return a 0/1 mask over `space` which is zero at
-        boundary condition nodes, or `None` if no boundary condition applies
-        to `space`."""
+        """Return a 0/1 mask over `space` which is zero at boundary condition nodes
+        """
         space = space.dual() if is_dual(space) else space
         f = Function(space).assign(1.0)
         for bc in [bc for bc in bcs if bc.function_space() == space]:
