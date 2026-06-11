@@ -190,10 +190,12 @@ class CachedSolverBlock(Block):
 
         adj_sol, adj_sol_bc = self.solve_adj_equation(dJdu, compute_boundary)
 
-        # store adj_sol for Hessian computation later.
-        # self.adj_sol is shared between all blocks that this NLVS
-        # generates so we can't store it there. Instead store it
-        # in self.adj_sol_buf which is owned by this block only.
+        # store adj_sol for Hessian computation later, or for inspecting
+        # adjoint sensitivities etc.
+        # self.adj_sol is owned by this block, whereas self.hessian_cache.adj_sol
+        # is shared between all blocks that the NLVS generates because it is the
+        # one in the cached forms, so we will update it as necessary if/when each
+        # block calculates the Hessian action.
         self.adj_sol.assign(adj_sol)
 
         prepared = {
