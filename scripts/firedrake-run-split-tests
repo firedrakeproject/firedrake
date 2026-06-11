@@ -14,6 +14,14 @@ Usage:
     * <njobs> is the number of different jobs
     * <pytest_args...> are additional arguments that are passed to pytest
 
+  The following environment variables can be used to configure the
+  outer process-tree timeout for each split job:
+
+    * FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT: maximum wall time for each job
+      (default: 1800s)
+    * FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER: grace period before forcibly
+      killing a timed-out job (default: 60s)
+
 Example:
 
     firedrake-run-split-tests 3 4 tests/unit --verbose
@@ -31,7 +39,8 @@ Requires:
 
 Optional:
 
-  * GNU parallel (if unavailable, the script falls back to bash job control)"
+  * GNU parallel (if unavailable, the script falls back to bash job control)
+  * GNU timeout or gtimeout (if unavailable, jobs run without an outer timeout)"
 
 # Print out help message with no arguments or "-h" or "--help"
 if [[ "$#" -eq "0" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
@@ -42,6 +51,17 @@ fi
 num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
+job_timeout=${FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT:-1800s}
+kill_after=${FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER:-60s}
+
+timeout_exec=""
+if command -v timeout >/dev/null 2>&1; then
+    timeout_exec="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    timeout_exec="gtimeout"
+else
+    echo "Warning: GNU timeout/gtimeout not found; running split jobs without an outer timeout" >&2
+fi
 
 if [ $num_procs = 1 ]; then
     # Cannot use mpiexec -n 1 because this can sometimes hang with
@@ -53,6 +73,9 @@ fi
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
             -m parallel[match] ${extra_args}"
+if [ -n "${timeout_exec}" ]; then
+    pytest_cmd="${timeout_exec} --kill-after=${kill_after} ${job_timeout} ${pytest_cmd}"
+fi
 
 log_file_prefix="pytest_nprocs${num_procs}_job"
 
@@ -61,6 +84,7 @@ set -x
 
 # This incantation:
 # * Runs pytest under GNU parallel using the right number of jobs
+# * Applies an outer timeout to the whole pytest/mpiexec process tree, if available
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
 if command -v parallel >/dev/null 2>&1; then
