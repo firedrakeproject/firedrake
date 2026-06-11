@@ -973,22 +973,22 @@ class BaseFormAssembler(AbstractFormAssembler):
         }
         if not operand_argument_numbers:
             return form
-        linearised = form
-        # Linearise the test slot first so that the second pass only sees
-        # operators that depend on the trial function.
+        restructured = form
         for argument in sorted(form.arguments(), key=lambda a: a.number()):
             if argument.number() not in operand_argument_numbers:
                 continue
             placeholder = firedrake.Function(argument.function_space())
-            replaced = ufl.replace(linearised, {argument: placeholder})
-            # chain rule works here
-            linearised = ufl.algorithms.expand_derivatives(
+            replaced = ufl.replace(restructured, {argument: placeholder})
+            # Derivative of the form with respect to `placeholder`, in the direction
+            # of `argument` is mathematically equivalent to the original form, but UFL
+            # will have restructured the DAG to make it amenable for assembly.
+            restructured = ufl.algorithms.expand_derivatives(
                 ufl.derivative(replaced, placeholder, argument))
-            if placeholder in linearised.coefficients():
+            if placeholder in restructured.coefficients():
                 raise ValueError(
                     f"Form is not linear in argument {argument}: cannot "
                     "restructure its BaseFormOperators for explicit assembly.")
-        return linearised
+        return restructured
 
 
 class FormAssembler(AbstractFormAssembler):
