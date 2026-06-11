@@ -13,7 +13,7 @@ _device_vector_impls = {
     }
 }
 
-_no_offload_mat_types = ("python", "schurcompliment")
+_no_offload_mat_types = ("python", "schurcomplement")
 
 
 class OffloadPC(PCBase):
