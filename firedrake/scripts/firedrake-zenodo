@@ -287,35 +287,27 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
 
 
 def zenodo_records():
-    """Grab all zenodo records of tagged Firedrake component releases.
+    """Grab the 100 most recent zenodo records of tagged Firedrake component releases.
 
     :returns: An iterable of zenodo records.
-    :raises LookupError: if we were not able find any records."""
-    result = None
-    i = 1
-    while True:
-        if i > 8000//25:
-            raise RuntimeError("More than 8000 uploads on zenodo?")
+    :raises LookupError: if we were not able find any records.
+
+    We only load the 100 most recent tags to avoid running into rate-limiter issues
+    from Zenodo.
+
+    """
+    result = []
+    for i in range(1, 5):
         response = requests.get(f"{ZENODO_URL}/records", params={"q": 'owners:19586 OR owners:19587',
                                                                  "all_versions": True,
                                                                  "size": 25,
                                                                  "sort": "mostrecent",
                                                                  "page": i})
         if response.status_code == 200:
-            if result is None:
-                result = response.json()
-            else:
-                tmp = response.json()
-                result["hits"]["hits"].extend(tmp["hits"]["hits"])
-            n = len(result["hits"]["hits"])
-            expect = result["hits"]["total"]
-            if expect == n:
-                return result["hits"]["hits"]
-            elif expect < n:
-                raise LookupError("Have more hits than Zenodo reports in total")
-            i += 1
+            result.extend(response.json()["hits"]["hits"])
         else:
             raise LookupError("Unable to get zenodo records: %s" % response.json())
+    return result
 
 
 def zenodo_metarecords():
