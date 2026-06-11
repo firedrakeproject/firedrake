@@ -667,34 +667,6 @@ def test_interpolate_matrix_cross_mesh():
 
 
 @pytest.mark.parallel([1, 3])
-def test_interpolate_cross_mesh_bcs():
-    source_mesh = UnitSquareMesh(2, 2)
-    target_mesh = UnitSquareMesh(3, 3)
-    U = FunctionSpace(source_mesh, "CG", 1)
-    V = FunctionSpace(target_mesh, "CG", 1)
-
-    x, y = SpatialCoordinate(source_mesh)
-    f = Function(U).interpolate(1 + x + 2*y)
-
-    source_bc1 = DirichletBC(U, 0, 1)
-    source_bc2 = DirichletBC(U, 0, 3)
-    target_bc1 = DirichletBC(V, 0, 2)
-    target_bc2 = DirichletBC(V, 0, 4)
-    bcs = [source_bc1, source_bc2, target_bc1, target_bc2]
-
-    interp = assemble(interpolate(TrialFunction(U), V), bcs=bcs)
-    result = assemble(interp @ f)
-
-    source_bc1.zero(f)
-    source_bc2.zero(f)
-    expected = assemble(interpolate(f, V))
-    target_bc1.zero(expected)
-    target_bc2.zero(expected)
-
-    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
-
-
-@pytest.mark.parallel([1, 3])
 def test_interpolate_matrix_cross_mesh_adjoint():
     mesh_fine = UnitSquareMesh(4, 4)
     mesh_coarse = UnitSquareMesh(2, 2)
@@ -784,3 +756,38 @@ def test_mixed_interpolator_cross_mesh():
             assert isinstance(interp_ij, Interpolate)
             res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
             assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("variant", ["source", "target", "both"])
+def test_interpolate_cross_mesh_bcs(variant):
+    source_mesh = UnitSquareMesh(2, 2)
+    target_mesh = UnitSquareMesh(3, 3)
+    U = FunctionSpace(source_mesh, "CG", 1)
+    V = FunctionSpace(target_mesh, "CG", 1)
+
+    x, y = SpatialCoordinate(source_mesh)
+    f = Function(U).interpolate(1 + x + 2*y)
+
+    source_bcs = [DirichletBC(U, 0, 1), DirichletBC(U, 0, 3)]
+    target_bcs = [DirichletBC(V, 0, 2), DirichletBC(V, 0, 4)]
+
+    if variant == "both":
+        bcs = source_bcs + target_bcs
+    elif variant == "source":
+        bcs = source_bcs
+    elif variant == "target":
+        bcs = target_bcs
+
+    interp = assemble(interpolate(TrialFunction(U), V), bcs=bcs)
+    result = assemble(interp @ f)
+
+    if variant in ("source", "both"):
+        for bc in source_bcs:
+            bc.zero(f)
+    expected = assemble(interpolate(f, V))
+    if variant in ("target", "both"):
+        for bc in target_bcs:
+            bc.zero(expected)
+
+    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)

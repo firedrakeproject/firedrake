@@ -563,17 +563,13 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
-    def _bc_mask(self, space: WithGeometry, bcs: Iterable[DirichletBC]) -> Function | None:
+    def _bc_mask(self, space: WithGeometry, bcs: Iterable[DirichletBC]) -> Function:
         """Return a 0/1 mask over `space` which is zero at
         boundary condition nodes, or `None` if no boundary condition applies
         to `space`."""
-        if is_dual(space):
-            space = space.dual()
-        applicable = [bc for bc in bcs if bc.function_space() == space]
-        if not applicable:
-            return None
+        space = space.dual() if is_dual(space) else space
         f = Function(space).assign(1.0)
-        for bc in applicable:
+        for bc in [bc for bc in bcs if bc.function_space() == space]:
             bc.apply(f)
         return f
 
@@ -583,9 +579,8 @@ class CrossMeshInterpolator(Interpolator):
         row_arg, col_arg = self.ufl_interpolate.arguments()
         row_mask = self._bc_mask(row_arg.function_space(), bcs)
         col_mask = self._bc_mask(col_arg.function_space(), bcs)
-        if row_mask is not None or col_mask is not None:
-            with row_mask.dat.vec_ro as r, col_mask.dat.vec_ro as c:
-                mat.diagonalScale(r, c)
+        with row_mask.dat.vec_ro as r, col_mask.dat.vec_ro as c:
+            mat.diagonalScale(r, c)
         return mat
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
