@@ -68,8 +68,8 @@ def test_nlvs_adjoint(control_type, bc_type):
     if control_type == 'bc_control' and bc_type == 'neumann_bc':
         pytest.skip("Cannot use Neumann BCs as control")
 
-    nx = 100000
-    nt = 50
+    nx = 100
+    nt = 5
 
     mesh = UnitIntervalMesh(nx)
     x, = SpatialCoordinate(mesh)
@@ -77,7 +77,7 @@ def test_nlvs_adjoint(control_type, bc_type):
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    dt = Function(R).assign(1/nx)
+    dt = Function(R).assign(2/nx)
     ic = Function(V).interpolate(cos(2*pi*x))
 
     dt0 = dt.copy(deepcopy=True)
@@ -134,30 +134,32 @@ def test_nlvs_adjoint(control_type, bc_type):
 
     from mpi4py import MPI
 
-    # # recompute component
-    # PETSc.Sys.Print("recompute test")
-    # assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
+    # recompute component
+    PETSc.Sys.Print("recompute test")
+    assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
 
-    # # tlm
-    # PETSc.Sys.Print("tlm test")
-    # Jhat(m)
-    # assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
+    # tlm
+    PETSc.Sys.Print("tlm test")
+    Jhat(m)
+    assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
 
-    # # adjoint
-    # PETSc.Sys.Print("adjoint test")
-    # Jhat(m)
-    # assert taylor_test(Jhat, m, h) > 1.95
+    # adjoint
+    PETSc.Sys.Print("adjoint test")
+    Jhat(m)
+    assert taylor_test(Jhat, m, h) > 1.95
 
-    # # hessian
-    # PETSc.Sys.Print("hessian test")
-    # Jhat(m)
-    # taylor = taylor_to_dict(Jhat, m, h)
-    # from pprint import pprint
-    # pprint(taylor)
+    # hessian
+    PETSc.Sys.Print("hessian test")
+    Jhat(m)
+    taylor = taylor_to_dict(Jhat, m, h)
+    from pprint import pprint
+    pprint(taylor)
 
-    # assert min(taylor['R0']['Rate']) > 0.95
-    # assert min(taylor['R1']['Rate']) > 1.95
-    # assert min(taylor['R2']['Rate']) > 2.95
+    assert min(taylor['R0']['Rate']) > 0.95
+    assert min(taylor['R1']['Rate']) > 1.95
+    assert min(taylor['R2']['Rate']) > 2.95
+
+    return
 
     for _ in range(3):
         stime = MPI.Wtime()
