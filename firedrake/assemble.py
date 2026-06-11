@@ -892,16 +892,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
-            # Explicit assembly of 2-forms containing BaseFormOperators that
-            # depend on the form arguments (e.g. the interpolation of a trial
-            # function onto another mesh) requires restructuring such forms as
-            # sums of Actions of 2-forms on the operators.
-            if isinstance(expr, ufl.form.Form):
-                expr = BaseFormAssembler.restructure_form_operators(expr)
-            elif isinstance(expr, ufl.form.FormSum):
-                expr = ufl.FormSum(*((BaseFormAssembler.restructure_form_operators(c)
-                                      if isinstance(c, ufl.form.Form) else c, w)
-                                     for c, w in zip(expr.components(), expr.weights())))
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
@@ -946,50 +936,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
         return ufl.algorithms.ad.expand_derivatives(form)
-
-    @staticmethod
-    def restructure_form_operators(form):
-        r"""Restructure a 2-form containing argument-dependent BaseFormOperators.
-
-        Parameters
-        ----------
-        form : ufl.form.Form
-            The form to restructure.
-
-        Returns
-        -------
-        ufl.form.BaseForm
-            The restructured form, or ``form`` itself if it contains no
-            argument-dependent BaseFormOperators or does not have exactly
-            two arguments.
-        """
-        if not isinstance(form, ufl.form.Form) or len(form.arguments()) != 2:
-            return form
-        operand_argument_numbers = {
-            arg.number()
-            for bfo in form.base_form_operators()
-            for operand in bfo.ufl_operands
-            for arg in ufl.algorithms.extract_arguments(operand)
-        }
-        if not operand_argument_numbers:
-            return form
-        restructured = form
-        for argument in sorted(form.arguments(), key=lambda a: a.number()):
-            if argument.number() not in operand_argument_numbers:
-                continue
-            placeholder = firedrake.Function(argument.function_space())
-            replaced = ufl.replace(restructured, {argument: placeholder})
-            # Derivative of the form with respect to `placeholder`, in the direction
-            # of `argument` is mathematically equivalent to the original form, but UFL
-            # will have restructured the DAG to make it amenable for assembly.
-            restructured = ufl.algorithms.expand_derivatives(
-                ufl.derivative(replaced, placeholder, argument))
-            if placeholder in restructured.coefficients():
-                raise ValueError(
-                    f"Form is not linear in argument {argument}: cannot "
-                    "restructure its BaseFormOperators for explicit assembly.")
-        return restructured
-
 
 class FormAssembler(AbstractFormAssembler):
     """Form assembler.
