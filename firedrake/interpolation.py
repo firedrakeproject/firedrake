@@ -587,10 +587,40 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
+    def _bc_mask(self, space: WithGeometry, bcs: Iterable[DirichletBC]) -> PETSc.Vec | None:
+        """Return a 0/1 mask over the owned dofs of ``space`` which is zero at
+        boundary condition nodes, or `None` if no boundary condition applies
+        to ``space``."""
+        if is_dual(space):
+            space = space.dual()
+        applicable = [bc for bc in bcs if bc.function_space() == space]
+        if not applicable:
+            return None
+        vec = space.dof_dset.layout_vec.duplicate()
+        vec.set(1.0)
+        mask = vec.getArray().reshape(space.dof_dset.size, -1)
+        for bc in applicable:
+            # Only mask owned nodes
+            nodes = bc.nodes[bc.nodes < space.dof_dset.size]
+            component = bc.function_space().component
+            if component is None:
+                mask[nodes, :] = 0
+            else:
+                mask[nodes, component] = 0
+        return vec
+
+    def apply_bcs(self, mat: PETSc.Mat, bcs: Iterable[DirichletBC]) -> PETSc.Mat:
+        """Zero the rows and columns of ``mat`` associated with boundary condition nodes.
+        """
+        row_arg, col_arg = self.ufl_interpolate.arguments()
+        row_mask = self._bc_mask(row_arg.function_space(), bcs)
+        col_mask = self._bc_mask(col_arg.function_space(), bcs)
+        if row_mask is not None or col_mask is not None:
+            mat.diagonalScale(row_mask, col_mask)
+        return mat
+
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
-        if bcs:
-            raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
         if self.into_quadrature_space:
@@ -617,12 +647,13 @@ class CrossMeshInterpolator(Interpolator):
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                else:
-                    return res
+                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                if bcs:
+                    res = self.apply_bcs(res, bcs)
+                return res
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
@@ -1707,11 +1738,16 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
             blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        # Pass the row and column index sets explicitly so that the layout of
+        # empty rows and columns (e.g. when interpolating a single component
+        # of a mixed space) need not be inferred from the blocks.
+        isrows, iscols = (V.dof_dset.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,
