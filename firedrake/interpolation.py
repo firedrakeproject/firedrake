@@ -563,10 +563,33 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
+    def _bc_mask(self, space: WithGeometry, bcs: Iterable[DirichletBC]) -> Function | None:
+        """Return a 0/1 mask over `space` which is zero at
+        boundary condition nodes, or `None` if no boundary condition applies
+        to `space`."""
+        if is_dual(space):
+            space = space.dual()
+        applicable = [bc for bc in bcs if bc.function_space() == space]
+        if not applicable:
+            return None
+        f = Function(space).assign(1.0)
+        for bc in applicable:
+            bc.apply(f)
+        return f
+
+    def apply_bcs(self, mat: PETSc.Mat, bcs: Iterable[DirichletBC]) -> PETSc.Mat:
+        """Zero the rows and columns of `mat` associated with boundary condition nodes.
+        """
+        row_arg, col_arg = self.ufl_interpolate.arguments()
+        row_mask = self._bc_mask(row_arg.function_space(), bcs)
+        col_mask = self._bc_mask(col_arg.function_space(), bcs)
+        if row_mask is not None or col_mask is not None:
+            with row_mask.dat.vec_ro as r, col_mask.dat.vec_ro as c:
+                mat.diagonalScale(r, c)
+        return mat
+
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
-        if bcs:
-            raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
         if self.into_quadrature_space:
@@ -593,12 +616,13 @@ class CrossMeshInterpolator(Interpolator):
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                else:
-                    return res
+                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                if bcs:
+                    res = self.apply_bcs(res, bcs)
+                return res
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
