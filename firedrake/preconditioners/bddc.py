@@ -1,7 +1,6 @@
 from itertools import repeat
 
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.facet_split import get_restriction_indices
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
@@ -10,6 +9,7 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
+from firedrake.solving_utils import bcdofs
 from functools import cached_property
 
 from firedrake.parloops import par_loop, INC, READ
