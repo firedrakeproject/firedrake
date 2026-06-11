@@ -9,7 +9,6 @@ from firedrake.adjoint import *
 from checkpoint_schedules import Revolve, SingleMemoryStorageSchedule, MixedCheckpointSchedule, \
     NoneCheckpointSchedule, StorageType
 import numpy as np
-from firedrake.utils import single_mode
 set_log_level(CRITICAL)
 
 

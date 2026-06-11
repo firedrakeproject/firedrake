@@ -25,9 +25,8 @@ def test_covariance_adjoint_norm(m, family):
 
     V = FunctionSpace(mesh, family, 1)
 
-    u = Function(V).project(sin(2*pi*x))
-u = Function(V).project(cos(2*pi*x))
-v = Function(V).project(0.5*cos(4*pi*x))
+    u = Function(V).project(cos(2*pi*x))
+    v = Function(V).project(0.5*cos(4*pi*x))
 
     form = 'IP' if family == 'DG' else 'CG'
     B = AutoregressiveCovariance(V, L, sigma, m, form=form)
