@@ -569,7 +569,7 @@ class CrossMeshInterpolator(Interpolator):
         space = space.dual() if is_dual(space) else space
         f = Function(space).assign(1.0)
         for bc in [bc for bc in bcs if bc.function_space() == space]:
-            bc.apply(f)
+            bc.zero(f)
         return f
 
     def apply_bcs(self, mat: PETSc.Mat, bcs: Iterable[DirichletBC]) -> PETSc.Mat:
