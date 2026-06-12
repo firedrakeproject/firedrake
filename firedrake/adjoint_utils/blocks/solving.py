@@ -847,6 +847,10 @@ def solve_init_params(self, args, kwargs, varform):
                 raise NotImplementedError(
                     "Annotation of adaptive solves not implemented."
                 )
+            # The legacy adjoint solve goes through ``firedrake.solve``
+            # with an assembled matrix, which does not accept appctx.
+            # The cached variational solvers reinstate it (suitably
+            # cloned) from forward_kwargs.
             self.adj_kwargs.pop("appctx", None)
 
     if hasattr(self, "tlm_args") and len(self.tlm_args) <= 0:

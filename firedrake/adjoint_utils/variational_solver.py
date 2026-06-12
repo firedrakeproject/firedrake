@@ -5,6 +5,7 @@ from firedrake.adjoint_utils.blocks import (
     NonlinearVariationalSolveBlock, CachedSolverBlock)
 from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
+import ufl
 from ufl import replace, Action
 from ufl.algorithms import expand_derivatives
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ ForwardSolveRecomputeCache = namedtuple(
         "solver",
         "is_linear",
         "replaced_deps",
+        "replace_map",
     ]
 )
 
@@ -124,6 +126,43 @@ class NonlinearVariationalSolverMixin:
 
         return wrapper
 
+    @staticmethod
+    def _ad_clone_kwargs(kwargs, replace_map, default_appctx=None):
+        """Return a shallow copy of *kwargs* with ``appctx`` entries cloned.
+
+        The ``appctx`` dict may contain UFL expressions (or plain
+        ``Function`` objects) that reference the *original* form
+        coefficients.  The cached solvers work on deep copies of those
+        coefficients, so the ``appctx`` must undergo the same
+        replacement for preconditioners reading from it (e.g.
+        ``MassInvPC``) to see the values that ``update_dependencies``
+        keeps in sync with the tape.
+
+        If *kwargs* carries no ``appctx`` of its own, *default_appctx*
+        (the forward solver's) is cloned instead.  The tangent and
+        adjoint operators are linearisations of the forward operator,
+        so a preconditioner that needs something from ``appctx`` for
+        the forward solve needs the same thing for them.
+
+        Note that ``ufl.replace`` only maps coefficients that appear in
+        the forward residual ``F``.  An ``appctx`` entry referencing a
+        coefficient that is not part of ``F``, or that is not a UFL
+        expression (containers, callables, ...), is passed through by
+        reference and will not be updated during recomputation.
+        """
+        appctx = kwargs.get("appctx", default_appctx)
+        if not appctx:
+            return kwargs
+        cloned_appctx = {}
+        for key, value in appctx.items():
+            if isinstance(value, ufl.core.expr.Expr):
+                cloned_appctx[key] = ufl.replace(value, replace_map)
+            else:
+                cloned_appctx[key] = value
+        cloned = dict(kwargs)
+        cloned["appctx"] = cloned_appctx
+        return cloned
+
     @cached_property
     @no_annotations
     def _ad_forward_cache(self):
@@ -164,13 +203,20 @@ class NonlinearVariationalSolverMixin:
             for bc in bcs
         ]
 
+        # Any UFL expressions in the appctx must reference the new
+        # coefficients, not the user's originals, so that
+        # preconditioners reading from the appctx (e.g. MassInvPC)
+        # see the values updated during recomputation.
+        forward_kwargs = self._ad_clone_kwargs(
+            self._ad_args_kwargs.forward_kwargs, replace_map)
+
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
         nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,
-            **self._ad_args_kwargs.forward_kwargs)
+            **forward_kwargs)
 
         # The original coefficients will be added as
         # dependencies to all solve blocks.
@@ -184,6 +230,7 @@ class NonlinearVariationalSolverMixin:
             solver=nlvs,
             is_linear=self._ad_problem.is_linear,
             replaced_deps=tuple(replace_map.values()),
+            replace_map=replace_map,
         )
 
     @cached_property
@@ -214,11 +261,18 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
+        # The TLM form is built from the cloned forward problem, so the
+        # appctx must be replaced with the same forward replace map.
+        tlm_kwargs = self._ad_clone_kwargs(
+            self._ad_args_kwargs.tlm_kwargs,
+            self._ad_forward_cache.replace_map,
+            default_appctx=self._ad_args_kwargs.forward_kwargs.get("appctx"))
+
         lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_forward_cache.bcs)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.tlm_args,
-            **self._ad_args_kwargs.tlm_kwargs)
+            **tlm_kwargs)
 
         tlm_rhs = dFdm
 
@@ -283,11 +337,18 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
+        # The adjoint form is built from the cloned forward problem, so
+        # the appctx must be replaced with the same forward replace map.
+        adj_kwargs = self._ad_clone_kwargs(
+            self._ad_args_kwargs.adj_kwargs,
+            self._ad_forward_cache.replace_map,
+            default_appctx=self._ad_args_kwargs.forward_kwargs.get("appctx"))
+
         lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_forward_cache.bcs)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.adj_args,
-            **self._ad_args_kwargs.adj_kwargs)
+            **adj_kwargs)
 
         # We'll need to assemble these forms to calculate
         # the adj_component for each dependency.
