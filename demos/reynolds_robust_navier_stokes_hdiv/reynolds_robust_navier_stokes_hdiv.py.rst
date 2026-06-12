@@ -1,9 +1,9 @@
-Reynolds-robust solvers for the stationary incompressible Navier-Stokes equations
-=================================================================================
+Reynolds-robust solvers for the stationary Navier-Stokes equations using H(div)–L² elements
+===========================================================================================
 
 .. rst-class:: emphasis
 
-    This demo shows a discretisation and preconditioner for the stationary incompressible
+    This demo shows a discretisation using H(div)-L² elements and preconditioner for the stationary incompressible
     Navier-Stokes equations that exhibit Reynolds-robustness. For the discretisation,
     this means that its error estimates do not depend explicitly on the Reynolds number;
     for the preconditioner, this means that the number of Krylov iterations per Newton
@@ -253,7 +253,7 @@ preconditioner is nonlinear—it contains inner iterative solves)
 preconditioned by a full Schur factorisation fieldsplit.
 
 The velocity block uses one Richardson step with a full-cycle geometric
-multigrid preconditioner.  At each multigrid level, five steps of FGMRES
+multigrid preconditioner. At each multigrid level, five steps of FGMRES
 are applied, preconditioned by the additive Schwarz method with
 vertex-star patches (:class:`~.ASMStarPC`).  A star patch around a
 vertex consists of all cells sharing that vertex; these patches together
@@ -261,14 +261,22 @@ stably partition the divergence-free subspace, ensuring that the
 smoother captures the kernel of :math:`\nabla \cdot` as required by
 Schöberl's theory :cite:`Schoberl:1999`.  The coarse-grid problem is
 solved exactly with LU factorisation.
-
 The pressure block uses one Richardson step preconditioned by
 :class:`~.MassInvPC`, which inverts the pressure mass matrix.  For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
-exact.  The Richardson scaling factor
-:math:`-(2\,\mathrm{Re}^{-1} + \gamma)` comes from the Schur complement
+exact.
+
+For the Schur complement, we would like to use Richardson
+iteration with scaling factor :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
+coming from the Schur complement
 approximation :math:`S_\gamma \approx (2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
-so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
+so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`.
+but technical complications mean we cannot use it. (We want to solve
+a sequence of problems with varying :math:`\mathrm{Re}`, so the Richardson
+scale parameter would need to be updated, but the relevant PETSc API
+call is not wrapped in its Python bindings.) We therefore use one iteration
+of GMRES, which solves a tiny optimisation problem to figure out the right
+scaling. This adds a negligible computational cost to the overall solver. ::
 
   sp = {
       'mat_type': 'nest',
@@ -309,10 +317,9 @@ so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. :
           },
       },
       'fieldsplit_1': {
-          'ksp_type': 'richardson',
+          'ksp_type': 'gmres',
           'ksp_max_it': 1,
           'ksp_convergence_test': 'skip',
-          'ksp_richardson_scale': 1,
           'pc_type': 'python',
           'pc_python_type': 'firedrake.MassInvPC',
           'Mp_pc_type': 'jacobi',
@@ -323,12 +330,12 @@ Solving over a range of Reynolds numbers
 -----------------------------------------
 
 We perform continuation in Reynolds number, using as initial guess the
-converged solution from the previous :math:`\mathrm{Re}`.  The Richardson scale for the
-pressure block is updated to match the current :math:`\mathrm{Re}`.  We report the total
-Krylov iterations and the average per Newton step, which should remain
-nearly constant as :math:`\mathrm{Re}` grows.  As a diagnostic, we also print
-:math:`\|\nabla \cdot u\|_{L^2}`: since the discretisation is exactly
-incompressible, this should remain close to machine precision. ::
+converged solution from the previous :math:`\mathrm{Re}`.
+We report the total Krylov iterations and the average
+per Newton step, which should remain nearly constant as :math:`\mathrm{Re}` grows.  As a
+diagnostic, we also print :math:`\|\nabla \cdot u\|_{L^2}`. Since the
+discretisation is exactly incompressible, this should remain close to machine
+precision. ::
 
   (u_, p_) = w.subfunctions
   u_.rename("Velocity")
@@ -336,13 +343,16 @@ incompressible, this should remain close to machine precision. ::
   pvd = VTKFile("output/navier_stokes.pvd")
 
   problem = NonlinearVariationalProblem(F, w, bcs)
+  solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
 
   for Re_ in [1, 100, 500] + list(range(1000, 5100, 500)):
       Re.assign(Re_)
+
+      # Solve
       print(BLUE % f"Solving for Re = {Re_}")
-      sp['fieldsplit_1']['ksp_richardson_scale'] = -(2/float(Re_) + float(gamma))
-      solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
       solver.solve()
+
+      # Diagnostics
       linear_its = solver.snes.getLinearSolveIterations()
       nonlinear_its = solver.snes.getIterationNumber()
       print(f"  Krylov iterations: {linear_its} ({linear_its/nonlinear_its:.1f} per Newton step)")
@@ -352,7 +362,7 @@ incompressible, this should remain close to machine precision. ::
 The average number of Krylov iterations per Newton step varies from 3.8--5.3 over the whole range of Reynolds numbers considered.
 
 A python script version of this demo can be found :demo:`here
-<reynolds_robust_navier_stokes.py>`.
+<reynolds_robust_navier_stokes_hdiv.py>`.
 
 .. rubric:: References
 
