@@ -340,7 +340,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         return data[i]
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
         UFL expression.
@@ -348,6 +347,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
         may also be passed, and they will have their usual effect.
+
+        The annotation of this call on the pyadjoint tape is handled by
+        :func:`~firedrake.projection.project`, to which this delegates.
         """
         from firedrake import projection
         return projection.project(b, self, *args, **kwargs)
