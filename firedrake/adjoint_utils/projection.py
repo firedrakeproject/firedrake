@@ -1,6 +1,8 @@
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
+from firedrake.adjoint_utils.blocks import (
+    FunctionAssignBlock, ProjectBlock, SupermeshProjectBlock
+)
 from firedrake import function
 from ufl.domain import extract_unique_domain
 
@@ -27,6 +29,12 @@ def _project_block(source, target, output, bcs, ad_block_tag, sb_kwargs,
             solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             **sb_kwargs)
+
+    if isinstance(source, function.Function) and not bcs \
+            and source.function_space() == V:
+        # The forward projection shortcuts to an assignment and performs
+        # no solve, so record an assignment rather than a mass solve.
+        return FunctionAssignBlock(output, source, ad_block_tag=ad_block_tag)
 
     solver_parameters = resolve_projection_solver_parameters(solver_parameters)
     forward_kwargs = {"solver_parameters": solver_parameters}

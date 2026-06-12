@@ -224,6 +224,34 @@ def test_project_default_solver_parameters_recorded():
 
 
 @pytest.mark.skipcomplex
+def test_same_space_project_records_assignment(rg):
+    # Projecting a Function onto its own space shortcuts to an assignment
+    # in the forward model, so the tape must record an assignment rather
+    # than a mass solve.
+    from firedrake.adjoint_utils.blocks import (
+        FunctionAssignBlock, GenericSolveBlock
+    )
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x * y)
+
+    u = Function(V)
+    u.project(f)
+    J = assemble(u**2 * dx)
+
+    blocks = get_working_tape().get_blocks()
+    assert not any(isinstance(b, GenericSolveBlock) for b in blocks)
+    assert sum(isinstance(b, FunctionAssignBlock) for b in blocks) == 1
+
+    rf = ReducedFunctional(J, Control(f))
+    assert rf(f) == pytest.approx(float(J), rel=1e-12)
+
+    h = rg.uniform(V)
+    assert taylor_test(rf, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
 def test_project_to_function_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
