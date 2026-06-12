@@ -258,12 +258,11 @@ stably partition the divergence-free subspace, ensuring that the
 smoother captures the kernel of :math:`\nabla \cdot` as required by
 Schöberl's theory :cite:`Schoberl:1999`.  The coarse-grid problem is
 solved exactly with LU factorisation.
+
 The pressure block uses one Richardson step preconditioned by
 :class:`~.MassInvPC`, which inverts the pressure mass matrix.  For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
-exact.
-
-We set the scale factor of the mass matrix in `appctx["nu"]`
+exact. We set the scale factor of the mass matrix in `appctx["nu"]`
 to :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
 coming from the Schur complement
 approximation :math:`S_\gamma \approx (2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
