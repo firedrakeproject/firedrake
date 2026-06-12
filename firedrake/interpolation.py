@@ -891,7 +891,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def _build_python_mat(self, mpi_type) -> PETSc.Mat:
         # In this case mat_type="matfree", so we use the SF wrapped as a PETSc Mat
         # to perform the permutation.
-        source_size, target_size, _, _ = self._get_mat_sizes()
+        source_size, target_size, _ = self._get_mat_sizes()
         ctx = VomOntoVomMatContext(
             self.original_vom.input_ordering_without_halos_sf,
             self.forward_reduce,
@@ -919,26 +919,27 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         Returns
         -------
         PETSc.Mat
-            PETSc seqaij matrix
+            PETSc matrix
         """
         # Get correct local and global sizes for the matrix
-        source_size, target_size, nleaves, local_sizes = self._get_mat_sizes()
-        if mat_type == "baij" and self.target_space.block_size > 1:
+        source_size, target_size, nleaves = self._get_mat_sizes()
+        block_size = self.target_space.block_size
+        if mat_type == "baij" and block_size > 1:
             create = PETSc.Mat().createBAIJ
         else:
             create = PETSc.Mat().createAIJ
         mat = create(
             size=(target_size, source_size),
-            bsize=self.target_space.block_size,
+            bsize=block_size,
             nnz=1,
             comm=self.source_mesh.comm
         )
         mat.setUp()
         # To create the permutation matrix we broadcast an array of indices which are contiguous
         # across all ranks and then use these indices to set the values of the matrix directly.
-        start = sum(local_sizes[:self.target_space.comm.rank])
-        end = start + source_size[0]
-        contiguous_indices = numpy.arange(start, end, dtype=IntType)
+        start = mat.getOwnershipRangeColumn()[0] // block_size
+        nroots = source_size[0] // block_size
+        contiguous_indices = numpy.arange(start, start + nroots, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
         sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
@@ -946,7 +947,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
-        cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
+        cols = (block_size * perm[:, None] + numpy.arange(block_size, dtype=IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
         mat.assemble()
         if self.forward_reduce and not self.ufl_interpolate.is_adjoint:
@@ -960,13 +961,10 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def _get_mat_sizes(self):
         nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
         nleaves = len(leaves)
-        local_sizes = self.target_space.comm.allgather(nroots)
-        source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(local_sizes))
-        target_size = (
-            self.target_space.block_size * nleaves,
-            self.target_space.block_size * self.target_space.comm.allreduce(nleaves, op=MPI.SUM),
-        )
-        return source_size, target_size, nleaves, local_sizes
+        block_size = self.target_space.block_size
+        source_size = (block_size * nroots, None)
+        target_size = (block_size * nleaves, None)
+        return source_size, target_size, nleaves
 
     @property
     def _allowed_mat_types(self):
