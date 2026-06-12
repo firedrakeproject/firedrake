@@ -98,3 +98,55 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     print(e1, e2)
     # print(math.isclose(norm(u_exact - sol1), norm(u_exact - sol2), rel_tol=1.e-2))
     assert math.isclose(norm(u_exact - sol1), norm(u_exact - sol2), rel_tol=1.e-2)
+
+
+@pytest.mark.parametrize("pre_apply_bcs", (False, True))
+@pytest.mark.parametrize("pc_type", ("none", "ilu", "jacobi"))
+def test_allen_cahn_energy(pre_apply_bcs, pc_type):
+    nx = 128
+    lx = 10.0
+    eps = Constant(3e-3)
+
+    mesh = IntervalMesh(nx, lx)
+    Q = FunctionSpace(mesh, "CG", 1)
+
+    x, = SpatialCoordinate(mesh)
+    u_1 = Constant(1)
+    u_2 = Constant(-1)
+    Lx = Constant(lx)
+    initial_guess = (1 - x / Lx) * u_1 + x / Lx * u_2
+
+    bcs = [DirichletBC(Q, u_1, [1]), DirichletBC(Q, u_2, [2])]
+
+    u = Function(Q)
+    u.interpolate(initial_guess)
+    v = TestFunction(Q)
+    E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
+    F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
+
+    problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
+
+    # newtonls_parameters = {
+    #     "snes_type": "newtonls",
+    #     "snes_monitor": "::ascii_info_detail",
+    #     "snes_linesearch_type": "bt",
+    #     "snes_linesearch_order": 1,
+    #     "snes_converged_reason": None,
+    #     #"snes_linesearch_type": "cp",
+    #     #"snes_linesearch_max_it": 10,
+    #     "snes_linesearch_monitor": None,
+    # }
+    newtontr_params = {
+        "snes_atol": 1E-8,
+        "snes_rtol": 1E-8,
+        "snes_converged_reason": None,
+        "snes_monitor": "::ascii_info_detail",
+        "snes_type": "newtontr",
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "ksp_converged_neg_curve": True,
+        "pc_type": pc_type,
+    }
+    solver_parameters = newtontr_params
+    solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters, pre_apply_bcs=pre_apply_bcs)
+    solver.solve()
