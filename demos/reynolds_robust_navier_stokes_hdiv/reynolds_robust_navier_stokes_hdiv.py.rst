@@ -220,11 +220,10 @@ contributes the convective upwind flux on boundary facets. ::
              )
 
   def c_bc(u, v, bid, g):
-      if g is None:
-          uflux_ext = 0.5*(inner(u, n)+abs(inner(u, n)))*u
-      else:
-          uflux_ext = 0.5*(inner(u, n)+abs(inner(u, n)))*u + 0.5*(inner(u, n)-abs(inner(u, n)))*g
-      return dot(v, uflux_ext)*ds(bid)
+      uflux_ext = 0.5*(dot(u, n) + abs(dot(u, n)))*u
+      if g is not None:
+          uflux_ext += 0.5*(dot(u, n) - abs(dot(u, n)))*g
+      return inner(uflux_ext, v)*ds(bid)
 
 We loop over the Dirichlet boundary conditions, adding the weak
 boundary terms for each marked wall, and separately handle any
