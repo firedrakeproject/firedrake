@@ -269,14 +269,9 @@ iteration with scaling factor :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
 coming from the Schur complement
 approximation :math:`S_\gamma \approx (2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
 so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`.
-but technical complications mean we cannot use it. (We want to solve
-a sequence of problems with varying :math:`\mathrm{Re}`, so the Richardson
-scale parameter would need to be updated, but the relevant PETSc API
-call is not wrapped in its Python bindings.) We therefore use one iteration
-of GMRES, which solves a tiny optimisation problem to figure out the right
-scaling. This adds a negligible computational cost to the overall solver. ::
+We set the scale factor of the mass matrix in `appctx["nu"]` ::
 
-  appctx = {"nu": 1 / gamma}
+  appctx = {"nu": -1 / (2/Re + gamma)}
 
   sp = {
       'mat_type': 'nest',
@@ -303,11 +298,9 @@ scaling. This adds a negligible computational cost to the overall solver. ::
           'ksp_type': 'richardson',
           'pc_type': 'mg',
           'pc_mg_type': 'full',
-          'mg_coarse_assembled_pc_type': 'lu',
-          'mg_coarse_assembled_pc_factor_mat_solver_type': 'superlu_dist',
-          'mg_coarse_assembled_mat_mumps_icntl_14': 1000,
-          'mg_coarse_pc_python_type': 'firedrake.AssembledPC',
-          'mg_coarse_pc_type': 'python',
+          'mg_coarse_mat_type': 'aij',
+          'mg_coarse_pc_type': 'lu',
+          'mg_coarse_pc_factor_mat_solver_type': 'mumps',
           'mg_levels': {
               'ksp_convergence_test': 'skip',
               'ksp_max_it': 5,
