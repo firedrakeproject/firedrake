@@ -197,11 +197,11 @@ and augmented Lagrangian term. ::
 
   F = (
         2/Re                 * inner(sym(grad(u)), sym(grad(v)))*dx
-      - 1/Re                 * inner(avg(2*sym(grad(u))), 2*avg(outer(v, n)))*dS
-      - 1/Re                 * inner(avg(2*sym(grad(v))), 2*avg(outer(u, n)))*dS
-      + 1/Re * sigma/avg(h)  * inner(2*avg(outer(u, n)), 2*avg(outer(v, n)))*dS
+      - 2/Re                 * inner(avg(sym(grad(u))), 2*avg(outer(v, n)))*dS
+      - 2/Re                 * inner(avg(sym(grad(v))), 2*avg(outer(u, n)))*dS
+      + 2/Re * sigma/avg(h)  * inner(avg(outer(u, n)), 2*avg(outer(v, n)))*dS
       -                        inner(u, div(outer(v, u)))*dx
-      +                        inner(v('+')-v('-'), uflux_int('+')-uflux_int('-'))*dS
+      +                        inner(uflux_int('+') - uflux_int('-'), v('+') - v('-'))*dS
       -                        inner(p, div(v))*dx
       -                        inner(q, div(u))*dx
       + gamma                * inner(div(u), div(v))*dx
