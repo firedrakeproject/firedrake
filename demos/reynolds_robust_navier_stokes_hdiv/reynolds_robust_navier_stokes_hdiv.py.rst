@@ -187,8 +187,7 @@ The second group is the DG upwind discretisation of the convective term
 :math:`\nabla \cdot (u \otimes u)`.  On interior facets the upwind flux
 is :math:`\tfrac{1}{2}(u \cdot n + |u \cdot n|) u`.
 
-The final group implements the pressure gradient, divergence constraint,
-and augmented Lagrangian term. ::
+The final group implements the pressure gradient and the divergence constraint. ::
 
   gamma = Constant(10000)
   sigma = Constant(5 * (k+1)**2)
@@ -196,15 +195,17 @@ and augmented Lagrangian term. ::
   uflux_int = 0.5*(dot(u, n) + abs(dot(u, n)))*u
 
   F = (
-        2/Re                 * inner(sym(grad(u)), sym(grad(v)))*dx
-      - 2/Re                 * inner(avg(sym(grad(u))), 2*avg(outer(v, n)))*dS
-      - 2/Re                 * inner(avg(sym(grad(v))), 2*avg(outer(u, n)))*dS
-      + 2/Re * sigma/avg(h)  * inner(avg(outer(u, n)), 2*avg(outer(v, n)))*dS
-      -                        inner(u, div(outer(v, u)))*dx
-      +                        inner(jump(uflux_int), jump(v))*dS
-      -                        inner(p, div(v))*dx
-      -                        inner(div(u), q)*dx
-     #+ gamma                * inner(div(u), div(v))*dx  # The augmented Lagrangian term
+        # Viscous terms
+        2/Re * inner(sym(grad(u)), sym(grad(v)))*dx
+      - 2/Re * inner(avg(sym(grad(u))), 2*avg(outer(v, n)))*dS
+      - 2/Re * inner(avg(sym(grad(v))), 2*avg(outer(u, n)))*dS
+      + 2/Re * sigma/avg(h) * inner(avg(outer(u, n)), 2*avg(outer(v, n)))*dS
+        # Convective terms
+      - inner(u, div(outer(v, u)))*dx
+      + inner(jump(uflux_int), jump(v))*dS
+        # Off-diagonal terms
+      - inner(p, div(v))*dx
+      - inner(div(u), q)*dx
       )
 
 Boundary conditions are imposed weakly via two helper functions.
@@ -243,6 +244,14 @@ remaining exterior facets with a zero-inflow flux. ::
   for bid in exterior_markers:
       F += c_bc(u, v, bid, None)
 
+To construct the augmented Lagrangian preconditioner,
+we first add the penalty term and add the pressure
+mass matrix weighted by :math:`\gamma^{-1}`, and then we
+differentiate to obtain the preconditioning bilinear form ``Jp``. ::
+
+  Fp = F + inner(div(u)*gamma, div(v))*dx - inner(p/gamma, q)*dx 
+  Jp = derivative(Fp, w)
+
 Solver
 ------
 
@@ -250,8 +259,9 @@ The outer solver is FGMRES (flexible GMRES is needed because the
 preconditioner is nonlinear—it contains inner iterative solves)
 preconditioned by a full Schur factorisation fieldsplit.
 
-The velocity block uses one Richardson step with a full-cycle geometric
-multigrid preconditioner. At each multigrid level, five steps of FGMRES
+The velocity block applies a full-cycle geometric
+multigrid preconditioner to the augmented Lagrangian.
+At each multigrid level, five steps of GMRES
 are applied, preconditioned by the additive Schwarz method with
 vertex-star patches (:class:`~.ASMStarPC`).  A star patch around a
 vertex consists of all cells sharing that vertex; these patches together
@@ -260,14 +270,9 @@ smoother captures the kernel of :math:`\nabla \cdot` as required by
 Schöberl's theory :cite:`Schoberl:1999`.  The coarse-grid problem is
 solved exactly with LU factorisation.
 
-The pressure block applies
-:class:`~.MassInvPC`, which inverts the pressure mass matrix.  For the
+The pressure block inverts the pressure mass matrix. For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
-exact. We set the scale factor of the mass matrix in ``appctx["mu"]``
-to :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
-coming from the Schur complement
-approximation :math:`S_\gamma \approx -(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
-so that :math:`S_\gamma^{-1} \approx -(2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
+exact. ::
 
   sp = {
       'mat_type': 'matfree',
@@ -328,8 +333,6 @@ precision. ::
   p_.rename("Pressure")
   pvd = VTKFile("output/navier_stokes.pvd")
 
-  du, dp = TrialFunctions(W)
-  Jp = derivative(F, w) + inner(div(du)*gamma, div(v))*dx - inner(dp/gamma, q)*dx 
   problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
   solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
