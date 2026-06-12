@@ -17,7 +17,6 @@ ForwardSolveRecomputeCache = namedtuple(
         "func",
         "bcs",
         "solver",
-        "is_linear",
         "replaced_deps",
     ]
 )
@@ -182,7 +181,6 @@ class NonlinearVariationalSolverMixin:
             func=self._ad_problem.u,
             bcs=bcs_new,
             solver=nlvs,
-            is_linear=self._ad_problem.is_linear,
             replaced_deps=tuple(replace_map.values()),
         )
 
