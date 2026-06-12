@@ -204,7 +204,7 @@ and augmented Lagrangian term. ::
       +                        inner(jump(uflux_int), jump(v))*dS
       -                        inner(p, div(v))*dx
       -                        inner(div(u), q)*dx
-      + gamma                * inner(div(u), div(v))*dx  # The augmented Lagrangian term
+     #+ gamma                * inner(div(u), div(v))*dx  # The augmented Lagrangian term
       )
 
 Boundary conditions are imposed weakly via two helper functions.
@@ -269,10 +269,8 @@ coming from the Schur complement
 approximation :math:`S_\gamma \approx -(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
 so that :math:`S_\gamma^{-1} \approx -(2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
 
-  appctx = {"mu": -(2/Re + gamma)}
-
   sp = {
-      'mat_type': 'nest',
+      'mat_type': 'matfree',
       'snes_monitor': None,
       'snes_converged_reason': None,
       'snes_max_it': 20,
@@ -282,32 +280,35 @@ so that :math:`S_\gamma^{-1} \approx -(2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. 
       'ksp_type': 'fgmres',
       'ksp_converged_reason': None,
       'ksp_monitor_true_residual': None,
-      'ksp_max_it': 500,
+      'ksp_max_it': 30,
       'ksp_atol': 1e-08,
       'ksp_rtol': 1e-10,
       'pc_type': 'fieldsplit',
       'pc_fieldsplit_type': 'schur',
       'pc_fieldsplit_schur_factorization_type': 'full',
-      'fieldsplit_0': {
-          'ksp_type': 'preonly',
-          'pc_type': 'mg',
-          'pc_mg_type': 'full',
-          'mg_coarse_mat_type': 'aij',
-          'mg_coarse_pc_type': 'lu',
-          'mg_coarse_pc_factor_mat_solver_type': 'mumps',
-          'mg_levels': {
-              'ksp_convergence_test': 'skip',
-              'ksp_max_it': 5,
-              'ksp_type': 'fgmres',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.ASMStarPC',
-          },
-      },
+      'pc_fieldsplit_0_fields': 1,
+      'pc_fieldsplit_1_fields': 0,
+      'fieldsplit_ksp_type': 'preonly',
+      'fieldsplit_0_pc_type': 'jacobi',
       'fieldsplit_1': {
-          'ksp_type': 'preonly',
           'pc_type': 'python',
-          'pc_python_type': 'firedrake.MassInvPC',
-          'Mp_pc_type': 'jacobi',
+          'pc_python_type': 'firedrake.AssembledPC',
+          'assembled': {
+             'pc_use_amat': False,
+             'pc_type': 'mg',
+             'pc_mg_type': 'full',
+             'mg_coarse_mat_type': 'aij',
+             'mg_coarse_pc_type': 'lu',
+             'mg_coarse_pc_factor_mat_solver_type': 'mumps',
+             'mg_coarse_mat_mumps_icntl_14': 1000,
+             'mg_levels': {
+                 'ksp_convergence_test': 'skip',
+                 'ksp_max_it': 5,
+                 'ksp_type': 'gmres',
+                 'pc_type': 'python',
+                 'pc_python_type': 'firedrake.ASMStarPC',
+             },
+          },
       },
   }
 
@@ -327,10 +328,12 @@ precision. ::
   p_.rename("Pressure")
   pvd = VTKFile("output/navier_stokes.pvd")
 
-  problem = NonlinearVariationalProblem(F, w, bcs)
-  solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
+  du, dp = TrialFunctions(W)
+  Jp = derivative(F, w) + inner(div(du)*gamma, div(v))*dx - inner(dp/gamma, q)*dx 
+  problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
+  solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
-  for Re_ in [1, 100, 500] + list(range(1000, 5100, 500)):
+  for Re_ in [1, 100, 500] + list(range(1000, 5000, 500)):
       Re.assign(Re_)
 
       # Solve
