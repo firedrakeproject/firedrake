@@ -141,3 +141,66 @@ def test_validity_single_memory_long_range(V):
     dJ = J_hat.derivative()
     assert np.allclose(val_recomputed, val_recomputed0)
     assert np.allclose(dJ.dat.data_ro[:], dJ0.dat.data_ro[:])
+
+
+@pytest.mark.skipcomplex
+def test_validity_single_memory_new_control(V):
+    """Terminal variables must survive clearing at their last forward use.
+
+    f is never redefined after step 0, so its block variable remains the
+    live one of the Function. If its checkpoint is cleared at its last
+    forward use, the adjoint of that step reads the linearisation point
+    through the saved_output fallback to the live Function, which still
+    holds the value from taping. The gradient is then wrong whenever the
+    functional has been re-evaluated at a new control first. See
+    https://github.com/dolfin-adjoint/pyadjoint/issues/260.
+    """
+    def J_terminal(m):
+        tape = get_working_tape()
+        f = Function(V)
+        u = Function(V)
+        for i in tape.timestepper(iter(range(4))):
+            if i == 0:
+                # f is never redefined after this step. u must pick up
+                # control dependence here: the stale linearisation point
+                # weights the derivative with respect to u, so without
+                # this the wrong weight multiplies a path carrying no
+                # control sensitivity and the gradient is accidentally
+                # right.
+                f.project(2 * m)
+                u.project(m)
+            elif i == 2:
+                # Last forward use of f. The adjoint of this projection
+                # needs f's value as the linearisation point for the
+                # derivative with respect to u.
+                u.project(u * f)
+            else:
+                u.project(Constant(1.1) * u)
+        return assemble(u * u * dx)
+
+    tape = get_working_tape()
+    m = Function(V).assign(1.0)
+    controls = [Function(V).assign(2.0), Function(V).assign(3.0)]
+
+    # Without checkpointing.
+    J_hat0 = ReducedFunctional(J_terminal(m), Control(m))
+    vals0 = []
+    grads0 = []
+    for m_new in controls:
+        vals0.append(J_hat0(m_new))
+        grads0.append(J_hat0.derivative().dat.data_ro.copy())
+    tape.clear_tape()
+
+    # With checkpointing.
+    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+    J_hat = ReducedFunctional(J_terminal(m), Control(m))
+    for m_new, val0, grad0 in zip(controls, vals0, grads0):
+        # Each cycle re-evaluates at a new control *before* the
+        # derivative: the stale fallback only shows away from the taping
+        # point. The second cycle exercises the clearing that runs once
+        # the adjoint dependencies have been revised by the first
+        # reverse pass.
+        val = J_hat(m_new)
+        dJ = J_hat.derivative()
+        assert np.allclose(val, val0)
+        assert np.allclose(dJ.dat.data_ro[:], grad0)
