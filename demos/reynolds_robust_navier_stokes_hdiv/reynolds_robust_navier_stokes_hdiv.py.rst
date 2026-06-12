@@ -92,7 +92,7 @@ velocity block is
    + \gamma \int_\Omega (\nabla \cdot \varphi_j)(\nabla \cdot \varphi_i)\,\mathrm{d}x,
 
 and the Schur complement approximation becomes :math:`S_\gamma \approx
-(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`.  For Stokes, this is helpful but
+-(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`.  For Stokes, this is helpful but
 not essential, since the Schur complement is already controlled; but for
 Navier-Stokes (with the advection terms), it is extremely useful, since
 for large :math:`\gamma` the Schur complement becomes perfectly
@@ -185,7 +185,7 @@ term, and a penalty term scaled by :math:`\sigma/h` (with
 
 The second group is the DG upwind discretisation of the convective term
 :math:`\nabla \cdot (u \otimes u)`.  On interior facets the upwind flux
-is :math:`\hat{F}(u) = \tfrac{1}{2}(u \cdot n + |u \cdot n|) u`.
+is :math:`\tfrac{1}{2}(u \cdot n + |u \cdot n|) u`.
 
 The final group implements the pressure gradient, divergence constraint,
 and augmented Lagrangian term. ::
@@ -213,15 +213,16 @@ interior penalty terms restricted to boundary facets), and ``c_bc``
 contributes the convective upwind flux on boundary facets. ::
 
   def a_bc(u, v, bid, g):
+      ures = u - g if g else u
       return (
-             - 2/Re * inner(outer(v, n), sym(grad(u)))*ds(bid)
-             - 2/Re * inner(outer(u-g, n), sym(grad(v)))*ds(bid)
-             + 1/Re * (sigma/h) * inner(v, u-g)*ds(bid)
+             - 2/Re * inner(sym(grad(u)), outer(v, n))*ds(bid)
+             - 2/Re * inner(outer(ures, n), sym(grad(v)))*ds(bid)
+             + 1/Re * (sigma/h) * inner(ures, v)*ds(bid)
              )
 
   def c_bc(u, v, bid, g):
       uflux_ext = 0.5*(dot(u, n) + abs(dot(u, n)))*u
-      if g is not None:
+      if g:
           uflux_ext += 0.5*(dot(u, n) - abs(dot(u, n)))*g
       return inner(uflux_ext, v)*ds(bid)
 
@@ -259,16 +260,16 @@ smoother captures the kernel of :math:`\nabla \cdot` as required by
 Schöberl's theory :cite:`Schoberl:1999`.  The coarse-grid problem is
 solved exactly with LU factorisation.
 
-The pressure block uses one Richardson step preconditioned by
+The pressure block applies
 :class:`~.MassInvPC`, which inverts the pressure mass matrix.  For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
-exact. We set the scale factor of the mass matrix in `appctx["nu"]`
+exact. We set the scale factor of the mass matrix in ``appctx["mu"]``
 to :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
 coming from the Schur complement
-approximation :math:`S_\gamma \approx (2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
-so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
+approximation :math:`S_\gamma \approx -(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
+so that :math:`S_\gamma^{-1} \approx -(2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
 
-  appctx = {"nu": -1 / (2/Re + gamma)}
+  appctx = {"mu": -(2/Re + gamma)}
 
   sp = {
       'mat_type': 'nest',
@@ -288,11 +289,7 @@ so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. :
       'pc_fieldsplit_type': 'schur',
       'pc_fieldsplit_schur_factorization_type': 'full',
       'fieldsplit_0': {
-          'ksp_convergence_test': 'skip',
-          'ksp_max_it': 1,
-          'ksp_norm_type': 'unpreconditioned',
-          'ksp_richardson_self_scale': False,
-          'ksp_type': 'richardson',
+          'ksp_type': 'preonly',
           'pc_type': 'mg',
           'pc_mg_type': 'full',
           'mg_coarse_mat_type': 'aij',
