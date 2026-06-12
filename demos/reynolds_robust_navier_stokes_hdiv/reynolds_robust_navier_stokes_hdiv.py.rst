@@ -232,8 +232,6 @@ remaining exterior facets with a zero-inflow flux. ::
 
   exterior_markers = set(mesh.exterior_facets.unique_markers)
   for bc in bcs:
-      if "DG" in str(bc._function_space):
-          continue
       g = bc.function_arg
       bid = bc.sub_domain
       if isinstance(bid, Iterable):
