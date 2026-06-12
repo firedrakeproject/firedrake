@@ -961,7 +961,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-superlu_dist",
             "--download-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
+        cflags=["-O3", "-march=native", "-mtune=native", "-Wno-implicit-function-declaration"],
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         extra_env_vars={
