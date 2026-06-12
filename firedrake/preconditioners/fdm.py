@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
-from firedrake.solving_utils import bcdofs
+from firedrake.bcs import bcdofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function

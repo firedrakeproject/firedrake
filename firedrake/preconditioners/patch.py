@@ -7,7 +7,8 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 import firedrake.cython.patchimpl
-from firedrake.solving_utils import _SNESContext, bcdofs
+from firedrake.bcs import bcdofs
+from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate

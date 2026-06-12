@@ -9,11 +9,10 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from firedrake.solving_utils import bcdofs
 from functools import cached_property
 
 from firedrake.parloops import par_loop, INC, READ
-from firedrake.bcs import DirichletBC
+from firedrake.bcs import bcdofs, DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
 from finat.ufl import BrokenElement
