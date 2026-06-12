@@ -263,12 +263,11 @@ The pressure block uses one Richardson step preconditioned by
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
 exact.
 
-For the Schur complement, we would like to use Richardson
-iteration with scaling factor :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
+We set the scale factor of the mass matrix in `appctx["nu"]`
+to :math:`-(2\,\mathrm{Re}^{-1} + \gamma)`,
 coming from the Schur complement
 approximation :math:`S_\gamma \approx (2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`,
-so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`.
-We set the scale factor of the mass matrix in `appctx["nu"]` ::
+so that :math:`S_\gamma^{-1} \approx (2\,\mathrm{Re}^{-1} + \gamma)\, Q^{-1}`. ::
 
   appctx = {"nu": -1 / (2/Re + gamma)}
 
