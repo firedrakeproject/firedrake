@@ -102,7 +102,10 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
 
 @pytest.mark.parametrize("pre_apply_bcs", (False, True))
 @pytest.mark.parametrize("pc_type", ("none", "ilu", "jacobi"))
-def test_allen_cahn_energy(pre_apply_bcs, pc_type):
+@pytest.mark.parametrize("sol_type", ("ls", "tr"))
+def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
+    if sol_type == "ls" and pc_type in ("ilu", "jacobi"):
+        pytest.xfail(f"This will reach the maximum number of Newtonls iterations with {pc_type}")
     nx = 128
     lx = 10.0
     eps = Constant(3e-3)
@@ -126,17 +129,22 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type):
 
     problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
 
-    # newtonls_parameters = {
-    #     "snes_type": "newtonls",
-    #     "snes_monitor": "::ascii_info_detail",
-    #     "snes_linesearch_type": "bt",
-    #     "snes_linesearch_order": 1,
-    #     "snes_converged_reason": None,
-    #     #"snes_linesearch_type": "cp",
-    #     #"snes_linesearch_max_it": 10,
-    #     "snes_linesearch_monitor": None,
-    # }
-    newtontr_params = {
+    newtonls_parameters = {
+        "snes_atol": 1E-8,
+        "snes_rtol": 1E-8,
+        "snes_type": "newtonls",
+        "snes_ksp_ew": True,
+        "snes_monitor": "::ascii_info_detail",
+        "snes_linesearch_type": "bt",
+        "snes_linesearch_order": 1,
+        "snes_converged_reason": None,
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "ksp_converged_neg_curve": True,
+        "ksp_converged_reason": None,
+        "pc_type": pc_type,
+    }
+    newtontr_parameters = {
         "snes_atol": 1E-8,
         "snes_rtol": 1E-8,
         "snes_converged_reason": None,
@@ -145,8 +153,9 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type):
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
         "ksp_converged_neg_curve": True,
+        "ksp_converged_reason": None,
         "pc_type": pc_type,
     }
-    solver_parameters = newtontr_params
+    solver_parameters = newtonls_parameters if sol_type == "ls" else newtontr_parameters
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters, pre_apply_bcs=pre_apply_bcs)
     solver.solve()
