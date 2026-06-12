@@ -130,3 +130,51 @@ def test_control_value_survives_recompute():
     m0 = Function(V).assign(2.0)
     assert np.allclose(rf(m0), 16.0)
     assert np.allclose(rf.derivative(apply_riesz=True).dat.data_ro, 16.0)
+
+
+@pytest.mark.skipcomplex
+def test_validity_single_memory_long_range(V):
+    """Long-range dependencies must survive SingleMemoryStorageSchedule.
+
+    A variable that is reused only every third timestep is absent from the
+    immediately preceding step's adjoint dependencies, but its checkpoint
+    must not be cleared during the forward replay, otherwise the reverse
+    pass reconstructs a wrong value and the gradient is corrupted. See
+    https://github.com/dolfin-adjoint/pyadjoint/issues/211.
+    """
+    def J_staggered(u_0):
+        tape = get_working_tape()
+        u = Function(V).assign(u_0)
+        r = Function(V)
+        for i in tape.timestepper(range(10)):
+            if i % 3 == 0:
+                # Refresh r only every third step: the resulting reuse gap
+                # is what the checkpoint clearing mishandled. Projecting r
+                # every step hides the bug.
+                r.project(1.01 * u)
+            u.project(r * u)
+        return assemble(u * u * dx)
+
+    tape = get_working_tape()
+    tape.progress_bar = ProgressBar
+    u_0 = Function(V).assign(1.0)
+    # Without checkpointing.
+    val0 = J_staggered(u_0)
+    J_hat0 = ReducedFunctional(val0, Control(u_0))
+    val_recomputed0 = J_hat0(u_0)
+    dJ0 = J_hat0.derivative()
+    tape.clear_tape()
+
+    # With checkpointing.
+    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+    val = J_staggered(u_0)
+    J_hat = ReducedFunctional(val, Control(u_0))
+    assert len(tape.timesteps) == 10
+    # The functional must be re-evaluated *before* the derivative: the
+    # checkpoint clearing under test only runs during the forward replay
+    # triggered by this call. With derivative() first (as in test_validity
+    # above) the bug is not exercised.
+    val_recomputed = J_hat(u_0)
+    dJ = J_hat.derivative()
+    assert np.allclose(val_recomputed, val_recomputed0)
+    assert np.allclose(dJ.dat.data_ro[:], dJ0.dat.data_ro[:])
