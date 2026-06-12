@@ -91,14 +91,28 @@ velocity block is
    \int_\Omega \varepsilon(\varphi_j) : \varepsilon(\varphi_i)\,\mathrm{d}x
    + \gamma \int_\Omega (\nabla \cdot \varphi_j)(\nabla \cdot \varphi_i)\,\mathrm{d}x,
 
-and the Schur complement approximation becomes :math:`S_\gamma \approx
+and the pressure Schur complement approximation becomes :math:`S_\gamma \approx
 -(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`.  For Stokes, this is helpful but
-not essential, since the Schur complement is already controlled; but for
+not essential, since the pressure Schur complement is already controlled; but for
 Navier-Stokes (with the advection terms), it is extremely useful, since
-for large :math:`\gamma` the Schur complement becomes perfectly
+for large :math:`\gamma` the pressure Schur complement becomes perfectly
 controlled by something that is straightforward to solve. The tradeoff
 is that large :math:`\gamma` makes :math:`A_\gamma` harder to solve, so
 the specialised multigrid strategy described below is critical.
+
+The augmented Lagrangian preconditioner used in this demo is derived from
+a nearby problem with pertubation :math:`-\gamma^{-1}(p, q)`. The
+preconditioner will feature a nonzero pressure block, which enables us
+to do elimation in the reverse ordering by choosing the pressure as the first pivot.
+
+.. math::
+
+   P = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}
+
+The corresponding `velocity Schur complement` is exactly :math:`A + \gamma B^\top Q^{-1} B = A_\gamma`.
+Direct block Gaussian elimination then requires a
+single application of :math:`A_\gamma^{-1}`, and two applications of
+:math:`Q^{-1}`.
 
 To solve :math:`A_\gamma` in a :math:`\gamma`-robust way, the multigrid
 smoother must capture the kernel of the divergence operator in a certain
@@ -146,7 +160,7 @@ which is necessary for vertex-star relaxation in parallel. ::
 
   distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
   num_refinements = 2
-  base = UnitSquareMesh(16, 16, diagonal="crossed", distribution_parameters=distribution_parameters)
+  base = UnitSquareMesh(16, 16, distribution_parameters=distribution_parameters)
   mh = MeshHierarchy(base, num_refinements)
   mesh = mh[-1]
   n = FacetNormal(mesh)
@@ -198,7 +212,7 @@ The final group implements the pressure gradient and the divergence constraint. 
         # Viscous terms
         2/Re * inner(sym(grad(u)), sym(grad(v)))*dx
       - 2/Re * inner(avg(sym(grad(u))), 2*avg(outer(v, n)))*dS
-      - 2/Re * inner(avg(sym(grad(v))), 2*avg(outer(u, n)))*dS
+      - 2/Re * inner(2*avg(outer(u, n)), avg(sym(grad(v))))*dS
       + 2/Re * sigma/avg(h) * inner(avg(outer(u, n)), 2*avg(outer(v, n)))*dS
         # Convective terms
       - inner(u, div(outer(v, u)))*dx
@@ -257,7 +271,11 @@ Solver
 
 The outer solver is FGMRES (flexible GMRES is needed because the
 preconditioner is nonlinear—it contains inner iterative solves)
-preconditioned by a full Schur factorisation fieldsplit.
+preconditioned by a full Schur factorisation fieldsplit. We
+need to swap the ordering of the fields in order to set the
+velocity to be the variable that is back-substituted. This
+is key to ensure that :math:`A_\gamma^{-1}` is only applied once
+per Krylov iteration.
 
 The velocity block applies a full-cycle geometric
 multigrid preconditioner to the augmented Lagrangian.
@@ -336,7 +354,7 @@ precision. ::
   problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
   solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
-  for Re_ in [1, 100, 500] + list(range(1000, 5000, 500)):
+  for Re_ in [1, 100, 500] + list(range(1000, 5001, 500)):
       Re.assign(Re_)
 
       # Solve
@@ -350,7 +368,7 @@ precision. ::
       print(f"  ||div u||: {norm(div(u_), 'L2'):.2e}")
       pvd.write(u_, p_)
 
-The average number of Krylov iterations per Newton step varies from 3.8--5.3 over the whole range of Reynolds numbers considered.
+The average number of Krylov iterations per Newton step varies from 4--7 over the whole range of Reynolds numbers considered.
 
 A python script version of this demo can be found :demo:`here
 <reynolds_robust_navier_stokes_hdiv.py>`.
