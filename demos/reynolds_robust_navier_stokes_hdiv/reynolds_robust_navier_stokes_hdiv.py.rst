@@ -144,10 +144,10 @@ which is necessary for vertex-star relaxation in parallel. ::
 
   print = PETSc.Sys.Print
 
-  distribution_parameters = {"partition": True,
-                              "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  num_refinements = 2
   base = UnitSquareMesh(16, 16, diagonal="crossed", distribution_parameters=distribution_parameters)
-  mh = MeshHierarchy(base, 2)
+  mh = MeshHierarchy(base, num_refinements)
   mesh = mh[-1]
   n = FacetNormal(mesh)
   (x, y) = SpatialCoordinate(mesh)
@@ -163,7 +163,7 @@ The boundary conditions impose the no-slip and lid conditions on the
 velocity component of the mixed space. ::
 
   Re = Constant(1)
-  bcs = [DirichletBC(W.sub(0), Constant((0, 0)), (1, 2, 3)),
+  bcs = [DirichletBC(W.sub(0), 0, (1, 2, 3)),
          DirichletBC(W.sub(0), as_vector([16 * x**2 * (1-x)**2, 0]), (4,))]
 
 We set up the solution function and test functions. ::
@@ -201,10 +201,10 @@ and augmented Lagrangian term. ::
       - 2/Re                 * inner(avg(sym(grad(v))), 2*avg(outer(u, n)))*dS
       + 2/Re * sigma/avg(h)  * inner(avg(outer(u, n)), 2*avg(outer(v, n)))*dS
       -                        inner(u, div(outer(v, u)))*dx
-      +                        inner(uflux_int('+') - uflux_int('-'), v('+') - v('-'))*dS
+      +                        inner(jump(uflux_int), jump(v))*dS
       -                        inner(p, div(v))*dx
-      -                        inner(q, div(u))*dx
-      + gamma                * inner(div(u), div(v))*dx
+      -                        inner(div(u), q)*dx
+      + gamma                * inner(div(u), div(v))*dx  # The augmented Lagrangian term
       )
 
 Boundary conditions are imposed weakly via two helper functions.
@@ -305,8 +305,8 @@ We set the scale factor of the mass matrix in `appctx["nu"]` ::
               'ksp_convergence_test': 'skip',
               'ksp_max_it': 5,
               'ksp_type': 'fgmres',
-              'pc_python_type': 'firedrake.ASMStarPC',
               'pc_type': 'python',
+              'pc_python_type': 'firedrake.ASMStarPC',
           },
       },
       'fieldsplit_1': {
