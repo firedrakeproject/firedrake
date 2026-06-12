@@ -100,7 +100,7 @@ controlled by something that is straightforward to solve. The tradeoff
 is that large :math:`\gamma` makes :math:`A_\gamma` harder to solve, so
 the specialised multigrid strategy described below is critical.
 
-The augmented Lagrangian preconditioner used in this demo is derived from
+An even more efficient alternative block preconditioner can be derived from
 a nearby problem with pertubation :math:`-\gamma^{-1}(p, q)`. The
 preconditioner will feature a nonzero pressure block, which enables us
 to do elimation in the reverse ordering by choosing the pressure as the first pivot.
@@ -261,7 +261,9 @@ remaining exterior facets with a zero-inflow flux. ::
 To construct the augmented Lagrangian preconditioner,
 we first add the penalty term and add the pressure
 mass matrix weighted by :math:`\gamma^{-1}`, and then we
-differentiate to obtain the preconditioning bilinear form ``Jp``. ::
+differentiate to obtain the preconditioning bilinear form ``Jp``
+from which PETSc will extract :math:`A_\gamma` and :math:`-\gamma^{-1}Q`
+required for the Schur factorization. ::
 
   Fp = F + inner(div(u)*gamma, div(v))*dx - inner(p/gamma, q)*dx 
   Jp = derivative(Fp, w)
