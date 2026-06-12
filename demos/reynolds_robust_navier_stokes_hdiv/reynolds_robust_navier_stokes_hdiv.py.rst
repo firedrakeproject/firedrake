@@ -276,6 +276,8 @@ call is not wrapped in its Python bindings.) We therefore use one iteration
 of GMRES, which solves a tiny optimisation problem to figure out the right
 scaling. This adds a negligible computational cost to the overall solver. ::
 
+  appctx = {"nu": 1 / gamma}
+
   sp = {
       'mat_type': 'nest',
       'snes_monitor': None,
@@ -315,9 +317,7 @@ scaling. This adds a negligible computational cost to the overall solver. ::
           },
       },
       'fieldsplit_1': {
-          'ksp_type': 'gmres',
-          'ksp_max_it': 1,
-          'ksp_convergence_test': 'skip',
+          'ksp_type': 'preonly',
           'pc_type': 'python',
           'pc_python_type': 'firedrake.MassInvPC',
           'Mp_pc_type': 'jacobi',
@@ -341,7 +341,7 @@ precision. ::
   pvd = VTKFile("output/navier_stokes.pvd")
 
   problem = NonlinearVariationalProblem(F, w, bcs)
-  solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+  solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
 
   for Re_ in [1, 100, 500] + list(range(1000, 5100, 500)):
       Re.assign(Re_)
