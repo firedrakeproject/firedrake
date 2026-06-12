@@ -4,7 +4,8 @@ from itertools import chain, zip_longest
 
 import numpy
 
-from gem.gem import Delta, Index, Indexed, Literal, Node, Sum, index_sum, one
+from gem.gem import (ComponentTensor, Delta, Index, Indexed, IndexSum,
+                     Literal, Node, Sum, index_sum, one)
 from gem.node import Memoizer, MemoizerArg, reuse_if_untouched, traversal
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
@@ -81,9 +82,20 @@ def _anchored_indices(expressions, epsilon):
     constant literal axis.  The indices a node introduces are exactly its free
     indices minus those of its children; for ``Indexed(Literal(...))`` the
     constant axes are excluded.
+
+    Indices bound by a ``ComponentTensor``/``IndexSum`` anywhere in the DAG are
+    never anchored.  The anchoring analysis is global, but binding is scoped and
+    GEM is a shared DAG, so an index can occur non-constantly under one binder
+    yet appear *only* on a constant literal axis within the scope of another
+    binder of the same ``Index`` object.  Dropping it there would orphan that
+    binder's multiindex; refusing to drop any bound index avoids this while
+    still exposing the (free) broadcast quadrature directions we target.
     """
     anchored = set()
+    bound = set()
     for node in traversal(expressions):
+        if isinstance(node, (ComponentTensor, IndexSum)):
+            bound.update(node.multiindex)
         child_free = set()
         for child in node.children:
             child_free |= set(child.free_indices)
@@ -93,7 +105,7 @@ def _anchored_indices(expressions, epsilon):
             own = {index for axis, index in enumerate(node.multiindex)
                    if isinstance(index, Index) and axis not in const}
         anchored |= own
-    return anchored
+    return anchored - bound
 
 
 @singledispatch
