@@ -8,7 +8,7 @@ from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
-from finat.ufl import MixedElement, VectorElement
+from finat.ufl import MixedElement, TensorElement, VectorElement
 import finat
 
 import pyop2 as op2
@@ -774,7 +774,7 @@ def bcdofs(bc, ghost=True):
 
         Z = Z.sub(idx)
 
-    if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
+    if Z.parent is not None and isinstance(Z.parent.ufl_element(), (TensorElement, VectorElement)):
         bs = Z.parent.block_size
         start = 0
         stop = 1

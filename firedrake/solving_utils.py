@@ -289,10 +289,17 @@ class _SNESContext(object):
     def bc_iset(self):
         if self._problem.restrict:
             return None
-        bcs = self._problem.dirichlet_bcs()
+        bcs = tuple(self._problem.dirichlet_bcs())
         V = self._x.function_space()
-        bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs], dtype=PETSc.IntType))
-        bc_nodes = V.dof_dset.lgmap.apply(bc_nodes)
+        if len(bcs) > 0:
+            bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
+                                  dtype=PETSc.IntType)
+            )
+            bc_nodes = V.dof_dset.lgmap.apply(bc_nodes)
+        else:
+            bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+
         bc_is = PETSc.IS().createGeneral(bc_nodes, comm=V.comm)
         bc_is.sort()
         return bc_is
