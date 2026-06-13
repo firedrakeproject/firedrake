@@ -15,7 +15,8 @@ pc_types = ("gamg",
 @pytest.mark.parametrize("pc_type", pc_types)
 def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
-        return
+        pytest.xfail("Need PETSc with HYPRE support for this test")
+
     restrict = False
     if pre_apply_bcs == "restrict":
         restrict = True
@@ -111,10 +112,14 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     assert math.isclose(errornorm(u_exact, sol1), errornorm(u_exact, sol2), rel_tol=1.e-2)
 
 
-@pytest.mark.parametrize("pre_apply_bcs", (False, True))
+@pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
 @pytest.mark.parametrize("pc_type", ("none", "ilu", "jacobi"))
 @pytest.mark.parametrize("sol_type", ("ls", "tr"))
 def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
+    restrict = False
+    if pre_apply_bcs == "restrict":
+        restrict = True
+        pre_apply_bcs = True
     if sol_type == "ls" and pc_type in ("ilu", "jacobi"):
         pytest.xfail(f"This will reach the maximum number of Newtonls iterations with {pc_type}")
     nx = 128
@@ -138,7 +143,7 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
     E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
     F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
 
-    problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
+    problem = NonlinearVariationalProblem(F, u, bcs, objective=E, restrict=restrict)
 
     newtonls_parameters = {
         "snes_atol": 1E-8,
