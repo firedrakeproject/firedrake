@@ -2,9 +2,9 @@ from firedrake import *
 import pytest
 import math
 
-# GAMG and Jacobi have issues with FAS
+# GAMG has issues with FAS and pre_apply_bcs=True
 pc_types = ("gamg",
-            "jacobi",  # this is very very strange!
+            "jacobi",
             "hypre",
             "ilu")
 
@@ -16,6 +16,8 @@ pc_types = ("gamg",
 def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
         return
+    if refine > 0 and pc_type == "gamg" and pre_apply_bcs:
+        pytest.xfail("The pre_apply_bcs=True model requires linear solvers to exactly solve the identity block of the bcs")
 
     newtonls_params = {
         "snes_type": "newtonls",
@@ -49,8 +51,8 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         "snes_max_it": 1,
         "snes_type": "fas",
         "snes_fas_type": "kaskade",
-        "fas_levels": newtonls_params,
-        "fas_coarse": newtonls_params,
+        "fas_levels": newtontr_params,
+        "fas_coarse": newtontr_params,
     }
 
     base = UnitIntervalMesh(10)
