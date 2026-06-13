@@ -116,6 +116,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             if self.Jp:
                 v_arg, u_arg = self.Jp.arguments()
                 self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+            if self.E:
+                self.E = replace(self.E, {self.u: self.u_restrict})
             self.restricted_space = V_res
         else:
             self.u_restrict = u
