@@ -22,8 +22,6 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         pre_apply_bcs = True
     if refine > 0 and pc_type == "gamg" and pre_apply_bcs and not restrict:
         pytest.xfail("The pre_apply_bcs=True model requires linear solvers to exactly solve the identity block of the bcs")
-    # if restrict:
-    #     pytest.xfail("Why these fails?")
 
     newtonls_params = {
         "snes_type": "newtonls",

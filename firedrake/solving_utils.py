@@ -493,8 +493,9 @@ class _SNESContext(object):
             X.copy(v)
 
         # Apply DirichletBC on the solution
-        for bc in ctx._problem.dirichlet_bcs():
-            bc.apply(ctx._x)
+        if not ctx._problem.restrict:
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._x)
 
         return ctx._assemble_objective()
 
