@@ -9,11 +9,10 @@ pc_types = ("gamg",
             "ilu")
 
 
-@pytest.mark.parametrize("interface", ("nlvp", "solve"))
 @pytest.mark.parametrize("refine", (0, 1))
 @pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
 @pytest.mark.parametrize("pc_type", pc_types)
-def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
+def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
     if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
         pytest.xfail("Need PETSc with HYPRE support for this test")
 
@@ -34,27 +33,21 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         "snes_monitor": "::ascii_info_detail",
         "snes_ksp_ew": True,
         "ksp_type": "cg",
-        #"ksp_view": None,
-        #"ksp_rtol": 1E-9,
         "ksp_norm_type": "natural",
-        "ksp_monitor_true_residual": None,
         "ksp_converged_reason": None,
         "pc_type": pc_type,
     }
 
     newtontr_params = {
         "snes_type": "newtontr",
-        "snes_norm_schedule": "always",
         "snes_max_it": 50,
         "snes_atol": 1E-8,
         "snes_rtol": 1E-8,
+        "snes_norm_schedule": "always",
         "snes_converged_reason": None,
         "snes_monitor": "::ascii_info_detail",
         "ksp_type": "cg",
-        #"ksp_view": None,
-        #"ksp_rtol": 1E-9,
         "ksp_norm_type": "natural",
-        "ksp_monitor_true_residual": None,
         "ksp_converged_reason": None,
         "pc_type": pc_type,
     }
@@ -95,14 +88,7 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     bcs = DirichletBC(V, 0, "on_boundary")
 
     sp = newtontr_params if refine == 0 else fas_newtontr_params
-    if interface == "solve":
-        solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs, restrict=restrict)
-    elif interface == "nlvp":
-        problem = NonlinearVariationalProblem(F, u, bcs, objective=E, restrict=restrict)
-        solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
-        solver.solve()
-    else:
-        raise ValueError(f"Unexpected interface {interface}")
+    solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs, restrict=restrict)
     e1 = assemble(E)
     sol1.assign(u)
 
@@ -114,9 +100,7 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     e2 = assemble(E)
     sol2.assign(u)
 
-    print(norm(u_exact - sol1), norm(u_exact - sol2))
-    print(e1, e2)
-    # print(math.isclose(norm(u_exact - sol1), norm(u_exact - sol2), rel_tol=1.e-2))
+    assert math.isclose(e1, e2)
     assert math.isclose(errornorm(u_exact, sol1), errornorm(u_exact, sol2), rel_tol=1.e-2)
 
 
@@ -143,7 +127,7 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
     Lx = Constant(lx)
     initial_guess = (1 - x / Lx) * u_1 + x / Lx * u_2
 
-    bcs = [DirichletBC(Q, u_1, [1]), DirichletBC(Q, u_2, [2])]
+    bcs = [DirichletBC(Q, u_1, 1), DirichletBC(Q, u_2, 2)]
 
     u = Function(Q)
     u.interpolate(initial_guess)
