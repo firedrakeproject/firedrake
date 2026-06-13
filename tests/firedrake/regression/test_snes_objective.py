@@ -18,8 +18,11 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         return
 
     newtonls_params = {
+        "snes_type": "newtonls",
+        "snes_max_it": 50,
         "snes_atol": 1E-8,
         "snes_rtol": 1E-8,
+        "snes_norm_schedule": "always",
         "snes_converged_reason": None,
         "snes_monitor": "::ascii_info_detail",
         "snes_ksp_ew": True,
@@ -29,11 +32,13 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     }
 
     newtontr_params = {
+        "snes_type": "newtontr",
+        "snes_norm_schedule": "always",
+        "snes_max_it": 50,
         "snes_atol": 1E-8,
         "snes_rtol": 1E-8,
         "snes_converged_reason": None,
         "snes_monitor": "::ascii_info_detail",
-        "snes_type": "newtontr",
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
         "pc_type": pc_type,
@@ -44,8 +49,8 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         "snes_max_it": 1,
         "snes_type": "fas",
         "snes_fas_type": "kaskade",
-        "fas_levels": newtontr_params,
-        "fas_coarse": newtontr_params,
+        "fas_levels": newtonls_params,
+        "fas_coarse": newtonls_params,
     }
 
     base = UnitIntervalMesh(10)
