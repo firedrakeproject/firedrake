@@ -739,7 +739,7 @@ value of the objective functional.
 .. code-block:: python3
 
    E = 0.5 * inner(grad(u), grad(u))*dx + kappa**2 * cosh(u)*dx - inner(f, u)*dx
-   F = inner(grad(u), grad(v))*dx + kappa**2 * inner(sinh(u), v)*dx - inner(f, v)*dx
+   F = derivative(E, u)
    # Solve an optimisation problem
    sp = {'snes_type': 'newtontr',
          'snes_tr_delta0': 1e-4,
