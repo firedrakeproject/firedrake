@@ -97,7 +97,7 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     print(norm(u_exact - sol1), norm(u_exact - sol2))
     print(e1, e2)
     # print(math.isclose(norm(u_exact - sol1), norm(u_exact - sol2), rel_tol=1.e-2))
-    assert math.isclose(norm(u_exact - sol1), norm(u_exact - sol2), rel_tol=1.e-2)
+    assert math.isclose(errornorm(u_exact, sol1), errornorm(u_exact, sol2), rel_tol=1.e-2)
 
 
 @pytest.mark.parametrize("pre_apply_bcs", (False, True))
