@@ -11,13 +11,19 @@ pc_types = ("gamg",
 
 @pytest.mark.parametrize("interface", ("nlvp", "solve"))
 @pytest.mark.parametrize("refine", (0, 1))
-@pytest.mark.parametrize("pre_apply_bcs", (False, True))
+@pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
 @pytest.mark.parametrize("pc_type", pc_types)
 def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
     if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
         return
-    if refine > 0 and pc_type == "gamg" and pre_apply_bcs:
+    restrict = False
+    if pre_apply_bcs == "restrict":
+        restrict = True
+        pre_apply_bcs = True
+    if refine > 0 and pc_type == "gamg" and pre_apply_bcs and not restrict:
         pytest.xfail("The pre_apply_bcs=True model requires linear solvers to exactly solve the identity block of the bcs")
+    # if restrict:
+    #     pytest.xfail("Why these fails?")
 
     newtonls_params = {
         "snes_type": "newtonls",
@@ -83,9 +89,9 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
 
     sp = newtontr_params if refine == 0 else fas_newtontr_params
     if interface == "solve":
-        solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
+        solve(F == 0, u, bcs, objective=E, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs, restrict=restrict)
     elif interface == "nlvp":
-        problem = NonlinearVariationalProblem(F, u, bcs, objective=E)
+        problem = NonlinearVariationalProblem(F, u, bcs, objective=E, restrict=restrict)
         solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
         solver.solve()
     else:
