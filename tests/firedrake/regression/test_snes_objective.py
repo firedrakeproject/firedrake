@@ -34,7 +34,11 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         "snes_monitor": "::ascii_info_detail",
         "snes_ksp_ew": True,
         "ksp_type": "cg",
+        #"ksp_view": None,
+        #"ksp_rtol": 1E-9,
         "ksp_norm_type": "natural",
+        "ksp_monitor_true_residual": None,
+        "ksp_converged_reason": None,
         "pc_type": pc_type,
     }
 
@@ -47,7 +51,11 @@ def test_poisson_boltzmann_energy(interface, refine, pre_apply_bcs, pc_type):
         "snes_converged_reason": None,
         "snes_monitor": "::ascii_info_detail",
         "ksp_type": "cg",
+        #"ksp_view": None,
+        #"ksp_rtol": 1E-9,
         "ksp_norm_type": "natural",
+        "ksp_monitor_true_residual": None,
+        "ksp_converged_reason": None,
         "pc_type": pc_type,
     }
 
