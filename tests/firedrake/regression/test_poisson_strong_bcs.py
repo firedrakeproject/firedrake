@@ -41,7 +41,7 @@ def run_test(r, degree, parameters, quadrilateral=False):
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
-def run_test_linear(r, degree, parameters, quadrilateral=False):
+def run_test_linear(r, degree, parameters, quadrilateral=False, **kwargs):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     x = SpatialCoordinate(mesh)
@@ -58,11 +58,13 @@ def run_test_linear(r, degree, parameters, quadrilateral=False):
 
     # Compute solution
     u = Function(V)
-    solve(a == L, u, solver_parameters=parameters, bcs=bcs)
+    solve(a == L, u, solver_parameters=parameters, bcs=bcs, **kwargs)
 
     f = Function(V)
     f.interpolate(42*x[1])
 
+    bc_data = {bc.sub_domain: bc.function_arg for bc in bcs}
+    assert assemble(sum(inner(u - g, u - g)*ds(sub) for sub, g in bc_data.items()))**0.5 < 1E-12
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
@@ -90,3 +92,24 @@ def test_poisson_analytic_linear_parallel():
     solver_parameters = {'pc_factor_mat_solver_type': 'superlu_dist'}
     error = run_test_linear(1, 1, solver_parameters)
     assert error < 5e-6
+
+
+@pytest.mark.parametrize('bc_type', ["pre_apply_bcs", "solve_bcs", "restrict"])
+@pytest.mark.parametrize('quadrilateral', [False, True])
+def test_poisson_bcs_gamg(bc_type, quadrilateral):
+    if bc_type == "pre_apply_bcs":
+        pre_apply_bcs = True
+        restrict = False
+    elif bc_type == "solve_bcs":
+        pre_apply_bcs = False
+        restrict = False
+    elif bc_type == "restrict":
+        pre_apply_bcs = True
+        restrict = True
+    else:
+        raise ValueError(f"Unexpected bc_type {bc_type}")
+
+    params = {'snes_type': 'newtonls', 'ksp_type': 'preonly', 'pc_type': 'gamg'}
+    degree = 1
+    run_test_linear(2, degree, parameters=params, quadrilateral=quadrilateral,
+                    restrict=restrict, pre_apply_bcs=pre_apply_bcs)

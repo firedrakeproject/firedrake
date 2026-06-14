@@ -5,6 +5,7 @@ import ufl
 
 from pyop2 import op2
 from firedrake import dmhooks
+from firedrake.bcs import bcdofs
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -277,6 +278,25 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
+    @cached_property
+    def bc_iset(self):
+        if self._problem.restrict:
+            return None
+        bcs = tuple(self._problem.dirichlet_bcs())
+        V = self._x.function_space()
+        if len(bcs) > 0:
+            bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
+                                  dtype=PETSc.IntType)
+            )
+            bc_nodes = V.dof_dset.lgmap.apply(bc_nodes)
+        else:
+            bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+
+        bc_is = PETSc.IS().createGeneral(bc_nodes, comm=V.comm)
+        bc_is.sort()
+        return bc_is
+
     def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
         """Reconstruct this _SNESContext instance with new arguments."""
         problem = problem or self._problem
@@ -359,6 +379,9 @@ class _SNESContext(object):
             nullspace._apply(self._pjac, transpose=transpose, near=near)
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
+
+    def set_ksp_postsolve(self, snes):
+        snes.getKSP().setPostSolve(self.ksp_postsolve)
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
@@ -546,6 +569,13 @@ class _SNESContext(object):
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac(ctx._pjac)
+
+    @staticmethod
+    def ksp_postsolve(ksp, rhs, sol):
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        if ctx.pre_apply_bcs and not ctx._problem.restrict:
+            sol.isset(ctx.bc_iset, 0)
 
     @cached_property
     def _assembler_jac(self):
