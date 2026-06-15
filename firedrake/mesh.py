@@ -2510,6 +2510,8 @@ values from f.)"""
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
         Hence the bounding box will contain the entire element.
         """
+        if self._bounding_box_coords:
+            return self._bounding_box_coords
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
 
@@ -2544,7 +2546,8 @@ values from f.)"""
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         if not mesh.extruded:
             all_coords = coords.dat.data_ro_with_halos[cell_node_list]
-            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+            self._bounding_box_coords = np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+            return self._bounding_box_coords
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
@@ -2572,8 +2575,8 @@ values from f.)"""
         column_list = V.cell_node_list.reshape(-1)
         coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
-
-        return coords_min, coords_max
+        self._bounding_box_coords = coords_min, coords_max
+        return self._bounding_box_coords
 
     @property
     @PETSc.Log.EventDecorator()
