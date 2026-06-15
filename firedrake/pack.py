@@ -689,7 +689,16 @@ def check_fuse_tensor_prod(element):
     if hasattr(element, "_triple") and hasattr(element._triple, "matrices"):
         return True, True, element._triple.apply_matrices, element._triple.matrices, element._triple.reversed_matrices
     elif any(matrix):
-        raise NotImplementedError("Tensor matrices should be combined at a fuse level")
+        raise NotImplementedError("Tensor element matrices should be combined at a fuse level")
+    return any(fuse), any(matrix), any(apply), None, None
+
+@check_fuse.register(finat.ufl.enrichedelement.EnrichedElement)
+def check_fuse_enriched(element):
+    fuse, matrix, apply, mat, reversed_mat = zip(*[check_fuse(component) for component in element._elements])
+    if hasattr(element, "_triple") and hasattr(element._triple, "matrices"):
+        return True, True, element._triple.apply_matrices, element._triple.matrices, element._triple.reversed_matrices
+    elif any(matrix):
+        raise NotImplementedError("Enriched element matrices should be combined at a fuse level")
     return any(fuse), any(matrix), any(apply), None, None
 
 
@@ -775,9 +784,13 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
         # printf("o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});")
-        if False:
+        if (ns[0] == 30) and len(ns) == 1:
             if ns[0] == 84:
                 print_range = range(37,43)
+            elif ns[0] == 35:
+                print_range = range(22,25)
+            elif ns[0] == 30:
+                print_range = range(18,ns[0])
             elif ns[0] == 45:
                 print_range = range(18,32)
             elif ns[0] == 20:
