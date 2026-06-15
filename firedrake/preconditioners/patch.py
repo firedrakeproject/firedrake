@@ -240,7 +240,6 @@ class PatchCallable:
 for (int32_t k=0; k<{row_size}*{column_size}; k++)
   {temp_name}[k] = 0.0;"""
             pack_insns.append(pack_insn)
-
             local_kernel_args.append(temp_name)
 
             unpack_insn = (
