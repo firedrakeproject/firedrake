@@ -683,6 +683,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         yield self._work_vec(block_shape)
         if mode in {"wo", "rw"}:
             self.inc_state()
+            self._leaves_valid = False
+            # TODO
+            # self._work_vec.stateIncrease()
 
     # }}}
 

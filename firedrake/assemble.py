@@ -1088,6 +1088,11 @@ class ParloopFormAssembler(FormAssembler):
             else:
                 parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
+        # FIXME: This is necessary for test_submesh_solve_simple to pass for the moment
+        # This is unsatisfying because in theory this isn't required - we can stash up the
+        # pending increments and only apply them lazily. Something is going wrong somewhere.
+        subtensor.assemble()
+
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
 
