@@ -15,7 +15,7 @@ from functools import cached_property
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
+from ufl import Form, L2, H1, H2, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import BrokenElement
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
@@ -373,31 +373,122 @@ def get_primal_indices(V, primal_markers):
     return primal_indices
 
 
+
 def get_entity_coordinates(V):
-    """Return a Function with the coordinates of the entity associated with each
-    degree of freedom of a FunctionSpace.
     """
+    Return a Function on fd.VectorFunctionSpace(mesh, V.ufl_element()) containing
+    the physical coordinates of the entity associated with each degree of freedom of V.
+    """
+    import firedrake as fd
+    from pyop2 import op2
+    import numpy as np
+
     mesh = V.mesh()
-    plex = mesh.topology_dm
-    num_dofs = V.dof_dset.layout_vec.getSizes()[0]
-    section = V.dm.getLocalSection()
-    vstart, vend = plex.getDepthStratum(0)
-    coords = numpy.empty((num_dofs, mesh.geometric_dimension))
+    gdim = mesh.geometric_dimension  # Modern property API
 
-    if mesh.extruded:
-        P1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        plex_coords = Function(P1).interpolate(mesh.coordinates).dat.data_ro_with_halos
-    else:
-        plex_coords = plex.getCoordinatesLocal().getArray().reshape(-1, mesh.geometric_dimension)
-    for p in range(*plex.getChart()):
-        dof = section.getDof(p)
-        if dof <= 0:
-            continue
-        off = section.getOffset(p)
-        V_slice = slice(off, off + dof)
+    # 1. Target and Source function spaces
+    V_target = fd.VectorFunctionSpace(mesh, V.ufl_element())
+    V_cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
 
-        closure, _ = plex.getTransitiveClosure(p, useCone=True)
-        pverts = [q - vstart for q in closure if vstart <= q < vend]
-        coords[V_slice] = numpy.average(plex_coords[pverts], axis=0)
+    out_coords = fd.Function(V_target)
+    cg1_coords = fd.Function(V_cg1_coord).interpolate(mesh.coordinates)
 
-    return coords
+    # 2. Extract topological node configurations via the scalar base elements
+    # This prevents vector-dimension unrolling from corrupting node map indices
+    finat_element = V.finat_element
+    target_base = finat_element.base_element if hasattr(finat_element, "base_element") else finat_element
+
+    V_cg1_scalar = fd.FunctionSpace(mesh, "CG", 1)
+    cg1_base = V_cg1_scalar.finat_element
+
+    active_entities = [
+        (dim, ent_num)
+        for dim, entities in target_base.entity_dofs().items()
+        for ent_num, dofs in entities.items()
+        if dofs
+    ]
+    num_entities = len(active_entities)
+
+    # 3. Reusable helper function for 1D array flattening
+    def flatten_space_mapping(entities, query_map):
+        offsets = np.zeros(len(entities) + 1, dtype=np.int32)
+        flat_list = []
+
+        for idx, (dim, ent_num) in enumerate(entities):
+            offsets[idx] = len(flat_list)
+            flat_list.extend(query_map[dim][ent_num])
+
+        offsets[-1] = len(flat_list)
+        return offsets, np.array(flat_list, dtype=np.int32)
+
+    # 4. Flatten layouts using purely scalar node mappings
+    target_dofs_map = target_base.entity_dofs()
+    cg1_closure_map = cg1_base.entity_closure_dofs()
+
+    v_offsets, v_flat = flatten_space_mapping(active_entities, target_dofs_map)
+    cg1_offsets, cg1_flat = flatten_space_mapping(active_entities, cg1_closure_map)
+
+    # Protect template generations against empty mappings
+    v_flat_str = ", ".join(map(str, v_flat)) if len(v_flat) > 0 else "0"
+    cg1_flat_str = ", ".join(map(str, cg1_flat)) if len(cg1_flat) > 0 else "0"
+
+    # 5. Generate PyOP2 C-Kernel using the corrected node layout parameters
+    kernel_code = f"""
+    void compute_target_coords_loop(double **out, double **cg1_coords) {{
+
+        // Target space representation (node indices)
+        const int v_offsets[{num_entities + 1}] = {{ {", ".join(map(str, v_offsets))} }};
+        const int v_flat_mapping[{max(1, len(v_flat))}] = {{ {v_flat_str} }};
+
+        // Source CG1 space representation (node indices)
+        const int cg1_offsets[{num_entities + 1}] = {{ {", ".join(map(str, cg1_offsets))} }};
+        const int cg1_flat_mapping[{max(1, len(cg1_flat))}] = {{ {cg1_flat_str} }};
+
+        // Loop over the flat entity list
+        for (int e = 0; e < {num_entities}; ++e) {{
+            int v_start = v_offsets[e];
+            int v_end = v_offsets[e + 1];
+
+            int cg1_start = cg1_offsets[e];
+            int cg1_end = cg1_offsets[e + 1];
+            int num_cg1_dofs = cg1_end - cg1_start;
+
+            if (num_cg1_dofs <= 0) continue;
+
+            // Allocate coordinate accumulator exactly matched to runtime dimensions
+            double ent_coord[{gdim}];
+            for (int c = 0; c < {gdim}; ++c) {{
+                ent_coord[c] = 0.0;
+            }}
+
+            for (int j = cg1_start; j < cg1_end; ++j) {{
+                int src_dof = cg1_flat_mapping[j];
+                for (int c = 0; c < {gdim}; ++c) {{
+                    ent_coord[c] += cg1_coords[src_dof][c];
+                }}
+            }}
+
+            // Normalize physical coordinates for the specific entity shape
+            for (int c = 0; c < {gdim}; ++c) {{
+                ent_coord[c] /= (double)num_cg1_dofs;
+            }}
+
+            // Outer-product write directly to target nodes mapping on this entity
+            for (int i = v_start; i < v_end; ++i) {{
+                int dest_dof = v_flat_mapping[i];
+                for (int c = 0; c < {gdim}; ++c) {{
+                    out[dest_dof][c] = ent_coord[c];
+                }}
+            }}
+        }}
+    }}
+    """
+
+    # 6. Execute Parallel Loop via direct op2.WRITE override
+    kernel = op2.Kernel(kernel_code, "compute_target_coords_loop")
+
+    op2.par_loop(kernel, mesh.cell_set,
+                 out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
+                 cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
+
+    return out_coords

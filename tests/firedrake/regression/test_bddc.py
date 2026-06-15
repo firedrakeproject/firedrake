@@ -10,7 +10,8 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False, corner_selection=False, test_defaults=True, debug=0):
+def bddc_params(mat_type="is", cellwise=False, adaptive=False,
+                use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -26,17 +27,15 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
         "bddc_debug": debug,
         "bddc_pc_bddc_use_deluxe_scaling": None,
     }
-    if not test_defaults:
-        extraopts = {
-            "bddc_use_discrete_gradient": use_gradient,
-            "bddc_use_divergence_mat": use_divergence,
-            "bddc_pc_bddc_corner_selection": corner_selection,
-        }
-        sp.update(extraopts)
-
-    # On MacOSX the distributed right-hand side is bugged!
-    if DEFAULT_DIRECT_SOLVER == "mumps":
-        sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
+    if use_gradient is not None:
+        # defaults to True for 3D H(curl) spaces
+        sp["bddc_use_discrete_gradient"] = use_gradient
+    if use_divergence is not None:
+        # defaults to True for 2D H(curl) and 2D/3D H(div) spaces
+        sp["bddc_use_divergence_mat"] = use_divergence
+    if corner_selection is not None:
+        # defaults to True for H1 spaces
+        sp["bddc_pc_bddc_corner_selection"] = corner_selection
 
     if adaptive:
         sp.update({
@@ -44,6 +43,10 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
             "bddc_pc_bddc_deluxe_zerorows": False,
             "bddc_pc_bddc_adaptive_threshold": 5,
         })
+    # On MacOSX the distributed right-hand side is bugged!
+    if DEFAULT_DIRECT_SOLVER == "mumps":
+        sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
+
     return sp
 
 
@@ -117,12 +120,13 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     V = fs(mesh, family, degree, variant=variant)
     v = TestFunction(V)
     u = TrialFunction(V)
-    d, use_divergence, use_gradient, corner_selection = {
-        H1: (grad, False, False, True),
-        HCurl: (curl, False if tdim == 3 else True, True if tdim == 3 else False, False),
-        HDiv: (div, True, False, False)
+    d = {
+        H1: grad,
+        HCurl: curl,
+        HDiv: div,
     }[V.ufl_element().sobolev_space]
     formdegree = V.finat_element.formdegree
+
 
     if elasticity:
         gamma = Constant(1E4)
@@ -139,7 +143,10 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     # Near nullspace
     nsp = None
+    adaptive = False
+    use_divergence = None
     if elasticity:
+        adaptive = True
         use_divergence = True  # use divergence mat trick to compute no-net flux coarse space
     elif formdegree == 0:
         b = np.zeros(V.value_shape)
@@ -162,7 +169,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, use_gradient=use_gradient, corner_selection=corner_selection, adaptive=elasticity, test_defaults=not elasticity)
+                           use_divergence=use_divergence, adaptive=adaptive)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
