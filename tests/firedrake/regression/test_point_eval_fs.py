@@ -243,3 +243,11 @@ def test_changing_coordinates_invalidates_rtree():
     saved_rtree = mesh.rtree
     mesh.coordinates.assign(mesh.coordinates * 2)
     assert mesh.rtree != saved_rtree
+
+
+def test_changing_coordinates_invalidates_bounding_box():
+    mesh = UnitSquareMesh(2, 2)
+
+    saved_bounding_box_coords = mesh.bounding_box_coords
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert not np.allclose(mesh.bounding_box_coords, saved_bounding_box_coords)
