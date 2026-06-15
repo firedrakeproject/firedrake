@@ -2501,14 +2501,16 @@ values from f.)"""
         """Reset the :attr:`distributed_rtree` on this mesh geometry."""
         self._distributed_rtree = None
 
-    def _clear_geometry_caches(self):
+    def _clear_caches(self):
         self._bounding_box_coords = None
         self.clear_rtree()
         self.clear_distributed_rtree()
 
     def _check_coordinate_dat_version(self):
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
-            self._clear_geometry_caches()
+        current = self.coordinates.dat.dat_version
+        if current != self._saved_coordinate_dat_version:
+            self._clear_caches()
+            self._saved_coordinate_dat_version = current
 
     @property
     @PETSc.Log.EventDecorator()
@@ -2643,7 +2645,6 @@ values from f.)"""
             coords_max = coords_max + tolerance * coords_extent
         with PETSc.Log.Event("rtree_build"):
             self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._rtree
 
     @PETSc.Log.EventDecorator()
