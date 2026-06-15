@@ -373,7 +373,6 @@ def get_primal_indices(V, primal_markers):
     return primal_indices
 
 
-
 def get_entity_coordinates(V):
     """
     Return a Function on fd.VectorFunctionSpace(mesh, V.ufl_element()) containing
@@ -384,32 +383,24 @@ def get_entity_coordinates(V):
     import numpy as np
 
     mesh = V.mesh()
-    gdim = mesh.geometric_dimension  # Modern property API
+    gdim = mesh.geometric_dimension
 
-    # 1. Target and Source function spaces
     V_target = fd.VectorFunctionSpace(mesh, V.ufl_element())
     V_cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
 
     out_coords = fd.Function(V_target)
     cg1_coords = fd.Function(V_cg1_coord).interpolate(mesh.coordinates)
 
-    # 2. Extract topological node configurations via the scalar base elements
-    # This prevents vector-dimension unrolling from corrupting node map indices
     finat_element = V.finat_element
-    target_base = finat_element.base_element if hasattr(finat_element, "base_element") else finat_element
-
-    V_cg1_scalar = fd.FunctionSpace(mesh, "CG", 1)
-    cg1_base = V_cg1_scalar.finat_element
-
+    cg1_finat = V_cg1_coord.finat_element
     active_entities = [
         (dim, ent_num)
-        for dim, entities in target_base.entity_dofs().items()
+        for dim, entities in finat_element.entity_dofs().items()
         for ent_num, dofs in entities.items()
         if dofs
     ]
     num_entities = len(active_entities)
 
-    # 3. Reusable helper function for 1D array flattening
     def flatten_space_mapping(entities, query_map):
         offsets = np.zeros(len(entities) + 1, dtype=np.int32)
         flat_list = []
@@ -421,30 +412,28 @@ def get_entity_coordinates(V):
         offsets[-1] = len(flat_list)
         return offsets, np.array(flat_list, dtype=np.int32)
 
-    # 4. Flatten layouts using purely scalar node mappings
-    target_dofs_map = target_base.entity_dofs()
-    cg1_closure_map = cg1_base.entity_closure_dofs()
+    # Flatten both target (V) and source (CG1) layouts
+    target_dofs_map = finat_element.entity_dofs()
+    cg1_closure_map = cg1_finat.entity_closure_dofs()
 
     v_offsets, v_flat = flatten_space_mapping(active_entities, target_dofs_map)
     cg1_offsets, cg1_flat = flatten_space_mapping(active_entities, cg1_closure_map)
 
-    # Protect template generations against empty mappings
-    v_flat_str = ", ".join(map(str, v_flat)) if len(v_flat) > 0 else "0"
-    cg1_flat_str = ", ".join(map(str, cg1_flat)) if len(cg1_flat) > 0 else "0"
+    total_v_dofs = len(v_flat)
+    total_cg1_dofs = len(cg1_flat)
 
-    # 5. Generate PyOP2 C-Kernel using the corrected node layout parameters
     kernel_code = f"""
-    void compute_target_coords_loop(double **out, double **cg1_coords) {{
+    void compute_target_coords_loop(PetscScalar *out, PetscScalar *cg1_coords) {{
 
-        // Target space representation (node indices)
+        // Target space represented as a flattened pair of 1D arrays
         const int v_offsets[{num_entities + 1}] = {{ {", ".join(map(str, v_offsets))} }};
-        const int v_flat_mapping[{max(1, len(v_flat))}] = {{ {v_flat_str} }};
+        const int v_flat_mapping[{total_v_dofs}] = {{ {", ".join(map(str, v_flat))} }};
 
-        // Source CG1 space representation (node indices)
+        // Source CG1 space represented as a flattened pair of 1D arrays
         const int cg1_offsets[{num_entities + 1}] = {{ {", ".join(map(str, cg1_offsets))} }};
-        const int cg1_flat_mapping[{max(1, len(cg1_flat))}] = {{ {cg1_flat_str} }};
+        const int cg1_flat_mapping[{total_cg1_dofs}] = {{ {", ".join(map(str, cg1_flat))} }};
 
-        // Loop over the flat entity list
+        // Loop over the flat entity index
         for (int e = 0; e < {num_entities}; ++e) {{
             int v_start = v_offsets[e];
             int v_end = v_offsets[e + 1];
@@ -453,42 +442,38 @@ def get_entity_coordinates(V):
             int cg1_end = cg1_offsets[e + 1];
             int num_cg1_dofs = cg1_end - cg1_start;
 
-            if (num_cg1_dofs <= 0) continue;
-
-            // Allocate coordinate accumulator exactly matched to runtime dimensions
-            double ent_coord[{gdim}];
-            for (int c = 0; c < {gdim}; ++c) {{
-                ent_coord[c] = 0.0;
-            }}
+            // Compute structural centroid tracking coordinates from CG1 vertices
+            PetscScalar ent_coord[{gdim}] = {{0.0}};
 
             for (int j = cg1_start; j < cg1_end; ++j) {{
                 int src_dof = cg1_flat_mapping[j];
                 for (int c = 0; c < {gdim}; ++c) {{
-                    ent_coord[c] += cg1_coords[src_dof][c];
+                    ent_coord[c] += cg1_coords[src_dof * {gdim} + c];
                 }}
             }}
 
-            // Normalize physical coordinates for the specific entity shape
+            // Normalize physical coordinates for the specific entity space
             for (int c = 0; c < {gdim}; ++c) {{
-                ent_coord[c] /= (double)num_cg1_dofs;
+                ent_coord[c] /= (PetscScalar)num_cg1_dofs;
             }}
 
-            // Outer-product write directly to target nodes mapping on this entity
+            // Inner loop traversing the linear 1D slice for the target DoFs
             for (int i = v_start; i < v_end; ++i) {{
                 int dest_dof = v_flat_mapping[i];
+
                 for (int c = 0; c < {gdim}; ++c) {{
-                    out[dest_dof][c] = ent_coord[c];
+                    out[dest_dof * {gdim} + c] = ent_coord[c];
                 }}
             }}
         }}
     }}
     """
 
-    # 6. Execute Parallel Loop via direct op2.WRITE override
+    # 6. Parallel Loop over the full cell mapping set using op2.WRITE
     kernel = op2.Kernel(kernel_code, "compute_target_coords_loop")
 
     op2.par_loop(kernel, mesh.cell_set,
                  out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
                  cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
 
-    return out_coords
+    return out_coords.dat.data
