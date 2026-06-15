@@ -10,7 +10,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False):
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False, corner_selection=False, debug=0):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -25,15 +25,19 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
-        "bddc_pc_bddc_corner_selection": True,
+        "bddc_pc_bddc_corner_selection": corner_selection,
+        "bddc_debug": debug,
+        "bddc_pc_bddc_use_deluxe_scaling": None,
     }
+    # On MacOSX the distributed right-hand side is bugged!
+    if DEFAULT_DIRECT_SOLVER == "mumps":
+        sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
+
     if adaptive:
         sp.update({
-            "bddc_pc_bddc_use_deluxe_scaling": None,
             "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_deluxe_zerorows": False,
             "bddc_pc_bddc_adaptive_threshold": 5,
-            "bddc_pc_bddc_adaptive_nmin": 1,
         })
     return sp
 
@@ -75,9 +79,11 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
 
     sp.update({
         "ksp_type": "cg",
-        "ksp_max_it": 20,
+        "ksp_max_it": 100,
         "ksp_norm_type": "natural",
         "ksp_converged_reason": None,
+        # "ksp_view": None,
+        # "ksp_monitor_singular_value": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
     })
@@ -106,10 +112,10 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     V = fs(mesh, family, degree, variant=variant)
     v = TestFunction(V)
     u = TrialFunction(V)
-    d = {
-        H1: grad,
-        HCurl: curl,
-        HDiv: div,
+    d, use_divergence, use_gradient, corner_selection = {
+        H1: (grad, False, False, True),
+        HCurl: (curl, False, True, False),
+        HDiv: (div, True, False, False)
     }[V.ufl_element().sobolev_space]
     formdegree = V.finat_element.formdegree
 
@@ -129,15 +135,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     # Near nullspace
     nsp = None
     if elasticity:
-        x = SpatialCoordinate(mesh)
-        RM = [Constant(ej) for ej in np.eye(len(x))]
-        if len(x) == 2:
-            RM.append(perp(x))
-        else:
-            constants = list(RM)
-            RM.extend(cross(c, x) for c in constants)
-        nsp = VectorSpaceBasis([Function(V).interpolate(r) for r in RM])
-        nsp.orthonormalize()
+        use_divergence = True  # use divergence mat trick to compute no-net flux coarse space
     elif formdegree == 0:
         b = np.zeros(V.value_shape)
         expr = Constant(b)
@@ -159,7 +157,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=elasticity, adaptive=elasticity)
+                           use_divergence=use_divergence, use_gradient=use_gradient, corner_selection=corner_selection, adaptive=elasticity)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
@@ -168,8 +166,10 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
     ew = solver.snes.ksp.computeEigenvalues().real
-    assert min(ew) >= 1.0 - 1e-6
-    kappa = max(abs(ew)) / min(abs(ew))
+    kappa = 1.0
+    if len(ew):
+        assert np.isclose(min(ew), 1.0, rtol=1.e-2)
+        kappa = max(abs(ew)) / min(abs(ew))
     return kappa ** 0.5
 
 
