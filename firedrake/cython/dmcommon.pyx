@@ -4288,13 +4288,12 @@ def submesh_create(PETSc.DM dm,
                                              ignoreHalo=ignore_label_halo,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
+
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
-
-    set the new point sf on the dm...
 
     return subdm
 
@@ -4335,6 +4334,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
     assert pStart == 0
     assert subpStart == 0
+
     CHKERR(DMGetLabel(subdm.dm, b"firedrake_is_ghost", &is_ghost))
     CHKERR(DMLabelCreateIndex(is_ghost, subpStart, subpEnd))
 
@@ -4368,7 +4368,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
             if ownership_gain[p] == 1:
                 CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
                 assert has
-                CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+                CHKERR(DMLabelClearValue(is_ghost, subp, 1))
 
         CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMLabelDestroyIndex(is_ghost))
