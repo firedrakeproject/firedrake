@@ -119,21 +119,21 @@ class BDDCPC(PCBase):
 
         appctx = self.get_appctx(pc)
 
-        # Set coordinates for spaces with DOFs on vertices
-        # or if corner selection is requested
+        # Set coordinates if corner selection is requested or needed
         # There's no API to query from PC
-        corner_selection = "pc_bddc_corner_selection" in opts
         entity_dofs = V.finat_element.entity_dofs()
         vdofs = entity_dofs[min(entity_dofs)]
         has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
-        if corner_selection or has_vertex_dofs:
+        corner_selection = opts.getBool("pc_bddc_corner_selection", has_vertex_dofs)
+        if corner_selection:
             bddcpc.setCoordinates(get_entity_coordinates(V))
 
-        use_gradient = "use_discrete_gradient" in opts
-        use_divergence = "use_divergence_mat" in opts
-
+        # Provide extra information for H(div) and H(curl) problems
         tdim = mesh.topological_dimension
-        if use_divergence or (tdim >= 2 and V.finat_element.formdegree == tdim-1):
+        use_divergence = opts.getBool("use_divergence_mat", tdim >= 2 and V.finat_element.formdegree == tdim-1)
+        use_gradient = opts.getBool("use_discrete_gradient", tdim >= 3 and V.finat_element.formdegree == 1)
+
+        if use_divergence:
             allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
@@ -143,8 +143,7 @@ class BDDCPC(PCBase):
                 div_args = (divergence,)
                 div_kwargs = dict()
             bddcpc.setBDDCDivergenceMat(*div_args, **div_kwargs)
-
-        elif use_gradient or (tdim >= 3 and V.finat_element.formdegree == 1):
+        if use_gradient:
             get_gradient = appctx.get("get_discrete_gradient", get_discrete_gradient)
             gradient = get_gradient(V)
             try:
@@ -161,7 +160,14 @@ class BDDCPC(PCBase):
             primal_is = PETSc.IS().createGeneral(primal_indices.astype(PETSc.IntType), comm=pc.comm)
             bddcpc.setBDDCPrimalVerticesIS(primal_is)
 
+        rem_opts = []
+        if "pc_bddc_check_level" not in opts and "debug" in opts:
+            opts.setValue("pc_bddc_check_level", opts["debug"])
+            rem_opts.append("pc_bddc_check_level")
         bddcpc.setFromOptions()
+        for opt in rem_opts:
+            del opts[opt]
+
         self.pc = bddcpc
 
     def view(self, pc, viewer=None):
