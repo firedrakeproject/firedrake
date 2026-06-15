@@ -24,7 +24,6 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
         "bddc_debug": debug,
-        "bddc_pc_bddc_use_deluxe_scaling": None,
     }
     if not test_defaults:
         extraopts = {
@@ -40,6 +39,7 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
 
     if adaptive:
         sp.update({
+            "bddc_pc_bddc_use_deluxe_scaling": None,
             "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_deluxe_zerorows": False,
             "bddc_pc_bddc_adaptive_threshold": 5,
