@@ -169,6 +169,11 @@ from firedrake.logging import (  # noqa: F401
 from firedrake.matrix import (  # noqa: F401
     MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
 )
+from firedrake.adaptive_variational_solver import (  # noqa: F401
+    GoalAdaptiveNonlinearVariationalSolver,
+    vtk_output_callback,
+)
+
 
 # Set default log level
 set_log_level(WARNING)

@@ -36,3 +36,4 @@ element systems.
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
    Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>
    Coupled volume-surface reaction-diffusion on a torus using Submesh and geometric multigrid.<demos/submesh_reaction_diffusion.py>
+   Goal-based adaptivity for stationary boundary value problems.<demos/goal_based_adaptivity_bvp.py>
