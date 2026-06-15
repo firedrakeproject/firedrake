@@ -87,11 +87,15 @@ class BDDCPC(PCBase):
         bddcpc.setOperators(A, P)
         self.assemblers = assemblers
 
+        # we may inject some options, we remove them after calling setFromOptions
+        rem_opts = []
+
         # Do not use CSR of local matrix to define dofs connectivity unless requested
         # Using the CSR only makes sense for H1/H2 problems
         is_h1h2 = V.ufl_element().sobolev_space in {H1, H2}
         if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not V.finat_element.has_pointwise_dual_basis):
             opts["pc_bddc_use_local_mat_graph"] = False
+            rem_opts.append("pc_bddc_use_local_mat_graph")
 
         # Get context from DM
         ctx = get_appctx(dm)
@@ -124,8 +128,11 @@ class BDDCPC(PCBase):
         entity_dofs = V.finat_element.entity_dofs()
         vdofs = entity_dofs[min(entity_dofs)]
         has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
-        corner_selection = opts.getBool("pc_bddc_corner_selection", has_vertex_dofs)
+        corner_selection = opts.getBool("pc_bddc_corner_selection") if "pc_bddc_corner_selection" in opts else has_vertex_dofs
         if corner_selection:
+            if "pc_bddc_corner_selection" not in opts:
+                opts["pc_bddc_corner_selection"] = True
+                rem_opts.append("pc_bddc_corner_selection")
             bddcpc.setCoordinates(get_entity_coordinates(V))
 
         # Provide extra information for H(div) and H(curl) problems
@@ -160,7 +167,6 @@ class BDDCPC(PCBase):
             primal_is = PETSc.IS().createGeneral(primal_indices.astype(PETSc.IntType), comm=pc.comm)
             bddcpc.setBDDCPrimalVerticesIS(primal_is)
 
-        rem_opts = []
         if "pc_bddc_check_level" not in opts and "debug" in opts:
             opts.setValue("pc_bddc_check_level", opts["debug"])
             rem_opts.append("pc_bddc_check_level")

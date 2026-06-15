@@ -10,7 +10,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False, corner_selection=False, debug=0):
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=False, use_gradient=False, corner_selection=False, test_defaults=True, debug=0):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -20,15 +20,20 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False, use_divergence=Fa
         "pc_type": "python",
         "pc_python_type": "firedrake.BDDCPC",
         "bddc_cellwise": cellwise,
-        "bddc_use_discrete_gradient": use_gradient,
-        "bddc_use_divergence_mat": use_divergence,
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
-        "bddc_pc_bddc_corner_selection": corner_selection,
         "bddc_debug": debug,
         "bddc_pc_bddc_use_deluxe_scaling": None,
     }
+    if not test_defaults:
+        extraopts = {
+            "bddc_use_discrete_gradient": use_gradient,
+            "bddc_use_divergence_mat": use_divergence,
+            "bddc_pc_bddc_corner_selection": corner_selection,
+        }
+        sp.update(extraopts)
+
     # On MacOSX the distributed right-hand side is bugged!
     if DEFAULT_DIRECT_SOLVER == "mumps":
         sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
@@ -79,7 +84,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
 
     sp.update({
         "ksp_type": "cg",
-        "ksp_max_it": 100,
+        "ksp_max_it": 20,
         "ksp_norm_type": "natural",
         "ksp_converged_reason": None,
         # "ksp_view": None,
@@ -157,7 +162,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, use_gradient=use_gradient, corner_selection=corner_selection, adaptive=elasticity)
+                           use_divergence=use_divergence, use_gradient=use_gradient, corner_selection=corner_selection, adaptive=elasticity, test_defaults=not elasticity)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
