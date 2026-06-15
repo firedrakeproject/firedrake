@@ -2493,7 +2493,17 @@ values from f.)"""
         the coordinate field)."""
         self._rtree = None
 
-    @cached_property
+    def _clear_caches(self):
+        self._bounding_box_coords = None
+        self.clear_rtree()
+
+    def _check_coordinate_dat_version(self):
+        current = self.coordinates.dat.dat_version
+        if current != self._saved_coordinate_dat_version:
+            self._clear_caches()
+            self._saved_coordinate_dat_version = current
+
+    @property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates bounding boxes for the mesh rtree.
@@ -2510,8 +2520,10 @@ values from f.)"""
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
         Hence the bounding box will contain the entire element.
         """
-        if self._bounding_box_coords:
+        self._check_coordinate_dat_version()
+        if self._bounding_box_coords is not None:
             return self._bounding_box_coords
+
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
 
@@ -2546,7 +2558,7 @@ values from f.)"""
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         if not mesh.extruded:
             all_coords = coords.dat.data_ro_with_halos[cell_node_list]
-            self._bounding_box_coords = np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+            self._bounding_box_coords = (np.min(all_coords, axis=1), np.max(all_coords, axis=1))
             return self._bounding_box_coords
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
@@ -2575,7 +2587,7 @@ values from f.)"""
         column_list = V.cell_node_list.reshape(-1)
         coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
-        self._bounding_box_coords = coords_min, coords_max
+        self._bounding_box_coords = (coords_min, coords_max)
         return self._bounding_box_coords
 
     @property
@@ -2596,12 +2608,9 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
-            if "bounding_box_coords" in self.__dict__:
-                del self.bounding_box_coords
-        else:
-            if self._rtree:
-                return self._rtree
+        self._check_coordinate_dat_version()
+        if self._rtree:
+            return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2626,7 +2635,6 @@ values from f.)"""
 
         with PETSc.Log.Event("rtree_build"):
             self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._rtree
 
     @PETSc.Log.EventDecorator()
