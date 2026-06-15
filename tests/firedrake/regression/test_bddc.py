@@ -114,7 +114,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     u = TrialFunction(V)
     d, use_divergence, use_gradient, corner_selection = {
         H1: (grad, False, False, True),
-        HCurl: (curl, False, True, False),
+        HCurl: (curl, False if tdim == 3 else True, True if tdim == 3 else False, False),
         HDiv: (div, True, False, False)
     }[V.ufl_element().sobolev_space]
     formdegree = V.finat_element.formdegree
