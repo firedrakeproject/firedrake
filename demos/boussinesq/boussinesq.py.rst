@@ -187,7 +187,7 @@ implements a boundary condition that fixes a field at a single point. ::
            F = assemble(interpolate(inner(v, v), Fvom))
            with F.vec_ro as Fvec:
                max_index, _ = Fvec.max()
-           nodes = V.dof_dset.lgmap.applyInverse([max_index])
+           nodes = V._lgmap.applyInverse([max_index])
            nodes = nodes[nodes >= 0]
            return nodes
  

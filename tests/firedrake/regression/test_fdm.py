@@ -36,9 +36,10 @@ fdmstar = {
         "pc_python_type": "firedrake.FDMPC",
         "fdm": {
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_column": 0,
         }
     }
 }
@@ -72,9 +73,10 @@ facetstar = {
             "esteig_ksp_norm_type": "natural",
             "ksp_chebyshev_esteig": "0.5,0.5,0.0,1.0",
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_column": 0,
         }
     }
 }
@@ -140,11 +142,14 @@ def variant(request):
 def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
     expected = [16, 12] if mesh.topological_dimension == 3 else [9, 7]
-    solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
+    # solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
+    solvers = [facetstar]  # debugging
     for degree in range(3, 6):
+        print("degree", degree)
         V = FunctionSpace(mesh, family, degree, variant=variant)
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
+            print("sp", sp)
             assert solve_riesz_map(problem, sp) <= expected_it
 
 

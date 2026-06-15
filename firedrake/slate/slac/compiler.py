@@ -23,9 +23,8 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop3.pyop2_utils import get_petsc_dir
 from pyop3.mpi import COMM_WORLD
-from pyop3.ir.lower import SolveCallable, INVCallable
+from pyop3.lower import SolveCallable, INVCallable
 from pyop3.cache import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
@@ -45,13 +44,6 @@ __all__ = ['compile_expression']
 
 GREEN = "\033[1;37;32m%s\033[0m"
 
-
-try:
-    PETSC_DIR, PETSC_ARCH = get_petsc_dir()
-except ValueError:
-    PETSC_DIR, = get_petsc_dir()
-    PETSC_ARCH = None
-
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
 if COMM_WORLD.rank == 0:
@@ -63,6 +55,10 @@ if COMM_WORLD.rank == 0:
 else:
     BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
     BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
+
+# Strip leading '-l' and '-I's
+BLASLAPACK_LIB = tuple(lib[2:] for lib in BLASLAPACK_LIB.split())
+BLASLAPACK_INCLUDE = tuple(incdir[2:] for incdir in BLASLAPACK_INCLUDE.split())
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -192,7 +188,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     assert len(list(chain(*(map[1] for map in coefficient_numbers)))) == len(coefficients), \
         "KernelInfo must be generated with a coefficient map that maps EXACTLY all coefficients that are in its arguments attribute."
-    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), \
+    assert len(loopy_merged.callables_table[name].subkernel.args) == len(arguments), \
         "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
@@ -210,7 +206,6 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
-                       pass_layer_arg=builder.bag.needs_mesh_layers,
                        arguments=arguments,
                        events=events)
 

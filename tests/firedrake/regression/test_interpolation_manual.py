@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.formmanipulation import split_form
 import pytest
 import numpy as np
 
@@ -101,6 +102,7 @@ def test_interpolate_external():
 
 def test_line_integral():
     # [test_line_integral 1]
+    from firedrake.mesh import Mesh, plex_from_cell_list
     # Start with a simple field exactly represented in the function space over
     # the unit square domain.
     m = UnitSquareMesh(2, 2)
@@ -112,8 +114,8 @@ def test_line_integral():
     # Note that it only has 1 cell
     cells = np.asarray([[0, 1]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line = Mesh(plex, dim=2)
     # [test_line_integral 2]
     x, y = SpatialCoordinate(line)
     V_line = FunctionSpace(line, "CG", 2)
@@ -235,3 +237,50 @@ def test_cross_mesh():
 
     assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)  # x_src^2 + y_src^2 = 0.5
     assert np.isclose(dest_eval15.evaluate(f_dest), 3.0)  # x_dest + y_dest = 3.0
+
+
+def test_mixed_space_interpolation():
+    mesh = UnitSquareMesh(2, 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    W = V1 * V2
+    U = V3 * V4
+
+    # [test_mixed_space_interpolation 1]
+    interp = interpolate(TrialFunction(U), W)
+    I = assemble(interp, mat_type="nest")
+    # [test_mixed_space_interpolation 2]
+
+    # The block matrix structure is
+    # | V3 -> V1      0    |
+    # |     0     V4 -> V2 |
+    for i in range(2):
+        for j in range(2):
+            sub_mat = I.petscmat.getNestSubMatrix(i, j)
+            if i != j:
+                assert not sub_mat
+                continue
+            else:
+                res_block = assemble(interpolate(TrialFunction(U.sub(j)), W.sub(i)))
+                assert np.allclose(sub_mat[:, :], res_block.petscmat[:, :])
+                assert sub_mat.type == "seqaij"
+
+    # [test_mixed_space_interpolation 3]
+    u0, u1 = TrialFunctions(U)
+    expr = as_vector([u0 + u1, u0 + u1])
+    interp = interpolate(expr, W)
+    I2 = assemble(interp, mat_type="nest")
+    # [test_mixed_space_interpolation 4]
+
+    # The block matrix structure is
+    # | V3 -> V1   V4 -> V1 |
+    # | V3 -> V2   V4 -> V2 |
+    split_interp = dict(split_form(interp))
+    for i in range(2):
+        for j in range(2):
+            interp_ij = split_interp[(i, j)]
+            assert isinstance(interp_ij, Interpolate)
+            res_block = assemble(interpolate(TrialFunction(U.sub(j)), W.sub(i), allow_missing_dofs=True))
+            assert np.allclose(I2.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])

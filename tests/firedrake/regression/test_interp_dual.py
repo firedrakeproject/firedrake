@@ -154,7 +154,7 @@ def test_assemble_interp_rank0(V1, V2, f1):
     a = assemble(interpolate(f1, u2))
     # Compute numerically Action(Interpolate(f1, V2), u2)
     b = assemble(interpolate(f1, V2))
-    with b.vec_ro as x, u2.vec_ro as y:
+    with b.dat.vec_ro as x, u2.dat.vec_ro as y:
         res = x.dot(y)
     assert np.abs(a - res) < 1e-9
 

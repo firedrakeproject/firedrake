@@ -172,7 +172,7 @@ class HybridizationPC(SCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh_unique.exterior_facets.unique_markers]
+                markers = [int(x) for x in mesh_unique.facet_markers]
                 dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
@@ -184,10 +184,13 @@ class HybridizationPC(SCBase):
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
             # We zero out the contribution of the trace variables on
-            # the exterior boundary. Extruded cells will have both
-            # horizontal and vertical facets
-            trace_subdomains = ["on_boundary"]
-            if mesh_unique.extruded:
+            # the exterior boundary. We don't need to do this for boundary-less
+            # domains (like a sphere).
+            trace_subdomains = []
+            if mesh_unique.exterior_facets.global_size > 0:
+                trace_subdomains.append("on_boundary")
+            # Extruded cells will have both horizontal and vertical facets
+            if mesh_unique.extruded and not mesh_unique.extruded_periodic:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
@@ -235,7 +238,7 @@ class HybridizationPC(SCBase):
 
         # Set the dm for the trace solver
         trace_ksp.setDM(trace_dm)
-        trace_ksp.setDMActive(False)
+        trace_ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         trace_ksp.setOptionsPrefix(prefix)
         trace_ksp.setOperators(Smat, Smat)
 
@@ -325,7 +328,7 @@ class HybridizationPC(SCBase):
             # any projections
             unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
             broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
-            unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+            broken_scalar_data.dat.assign(unbroken_scalar_data.dat, eager=True, eager_strategy="array")
 
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
@@ -359,7 +362,7 @@ class HybridizationPC(SCBase):
             # Solve the system for the Lagrange multipliers
             with self.schur_rhs.vec_ro as b:
                 if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.vec
+                    acc = self.trace_solution.dat.vec_rw
                 else:
                     acc = self.trace_solution.vec_wo
                 with acc as x_trace:
@@ -371,7 +374,6 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         :arg y: a PETSc vector for placing the resulting fields.
         """
-
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
         with PETSc.Log.Event("RecoverFirstElim"):
@@ -383,7 +385,7 @@ class HybridizationPC(SCBase):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.subfunctions[self.pidx]
             unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
-            broken_pressure.dat.copy(unbroken_pressure.dat)
+            unbroken_pressure.dat.assign(broken_pressure.dat, eager=True, eager_strategy="array")
 
             # Compute the hdiv projection of the broken hdiv solution
             broken_hdiv = self.broken_solution.subfunctions[self.vidx]

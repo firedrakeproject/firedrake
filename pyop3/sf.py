@@ -11,12 +11,13 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
 
 
 if typing.TYPE_CHECKING:
-    from pyop3.tree.axis_tree import AxisComponentRegionSizeT
+    from pyop3.axis_tree import AxisComponentRegionSizeT
 
 
 from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
@@ -91,7 +92,7 @@ class AbstractStarForest(DistributedObject, abc.ABC):
         self.broadcast_end(*args)
 
 
-@utils.record()
+@pyop3.record.record()
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
 
@@ -104,7 +105,7 @@ class StarForest(AbstractStarForest):
 
     # {{{ interface impls
 
-    comm = utils.attr("_comm")
+    comm = pyop3.record.attr("_comm")
 
     def __hash__(self) -> int:
         return hash((
@@ -240,6 +241,7 @@ class StarForest(AbstractStarForest):
         return (dtype, from_buffer, to_buffer, op)
 
 
+# FIXME: Do we really need to have a size attr?
 class NullStarForest(AbstractStarForest):
 
     # {{{ instance attrs
@@ -249,7 +251,9 @@ class NullStarForest(AbstractStarForest):
         self.__post_init__()
 
     def __post_init__(self):
-        assert isinstance(self.size, numbers.Integral)
+        # for ragged not true
+        # assert isinstance(self.size, numbers.Integral)
+        pass
 
     # }}}
 
@@ -321,10 +325,3 @@ def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
     return StarForest.from_graph(size, ilocal, iremote, comm)
-
-
-def _check_sf(sf: PETSc.SF):
-    # sanity check: leaves should always be at the end of the array
-    size, leaf_indices, _ = sf.getGraph()
-    num_leaves = len(leaf_indices)
-    assert (leaf_indices == np.arange(size-num_leaves, size, dtype=IntType)).all()

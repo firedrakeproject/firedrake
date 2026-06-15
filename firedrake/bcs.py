@@ -1,9 +1,14 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 
-from functools import partial, reduce
+from functools import partial, reduce, cached_property
 import itertools
 from functools import cached_property
+
+import numpy as np
+from mpi4py import MPI
+
+import numpy as np
+from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
@@ -12,16 +17,16 @@ import finat
 
 import pyop3 as op3
 from pyop3.pyop2_utils import as_tuple
+from pyop3.mpi import temp_internal_comm
 
 import firedrake
-import firedrake.matrix as matrix
-import firedrake.utils as utils
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -79,7 +84,7 @@ class BCBase:
 
         return self._function_space
 
-    @utils.cached_property
+    @cached_property
     def parent_function_space(self):
         space = self._function_space
         while space.parent is not None:
@@ -94,7 +99,7 @@ class BCBase:
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @cached_property
     def _indices(self):
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
@@ -115,14 +120,13 @@ class BCBase:
                 break
         return tuple(reversed(indices))
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.
 
         These must be unique.
 
         '''
-
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
@@ -158,7 +162,7 @@ class BCBase:
          # The points constrained by the boundary condition is the *intersection
          # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
          # entries* (e.g. A ∪ B ∪ C).
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
         for s in sub_d:
@@ -179,11 +183,21 @@ class BCBase:
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.unique(np.concatenate(bcnodes))
+        bcnodes = np.unique(np.concatenate(bcnodes))
+
+        with temp_internal_comm(self._function_space.mesh().comm) as icomm:
+            num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
+            if num_global_nodes == 0 and icomm.rank == 0:
+                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                            "Did you choose the right label?")
+
+        return bcnodes
 
     @cached_property
     def node_set(self) -> op3.Slice:
-        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
+        '''The subset corresponding to the nodes at which this
+        boundary condition applies.'''
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
         subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
@@ -195,15 +209,15 @@ class BCBase:
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+        if not isinstance(r, Function | Cofunction):
+            raise NotImplementedError(f"Zeroing bcs not supported for {type(r).__name__}")
 
         for idx in self._indices:
             r = r.sub(idx)
 
-        # TODO: This check no longer DTRT
-        # if r.function_space().axes != self._function_space.axes:
-        #     raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
+        # TODO: Only using plex_axes here because nodal_axes isn't matching (for no good reason)
+        if r.function_space().plex_axes != self._function_space.plex_axes:
+            raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
         r.zero(subset=self.node_set)
 
@@ -424,7 +438,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        if isinstance(r, ufl.Matrix):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space

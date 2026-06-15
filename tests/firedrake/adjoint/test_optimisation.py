@@ -12,20 +12,8 @@ import petsctools
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -74,7 +62,7 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
+                                 "tao_gttol": 1.0e-7,
                                  "tao_monitor": None})
     return solver.solve()
 
@@ -86,7 +74,7 @@ def minimize_tao_nls(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
+                                 "tao_gttol": 1.0e-7,
                                  "tao_monitor": None})
     return solver.solve()
 
@@ -207,13 +195,13 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
                     v = Function(space)
                 else:
                     raise ValueError(f"Unrecognized transform_type: {transform_type}")
-                with v.vec_wo as v_v:
+                with v.dat.vec_wo as v_v:
                     x.copy(result=v_v)
                 u = v.riesz_representation(*args, **kwargs)
-                with u.vec_ro as u_v:
+                with u.dat.vec_ro as u_v:
                     u_v.copy(result=y)
 
-        with v.vec_ro as v_v:
+        with v.dat.vec_ro as v_v:
             n, N = v_v.getSizes()
         M_mat = PETSc.Mat().createPython(((n, N), (n, N)),
                                          M(), comm=comm)
@@ -232,7 +220,7 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         if mfn.getFN().getType() != SLEPc.FN.Type.SQRT:
             raise ValueError("Invalid FN type")
 
-        with v.vec_ro as v_v:
+        with v.dat.vec_ro as v_v:
             x = v_v.copy()
             y = v_v.copy()
 
@@ -248,7 +236,7 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
             u = Function(space)
         else:
             u = Cofunction(space.dual())
-        with u.vec_wo as u_v:
+        with u.dat.vec_wo as u_v:
             x.copy(result=u_v)
 
     if annotate_tape():

@@ -111,6 +111,10 @@ cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     PetscErrorCode DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
 
+    PetscErrorCode DMGetPeriodicity(PETSc.PetscDM,PetscReal *[], PetscReal *[], PetscReal *[])
+    PetscErrorCode DMGetSparseLocalize(PETSc.PetscDM,PetscBool *)
+    PetscErrorCode DMSetSparseLocalize(PETSc.PetscDM,PetscBool)
+
 cdef extern from "petscdmswarm.h" nogil:
     PetscErrorCode DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
     PetscErrorCode DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
@@ -127,16 +131,19 @@ cdef extern from "petscvec.h" nogil:
 
 cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
+    PetscErrorCode PetscSectionSetOffset(PETSc.PetscSection,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     PetscErrorCode PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
-    PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
+    PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt*)
     PetscErrorCode PetscSectionSetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt)
-    PetscErrorCode PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     PetscErrorCode PetscSectionGetConstraintIndices(PETSc.PetscSection,PetscInt, const PetscInt**)
+    PetscErrorCode PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     PetscErrorCode PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
+    PetscErrorCode PetscSectionPermute(PETSc.PetscSection,PETSc.PetscIS,PETSc.PetscSection*)
+    PetscErrorCode PetscSectionSetUpBC(PETSc.PetscSection)
     PetscErrorCode ISGetIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS,PetscInt*)
     PetscErrorCode ISGetLocalSize(PETSc.PetscIS,PetscInt*)
@@ -195,6 +202,8 @@ cdef extern from "petscpc.h" nogil:
    PetscErrorCode PCPatchSetComputeFunctionInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
    PetscErrorCode PCPatchSetComputeOperator(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
    PetscErrorCode PCPatchSetComputeOperatorInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeOperatorExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeFunctionExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
 
 cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT

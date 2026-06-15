@@ -168,8 +168,7 @@ def test_real_tensorproduct_mixed(V):
 
     W = V*Q
     for (s_, s) in zip(W.subspaces, (V, Q)):
-        assert s_.node_set is s.node_set
-        assert s_.dof_dset is s.dof_dset
+        assert s_.axes is s.axes
 
 
 def test_real_tensorproduct_component(V):

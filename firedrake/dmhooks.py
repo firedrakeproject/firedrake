@@ -54,14 +54,14 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref_tuple, element, indices, (name, names), boundary_sets = info
+    meshref_tuple, element, indices, (name, names), boundary_sets, labels = info
     if len(meshref_tuple) == 1:
         mesh = meshref_tuple[0]()
     else:
         mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
-    V = firedrake.FunctionSpace(mesh, element, name=name)
+    V = firedrake.FunctionSpace(mesh, element, name=name, _labels=labels)
     if any(boundary_sets):
         V = firedrake.bcs.restricted_function_space(V, boundary_sets)
     if len(V) > 1:
@@ -97,9 +97,12 @@ def set_function_space(dm, V):
     mesh = V.mesh()
     if len(V) > 1:
         names = tuple(V_.name for V_ in V)
+        labels = V._labels
+    else:
+        labels = None
     element = V.ufl_element()
     boundary_sets = tuple(V_.boundary_set for V_ in V)
-    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets)
+    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets, labels)
     dm.setAttr("__fs_info__", info)
 
 
@@ -349,13 +352,13 @@ def create_field_decomposition(dm, *args, **kwargs):
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
                  call_setup=True)
     if ctx is not None and len(W) > 1:
-        ctxs = ctx.split([(i, ) for i in range(len(W))])
+        ctxs = ctx.split([(i,) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
                      call_setup=True)
-    return names, W._ises, dms
+    return names, W.field_ises, dms
 
 
 @PETSc.Log.EventDecorator()
@@ -373,7 +376,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Subspace is just a single FunctionSpace.
         idx, = fields
         subdm = W[idx].dm
-        iset = W._ises[idx]
+        iset = W.field_ises[idx]
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
 
@@ -386,12 +389,13 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        labels = [W._labels[f] for f in fields]
+        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
 
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W.field_ises[f].indices
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
@@ -417,9 +421,8 @@ def coarsen(dm, comm):
     """
     from firedrake.mg.utils import get_level
     V = get_function_space(dm)
-    # TODO: Think harder.
-    m, = set(m_ for m_ in V.mesh())
-    hierarchy, level = get_level(m)
+    mesh = V.mesh()
+    hierarchy, level = get_level(mesh)
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
@@ -476,7 +479,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     :arg DM: The DM to attach callbacks to.
     :arg level: Optional refinement level.
     :arg sf: Optional PETSc SF object describing the DM's ``points``.
-    :arg section: Optional PETSc Section object describing the DM's
+    :arg section: Optional (local) PETSc Section object describing the DM's
         data layout.
     """
     from firedrake.mg.ufl_utils import create_interpolation, create_injection
@@ -484,7 +487,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     if sf is not None:
         dm.setPointSF(sf)
     if section is not None:
-        dm.setDefaultSection(section)
+        dm.setLocalSection(section)
 
     # Multilevel hierarchies
     dm.setRefine(refine)

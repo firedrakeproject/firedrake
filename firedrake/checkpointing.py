@@ -7,10 +7,9 @@ from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, MeshSequenceGeometry, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
-from firedrake.functionspacedata import get_global_numbering, create_element
 from firedrake.function import Function, CoordinatelessFunction
 from firedrake import extrusion_utils as eutils
 from firedrake.embedding import get_embedding_element_for_checkpointing, get_embedding_method_for_checkpointing
@@ -60,7 +59,7 @@ distribution_parameters_noop = {"partition": False,
 reorder_noop = None
 
 
-class DumbCheckpoint(object):
+class DumbCheckpoint:
 
     r"""A very dumb checkpoint object.
 
@@ -347,7 +346,7 @@ class DumbCheckpoint(object):
         self.close()
 
 
-class HDF5File(object):
+class HDF5File:
 
     r"""An object to facilitate checkpointing.
 
@@ -503,7 +502,166 @@ class HDF5File(object):
         self.close()
 
 
-class CheckpointFile(object):
+def _generate_function_space_name(V):
+    """Return a unique function space name.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        The function space to generate a name for.
+    """
+    V_names = [PREFIX + "_function_space"]
+    for Vsub in V:
+        elem = Vsub.ufl_element()
+        if isinstance(elem, finat.ufl.RestrictedElement):
+            # RestrictedElement.shortstr() contains '<>|{}'.
+            elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
+        elif isinstance(elem, finat.ufl.EnrichedElement):
+            # EnrichedElement.shortstr() contains '<>+'.
+            elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
+        else:
+            elem_name = elem.shortstr()
+            elem_name = elem_name.replace('?', 'None')
+            # MixedElement, VectorElement, TensorElement
+            # use '<' and '>' in shortstr(), but changing
+            # these to '(' and ')' causes no confusion.
+            elem_name = elem_name.replace('<', '(').replace('>', ')')
+        mesh = Vsub.mesh()
+        # Unwrap MeshSequenceGeometry to get the concrete mesh name.
+        # CheckpointFile.save_function calls mesh.unique() before reaching
+        # here, so this is a no-op on that path. But TemporaryFunctionCheckpointFile
+        # calls _generate_function_space_name directly without prior unwrapping,
+        # so we need to handle it here to produce consistent dataset names.
+        if isinstance(mesh, MeshSequenceGeometry):
+            mesh = mesh[-1]
+        V_names.append("_".join([mesh.name, elem_name]))
+    return "_".join(V_names)
+
+
+class TemporaryFunctionCheckpointFile:
+    """An HDF5 file for saving and loading :class:`~.Function` data on a sub-communicator.
+
+    This class has a deliberately narrow contract that differs from
+    :class:`CheckpointFile` in several important ways:
+
+    - It operates on any communicator, typically a sub-communicator of
+      COMM_WORLD (e.g. ``COMM_SELF`` for per-rank files, or a node-local
+      communicator for per-node files). All I/O is collective only on that
+      communicator — no COMM_WORLD operations are performed.
+    - It stores and retrieves :class:`~.Function` *data* (the local Vec
+      array) only. It has no knowledge of mesh topology, DM sections, or
+      PETSc SF. This is why :meth:`load_function` takes a
+      :class:`~.FunctionSpace` rather than a mesh: the caller already holds
+      the function space and we simply fill in the values.
+    - It is ephemeral: files are not intended to survive between programme
+      runs. The communicator layout (partition) must be identical on save
+      and restore.
+    - The caller is responsible for assigning unique ``name``/``idx`` pairs
+      on save and for restoring the correct ``name`` and ``count`` on the
+      returned :class:`~.Function` after load.
+
+    These constraints are intentional. Using :class:`CheckpointFile` with a
+    sub-communicator deadlocks on load because the mesh DM operations
+    (``sectionLoad``, ``globalVectorLoad``) are collective on COMM_WORLD.
+    This class deliberately bypasses that path.
+
+    Parameters
+    ----------
+    comm : mpi4py.MPI.Intracomm
+        The communicator on which I/O is collective. All ranks in this
+        communicator must enter save/load together.
+    filepath : str
+        Path to the HDF5 file to open.
+    mode : str
+        File access mode: ``'r'`` for reading, ``'w'`` to create/truncate,
+        ``'a'`` to append.
+    """
+
+    def __init__(self, comm, filepath, mode):
+        self.comm = comm
+        self.filepath = filepath
+        self._viewer = PETSc.ViewerHDF5()
+        self._viewer.create(filepath, mode=mode, comm=comm)
+
+    def save_function(self, function, name=None, idx=None):
+        """Save a Function's local data to this file.
+
+        Parameters
+        ----------
+        function : Function
+            The function whose data to save.
+        name : str
+            Dataset name. The caller is responsible for uniqueness across
+            saves to this file (see :class:`CheckpointFunction`).
+        idx : int
+            Dataset index. Together with ``name`` this uniquely identifies
+            the stored dataset.
+        """
+        vec_name = f"{name}_{idx}"
+
+        with function.dat.vec_ro as v:
+            local_array = v.getArray().copy()
+
+        local_vec = PETSc.Vec().createWithArray(
+            local_array, size=(len(local_array), PETSc.DECIDE), comm=self.comm
+        )
+        local_vec.setName(vec_name)
+        local_vec.view(self._viewer)
+        local_vec.destroy()
+
+    def load_function(self, function_space, name, idx=None):
+        """Load a Function's data from this file.
+
+        Parameters
+        ----------
+        function_space : FunctionSpace
+            The function space for the returned Function.
+        name : str
+            Dataset name as passed to :meth:`save_function`.
+        idx : int
+            Dataset index as passed to :meth:`save_function`.
+
+        Returns
+        -------
+        Function
+            A new Function with data loaded from disk. The caller is
+            responsible for restoring the correct ``name`` and ``count``
+            on the returned Function.
+        """
+        from firedrake import Function
+
+        vec_name = f"{name}_{idx}"
+        f = Function(function_space)
+
+        with f.dat.vec_wo as v:
+            local_size = v.getLocalSize()
+            local_vec = PETSc.Vec().createMPI(
+                (local_size, PETSc.DECIDE), comm=self.comm
+            )
+            local_vec.setName(vec_name)
+            local_vec.load(self._viewer)
+            v.setArray(local_vec.getArray())
+            local_vec.destroy()
+
+        return f
+
+    def close(self):
+        """Close the underlying HDF5 viewer."""
+        if hasattr(self, '_viewer'):
+            self._viewer.destroy()
+            del self._viewer
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        self.close()
+
+
+class CheckpointFile:
 
     r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
 
@@ -521,6 +679,18 @@ class CheckpointFile(object):
     latest_version = '3.0.0'
 
     def __init__(self, filename, mode, comm=COMM_WORLD):
+        # parse mode into a string
+        match mode:
+            case PETSc.Viewer.FileMode.READ | PETSc.Viewer.FileMode.R:
+                mode = "r"
+            case PETSc.Viewer.FileMode.WRITE | PETSc.Viewer.FileMode.W:
+                mode = "w"
+            case PETSc.Viewer.FileMode.APPEND | PETSc.Viewer.FileMode.A:
+                mode = "a"
+
+        if mode in {"r", "a"} and not os.path.exists(filename):
+            raise FileNotFoundError(f"'{filename}' does not exist")
+
         self.viewer = ViewerHDF5()
         self.filename = filename
         self.comm = comm
@@ -530,21 +700,24 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        if mode in [PETSc.Viewer.FileMode.WRITE, PETSc.Viewer.FileMode.W, "w"]:
-            version = CheckpointFile.latest_version
-            self.set_attr_byte_string("/", "dmplex_storage_version", version)
-        elif mode in [PETSc.Viewer.FileMode.APPEND, PETSc.Viewer.FileMode.A, "a"]:
-            if self.has_attr("/", "dmplex_storage_version"):
-                version = self.get_attr_byte_string("/", "dmplex_storage_version")
-            else:
+
+        match mode:
+            case "w":
                 version = CheckpointFile.latest_version
                 self.set_attr_byte_string("/", "dmplex_storage_version", version)
-        elif mode in [PETSc.Viewer.FileMode.READ, PETSc.Viewer.FileMode.R, "r"]:
-            if not self.has_attr("/", "dmplex_storage_version"):
-                raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
-            version = CheckpointFile.latest_version
-        else:
-            raise NotImplementedError(f"Unsupportd file mode: {mode} not in {'w', 'a', 'r'}")
+            case "a":
+                if self.has_attr("/", "dmplex_storage_version"):
+                    version = self.get_attr_byte_string("/", "dmplex_storage_version")
+                else:
+                    version = CheckpointFile.latest_version
+                    self.set_attr_byte_string("/", "dmplex_storage_version", version)
+            case "r":
+                if not self.has_attr("/", "dmplex_storage_version"):
+                    raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
+                version = CheckpointFile.latest_version
+            case _:
+                raise NotImplementedError(f"Unsupported file mode: {mode} not in {'w', 'a', 'r'}")
+
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": version}, "")
         r"""DMPlex HDF5 version options."""
 
@@ -825,14 +998,14 @@ class CheckpointFile(object):
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()
         if isinstance(V.topological, impl.MixedFunctionSpace):
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             base_path = self._path_to_mixed_function_space(mesh.name, V_name)
             self.require_group(base_path)
             self.set_attr(base_path, PREFIX + "_num_sub_spaces", V.num_sub_spaces())
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
-                Vsub_name = self._generate_function_space_name(Vsub)
+                Vsub_name = _generate_function_space_name(Vsub)
                 self.set_attr(path, PREFIX + "_function_space", Vsub_name)
                 self._save_function_space(Vsub)
         else:
@@ -844,7 +1017,7 @@ class CheckpointFile(object):
             # -- Save function space --
             tmesh = tV.mesh()
             element = tV.ufl_element()
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             path = self._path_to_function_spaces(tmesh.name, mesh.name)
             if V_name not in self.require_group(path):
                 # Save UFL element
@@ -911,7 +1084,7 @@ class CheckpointFile(object):
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
-        V_name = self._generate_function_space_name(V)
+        V_name = _generate_function_space_name(V)
         if isinstance(V.topological, impl.MixedFunctionSpace):
             base_path = self._path_to_mixed_function(mesh.name, V_name, f.name())
             self.require_group(base_path)
@@ -1059,7 +1232,7 @@ class CheckpointFile(object):
                 layers_a_iset.load(self.viewer)
                 self.viewer.popGroup()
                 layers_a = layers_a_iset.getIndices()
-                layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
+                layers = np.empty((base_tmesh.cells.local_size, 2), dtype=utils.IntType)
                 unit = MPI._typedict[np.dtype(utils.IntType).char]
                 lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
                 lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
@@ -1077,7 +1250,7 @@ class CheckpointFile(object):
                 radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
                 radial_coordinates = self._load_function_topology(tmesh, radial_coord_element, radial_coord_name)
                 tV_radial_coord = impl.FunctionSpace(tmesh, radial_coord_element)
-                V_radial_coord = impl.WithGeometry.create(tV_radial_coord, mesh)
+                V_radial_coord = impl.WithGeometry(tV_radial_coord, mesh)
                 radial_coord_function_name = self.get_attr(path, PREFIX + "_radial_coordinate_function")
                 mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
             # The followings are conceptually redundant, but needed.
@@ -1125,7 +1298,7 @@ class CheckpointFile(object):
                 cell_orientations_a_iset.load(self.viewer)
                 self.viewer.popGroup()
                 cell_orientations_a = cell_orientations_a_iset.getIndices()
-                cell_orientations = np.empty((tmesh.cell_set.total_size, ), dtype=utils.IntType)
+                cell_orientations = np.empty((tmesh.cells.local_size, ), dtype=utils.IntType)
                 unit = MPI._typedict[np.dtype(utils.IntType).char]
                 lsf.bcastBegin(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
                 lsf.bcastEnd(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
@@ -1245,7 +1418,7 @@ class CheckpointFile(object):
             element = self._load_ufl_element(path, PREFIX + "_ufl_element")
             tV = self._load_function_space_topology(tmesh, element)
             # Construct function space
-            V = impl.WithGeometry.create(tV, mesh)
+            V = impl.WithGeometry(tV, mesh)
         else:
             raise RuntimeError(f"""
                 FunctionSpace ({name}) not found in either of the following path in {self.filename}:
@@ -1278,12 +1451,6 @@ class CheckpointFile(object):
             gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, sfXC)
             topology_dm.setName(base_tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
-            # Don't cache if the section has been expanded by block_size
-            if block_size == 1:
-                cached_section = get_global_numbering(tmesh, (nodes_per_entity, real_tensorproduct), global_numbering=dm.getSection())
-                if dm.getSection() is not cached_section:
-                    # The same section has already been cached.
-                    dm.setSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
@@ -1310,7 +1477,8 @@ class CheckpointFile(object):
                 path = os.path.join(base_path, str(i))
                 fsub_name = self.get_attr(path, PREFIX + "_function")
                 fsub = self.load_function(mesh, fsub_name, idx=idx)
-                dat[i].assign(fsub.dat, eager=True)
+                dat_idx = V._labels[i] if len(V) > 1 else Ellipsis
+                dat[dat_idx].assign(fsub.dat, eager=True)
             return Function(V, val=dat, name=name)
         elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
             # Load function space
@@ -1325,10 +1493,7 @@ class CheckpointFile(object):
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 _f = self.load_function(mesh, _name, idx=idx)
-                element = V.ufl_element()
-                _element = get_embedding_element_for_checkpointing(element, V.value_shape)
-                method = get_embedding_method_for_checkpointing(element)
-                assert _element == _f.function_space().ufl_element()
+                method = get_embedding_method_for_checkpointing(V.ufl_element())
                 f = Function(V, name=name)
                 self._project_function_for_checkpointing(f, _f, method)
                 return f
@@ -1364,7 +1529,7 @@ class CheckpointFile(object):
                 if timestepping:
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
-                    assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
+                    assert idx is None, "In non-timestepping mode: idx parameter must not be set"
             else:
                 raise RuntimeError(f"Function {path} not found in {self.filename}")
             with tf.dat.vec_wo as vec:
@@ -1389,27 +1554,6 @@ class CheckpointFile(object):
     def _generate_mesh_key_from_names(self, mesh_name, distribution_name, permutation_name):
         return (self.filename, self.commkey, mesh_name, distribution_name, permutation_name)
 
-    def _generate_function_space_name(self, V):
-        """Return a unique function space name."""
-        V_names = [PREFIX + "_function_space"]
-        for Vsub in V:
-            elem = Vsub.ufl_element()
-            if isinstance(elem, finat.ufl.RestrictedElement):
-                # RestrictedElement.shortstr() contains '<>|{}'.
-                elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
-            elif isinstance(elem, finat.ufl.EnrichedElement):
-                # EnrichedElement.shortstr() contains '<>+'.
-                elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
-            else:
-                elem_name = elem.shortstr()
-                elem_name = elem_name.replace('?', 'None')
-                # MixedElement, VectorElement, TensorElement
-                # use '<' and '>' in shortstr(), but changing
-                # these to '(' and ')' causes no confusion.
-                elem_name = elem_name.replace('<', '(').replace('>', ')')
-            V_names.append("_".join([Vsub.mesh().name, elem_name]))
-        return "_".join(V_names)
-
     def _generate_dm_name(self, nodes_per_entity, real_tensorproduct, block_size):
         return "_".join([PREFIX, "dm"]
                         + [str(n) for n in nodes_per_entity]
@@ -1417,7 +1561,7 @@ class CheckpointFile(object):
                         + [str(block_size)])
 
     def _get_shared_data_key_for_checkpointing(self, mesh, ufl_element):
-        finat_element = create_element(ufl_element)
+        finat_element = impl.create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))

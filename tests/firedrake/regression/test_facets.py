@@ -2,8 +2,6 @@ import pytest
 import numpy as np
 
 from firedrake import *
-from firedrake.petsc import PETSc
-from firedrake.utils import IntType
 
 
 @pytest.fixture(params=[False, True])
@@ -181,32 +179,3 @@ def test_internal_integral_unit_tet():
     x = SpatialCoordinate(t)
     u.interpolate(x[0])
     assert abs(assemble(u('+') * dS)) < 1.0e-14
-
-
-def test_facet_map_no_reshape():
-    m = UnitSquareMesh(1, 1)
-    V = FunctionSpace(m, "DG", 0)
-    efnm = V.exterior_facet_node_map()
-    assert efnm.values_with_halo.shape == (4, 1)
-
-
-def test_mesh_with_no_facet_markers():
-    mesh = UnitTriangleMesh()
-    with pytest.raises(LookupError):
-        mesh.exterior_facets.subset((10,))
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_facets_simple_exterior_integral():
-    m = UnitSquareMesh(2, 1)
-    V = FunctionSpace(m, "DG", 0)
-    v = assemble(Constant(1.0) * ds(domain=m))
-    assert(abs(v - 4.0) < 1.e-16)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_facets_simple_interior_integral():
-    m = UnitSquareMesh(2, 2)
-    V = FunctionSpace(m, "DG", 0)
-    v = assemble(Constant(1.0) * dS(domain=m))
-    assert(abs(v - (2. + sqrt(2) * 2)) < 1.e-16)

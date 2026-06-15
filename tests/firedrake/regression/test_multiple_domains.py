@@ -41,10 +41,10 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
     with pytest.raises(NotImplementedError):
         project(d1, target)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(MismatchingDomainError):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh3))
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(MismatchingDomainError):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh1))
 
 
@@ -177,31 +177,45 @@ def test_multi_domain_assemble():
 
     for i, j in [(0, 1), (1, 0)]:
         a1 = inner(u[i], v[j])*dx(domain=mesh1)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(MismatchingDomainError):
             assemble(a1)
         a2 = inner(u[i], v[j])*dx(domain=mesh2)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(MismatchingDomainError):
             assemble(a2)
         l1 = inner(f[i], v[j])*dx(domain=mesh1)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(MismatchingDomainError):
             assemble(l1)
         l2 = inner(f[i], v[j])*dx(domain=mesh2)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(MismatchingDomainError):
             assemble(l2)
 
     for i, j in [(0, 0), (1, 1)]:
         a = inner(u[i], v[j])*dx(domain=mesh1)
         if i == 1:
-            with pytest.raises(NotImplementedError):
+            with pytest.raises(MismatchingDomainError):
                 assemble(a)
             continue
         A = assemble(a)
         assert A.M.values.shape == (V.dim(), V.dim())
 
     a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[0], v[1])*dx(domain=mesh2)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(MismatchingDomainError):
         assemble(a)
 
     a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[1], v[1])*dx(domain=mesh2)
     A = assemble(a)
     assert A.M.values.shape == (V.dim(), V.dim())
+
+
+def test_multidomain_assign_function(mesh1, mesh3):
+    V1 = FunctionSpace(mesh1, "DG", 0)
+    V2 = FunctionSpace(mesh3, "CG", 1)
+    Z = V1 * V2
+    z = Function(Z)
+    z.subfunctions[0].assign(42)
+    z.subfunctions[1].assign(67)
+
+    w = Function(Z)
+    w.assign(z)
+    for zsub, wsub in zip(z.subfunctions, w.subfunctions):
+        assert np.allclose(zsub.dat.data, wsub.dat.data)

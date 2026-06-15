@@ -7,20 +7,8 @@ from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -65,7 +53,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_count)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -265,6 +253,7 @@ def test_real_space_assign_numpy():
     src = R.template_vec.array_r.copy()
     data = 1 + np.arange(src.shape[0])
     src[:] = data
+    breakpoint()
     dst._ad_assign_numpy(dst, src, offset=0)
     parallel_assert(np.allclose(dst.dat.data_ro, data))
 
@@ -307,6 +296,6 @@ def test_ad_dot(riesz_representation):
     dJhat = Jhat.derivative(apply_riesz=True)
 
     h = Function(V)
-    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_count)
     dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
     assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9

@@ -16,6 +16,7 @@ from ufl.formatting.ufl2unicode import (
     Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
     colorama,
 )
+from functools import cached_property
 from ufl.utils.counted import Counted
 
 
@@ -129,27 +130,9 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """Return a null function space."""
         return None
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         return (self,)
-
-    def cell_node_map(self, bcs=None):
-        """Return a null cell to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
-
-    def interior_facet_node_map(self, bcs=None):
-        """Return a null interior facet to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
-
-    def exterior_facet_node_map(self, bcs=None):
-        """Return a null exterior facet to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
 
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):

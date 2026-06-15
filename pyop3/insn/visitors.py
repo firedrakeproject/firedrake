@@ -7,83 +7,76 @@ import itertools
 import numbers
 from collections.abc import Iterable, Mapping
 from os import access
-from typing import Any
+from typing import Any, Hashable
 
 import numpy as np
 from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
-import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
-from pyop3.expr.buffer import MatArrayBufferExpression
+import pyop3.compile
+import pyop3.axis_tree
+import pyop3.expr
+import pyop3.expr.visitors
+from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
 from pyop3.expr.tensor import mat
 from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
-import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
-from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
+from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
-from pyop3.tree.axis_tree import AxisTree, AxisForest
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer, BufferRef
+from pyop3.axis_tree import AxisTree, AxisForest
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer
 
-from pyop3.tree.index_tree.tree import LoopIndex
-from pyop3.tree.index_tree.parse import _as_context_free_indices
-import pyop3.insn as insn_types
+from pyop3.index_tree.tree import LoopIndex
+from pyop3.index_tree.parse import _as_context_free_indices
+import pyop3.insn
 from pyop3.insn.base import (
     INC,
     READ,
     RW,
     WRITE,
     AssignmentType,
-    DummyKernelArgument,
     ArrayAccessType,
     enlist,
     maybe_enlist,
     non_null,
     filter_null,
 )
-from pyop3.utils import OrderedFrozenSet
-
-import pyop3.extras.debug
+from pyop3.collections import OrderedFrozenSet
 
 
 class InstructionTransformer(NodeTransformer):
 
     @functools.singledispatchmethod
-    def process(self, insn: insn_types.Instruction, /, **kwargs) -> insn_types.Instruction:
+    def process(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
         return super().process(insn, **kwargs)
 
     # Instruction lists have a common pattern
-    @process.register(insn_types.InstructionList)
-    @NodeTransformer.postorder
-    def _(self, insn_list: insn_types.InstructionList, /, *insns, **kwargs) -> insn_types.Instruction:
-        breakpoint()  # likely wrong
+    @process.register(pyop3.insn.InstructionList)
+    @postorder
+    def _(self, insn_list: pyop3.insn.InstructionList, /, *insns, **kwargs) -> pyop3.insn.Instruction:
+        raise NotImplementedError
         return maybe_enlist(insns)
 
 
 class LoopContextExpander(InstructionTransformer):
 
     @functools.singledispatchmethod
-    def process(self, insn: insn_types.Instruction, /, **kwargs) -> insn_types.Instruction:
+    def process(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
         return super().process(insn, **kwargs)
 
-    @process.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop, /, *, loop_context) -> insn_types.Loop | insn_types.InstructionList:
+    @process.register(pyop3.insn.Loop)
+    def _(self, loop: pyop3.insn.Loop, /, *, loop_context) -> pyop3.insn.Loop | pyop3.insn.InstructionList:
         expanded_loops = []
         iterset = loop.index.iterset
         for leaf_path in iterset.leaf_paths:
-            # collect the possible targets per leaf
-            # leaf_target_paths = tuple(
-            #     leaf_target_paths_per_target[leaf_path]
-            #     for leaf_target_paths_per_target in iterset.leaf_target_paths
-            # )
-            # loop_context = {loop.index.id: leaf_target_paths}
             loop_context_ = {loop.index.id: leaf_path}
 
-            restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context))
+            restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context_))
 
             # skip empty loops
             if restricted_loop_index.iterset.size == 0:
@@ -101,24 +94,24 @@ class LoopContextExpander(InstructionTransformer):
         return maybe_enlist(expanded_loops)
 
 
-    @process.register(insn_types.CalledFunction)
-    def _(self, func: insn_types.CalledFunction, /, *, loop_context) -> insn_types.CalledFunction:
+    @process.register(pyop3.insn.CalledFunction)
+    def _(self, func: pyop3.insn.CalledFunction, /, *, loop_context) -> pyop3.insn.CalledFunction:
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
         return func.__record_init__(_arguments=new_arguments)
 
-    @process.register(insn_types.ArrayAssignment)
-    def _(self, assignment: insn_types.ArrayAssignment, /, *, loop_context) -> insn_types.ArrayAssignment:
-        assignee = expr_visitors.restrict_to_context(assignment.assignee, loop_context)
-        expression = expr_visitors.restrict_to_context(assignment.expression, loop_context)
+    @process.register(pyop3.insn.Assignment)
+    def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
+        assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
+        expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
         return assignment.__record_init__(_assignee=assignee, _expression=expression)
 
-    @process.register(insn_types.Exscan)  # for now assume we are fine
-    def _(self, insn: insn_types.Instruction, /, **kwargs) -> insn_types.Instruction:
+    @process.register(pyop3.insn.Exscan)  # for now assume we are fine
+    def _(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
         return self.reuse_if_untouched(insn)
 
 
 # NOTE: This is a bad name for this transformation. 'expand_multi_component_loops'?
-def expand_loop_contexts(insn: insn_types.Instruction, /) -> insn_types.Instruction:
+def expand_loop_contexts(insn: pyop3.insn.Instruction, /) -> pyop3.insn.Instruction:
     return LoopContextExpander()(insn, loop_context=idict())
 
 
@@ -133,19 +126,19 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     def _apply(self, expr: Any):
         raise NotImplementedError(f"No handler provided for {type(expr).__name__}")
 
-    @_apply.register(insn_types.NullInstruction)
-    @_apply.register(insn_types.Exscan)  # assume we are fine
+    @_apply.register(pyop3.insn.NullInstruction)
+    @_apply.register(pyop3.insn.Exscan)  # assume we are fine
     def _(self, insn, /):
         return insn
 
     # TODO Can I provide a generic "operands" thing? Put in the parent class?
-    @_apply.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop) -> insn_types.Loop:
+    @_apply.register(pyop3.insn.Loop)
+    def _(self, loop: pyop3.insn.Loop) -> pyop3.insn.Loop:
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
         return loop.__record_init__(statements=new_statements)
 
     @_apply.register
-    def _(self, insn_list: insn_types.InstructionList):
+    def _(self, insn_list: pyop3.insn.InstructionList):
         return type(insn_list)([insn_ for insn in insn_list for insn_ in enlist(self._apply(insn))])
 
     # # TODO: Should be the same as Assignment
@@ -156,12 +149,12 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     #     return (assignment,)
 
     @_apply.register
-    def _(self, assignment: insn_types.ArrayAssignment):
+    def _(self, assignment: pyop3.insn.Assignment):
         # I think this is fine...
         return assignment
 
     @_apply.register
-    def _(self, terminal: insn_types.CalledFunction):
+    def _(self, terminal: pyop3.insn.CalledFunction):
         gathers = []
         # NOTE: scatters are executed in LIFO order
         scatters = []
@@ -169,44 +162,26 @@ class ImplicitPackUnpackExpander(NodeTransformer):
         for (arg, intent), shape in zip(
             terminal.function_arguments, terminal.argument_shapes, strict=True
         ):
-            # bare_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(arg, intent)
-            # gathers.extend(arg_pack_insns)
-            # scatters.extend(arg_unpack_insns)
-            #
-            #     if intent == READ:
-            #         gathers.extend(ArrayAssignment(temporary, arg, "write"))
-            #     elif intent == WRITE:
-            #         # This is currently necessary because some local kernels
-            #         # (interpolation) actually increment values instead of setting
-            #         # them directly. This should ideally be addressed.
-            #         gathers.append(ArrayAssignment(temporary, 0, "write"))
-            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
-            #     elif intent == RW:
-            #         gathers.append(ArrayAssignment(temporary, arg, "write"))
-            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
-            #     else:
-            #         assert intent == INC
-
             # emit pack/unpack instructions
             if _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
-                    temporary = Dat.null(arg.axes.materialize().localize(), dtype=arg.dtype, prefix="t")
+                    temporary = Dat.null(arg.axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.row_axes.materialize().localize(), arg.column_axes.materialize().localize(), dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().regionless(), arg.column_axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
-                    gathers.append(insn_types.ArrayAssignment(temporary, arg, "write"))
+                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    scatters.insert(0, insn_types.ArrayAssignment(arg, temporary, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
                 elif intent == RW:
-                    gathers.append(insn_types.ArrayAssignment(temporary, arg, "write"))
-                    scatters.insert(0, insn_types.ArrayAssignment(arg, temporary, "write"))
+                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
                 else:
                     assert intent == INC
-                    gathers.append(insn_types.ArrayAssignment(temporary, 0, "write"))
-                    scatters.insert(0, insn_types.ArrayAssignment(arg, temporary, "inc"))
+                    gathers.append(pyop3.insn.Assignment(temporary, 0, "write"))
+                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "inc"))
 
                 function_arg = LinearDatBufferExpression(temporary.buffer, 0)
             else:
@@ -215,11 +190,11 @@ class ImplicitPackUnpackExpander(NodeTransformer):
                 function_arg = LinearDatBufferExpression(arg.buffer, 0)
             arguments.append(function_arg)
 
-        return maybe_enlist((*gathers, insn_types.StandaloneCalledFunction(terminal.function, arguments), *scatters))
+        return maybe_enlist((*gathers, pyop3.insn.StandaloneCalledFunction(terminal.function, arguments), *scatters))
 
 
 # TODO check this docstring renders correctly
-def expand_implicit_pack_unpack(expr: insn_types.Instruction):
+def expand_implicit_pack_unpack(expr: pyop3.insn.Instruction):
     """Expand implicit pack and unpack operations.
 
     An implicit pack/unpack is something of the form
@@ -248,11 +223,12 @@ def expand_implicit_pack_unpack(expr: insn_types.Instruction):
 
 
 @functools.singledispatch
-def _requires_pack_unpack(arg: insn_types.FunctionArgument) -> bool:
-    raise TypeError
+def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
+    utils.raise_visitor_type_error(arg)
 
 
 @_requires_pack_unpack.register(Scalar)
+@_requires_pack_unpack.register(pyop3.expr.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
     return False
 
@@ -283,18 +259,18 @@ def _layouts_match(axes: AxisTreeT) -> bool:
 
 
 @functools.singledispatch
-def expand_transforms(obj: Any, /) -> insn_types.InstructionList:
+def expand_transforms(obj: Any, /) -> pyop3.insn.InstructionList:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@expand_transforms.register(insn_types.InstructionList)
-def _(insn_list: insn_types.InstructionList, /) -> insn_types.InstructionList:
+@expand_transforms.register(pyop3.insn.InstructionList)
+def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.InstructionList:
     return maybe_enlist((expand_transforms(insn) for insn in insn_list))
 
 
-@expand_transforms.register(insn_types.Loop)
-def _(loop: insn_types.Loop, /) -> insn_types.Loop:
-    return insn_types.Loop(
+@expand_transforms.register(pyop3.insn.Loop)
+def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop:
+    return pyop3.insn.Loop(
         loop.index,
         [
             stmt_ for stmt in loop.statements for stmt_ in enlist(expand_transforms(stmt))
@@ -302,11 +278,11 @@ def _(loop: insn_types.Loop, /) -> insn_types.Loop:
     )
 
 
-@expand_transforms.register(insn_types.StandaloneCalledFunction)
+@expand_transforms.register(pyop3.insn.StandaloneCalledFunction)
 # @expand_assignments.register(PetscMatAssignment)
-@expand_transforms.register(insn_types.NullInstruction)
-@expand_transforms.register(insn_types.Exscan)  # assume we are fine
-def _(func: insn_types.StandaloneCalledFunction, /) -> insn_types.StandaloneCalledFunction:
+@expand_transforms.register(pyop3.insn.NullInstruction)
+@expand_transforms.register(pyop3.insn.Exscan)  # assume we are fine
+def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
     return func
 
 
@@ -321,8 +297,8 @@ def _intent_as_access_type(intent):
 
 
 
-@expand_transforms.register(insn_types.CalledFunction)
-def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
+@expand_transforms.register(pyop3.insn.CalledFunction)
+def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
     bare_func_args = []
     pack_insns = []
     unpack_insns = []
@@ -351,6 +327,8 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
                 arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+        elif isinstance(func_arg, pyop3.expr.OpaqueTerminal):
+            materialized_arg = func_arg
         else:
             materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
 
@@ -358,12 +336,12 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
         pack_insns.extend(arg_pack_insns)
         unpack_insns.extend(arg_unpack_insns)
 
-    bare_called_func = insn_types.StandaloneCalledFunction(called_func.function, bare_func_args)
+    bare_called_func = pyop3.insn.StandaloneCalledFunction(called_func.function, bare_func_args)
     return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
 
 
-@expand_transforms.register(insn_types.ArrayAssignment)
-def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
+@expand_transforms.register(pyop3.insn.Assignment)
+def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
     # This function is complete magic and deserves some serious exposition:
     #
     # To begin with, consider the assignment:
@@ -408,7 +386,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #     X += u
     #
     # To make this work we extract the increment by materialising 'u'.
-    bare_expression, expression_insns = expr_visitors.expand_transforms(
+    bare_expression, expression_insns = pyop3.expr.visitors.expand_transforms(
         assignment.expression, ArrayAccessType.READ
     )
 
@@ -417,7 +395,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     else:
         assert assignment.assignment_type == AssignmentType.INC
         access_type = ArrayAccessType.INC
-    bare_assignee, assignee_insns = expr_visitors.expand_transforms(
+    bare_assignee, assignee_insns = pyop3.expr.visitors.expand_transforms(
         assignment.assignee, access_type
     )
 
@@ -436,8 +414,15 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     if (
         isinstance(bare_assignee.buffer, PetscMatBuffer)
         and isinstance(bare_expression, Mat)
-        and not all(isinstance(tree, AxisTree | type(UNIT_AXIS_TREE)) for tree in {bare_expression.row_axes, bare_expression.column_axes})
+        and not all(
+            isinstance(t, pyop3.axis_tree.AbstractUnindexedAxisTree)
+            for t in bare_expression.axis_trees
+        )
     ):
+        assert not any(
+            isinstance(t, pyop3.axis_tree.AxisForest)
+            for t in bare_expression.axis_trees
+        )
         expression_temp = bare_expression.materialize()
         expression_insns += (expression_temp.assign(bare_expression),)
         bare_expression = expression_temp
@@ -451,16 +436,16 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
 
 
 def has_materialized_temporaries(tensor: Tensor) -> bool:
-    while tensor.parent:
-        if isinstance(tensor.parent, OutOfPlaceTensorTransform):
+    while tensor.transform:
+        if isinstance(tensor.transform, OutOfPlaceTensorTransform):
             return True
         else:
-            tensor = tensor.parent.untransformed
+            tensor = tensor.transform.prev
     return False
 
 
 @functools.singledispatch
-def concretize_layouts(obj: Any, /) -> insn_types.Instruction:
+def concretize_layouts(obj: Any, /) -> pyop3.insn.Instruction:
     """Lock in the layout expressions that data arguments are accessed with.
 
     For example this converts Dats to DatArrayBufferExpressions that cannot
@@ -472,44 +457,58 @@ def concretize_layouts(obj: Any, /) -> insn_types.Instruction:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@concretize_layouts.register(insn_types.NullInstruction)
-@concretize_layouts.register(insn_types.Exscan)  # assume we are fine
-def _(null: insn_types.NullInstruction, /) -> insn_types.NullInstruction:
+@concretize_layouts.register(pyop3.insn.NullInstruction)
+@concretize_layouts.register(pyop3.insn.Exscan)  # assume we are fine
+def _(null: pyop3.insn.NullInstruction, /) -> pyop3.insn.NullInstruction:
     return null
 
 
-@concretize_layouts.register(insn_types.InstructionList)
-def _(insn_list: insn_types.InstructionList, /) -> insn_types.Instruction:
+@concretize_layouts.register(pyop3.insn.InstructionList)
+def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.Instruction:
     return maybe_enlist(
         filter(non_null, (map(concretize_layouts, insn_list)))
     )
 
 
-@concretize_layouts.register(insn_types.Loop)
-def _(loop: insn_types.Loop, /) -> insn_types.Loop | insn_types.NullInstruction:
+@concretize_layouts.register(pyop3.insn.Loop)
+def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop | pyop3.insn.NullInstruction:
+    index = loop.index.__record_init__(iterset=loop.index.iterset.materialize())
     statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
-    return loop.__record_init__(statements=statements) if statements else insn_types.NullInstruction()
+    return loop.__record_init__(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
 
 
-@concretize_layouts.register(insn_types.StandaloneCalledFunction)
-def _(func: insn_types.StandaloneCalledFunction, /) -> insn_types.StandaloneCalledFunction:
+@concretize_layouts.register
+def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
     return func
 
 
-@concretize_layouts.register(insn_types.ArrayAssignment)
-def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.NonEmptyArrayAssignment | insn_types.NullInstruction:
-    assignee = expr_visitors.concretize_layouts(assignment.assignee, assignment.shape)
-    expression = expr_visitors.concretize_layouts(assignment.expression, assignment.shape)
+@concretize_layouts.register
+def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.NonEmptyArrayAssignment | pyop3.insn.NullInstruction:
+    # The assignee may have an axis forest as its shape, but we can only
+    # emit loops for one of them. Try all candidates and hopefully one will match.
+    # For matrices there are two shape axes and so we need to try the product
+    # of all candidates.
+    for axis_trees in itertools.product(*(tree.trees for tree in assignment.shape)):
+        try:
+            assignee = pyop3.expr.visitors.concretize_layouts(assignment.assignee, axis_trees)
+            expression = pyop3.expr.visitors.concretize_layouts(assignment.expression, axis_trees)
+        except pyop3.exceptions.IncompatibleAxisTargetException:
+            continue
+        else:
+            shape = tuple(tree.materialize() for tree in axis_trees)
+            break
+    else:
+        raise pyop3.exceptions.IncompatibleAxisTargetException
 
-    return insn_types.NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.comm)
+    return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, shape, assignment.assignment_type, comm=assignment.comm)
 
 
-MAX_COST_CONSIDERATION_FACTOR = 5
+MAX_COST_CONSIDERATION_FACTOR = 3
 """Maximum factor an expression cost can exceed the minimum and still be considered."""
 
 
 @PETSc.Log.EventDecorator()
-def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
+def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = False) -> pyop3.insn.Instruction:
     # This optimisation is collective but since the array size is part of the
     # heuristic one can get differing optimisation choices on different ranks. We
     # therefore perform all the heuristics on rank 0 and broadcast the selections.
@@ -536,6 +535,42 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
                     trimmed_arg_candidates.append((arg_candidate, cost, materialize_idxs))
             trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
 
+        # Optimise the search tree by only considering disjoint subsets of
+        # candidates. For example, if we have candidates
+        #
+        #     {a: [A, B, C, D], b: [X, Y]}
+        #
+        # we can speed things up by only investigating 4+2 options instead
+        # of 4*2.
+        # If 'compress' is false we skip this as it introduces unnecessary cost.
+        disjoint_subsets: list[tuple[dict, set]] = [
+            (
+                {arg_id: arg_candidates},
+                set(ac for ac, _, _ in arg_candidates),
+            )
+            for arg_id, arg_candidates in trimmed_expr_candidates.items()
+        ]
+        if compress:
+            # Have to do this repeatedly to ensure subsets are fully disjoint
+            while True:
+                new_disjoint_subsets = []
+                for arg_id, arg_candidates in trimmed_expr_candidates.items():
+                    arg_candidate_set = set(ac for ac, _, _ in arg_candidates)
+                    for existing_subset_dict, existing_subset_candidate_set in new_disjoint_subsets:
+                        if arg_candidate_set.intersection(existing_subset_candidate_set):
+                            existing_subset_dict[arg_id] = arg_candidates
+                            existing_subset_candidate_set.update(arg_candidate_set)
+                            break
+                    else:
+                        # not found in an existing subset, create a new one
+                        subset = ({arg_id: arg_candidates}, arg_candidate_set)
+                        new_disjoint_subsets.append(subset)
+
+                if new_disjoint_subsets == disjoint_subsets:
+                    break
+
+                disjoint_subsets = new_disjoint_subsets
+
         # Now select the combination with the lowest combined cost. We can make savings here
         # by sharing indirection maps between different arguments. For example, if we have
         #
@@ -550,18 +585,30 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         #
         #     dat1[mapABC[i]]
         #     dat2[mapBC[i]]
-        min_cost = max_cost
-        for shared_candidate in utils.expand_collection_of_iterables(trimmed_expr_candidates):
-            cost = 0
-            seen_exprs = set()
-            for expr, expr_cost, _ in shared_candidate.values():
-                if expr not in seen_exprs:
-                    cost += expr_cost
-                    seen_exprs.add(expr)
+        best_candidate = {}
+        for candidate_subset, _ in disjoint_subsets:
+            # same as above but per subset
+            best_subset_candidate = {}
+            max_subset_cost = 0
+            for arg_id, arg_candidates in candidate_subset.items():
+                expr, expr_cost, materialize_idxs = min(arg_candidates, key=lambda item: item[1])
+                best_subset_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
+                max_subset_cost += expr_cost
 
-            if cost < min_cost:
-                best_candidate = shared_candidate
-                min_cost = cost
+            min_subset_cost = max_subset_cost
+            for shared_candidate in utils.expand_collection_of_iterables(candidate_subset):
+                cost = 0
+                seen_exprs = set()
+                for expr, expr_cost, _ in shared_candidate.values():
+                    if expr not in seen_exprs:
+                        cost += expr_cost
+                        seen_exprs.add(expr)
+
+                if cost < min_subset_cost:
+                    best_subset_candidate = shared_candidate
+                    min_subset_cost = cost
+            assert best_subset_candidate is not None
+            best_candidate |= best_subset_candidate
 
         # Identify and broadcast the materialisation indices
         materialize_idxss = {key: idxs for key, (_, _, idxs) in best_candidate.items()}
@@ -578,13 +625,13 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
     # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet().union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
+    composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
-        comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
+        comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
     best_candidate = idict({
-        key: expr_visitors.replace(expr, replace_map)
+        key: pyop3.expr.visitors.replace(expr, replace_map)
         for key, expr in best_candidate.items()
     })
 
@@ -602,20 +649,20 @@ class CandidateIndirectionsCollector(NodeVisitor):
     def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
 
-    @process.register(insn_types.NullInstruction)
-    @process.register(insn_types.Exscan)  # assume we are fine
-    def _(self, null: insn_types.InstructionList, index, /, **kwargs) -> idict:
+    @process.register(pyop3.insn.NullInstruction)
+    @process.register(pyop3.insn.Exscan)  # assume we are fine
+    def _(self, null: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
         return idict()
 
 
-    @process.register(insn_types.InstructionList)
-    def _(self, insn_list: insn_types.InstructionList, index, /, **kwargs) -> idict:
+    @process.register(pyop3.insn.InstructionList)
+    def _(self, insn_list: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
         return utils.merge_dicts(
             (self._call(insn, **kwargs) for insn in insn_list),
         )
 
-    @process.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop, index, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
+    @process.register(pyop3.insn.Loop)
+    def _(self, loop: pyop3.insn.Loop, index, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
         loop_indices_ = loop_indices + (loop.index,)
         return utils.merge_dicts(
             (
@@ -624,8 +671,8 @@ class CandidateIndirectionsCollector(NodeVisitor):
             ),
         )
 
-    @process.register(insn_types.NonEmptyTerminal)
-    def _(self, terminal: insn_types.NonEmptyTerminal, index, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
+    @process.register(pyop3.insn.NonEmptyTerminal)
+    def _(self, terminal: pyop3.insn.NonEmptyTerminal, index, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         candidates = {}
         for i, arg in enumerate(terminal.arguments):
             if selector is not None:
@@ -638,7 +685,7 @@ class CandidateIndirectionsCollector(NodeVisitor):
             else:
                 selector_ = None
 
-            per_arg_candidates = expr_visitors.collect_tensor_candidate_indirections(
+            per_arg_candidates = pyop3.expr.visitors.collect_tensor_candidate_indirections(
                 arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress, selector=selector_
             )
             for arg_key, value in per_arg_candidates.items():
@@ -654,216 +701,75 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
 
     @functools.singledispatchmethod
     def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+        return super().process(obj, *args, **kwargs)
 
-    @process.register(insn_types.Exscan)  # assume we are fine
-    def _(self, null: insn_types.InstructionList, /, layouts: Mapping[Any, Any], **kwargs) -> insn_types.InstructionList:
-        return null 
-
-    @process.register(insn_types.InstructionList)
-    def _(self, insn_list: insn_types.InstructionList, /, layouts: Mapping[Any, Any]) -> insn_types.InstructionList:
+    @process.register(pyop3.insn.InstructionList)
+    def _(self, insn_list: pyop3.insn.InstructionList, /, layouts: Mapping[Any, Any]) -> pyop3.insn.InstructionList:
         return maybe_enlist(self._call(insn, layouts=layouts) for insn in insn_list)
 
 
-    @process.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop, /, layouts: Mapping[Any, Any]) -> insn_types.Loop:
+    @process.register(pyop3.insn.Loop)
+    def _(self, loop: pyop3.insn.Loop, /, layouts: Mapping[Any, Any]) -> pyop3.insn.Loop:
         return loop.__record_init__(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
 
 
-    @process.register(insn_types.StandaloneCalledFunction)
-    def _(self, func: insn_types.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> insn_types.StandaloneCalledFunction:
+    @process.register(pyop3.insn.StandaloneCalledFunction)
+    @process.register(pyop3.insn.Exscan)
+    @process.register(pyop3.insn.NullInstruction)
+    def _(self, func: pyop3.insn.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> pyop3.insn.StandaloneCalledFunction:
         return func
 
 
-    @process.register(insn_types.NonEmptyArrayAssignment)
-    def _(self, assignment: insn_types.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> insn_types.ConcretizedNonEmptyArrayAssignment:
+    @process.register(pyop3.insn.NonEmptyArrayAssignment)
+    def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> pyop3.insn.ConcretizedNonEmptyArrayAssignment:
         assignee, expression = (
-            expr_visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
+            pyop3.expr.visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
             for i, arg in enumerate(assignment.arguments)
         )
-        return insn_types.ConcretizedNonEmptyArrayAssignment(
+        return pyop3.insn.ConcretizedNonEmptyArrayAssignment(
             assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
         )
 
 
-def concretize_materialized_indirections(obj, layouts) -> insn_types.Instruction:
+def concretize_materialized_indirections(obj, layouts) -> pyop3.insn.Instruction:
     return MaterializedIndirectionsConcretizer()(obj, layouts=layouts)
 
 
-# does this live here?
-class Renamer:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
 
-    def __getitem__(self, key):
-        return self._store[key]
-
-    def add(self, obj: Any):
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[type(obj)])
-            label = f"{type(obj).__name__}_{index}"
-            return self._store.setdefault(obj, label)
-
-
-class DiskCacheKeyGetter(NodeVisitor):
-
-    def __init__(self):
-        self._renamer = Renamer()
-        super().__init__()
-
+class InstructionCacheKeyGetter(NodeVisitor):
     @functools.singledispatchmethod
-    def process(self, obj: insn_types.Instruction) -> Hashable:
+    def process(self, obj: pyop3.insn.Instruction) -> Hashable:
         return super().process(obj)
 
-
-    @process.register(insn_types.InstructionList)
-    @process.register(insn_types.NullInstruction)
-    @NodeVisitor.postorder
-    def _(self, insn: insn_types.Instruction, *visited: Hashable) -> Hashable:
+    @process.register(pyop3.insn.InstructionList)
+    @process.register(pyop3.insn.NullInstruction)
+    @postorder
+    def _(self, insn: pyop3.insn.Instruction, *visited: Hashable) -> Hashable:
         return (type(insn), *visited)
 
-    @process.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop) -> Hashable:
-        from pyop3.tree.axis_tree.visitors import (
-            get_disk_cache_key as get_axis_tree_disk_cache_key
-        )
-
-        self._renamer.add(loop.index)
-        return (
-            type(loop),
-            get_axis_tree_disk_cache_key(loop.index.iterset, self._renamer),
-            *(self(stmt) for stmt in loop.statements),
-        )
-
-    @process.register(insn_types.StandaloneCalledFunction)
-    def _(self, func: insn_types.StandaloneCalledFunction) -> Hashable:
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        return (
-            type(func),
-            func.function,
-            *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
-        )
-
-    @process.register(insn_types.Exscan)
-    def _(self, exscan: insn_types.Exscan) -> Hashable:
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        return (
-            type(exscan),
-            get_expr_disk_cache_key(exscan.assignee, self._renamer),
-            get_expr_disk_cache_key(exscan.expression, self._renamer),
-            exscan.scan_type,
-        )
-
-    # TODO: Could have a nice visiter that checks fields (except where hash=False)
-    @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: insn_types.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-        from pyop3.tree.axis_tree.visitors import get_disk_cache_key as get_axis_tree_disk_cache_key
-        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-
-        return (
-            type(assignment),
-            get_expr_disk_cache_key(assignment.assignee, self._renamer),
-            get_expr_disk_cache_key(assignment.expression, self._renamer),
-            assignment.assignment_type,
-            tuple(get_axis_tree_disk_cache_key(tree, self._renamer) for tree in assignment.axis_trees),
-        )
-
-
-def get_disk_cache_key(insn: insn_types.Instruction) -> Hashable:
-    return DiskCacheKeyGetter()(insn)
-
-
-class BufferCollector(NodeCollector):
-
-    def __init__(self, comm):
-        from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
-        from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
-
-        expr_collector = ExprBufferCollector.maybe_singleton(comm)
-        tree_collector = TreeBufferCollector.maybe_singleton(comm)
-        expr_collector.tree_collector = tree_collector
-        tree_collector.expr_collector = expr_collector
-
-        self._expr_collector = expr_collector
-        self._tree_collector = tree_collector
-        super().__init__()
-
-    @classmethod
-    @memory_cache(heavy=True)
-    def maybe_singleton(cls, comm) -> Self:
-        return cls(comm)
-
-    @functools.singledispatchmethod
-    def process(self, obj: Any) -> OrderedFrozenSet:
-        return super().process(obj)
-
-    @process.register(insn_types.InstructionList)
-    @NodeCollector.postorder
-    def _(self, insn_list: insn_types.InstructionList, visited, /) -> OrderedFrozenSet:
-        return utils.reduce("|", visited.values(), OrderedFrozenSet())
-
-    @process.register(insn_types.NullInstruction)
-    def _(self, insn: insn_types.NullInstruction, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet()
-
-    @process.register(insn_types.Loop)
-    @NodeCollector.postorder
-    def _(self, insn: insn_types.Loop, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            self._tree_collector(insn.index.iterset),
-            *visited["statements"],
-        )
-
-    @process.register(insn_types.StandaloneCalledFunction)
-    def _(self, func: insn_types.StandaloneCalledFunction, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            *(self._expr_collector(arg) for arg in func.arguments)
-        )
-
-    @process.register(insn_types.Exscan)
-    def _(self, exscan: insn_types.Exscan, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(
-            self._expr_collector(exscan.assignee),
-            self._expr_collector(exscan.expression),
-            self._expr_collector(exscan.extent),
-        )
-
-    @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: insn_types.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-        return (
-            self._expr_collector(assignment.assignee)
-            | self._expr_collector(assignment.expression)
-            | utils.reduce("|", map(self._tree_collector, assignment.axis_trees))
-        )
-
-
-def collect_buffers(insn: insn_types.Instruction) -> OrderedFrozenSet:
-    return BufferCollector.maybe_singleton(insn.comm)(insn)
 
 
 class LiteralInserter(NodeTransformer):
 
     @functools.singledispatchmethod
-    def process(self, obj: Any) -> insn_types.Instruction:
+    def process(self, obj: Any) -> pyop3.insn.Instruction:
         return super().process(obj)
 
-    @process.register(insn_types.Loop)
-    @process.register(insn_types.Exscan)
-    @process.register(insn_types.StandaloneCalledFunction)
-    def _(self, insn: insn_types.Instruction) -> insn_types.Instruction:
+    @process.register(pyop3.insn.InstructionList)
+    @process.register(pyop3.insn.Loop)
+    @process.register(pyop3.insn.Exscan)
+    @process.register(pyop3.insn.StandaloneCalledFunction)
+    @process.register(pyop3.insn.NullInstruction)
+    def _(self, insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
         return self.reuse_if_untouched(insn)
 
-    @process.register(insn_types.NonEmptyArrayAssignment)
-    def _(self, assignment: insn_types.NonEmptyArrayAssignment, /) -> insn_types.NonEmptyArrayAssignment:
+    @process.register(pyop3.insn.NonEmptyArrayAssignment)
+    def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /) -> pyop3.insn.NonEmptyArrayAssignment:
         # NOTE: This is not robust to if we have expressions that are not just ints, or
         # if the mat is on the rhs
         if (
             isinstance(assignment.assignee, MatPetscMatBufferExpression)
+            and isinstance(assignment.assignee.buffer.handle, PETSc.Mat)
             and isinstance(assignment.expression, numbers.Number)
         ):
             # If we have an expression like
@@ -875,14 +781,34 @@ class LiteralInserter(NodeTransformer):
             row_axis_tree, column_axis_tree = assignment.axis_trees
             nrows = row_axis_tree.local_max_size
             ncols = column_axis_tree.local_max_size
-            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.buffer.dtype)
+            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.dtype)
 
-            new_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
+            new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
             return assignment.__record_init__(_expression=new_expression)
         else:
             return assignment
 
 
-def insert_literals(insn: insn_types.Instruction) -> insn_types.Instruction:
+def insert_literals(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
     return LiteralInserter()(insn)
+
+
+class CompilerOptionsCollector(NodeVisitor):
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /, *args, **kwargs) -> NoReturn:
+        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register
+    def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:
+        return insn.compiler_options
+
+    @process.register
+    @postorder
+    def _(self, insn: pyop3.insn.Loop, /, visited) -> pyop3.compile.CompilerOptions:
+        return sum(visited["statements"], pyop3.compile.CompilerOptions())
+
+
+def collect_compiler_options(insn: pyop3.insn.Instruction) -> pyop3.compile.CompilerOptions:
+    return CompilerOptionsCollector()(insn)

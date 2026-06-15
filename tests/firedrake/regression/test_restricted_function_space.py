@@ -1,10 +1,30 @@
 import pytest
 import numpy as np
 from firedrake import *
+from ufl.duals import is_dual
+
+
+def test_dual_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    Vstar = V.dual()
+    Vstar_res = RestrictedFunctionSpace(Vstar, [2])
+    assert is_dual(Vstar_res)
+
+    V_res = RestrictedFunctionSpace(V, [2])
+    assert Vstar_res == V_res.dual()
+
+
+def test_composite_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    V1 = RestrictedFunctionSpace(RestrictedFunctionSpace(V, [3]), [1])
+    V2 = RestrictedFunctionSpace(V, [3, 1])
+    assert V1 == V2
 
 
 def compare_function_space_assembly(function_space, restricted_function_space,
-                                    bcs, res_bcs=[]):
+                                    bcs, res_bcs=()):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
     original_form = inner(u, v) * dx
@@ -30,29 +50,48 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     normal_fs_matrix_reduced = np.delete(normal_fs_matrix_reduced, delete_rows,
                                          axis=1)
 
-    assert (restricted_fs_matrix.M.nrows == np.shape(normal_fs_matrix_reduced)[0])
-    assert (restricted_fs_matrix.M.ncols == np.shape(normal_fs_matrix_reduced)[1])
-    assert (np.array_equal(normal_fs_matrix_reduced, restricted_fs_matrix.M.values))
+    restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
+    assert np.allclose(normal_fs_matrix_reduced, restricted_values)
 
 
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_1_1_square(j):
-    mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(mesh, "CG", j)
+@pytest.mark.parametrize("n,p", [(1, 1), (1, 2), (1, 5), (2, 1), (5, 1)])
+@pytest.mark.parametrize("redundant_bc", [False, True])
+def test_restricted_function_space_square(n, p, redundant_bc):
+    mesh = UnitSquareMesh(n, n)
+    V = FunctionSpace(mesh, "CG", p)
     bc = DirichletBC(V, 0, 2)
     V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
-    res_bc = DirichletBC(V_res, 0, 2)
-    compare_function_space_assembly(V, V_res, [bc], [res_bc])
+    if redundant_bc:
+        res_bcs = (DirichletBC(V_res, 0, 2),)
+    else:
+        res_bcs = ()
+    compare_function_space_assembly(V, V_res, [bc], res_bcs)
 
 
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_j_j_square(j):
-    mesh = UnitSquareMesh(j, j)
-    V = FunctionSpace(mesh, "CG", 1)
-    bc = DirichletBC(V, 0, 2)
-    V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("into_restricted", (True, False), ids=("into-restricted", "from-restricted"))
+def test_restrict_assign(into_restricted):
+    mesh = UnitSquareMesh(3, 3)
 
-    compare_function_space_assembly(V, V_res, [bc])
+    V = VectorFunctionSpace(mesh, "RT", 1)
+    Vres = RestrictedFunctionSpace(V, ("on_boundary",))
+
+    u = Function(V)
+    ures = Function(Vres)
+
+    if into_restricted:
+        source = u
+        target = ures
+    else:
+        source = ures
+        target = u
+
+    size = source.dat.data_ro.size
+    shape = source.dat.data_ro.shape
+    source.dat.data_wo[...] = np.arange(size).reshape(shape)
+
+    target.assign(source)
+    assert errornorm(ures, u) < 1E-13
 
 
 def test_poisson_homogeneous_bcs():
@@ -286,13 +325,13 @@ def test_restricted_function_space_extrusion_basics():
         lgmap_expected = [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
     assert np.allclose(lgmap.indices, lgmap_expected)
     # Check vec.
-    n = V_res.dof_dset.size
+    n = V_res.axes.owned.local_size
     lgmap_owned = lgmap.indices[:n]
     local_global_filter = lgmap_owned >= 0
-    local_array = 1.0 * np.arange(V_res.dof_dset.total_size)
+    local_array = 1.0 * np.arange(V_res.axes.local_size)
     f = Function(V_res)
     f.dat.data_wo_with_halos[:] = local_array
-    with f.vec as v:
+    with f.dat.vec_rw as v:
         assert np.allclose(v.getArray(), local_array[:n][local_global_filter])
         v *= 2.
     assert np.allclose(f.dat.data_ro_with_halos[:n][local_global_filter], 2. * local_array[:n][local_global_filter])
@@ -462,18 +501,27 @@ def test_restrict_python_pc():
     assert errornorm(u_exact, u) < 1E-10
 
 
-def test_restrict_multigrid():
+@pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
+def test_restrict_multigrid(degree, relax):
+    if relax == "asm":
+        relax_params = {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+        }
+    else:
+        relax_params = {"pc_type": relax}
+
     base = UnitSquareMesh(2, 2)
     refine = 2
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", 1)
+    V = VectorFunctionSpace(mesh, "CG", degree)
     u = Function(V)
     test = TestFunction(V)
 
-    x, y = SpatialCoordinate(mesh)
-    u_exact = x + y
+    x = SpatialCoordinate(mesh)
+    u_exact = x
     g = Function(V).interpolate(u_exact)
 
     F = inner(grad(u - u_exact), grad(test)) * dx
@@ -488,7 +536,7 @@ def test_restrict_multigrid():
         "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
+        "mg_levels": relax_params,
         "mg_coarse_pc_type": "lu"})
     solver.solve()
 

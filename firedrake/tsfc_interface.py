@@ -41,7 +41,6 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "coefficient_numbers",
                                      "constant_numbers",
                                      "needs_cell_facets",
-                                     "pass_layer_arg",
                                      "arguments",
                                      "events"])
 
@@ -132,7 +131,7 @@ class TSFCKernel:
 
             ast = kernel.ast
             if parameters.get("add_likwid_markers", False):
-                from pyop3.ir.transform import add_likwid_markers
+                from pyop3.lower.transform import add_likwid_markers
 
                 ep = add_likwid_markers(ast.default_entrypoint)
                 ast = ast.with_kernel(ep)
@@ -151,7 +150,6 @@ class TSFCKernel:
                                       coefficient_numbers=coefficient_numbers_per_kernel,
                                       constant_numbers=constant_numbers_per_kernel,
                                       needs_cell_facets=False,
-                                      pass_layer_arg=False,
                                       arguments=kernel.arguments,
                                       events=events))
         self.kernels = tuple(kernels)

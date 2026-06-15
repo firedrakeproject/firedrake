@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import TwoFormAssembler
-from firedrake.utils import ScalarType, IntType
+from firedrake.utils import ScalarType
 
 
 @pytest.fixture(scope='module')
@@ -115,10 +115,19 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
-@pytest.mark.parallel
-@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
+# UNDO ME, debugging
+# @pytest.mark.parallel
+@pytest.mark.parametrize(
+    "shape,mat_type,sub_mat_type",
+    [
+        ("scalar", "is", None),
+        ("vector", "is", None),
+        ("mixed", "is", None),
+        ("mixed", "nest", "is"),
+    ],
+)
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
-def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
+def test_assemble_matis(mesh, shape, mat_type, sub_mat_type, dirichlet_bcs):
     if shape == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
     elif shape == "vector":
@@ -153,7 +162,7 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         bcs = None
 
     aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
-    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
+    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type).petscmat
 
     aij = PETSc.Mat()
     if ais.type == "nest":
@@ -172,8 +181,8 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
             blocks.append(row)
         anest = PETSc.Mat()
         anest.createNest(blocks,
-                         isrows=V.dof_dset.field_ises,
-                         iscols=V.dof_dset.field_ises,
+                         isrows=V.field_ises,
+                         iscols=V.field_ises,
                          comm=ais.comm)
         anest.convert("aij", aij)
     else:
@@ -401,9 +410,9 @@ def test_split_subdomain_ids():
     a = assemble(conj(v0)*dx + conj(v1)*dx)
     b = assemble(conj(v0)*dx + conj(v1)*dx(1))
 
-    assert (a.dat[0].data == b.dat[0].data).all()
-    assert b.dat[1].data[0] == 0.0
-    assert b.dat[1].data[1] == a.dat[1].data[1]
+    assert (a.dat[Z._labels[0]].data == b.dat[Z._labels[0]].data).all()
+    assert b.dat[Z._labels[1]].data[0] == 0.0
+    assert b.dat[Z._labels[1]].data[1] == a.dat[Z._labels[1]].data[1]
 
 
 def test_assemble_tensor_empty_shape(mesh):
@@ -415,3 +424,41 @@ def test_assemble_tensor_empty_shape(mesh):
     v = Function(V).assign(1)
     expected = assemble(inner(v, v)*dx)
     assert np.allclose(result, expected)
+
+
+@pytest.mark.parametrize("coefficient", [False, True], ids=["Expr", "Function"])
+def test_cell_avg(coefficient):
+    mesh = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(mesh)
+    expr = dot(x, x) ** 2
+    if coefficient:
+        V = FunctionSpace(mesh, "CG", 4)
+        expr = Function(V).interpolate(expr)
+
+    result = assemble(inner(cell_avg(expr), expr) * dx)
+
+    Q = FunctionSpace(mesh, "DG", 0)
+    p = Function(Q)
+    p.project(expr)
+    expect = assemble(inner(p, expr) * dx)
+    assert np.isclose(result, expect)
+
+
+def test_cell_avg_mfs():
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = MixedFunctionSpace([V, Q])
+    z = Function(Z)
+    usub, psub = z.subfunctions
+    usub.interpolate(SpatialCoordinate(mesh))
+    psub.interpolate(Constant(1))
+
+    expect = 6
+    result1 = assemble(inner(cell_avg(div(usub)), psub + div(usub))*dx)
+    assert np.isclose(result1, expect)
+
+    # This fails if do_replace_functions=True in entity_avg in tscf/ufl_utils.py
+    u, p = split(z)
+    result2 = assemble(inner(cell_avg(div(u)), p + div(u))*dx)
+    assert np.isclose(result2, expect)

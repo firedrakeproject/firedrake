@@ -1,24 +1,34 @@
 from __future__ import annotations
 
 import abc
+import itertools
 import numbers
+import typing
 from functools import cached_property
-from typing import Any, ClassVar, Callable
+from typing import Any, ClassVar, Callable, Hashable, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.cache
+from pyop3.cache import cached_method
+from pyop3.expr.base import ExpressionT
+import pyop3.record
 from pyop3 import utils
 from pyop3.sf import DistributedObject
-from pyop3.tree.axis_tree import ContextAware
-from pyop3.tree.axis_tree.tree import AbstractAxisTree
-from pyop3.expr import Terminal
+from pyop3.axis_tree import ContextAware
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
+from pyop3.expr import TerminalExpression
 from pyop3.exceptions import InvalidIndexCountException
 
+if typing.TYPE_CHECKING:
+    import pyop3.insn
+    import pyop3.insn.exec
 
-class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
+
+class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -50,7 +60,7 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def parent(self) -> Array | None:
+    def transform(self):
         pass
 
     @property
@@ -88,12 +98,8 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def axis_trees(self) -> tuple[AbstractAxisTree, ...]:
+    def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, ...]:
         pass
-
-    @PETSc.Log.EventDecorator()
-    def zero(self, *, eager=False):
-        return self.assign(0, eager=eager)
 
     # }}}
 
@@ -121,56 +127,119 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
 
-    def assign(self, other, /, *, eager=False, compiler_parameters=None):
-        return self._assign(other, "write", eager=eager, compiler_parameters=compiler_parameters)
+    @PETSc.Log.EventDecorator()
+    def assign(
+        self,
+        other: ExpressionT,
+        /,
+        *,
+        eager: bool = False,
+        eager_strategy: Literal["array", "compile"] | None = None,
+        compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
+    ) -> pyop3.insn.Assignment | None:
+        return self._assign(other, "write", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
-    def iassign(self, other, /, *, eager=False, compiler_parameters=None):
-        return self._assign(other, "inc", eager=eager, compiler_parameters=compiler_parameters)
+    @PETSc.Log.EventDecorator()
+    def iassign(
+        self,
+        other: ExpressionT,
+        /,
+        *,
+        eager: bool = False,
+        eager_strategy: Literal["array", "compile"] | None = None,
+        compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
+    ) -> pyop3.insn.Assignment | None:
+        return self._assign(other, "inc", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
-    def _assign(self, other, mode, /, *, eager: bool, compiler_parameters):
-        from pyop3.insn import ArrayAssignment
-        from .dat import Dat
-        from .mat import Mat
+    def _assign(
+        self,
+        other: ExpressionT,
+        /,
+        mode: Literal["write", "inc"],
+        *,
+        eager: bool,
+        eager_strategy: Literal["array", "compile"] | None,
+        compiler_parameters: pyop3.insn.exec.CompilerParametersT | None,
+    ) -> pyop3.insn.Assignment | None:
+        if compiler_parameters is not None and not eager:
+            raise ValueError("Compiler parameters can only be passed to eager operations")
 
-        if not eager and compiler_parameters:
-            raise RuntimeError
+        if eager:
+            # Have we already compiled code for this assignment? If so then reuse it
+            # regardless of 'eager_strategy' (it will be faster).
+            cache = pyop3.cache.get_method_cache(self)[self._symbolic_assign.__qualname__]
+            cache_key = self._symbolic_assign.cache_key(self, other, mode)
+            try:
+                assign_insn = cache[cache_key]
+            except KeyError:
+                pass
+            else:
+                assign_insn(compiler_parameters=compiler_parameters)
+                return
 
-        # TODO: If eager should try and convert to some sort of maxpy operation
-        # instead of doing a full code generation pass. Would have to make sure
-        # that nothing is indexed. This could also catch the case of x.assign(x).
-        # This will need to include expanding things like a(x + y) into ax + ay
-        # (distributivity).
+            if eager_strategy is None:
+                try:
+                    self._array_assign(other, mode)
+                except BaseException as e:
+                    raise e
+                    # TODO: log a warning, or do something else sensible
+                    self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
+            elif eager_strategy == "array":
+                self._array_assign(other, mode)
+            else:
+                assert eager_strategy == "compile"
+                self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
+            return
 
-        expr = ArrayAssignment(self, other, mode)
-        return expr(compiler_parameters=compiler_parameters) if eager else expr
+        else:
+            if eager_strategy is not None:
+                raise ValueError(
+                    "'eager_strategy' is only a valid option for eagerly evaluated assignments"
+                )
 
-    def duplicate(self, *, copy: bool = False) -> Tensor:
+            return self._symbolic_assign(other, mode)
+
+    @cached_method()
+    def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+        from pyop3.insn import Assignment
+
+        return Assignment(self, other, mode)
+
+    @abc.abstractmethod
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        pass
+
+    @PETSc.Log.EventDecorator()
+    def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
+        return self.assign(0, **kwargs)
+
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Tensor:
+        """Return a duplicate of the tensor.
+
+        Parameters
+        ----------
+        copy
+            Whether to copy values to the new object.
+        constant
+            Is the duplicate mutable or not? If `None` then default to the const-ness
+            of the original object.
+
+        """
         name = f"{self.name}_copy"
-        buffer = self.buffer.duplicate(copy=copy)
+        buffer = self.buffer.duplicate(copy=copy, constant=constant)
         return self.__record_init__(_name=name, _buffer=buffer)
 
-    def copy(self) -> Tensor:
-        return self.duplicate(copy=True)
+    def copy(self, *, constant: bool | None = None) -> Tensor:
+        """Return a copy of the tensor.
 
-    # NOTE: This is quite nasty
-    @cached_property
-    def loop_axes(self) -> tuple[Axis]:
-        breakpoint()
-        if self.parent:
-            raise NotImplementedError
-        # we should be able to get this information from the subst layouts
-        import pyop3.extras.debug
-        pyop3.extras.debug.warn_todo("Nasty code, do it better")
-        assert all(
-            loop.iterset.is_linear
-            for axes in self.axis_trees
-            for loop in axes.outer_loops
-        )
-        return idict({
-            loop: tuple(axis.localize() for axis in loop.iterset.nodes)
-            for axes in self.axis_trees
-            for loop in axes.outer_loops
-        })
+        Parameters
+        ----------
+        constant
+            Is the copy mutable or not? If `None` then default to the const-ness
+            of the original object.
+
+        """
+        return self.duplicate(copy=True, constant=constant)
 
     @abc.abstractmethod
     def concretize(self):
@@ -178,19 +247,24 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
-class TensorTransform(abc.ABC):
+class TensorTransform(pyop3.obj.Pyop3Object, abc.ABC):
 
     @property
     @abc.abstractmethod
     def prev(self) -> TensorTransform | None:
         pass
 
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        pass
+
 
 class CallableTensorTransform(TensorTransform):
-    ...
+    pass
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # {{{ instance attrs
@@ -199,20 +273,33 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
     transform_out: Callable[[Tensor, Tensor], None]
     _prev: TensorTransform | None = None
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            self.transform_in,
+            self.transform_out,
+            visitor(self._prev),
+        )
+
+
     # }}}
 
     # {{{ interface impls
 
-    prev = utils.attr("_prev")
+    prev = pyop3.record.attr("_prev")
+
+    @property
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        raise NotImplementedError
 
     # }}}
 
 
 class IdentityTensorTransform(TensorTransform):
-    ...
+    pass
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class ReshapeTensorTransform(IdentityTensorTransform):
 
     # {{{ instance attrs
@@ -220,10 +307,26 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     axis_trees: tuple[AxisTree, ...]
     _prev: TensorTransform | None = None
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            tuple(map(visitor, self.axis_trees)),
+            visitor(self._prev),
+        )
+
+
     # }}}
 
     # {{{ interface impls
 
-    prev = utils.attr("_prev")
+    prev = pyop3.record.attr("_prev")
+
+    @cached_property
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        return tuple(
+            itertools.zip_longest(
+                *(axes.nest_indices for axes in self.axis_trees)
+            )
+        )
 
     # }}}

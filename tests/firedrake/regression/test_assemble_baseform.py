@@ -298,8 +298,8 @@ def test_cofunction_riesz_representation(a):
         if mass:
             M = assemble(mass)
             Mr = Function(V)
-            with r.vec_ro as v_vec:
-                with Mr.vec_wo as res_vec:
+            with r.dat.vec_ro as v_vec:
+                with Mr.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
@@ -335,8 +335,8 @@ def test_function_riesz_representation(f):
         if mass:
             M = assemble(mass)
             Mf = Function(V)
-            with f.vec_ro as v_vec:
-                with Mf.vec_wo as res_vec:
+            with f.dat.vec_ro as v_vec:
+                with Mf.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity

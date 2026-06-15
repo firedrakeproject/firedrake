@@ -4,6 +4,7 @@ import abc
 import collections
 import itertools
 import numbers
+import typing
 from functools import cached_property
 from itertools import product
 from typing import Any, ClassVar
@@ -14,22 +15,24 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyop3 import buffer
 
+import pyop3.dtypes
+import pyop3.index_tree
+import pyop3.record
 from pyop3 import utils
-from pyop3.typing import KwargsT
+from pyop3.cache import cached_method
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
-from pyop3.tree.axis_tree import (
-    AbstractAxisTree,
+from pyop3.axis_tree import (
+    AbstractNonUnitAxisTree,
     AxisForest,
     AxisTree,
     Axis,
     ContextSensitiveAxisTree,
     as_axis_tree_type,
 )
-from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
-from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, LGMap
+from pyop3.axis_tree import as_axis_tree, as_axis_forest
+from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import ScalarType
-from pyop3.typing import PetscSizeT
 from pyop3.utils import (
     just_one,
     single_valued,
@@ -37,8 +40,11 @@ from pyop3.utils import (
     unique,
 )
 
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
-@utils.record()
+
+@pyop3.record.record()
 class Mat(Tensor):
 
     # {{{ instance attributes
@@ -47,8 +53,20 @@ class Mat(Tensor):
     column_axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
-    _parent: Mat | None
-    transform: TensorTransform | None
+    _transform: TensorTransform | None
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # buffers in the axis trees aren't allowed to change
+        with visitor.inside():
+            row_axes_key = visitor(self.row_axes)
+            column_axes_key = visitor(self.column_axes)
+        return (
+            type(self),
+            row_axes_key,
+            column_axes_key,
+            visitor(self._buffer),
+            visitor(self._transform),
+        )
 
     def __init__(
         self,
@@ -58,7 +76,6 @@ class Mat(Tensor):
         *,
         name=None,
         prefix=None,
-        parent=None,
         transform=None,
     ):
         if not isinstance(buffer, AbstractBuffer):
@@ -72,13 +89,13 @@ class Mat(Tensor):
         self.column_axes = column_axes
         self._buffer = buffer
         self._name = name
-        self._parent = parent
-        self.transform = None
+        self._transform = transform
 
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        pass
+        if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
+            assert len(self.buffer.shape) == 2
 
     # }}}
 
@@ -91,8 +108,8 @@ class Mat(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    parent: ClassVar[property] = utils.attr("_parent")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    transform: ClassVar[property] = pyop3.record.attr("_transform")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -105,6 +122,9 @@ class Mat(Tensor):
     @property
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
+
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}
 
@@ -125,12 +145,7 @@ class Mat(Tensor):
             buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
 
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-
-        if not preallocator:
-            buffer = AllocatedPetscMatBuffer.empty(full_spec, **buffer_kwargs)
-        else:
-            buffer = PetscMatPreallocatorBuffer.empty(full_spec, **buffer_kwargs)
-
+        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -141,19 +156,23 @@ class Mat(Tensor):
     def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.unindexed.size*column_axes.unindexed.size, dtype=dtype, **buffer_kwargs)
+        buffer = NullBuffer(
+            (row_axes.unindexed.local_max_size, column_axes.unindexed.local_max_size),
+            dtype=dtype,
+            **buffer_kwargs,
+        )
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}
 
-    # {{{ Array impls
+    # {{{ (more) interface impls (tidy me)
 
     def materialize(self) -> Mat:
         """Return a new "unindexed" array with the same shape."""
         # TODO: use axis forests instead of trees here
         return type(self).null(
-            self.row_axes.materialize().localize(),
-            self.column_axes.materialize().localize(),
+            self.row_axes.materialize().regionless(),
+            self.column_axes.materialize().regionless(),
             dtype=self.dtype,
             prefix="t",
         )
@@ -180,7 +199,7 @@ class Mat(Tensor):
         "The number of local columns in the matrix (including ghosts)."
         return self.column_axes.local_size
 
-    @utils.cached_method()
+    @cached_method()
     def getitem(self, row_index, column_index, *, strict=False):
         # (old comment, still useful exposition)
         # Combine the loop contexts of the row and column indices. Consider
@@ -233,10 +252,6 @@ class Mat(Tensor):
     def concretize(self):
         raise NotImplementedError
 
-    # }}}
-
-    # {{{ DistributedArray impls
-
     @property
     def buffer(self) -> Any:
         return self._buffer
@@ -258,7 +273,7 @@ class Mat(Tensor):
         return self.__record_init__(
             row_axes=row_axes,
             column_axes=column_axes,
-            transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
+            _transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
         )
 
     @cached_property
@@ -269,84 +284,8 @@ class Mat(Tensor):
     def alloc_size(self) -> int:
         return self.row_axes.alloc_size * self.column_axes.alloc_size
 
-    @property
-    def nested(self):
-        assert False, "old code"
-        pyop3.extras.debug.warn_todo("Not checking properly for nested")
-        return False
-        return isinstance(self.mat_type, collections.abc.Mapping)
-
     @cached_property
-    def nest_labels(self):
-        if self.nested:
-            return tuple(self._iter_nest_labels())
-        else:
-            return ((None, None),)
-
-    def _iter_nest_labels(
-        self, raxis=None, caxis=None, mat_type=None, rlabel_acc=None, clabel_acc=None
-    ):
-        assert self.nested
-
-        if strictly_all(
-            x is None for x in {raxis, caxis, mat_type, rlabel_acc, clabel_acc}
-        ):
-            raxis = self.row_axes.unindexed.root
-            caxis = self.column_axes.unindexed.root
-            mat_type = self.mat_type
-            rlabel_acc = ()
-            clabel_acc = ()
-
-        if not strictly_all(x is None for x, _ in mat_type.keys()):
-            rroot = self.row_axes.root
-            rlabels = unique(
-                clabel
-                for c in rroot.components
-                for axlabel, clabel in self.row_axes.target_paths[
-                    rroot.id, c.label
-                ].items()
-                if axlabel == raxis.label
-            )
-            assert len(rlabels) in {0, 1}
-
-            if len(rlabels) == 0:
-                rlabels = tuple(c.label for c in raxis.components)
-        else:
-            rlabels = (None,)
-
-        if not strictly_all(x is None for _, x in mat_type.keys()):
-            croot = self.column_axes.root
-            clabels = unique(
-                clabel
-                for c in croot.components
-                for axlabel, clabel in self.column_axes.target_paths[
-                    croot.id, c.label
-                ].items()
-                if axlabel == caxis.label
-            )
-            assert len(clabels) in {0, 1}
-
-            if len(clabels) == 0:
-                clabels = tuple(c.label for c in caxis.components)
-        else:
-            clabels = (None,)
-
-        for rlabel, clabel in product(rlabels, clabels):
-            rlabel_acc_ = rlabel_acc + (rlabel,)
-            clabel_acc_ = clabel_acc + (clabel,)
-
-            submat_type = mat_type[rlabel, clabel]
-            if isinstance(submat_type, collections.abc.Mapping):
-                rsubaxis = self.row_axes.unindexed.child(raxis, rlabel)
-                csubaxis = self.column_axes.unindexed.child(caxis, clabel)
-                yield from self._iter_nest_labels(
-                    rsubaxis, csubaxis, submat_type, rlabel_acc_, clabel_acc_
-                )
-            else:
-                yield (rlabel_acc_, clabel_acc_)
-
-    @cached_property
-    def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:
+    def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, AbstractNonUnitAxisTree]:
         return (self.row_axes, self.column_axes)
 
     @classmethod
@@ -358,6 +297,11 @@ class Mat(Tensor):
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
+        return self.as_array("ro")
+
+
+    def as_array(self, mode, *, regions=frozenset({"owned"})):
+        assert mode == "ro"
         if self.comm.size > 1:
             raise RuntimeError("Only valid in serial")
 
@@ -369,20 +313,19 @@ class Mat(Tensor):
 
         self.assemble()
 
-        # TODO: Should use something similar to buffer_indices to select the
-        # right indices.
         if isinstance(self.buffer, PetscMatBuffer):
-            petscmat = self.buffer.mat
-            if self.buffer.mat_type == "nest":
-                # TODO: What if we don't fully index?
-                # Should the buffer be responsible for this?
-                for ri, ci in self.nest_indices:
-                    petscmat = petscmat.getNestSubMatrix(ri, ci)
+            mat = self.buffer.mat
+            if mat.type == PETSc.Mat.Type.NEST:
+                for row_index, column_index in self.nest_indices:
+                    mat = mat.getNestSubMatrix(row_index, column_index)
 
-            if petscmat.type == PETSc.Mat.Type.PYTHON:
-                return petscmat.getPythonContext().dat.data_ro
+            if mat.type == PETSc.Mat.Type.PYTHON:
+                context = mat.getPythonContext()
+                return mat.getPythonContext().data_ro
             else:
-                return petscmat[self.row_axes._buffer_slice, self.column_axes._buffer_slice]
+                row_indices = self.row_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
+                column_indices = self.column_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
+                return mat[row_indices, column_indices]
         else:
             raise NotImplementedError
 
@@ -393,19 +336,34 @@ class Mat(Tensor):
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.column_axes.nest_indices))
+        idxs = tuple(
+            itertools.zip_longest(
+                self.row_axes.nest_indices, self.column_axes.nest_indices
+            )
+        )
+        if self.transform:
+            return self.transform.nest_indices + idxs
+        else:
+            return idxs
+
+    @cached_property
+    def nest_labels(self) -> tuple[tuple[int, int], ...]:
+        if self.transform:
+            raise NotImplementedError
+        return tuple(itertools.zip_longest(self.row_axes.nest_labels, self.column_axes.nest_labels))
 
 
-def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
+def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
         comm = utils.common_comm((row_axes, column_axes), "comm")
 
         if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes
             column_spec = column_axes
+            # return row_spec, column_spec
         else:
-            nrows = row_axes.unindexed.owned.local_size
-            ncolumns = column_axes.unindexed.owned.local_size
+            nrows = row_axes.free.buffer_size(include_ghosts=False)
+            ncolumns = column_axes.free.buffer_size(include_ghosts=False)
 
             row_block_shape, column_block_shape = partial_spec.block_shape
             if row_block_shape:
@@ -417,8 +375,11 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             else:
                 blocked_column_axes = column_axes
 
-            row_lgmap = LGMap(blocked_row_axes.global_numbering.data_ro_with_halos, row_axes, row_block_shape)
-            column_lgmap = LGMap(blocked_column_axes.global_numbering.data_ro_with_halos, column_axes, column_block_shape)
+            row_block_size = np.prod(row_block_shape, dtype=pyop3.dtypes.IntType)
+            column_block_size = np.prod(column_block_shape, dtype=pyop3.dtypes.IntType)
+
+            row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos.copy(), bsize=row_block_size, comm=comm)
+            column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos.copy(), bsize=column_block_size, comm=comm)
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
@@ -438,197 +399,49 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
     return full_spec
 
 
-# TODO: I don't think that this needs to be a Dat, a vec or array buffer is fine
-class DatPythonMatContext:
-
-    def __init__(self, dat: Dat):
-        self.dat = dat
-
-    @classmethod
-    @abc.abstractmethod
-    def from_spec(cls, *args, **kwargs) -> DatPythonMatContext:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        pass
-
-    def set_diagonal(self, value: numbers.Number) -> None:
-        self.dat.data_wo[0] = value
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.dat.comm
-
-    @property
-    def handle(self):
-        assert not self.dat.buffer.is_nested
-        return self.dat.buffer.handle()
-
-
-    # def __getitem__(self, key):
-    #     shape = [s[0] or 1 for s in self.sizes]
-    #     return self.dat.data_ro.reshape(*shape)[key]
-
-    def zeroEntries(self, mat):
-        self.dat.zero()
-
-    def mult(self, mat, x, y):
-        """Set y = self @ x."""
-        with self.dat.vec_ro as A:
-            if isinstance(self, RowDatPythonMatContext):  # FIXME: inheritance
-                # Example:
-                # * 'A' (self) has global size (5, 2)
-                # * 'x' has global size (5, 2)
-                # * 'y' has global size (2, 2)
-                #
-                #     A     ⊗  x  ➜  y
-                # ■ ■ ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■ ■ ■   ■ ■   ■ ■
-                #             ■ ■
-                #             ■ ■
-                #             ■ ■
-                y.setValue(0, A.dot(x))
-            else:
-                assert isinstance(self, ColumnDatPythonMatContext)  # FIXME: inheritance
-                # Example:
-                # * 'A' (self) has global size (5, 3)
-                # * 'x' has global size (3, 2)
-                # * 'y' has global size (5, 2)
-                #
-                #   A   ⊗  x  ➜  y
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■   ■ ■   ■ ■
-                # ■ ■ ■         ■ ■
-                # ■ ■ ■         ■ ■
-                #
-                # The algorithm is:
-                #
-                #     for i in range(5):
-                #       for j in range(2):
-                #         for k in range(3):
-                #           y[i,j] += A[i,k] * x[k,j]
-                #
-                # We can always assume that 'x' is small in both dimensions so
-                # those loops are safe to do explicitly (on the outside):
-                #
-                #     for j in range(2):
-                #       for k in range(3):
-                #         y[:,j] += A[:,k] * x[k,j]
-                #
-                # Which I know how to do efficiently using numpy.
-                nj = x.block_size
-                nk = A.block_size
-                for j in range(nj):
-                    for k in range(nk):
-                        y.buffer_w[:, j] += A.buffer_r[:, k] * x.buffer_r[k, j]
-
-    def multTranspose(self, mat, x, y):
-        raise NotImplementedError
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(y)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 y.scale(a)
-    #             else:
-    #                 v.pointwiseMult(x, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             if y.comm.rank == 0:
-    #                 y.array[0] = out
-    #             else:
-    #                 y.array[...]
-    #
-    # def multTransposeAdd(self, mat, x, y, z):
-    #     ''' z = y + mat^Tx '''
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(z)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 z.scale(a)
-    #                 z.axpy(1, y)
-    #             else:
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 v.pointwiseMult(x, z)
-    #                 return z.axpy(1, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             y = y.array_r
-    #             if z.comm.rank == 0:
-    #                 z.array[0] = out + y[0]
-    #             else:
-    #                 z.array[...]
-
-    def duplicate(self, *, copy=False):
-        new_dat = self.dat.duplicate(copy=copy)
-        return type(self)(new_dat)
-
-
-class RowDatPythonMatContext(DatPythonMatContext):
-
-    @classmethod
-    def from_spec(cls, row_axes, column_axes) -> RowDatPythonMatContext:
-        if column_axes.unindexed.global_size != 1:
-            # NOTE: We assume column axes are just a single global value
-            raise NotImplementedError
-
-        dat = Dat.empty(row_axes, dtype=ScalarType)
-        return cls(dat)
-
-    @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((self.dat.axes.unindexed.owned.local_size, None), (None, 1))
-
-
-class ColumnDatPythonMatContext(DatPythonMatContext):
-
-    @classmethod
-    def from_spec(cls, row_axes, column_axes) -> ColumnDatPythonMatContext:
-        if row_axes.unindexed.global_size != 1:
-            # NOTE: We assume row axes are just a single global value
-            raise NotImplementedError
-        dat = Dat.empty(column_axes, dtype=ScalarType)
-        return cls(dat)
-
-    @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((None, 1), (self.dat.axes.unindexed.owned.local_size, None))
-
-
 # TODO: Should inherit from SymbolicTensor/SymbolicMat
-@utils.record()
-class AggregateMat:
+@pyop3.record.record()
+class AggregateMat(pyop3.obj.Pyop3Object):
     """A matrix formed of multiple submatrices concatenated together."""
+
+    # {{{ instance attrs
+
     submats: np.ndarray[Mat]
+    row_axis: Axis
+    column_axis: Axis
+    name: str
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            tuple(map(visitor, self.submats.flatten())),
+            visitor(self.row_axis),
+            visitor(self.column_axis),
+        )
+
+    def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        # TODO: check size 1 for each axis component and # components must match # subdats
+        self.submats = submats
+        self.row_axis = row_axis
+        self.column_axis = column_axis
+        self.name = name
+
+    # }}}
+
+    DEFAULT_PREFIX: ClassVar[str] = "aggmat"
+
+    def __iter__(self):
+        subitems = []
+        for (ri, ci), submat in np.ndenumerate(self.submats):
+            row_index = pyop3.index_tree.ScalarIndex(
+                self.row_axis.label, self.row_axis.component_labels[ri], 0
+            )
+            column_index = pyop3.index_tree.ScalarIndex(
+                self.column_axis.label, self.column_axis.component_labels[ci], 0
+            )
+            subitems.append(((row_index, column_index), submat))
+        return iter(subitems)
 
     @property
     def subtensors(self):
@@ -638,7 +451,7 @@ class AggregateMat:
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)
-        return type(self)(cf_submats)
+        return self.__record_init__(submats=cf_submats)
 
     @cached_property
     def row_axes(self) -> AxisTree:
@@ -648,7 +461,7 @@ class AggregateMat:
             )
             for row_submats in self.submats
         )
-        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        axes = AxisTree(self.row_axis)
         for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
             axes = axes.add_subtree(leaf_path, subtree)
         return axes
@@ -662,7 +475,7 @@ class AggregateMat:
             )
             for column_submats in self.submats.T
         )
-        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        axes = AxisTree(self.column_axis)
         for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
             axes = axes.add_subtree(leaf_path, subtree)
         return axes
@@ -675,11 +488,11 @@ class AggregateMat:
         return Mat.null(self.row_axes, self.column_axes, dtype=self.dtype)
 
     def assign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "write")
+        return Assignment(self, other, "write")
 
     def iassign(self, other):
-        from pyop3.insn import ArrayAssignment
+        from pyop3.insn import Assignment
 
-        return ArrayAssignment(self, other, "inc")
+        return Assignment(self, other, "inc")

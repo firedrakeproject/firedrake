@@ -18,11 +18,11 @@ def hierarchy():
     mesh2 = RectangleMesh(5, 5, 1, 1, diagonal="right",
                           distribution_parameters=distribution_parameters)
 
-    coarse_to_fine = numpy.tile(numpy.arange(mesh2.num_cells(), dtype=IntType),
-                                (mesh.num_cells(), 1))
+    coarse_to_fine = numpy.tile(numpy.arange(mesh2.num_cells, dtype=IntType),
+                                (mesh.num_cells, 1))
 
-    fine_to_coarse = numpy.tile(numpy.arange(mesh.num_cells(), dtype=IntType),
-                                (mesh2.num_cells(), 1))
+    fine_to_coarse = numpy.tile(numpy.arange(mesh.num_cells, dtype=IntType),
+                                (mesh2.num_cells, 1))
 
     hierarchy = HierarchyBase((mesh, mesh2), [coarse_to_fine], [None, fine_to_coarse],
                               nested=False)

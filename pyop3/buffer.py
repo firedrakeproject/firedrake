@@ -8,17 +8,32 @@ import numbers
 import weakref
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Hashable
 
 import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.config
+import pyop3.obj
+import pyop3.record
+import pyop3.sf
 from pyop3 import utils
-from pyop3.config import config
+from pyop3.cache import cached_method
+from pyop3.collections import OrderedFrozenSet
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
+from pyop3.device import (
+    Device,
+    get_current_device,
+    on_host
+)
+
+from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
+
+
+MatTypeT = str | np.ndarray["MatTypeT"]
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
@@ -51,15 +66,7 @@ def not_in_flight(func):
 
     return wrapper
 
-
-def record_modified(func):
-    def wrapper(self, *args, **kwargs):
-        self.inc_state()
-        return func(self, *args, **kwargs)
-    return wrapper
-
-
-class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
+class AbstractBuffer(pyop3.obj.Pyop3Object):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
@@ -77,7 +84,7 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def duplicate(self, *, copy: bool = False) -> AbstractBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> AbstractBuffer:
         pass
 
     # TODO: not sure I need this here
@@ -86,17 +93,28 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
     def is_nested(self) -> bool:
         pass
 
+    def restrict_nest(self):
+        assert not self.is_nested
+        return self
+
     # }}}
 
     def copy(self) -> AbstractBuffer:
         return self.duplicate(copy=True)
 
+    nest_indices = ()  # default, but nasty - clean me up
+
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
+    def __post_init__(self) -> None:
+        pass
+
+    # {{{ abstract methods
+
     @property
     @abc.abstractmethod
-    def size(self) -> int:
+    def shape(self) -> tuple[int, ...]:
         pass
 
     @property
@@ -109,8 +127,14 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def ordered(self) -> bool:
         pass
 
+    # }}}
 
-@utils.record()
+    @property
+    def size(self) -> int:
+        return np.prod(self.shape, dtype=int)
+
+
+@pyop3.record.record()
 class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
@@ -123,23 +147,49 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ instance attrs
 
-    _size: int
+    _shape: tuple[int, ...]
     _name: str
     _dtype: np.dtype
-    _max_value: np.number | None
-    _ordered: bool
+    _max_value: np.number | None  # unused?
+    _ordered: bool  # unused?
 
-    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
+    def collect_buffers(self, visitor) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), self._shape, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
+
+    def __init__(
+        self,
+        shape: tuple[numbers.Integral, ...] | numbers.Integral,
+        dtype: DTypeT | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        max_value: numbers.Number | None = None,
+        ordered: bool = False,
+    ):
+        if isinstance(shape, numbers.Integral):
+            shape = (shape,)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
 
-        self._size = size
+        self._shape = shape
         self._name = name
         self._dtype = dtype
         self._max_value = max_value
         self._ordered = ordered
+
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert isinstance(self.shape, tuple)
+        super().__post_init__()
 
     # }}}
 
@@ -151,13 +201,15 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ interface impls
 
-    size: ClassVar[property] = utils.attr("_size")
-    name: ClassVar[property] = utils.attr("_name")
-    dtype: ClassVar[property] = utils.attr("_dtype")
-    max_value: ClassVar[property] = utils.attr("_max_value")
-    ordered: ClassVar[property] = utils.attr("_ordered")
+    shape: ClassVar[property] = pyop3.record.attr("_shape")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    dtype: ClassVar[property] = pyop3.record.attr("_dtype")
+    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
-    def duplicate(self, *, copy: bool = False) -> NullBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
+        if constant is None:
+            raise NotImplementedError
         name = f"{self.name}_copy"
         return self.__record_init__(_name=name)
 
@@ -197,33 +249,70 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-
-# NOTE: When GPU support is added, the host-device awareness and
-# copies should live in this class.
-@utils.record()
+@pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a numpy array."""
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
 
     # {{{ Instance attrs
 
-    _lazy_data: np.ndarray = dataclasses.field(repr=False)
+    _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
 
+    # TODO: I don't think that this should be a defaultdict, key misses are meaningful
+    _state: collections.defaultdict[Device, int]
     _max_value: np.number | None = None
-
-    _state: int = 0
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
-        data = data.flatten()
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            self.dtype,
+            visitor.renamer.add(self._name, "ArrayBuffer"),
+            self._constant,
+            self._rank_equal,
+            self._ordered,
+        )
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # we can hit buffers in multiple places...
+        # on the outside these are allowed to differ but inside they aren't
+        if visitor.outer:
+            return (
+                type(self),
+                self.dtype,
+                visitor.renamer.add(self._name, "ArrayBuffer"),
+                self._constant,
+                self._rank_equal,
+                self._ordered,
+            )
+        else:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+
+    def __init__(
+        self,
+        data: np.ndarray | cp.ndarray | None, 
+        sf: StarForest | None = None, *, 
+        name: str|None=None,
+        prefix:str|None=None,
+        constant:bool=False, 
+        rank_equal: bool = False, 
+        max_value: numbers.Number | None=None, 
+        ordered:bool=False
+    ):
+        curr_dev = get_current_device()
+
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -233,21 +322,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
+        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
+
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        assert self.sf.size == self.size
+        assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
+        if isinstance(self.sf, pyop3.sf.StarForest):
+            assert self.sf.size == self.size
+        curr_dev = get_current_device()
         if self.rank_equal:
             assert self.constant
         if self.ordered:
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
+        if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
+            self._lazy_data[curr_dev].flags.writeable = False
 
     # }}}
 
@@ -259,39 +355,56 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
-    rank_equal: ClassVar[property] = utils.attr("_rank_equal")  # TODO: make an abstract property
-    state: ClassVar[property] = utils.attr("_state")
-    max_value: ClassVar[property] = utils.attr("_max_value")
-    ordered: ClassVar[property] = utils.attr("_ordered")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+    rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
+    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self.get_array().shape
 
     @property
     def size(self) -> int:
-        return self._data.size
+        return self.get_array().size
 
     @property
     def dtype(self) -> np.dtype:
-        return self._data.dtype
+        return self.get_array().dtype
+
+    @property
+    def state(self) -> int:
+         return max(self._state.values())
 
     def inc_state(self) -> None:
-        self._state += 1
+        curr_dev = get_current_device() 
+        self._state[curr_dev] = self.state + 1
 
-    def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
+        curr_dev = get_current_device()
+
+        # TODO: Fix for first-assign, immediate duplicate bug
+        # This can be removed once `compile` strategy works on device
+        if curr_dev not in self._lazy_data:
+            self.sync_devices()
+
         if copy:
-            data = self._lazy_data.copy()
+            data = {curr_dev: self._lazy_data[curr_dev].copy()}
         else:
-            data = np.zeros_like(self._lazy_data)
-        return self.__record_init__(_name=name, _lazy_data=data)
+            data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
+        if constant is None:
+            constant = self.constant
+        return self.__record_init__(_name=name, _lazy_data=data, _constant=constant)
 
     is_nested: ClassVar[bool] = False
 
-    def handle(self, *, nest_indices: tuple[tuple[int], ...] = ()) -> np.ndarray:
-        assert not nest_indices
-        return self._data
+    @property
+    def handle(self) -> np.ndarray | cp.ndarray:
+        return self.get_array()
 
     @property
     def comm(self) -> MPI.Comm:
@@ -309,7 +422,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if config.debug:
+        if pyop3.config.debug_checks:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)
@@ -332,51 +445,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return cls(data, **kwargs)
 
     @classmethod
-    def from_scalar(cls, value: numbers.Number, **kwargs):
-        data = np.array([value])
+    def from_scalar(cls, value: numbers.Number, *, dtype=None, **kwargs):
+        data = np.array([value], dtype=dtype)
         return cls(data, **kwargs)
 
     # }}}
-
-    # @property
-    # @not_in_flight
-    # @deprecated(".data_rw")
-    # def data(self):
-    #     return self.data_rw
-
-    # @property
-    # @record_modified
-    # @not_in_flight
-    # def data_rw(self):
-    #     if not self._roots_valid:
-    #         self.reduce_leaves_to_roots()
-    #
-    #     # modifying owned values invalidates ghosts
-    #     self._leaves_valid = False
-    #     return self._owned_data
-
-    # @property
-    # @not_in_flight
-    # def data_ro(self):
-    #     if not self._roots_valid:
-    #         self.reduce_leaves_to_roots()
-    #     return readonly(self._owned_data)
-
-    # @property
-    # @record_modified
-    # @not_in_flight
-    # def data_wo(self):
-    #     """
-    #     Have to be careful. If not setting all values (i.e. subsets) should call
-    #     `reduce_leaves_to_roots` first.
-    #
-    #     When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-    #     can be dropped.
-    #     """
-    #     # pending writes can be dropped
-    #     self._pending_reduction = None
-    #     self._leaves_valid = False
-    #     return self._owned_data
 
     @property
     @not_in_flight
@@ -385,7 +458,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.data_rw
 
     @property
-    @record_modified
     @not_in_flight
     def data_rw(self):
         if not self._roots_valid:
@@ -395,7 +467,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         # modifying owned values invalidates ghosts
         self._leaves_valid = False
-        return self._data
+        return self.get_array("rw")
 
     # TODO: It would be good to be able to get data_ro but without updating the halos
     # The issue with the previous approach is we would only return the owned data. This
@@ -408,10 +480,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self.reduce_leaves_to_roots()
         if not self._leaves_valid:
             self.broadcast_roots_to_leaves()
-        return readonly(self._data)
+        return readonly(self.get_array("ro"))
 
     @property
-    @record_modified
     @not_in_flight
     def data_wo(self):
         """
@@ -424,7 +495,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # pending writes can be dropped
         self._pending_reduction = None
         self._leaves_valid = False
-        return self._data
+        return self.get_array("wo")
 
     @not_in_flight
     def assemble(self) -> None:
@@ -434,14 +505,24 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
+    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+        curr_dev = get_current_device() 
+
+        if not self._is_data_available_and_synced(curr_dev):
+            self.sync_devices()
+
+        if intent in {"wo", "rw"}: 
+            self.inc_state() 
+
+        return self._lazy_data[curr_dev]
+
     @property
-    def _data(self):
-        if self._lazy_data is None:
-            self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-        return self._lazy_data
+    def _last_updated_device(self) -> Device:
+        return max(self._state, key=self._state.get)
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
-    # axis tree. Here we can just consider the array.
+    # axis tree. Here we can just consider the array. Ah, but maybe we want to
+    # avoid halo exchanges
     # @property
     # def _owned_data(self):
     #     if self.sf and self.sf.nleaves > 0:
@@ -468,20 +549,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         }
 
     @not_in_flight
+    @on_host
     def reduce_leaves_to_roots(self):
         self.reduce_leaves_to_roots_begin()
         self.reduce_leaves_to_roots_end()
 
     @not_in_flight
     def reduce_leaves_to_roots_begin(self):
+        curr_dev = get_current_device()
         if not self._roots_valid:
             self.sf.reduce_begin(
-                self._data, self._reduction_ops[self._pending_reduction]
+                self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction]
             )
             self._leaves_valid = False
         self._finalizer = self.reduce_leaves_to_roots_end
 
     def reduce_leaves_to_roots_end(self):
+        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _reduce_leaves_to_roots_end without first calling "
@@ -491,25 +575,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._roots_valid:
-            self.sf.reduce_end(self._data, self._reduction_ops[self._pending_reduction])
+            self.sf.reduce_end(self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction])
         self._pending_reduction = None
         self._finalizer = None
 
     @not_in_flight
+    @on_host
     def broadcast_roots_to_leaves(self):
         self.broadcast_roots_to_leaves_begin()
         self.broadcast_roots_to_leaves_end()
 
     @not_in_flight
     def broadcast_roots_to_leaves_begin(self):
+        curr_dev = get_current_device()
         if not self._roots_valid:
             raise RuntimeError("Cannot broadcast invalid roots")
 
         if not self._leaves_valid:
-            self.sf.broadcast_begin(self._data, MPI.REPLACE)
+            self.sf.broadcast_begin(self._lazy_data[curr_dev], MPI.REPLACE)
         object.__setattr__(self, "_finalizer", self.broadcast_roots_to_leaves_end)
 
     def broadcast_roots_to_leaves_end(self):
+        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _broadcast_roots_to_leaves_end without first "
@@ -519,7 +606,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._leaves_valid:
-            self.sf.broadcast_end(self._data, MPI.REPLACE)
+            self.sf.broadcast_end(self._lazy_data[curr_dev], MPI.REPLACE)
         self._leaves_valid = True
         self._finalizer = None
 
@@ -551,58 +638,75 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_property
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
+    
+    def sync_devices(self):
+        last_updated_device = self._last_updated_device
+        current_device = get_current_device()
+
+        self._lazy_data[current_device] = current_device.asarray(
+            self._lazy_data[last_updated_device], 
+            constant=self.constant
+        )
+        
+        self._state[current_device] = self._state[last_updated_device]
+
+    def _is_data_available_and_synced(self, device: Device) -> bool:
+        is_available = device in self._lazy_data
+        is_synced = self._state[device] == max(self._state.values())
+        return is_available and is_synced
+
+    # {{{ PETSc interop
+
+    @cached_method()
+    def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
+        block_size = np.prod(block_shape, dtype=int)
+        return PETSc.Vec().createWithArray(self._lazy_data, self.size, block_size, comm=self.comm)
+
+    def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("ro", block_shape)
+
+    def vec_wo(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("wo", block_shape)
+
+    def vec_rw(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("rw", block_shape)
+
+    @contextlib.contextmanager
+    def as_vec(
+        self,
+        mode: Literal["ro", "rw", "wo"],
+        block_shape: Iterable[int] | int = (),
+    ) -> GeneratorType[PETSc.Vec]:
+        if self.dtype != PETSc.ScalarType:
+            raise RuntimeError(
+                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+                f"must be '{PETSc.ScalarType}'"
+            )
+
+        # TODO: how should we handle the state of the work vec?
+        # TODO: catch nested contexts
+        yield self._work_vec(block_shape)
+        if mode in {"wo", "rw"}:
+            self.inc_state()
+
+    # }}}
 
 
 class MatBufferSpec(abc.ABC):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
-class LGMap:
-    indices: np.ndarray[IntType]
-    axes: AxisTree  # this is unblocked
-    block_shape: tuple[numbers.Integral, ...]
-
-    def __post_init__(self) -> None:
-        # check that this is valid
-        assert self.indices.dtype == IntType
-        assert self.axes.blocked(self.block_shape).local_size == self.indices.size
-
-    @property
-    def comm(self):
-        return self.axes.comm
-
-    @property
-    def block_size(self) -> IntType:
-        return np.prod(self.block_shape, dtype=IntType)
-
-    def as_petsc_lgmap(self) -> PETSc.LGMap:
-        return PETSc.LGMap().create(self.indices, bsize=self.block_size, comm=self.comm)
-
-    @cached_property
-    def unblocked_indices(self) -> LGMap:
-        if not self.block_shape:
-            return self.indices
-        else:
-            # expand indices - e.g. [1, 3, 4] (2,) becomes [2, 3, 6, 7, 8, 9]
-            n = self.block_size
-            unblocked_indices = np.repeat(self.indices, n) * n
-            for i in range(n):
-                unblocked_indices[i::n] += i
-            return unblocked_indices
-
-
 class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
     block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class PetscMatNestBufferSpec(PetscMatBufferSpec):
     submat_specs: np.ndarray
 
@@ -613,7 +717,8 @@ class PetscMatNestBufferSpec(PetscMatBufferSpec):
 # TODO: This nested dependence suggests that this type belongs elsewhere?
 # I think this does need to have a weird dependency cycle because we inject this
 # into the matrix constructor logic, which belongs on the buffer.
-@dataclasses.dataclass(frozen=True)
+# @pyop3.record.frozenrecord()
+@pyop3.record.record()
 class FullPetscMatBufferSpec:
     mat_type: str
     row_spec: PetscMatAxisSpec | "AbstractAxisTree"
@@ -621,7 +726,7 @@ class FullPetscMatBufferSpec:
     comm: MPI.Comm
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class PetscMatAxisSpec:
     size: int
     lgmap: PETSc.LGMap
@@ -635,19 +740,78 @@ class PetscMatAxisSpec:
         return np.prod(self.block_shape, dtype=int)
 
 
-class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
-    """A buffer whose underlying data structure is a PETSc Mat."""
+@pyop3.record.record()
+class PetscMatBuffer(ConcreteBuffer):
+    """A buffer whose underlying data structure is a PETSc Mat.
 
-    DEFAULT_PREFIX = "petscmat"
+    Parameters
+    ----------
+    mat_spec
+        Only used for preallocation matrices... and actually the only real information
+        is the matrix type, which could be an argument to materialize...
 
-    dtype = ScalarType
-    constant = False
-    rank_equal = False
+    """
 
-    @property
-    @abc.abstractmethod
-    def mat(self) -> PETSc.Mat:
-        pass
+    # {{{ instance attrs
+
+    mat: PETSc.Mat
+    mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
+    _name: str
+    _constant: bool
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor.renamer.add(self.name, "PetscMatBuffer"),
+            self._constant,
+        )
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # we can hit buffers in multiple places...
+        # on the outside these are allowed to differ but inside they aren't
+        if visitor.outer:
+            return (
+                type(self),
+                visitor.renamer.add(self._name, "PetscMatBuffer"),
+                self._constant,
+            )
+        else:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+
+    def __init__(
+        self,
+        mat: PETSc.Mat,
+        *,
+        mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
+        name:str | None = None,
+        prefix:str|None=None,
+        constant:bool=False
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self.mat = mat
+        self.mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
+
+    # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, preallocator: bool = False, **kwargs):
+        mat = cls._make_petsc_mat(mat_spec, preallocator=preallocator)
+        if preallocator:
+            return cls(mat, mat_spec=mat_spec, **kwargs)
+        else:
+            return cls(mat, **kwargs)
+
+    # }}}
+
 
     @property
     @abc.abstractmethod
@@ -655,6 +819,16 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         pass
 
     # {{{ interface impls
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+
+    dtype = ScalarType
+    rank_equal = False
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
 
     @property
     def state(self) -> int:
@@ -670,32 +844,39 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
-    def handle(self, *, nest_indices: tuple[tuple[int, int], ...] = ()) -> Any:
-        handle_ = self.petscmat
-        for row_index, column_index in nest_indices:
-            handle_ = handle_.getNestSubMatrix(row_index, column_index)
+    def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
+        # NOTE: mat_spec isn't a good abstraction, don't like passing along here
+        assert self.is_nested
+        mat = self.mat.getNestSubMatrix(row_index, column_index)
+        if self.mat_spec is not None:
+            mat_spec = self.mat_spec[row_index, column_index]
+        else:
+            mat_spec = None
+        name = f"{self.name}_{row_index}_{column_index}"
+        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
 
-        if handle_.type == PETSc.Mat.Type.PYTHON:
-            handle_ = handle_.getPythonContext().handle
-
-        return handle_
+    @property
+    def handle(self) -> Any:
+        return self.mat
 
     def zero(self) -> None:
         self.mat.zeroEntries()
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat_spec.comm
 
     def zero(self) -> None:
         self.mat.zeroEntries()
 
     # }}}
 
-    @classmethod
-    @abc.abstractmethod
-    def empty(cls, *args, **kwargs):
-        pass
+    DEFAULT_PREFIX = "petscmat"
+
+    @cached_property
+    def _mat_spec_instruction_executor_cache_key(self) -> Hashable:
+        # FIXME: This is a hack, missing a lot of information from the mat spec
+        return self.mat.type
+        if isinstance(self.mat_spec, np.ndarray):
+            return tuple(self.mat_spec.flatten())
+        else:
+            return self.mat_spec
 
     @property
     def mat_type(self) -> str:
@@ -730,20 +911,25 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @classmethod
     def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
-        from pyop3.expr.tensor import RowDatPythonMatContext, ColumnDatPythonMatContext
-
         mat_type = mat_spec.mat_type
         row_spec = mat_spec.row_spec
         column_spec = mat_spec.column_spec
 
+        # TODO: just want the size here, don't need more than that. Can clean up matspec stuff
+        # Maybe can then even set lgmaps in the same way...
         if mat_type in {"rvec", "cvec"}:
             row_axes = row_spec
             column_axes = column_spec
 
+            comm = utils.single_comm([row_axes, column_axes], "comm")
+
             if mat_type == "rvec":
-                mat_context = RowDatPythonMatContext.from_spec(row_axes, column_axes)
+                mode = "row"
+                size = column_axes.buffer_size(include_ghosts=False)
             else:
-                mat_context = ColumnDatPythonMatContext.from_spec(row_axes, column_axes)
+                mode = "column"
+                size = row_axes.buffer_size(include_ghosts=False)
+            mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
@@ -757,7 +943,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             sizes = ((row_spec.size, None), (column_spec.size, None))
             mat.setSizes(sizes)
             mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
-            mat.setLGMap(row_spec.lgmap.as_petsc_lgmap(), column_spec.lgmap.as_petsc_lgmap())
+            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
 
         mat.setUp()
         return mat
@@ -765,96 +951,10 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     # TODO: Could also accept a vector here
     def set_diagonal(self, value: numbers.Number) -> None:
         value = utils.strict_cast(value, PETSc.ScalarType)
-        set_petsc_mat_diagonal(self.petscmat, value)
+        set_petsc_mat_diagonal(self.mat, value)
 
-
-@utils.record()
-class AllocatedPetscMatBuffer(PetscMatBuffer):
-    """A buffer whose underlying data structure is a PETSc Mat."""
-
-    # {{{ Instance attrs
-
-    _mat: PETSc.Mat
-    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
-    _name: str
-    _constant: bool
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
-    # }}}
-
-    # {{{ interface impls
-
-    mat: ClassVar[property] = utils.attr("_mat")
-    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
-
-    # }}}
-
-    # {{{ factory methods
-
-    @classmethod
-    def empty(cls, mat_spec: PetscMatSpec | np.ndarray[PetscMatSpec], **kwargs):
-        mat = cls._make_petsc_mat(mat_spec)
-        return cls(mat, mat_spec, **kwargs)
-
-    # }}}
-
-
-@utils.record()
-class PetscMatPreallocatorBuffer(PetscMatBuffer):
-    """A buffer whose underlying data structure is a PETSc Mat."""
-
-    # {{{ Instance attrs
-
-    _mat: PETSc.Mat
-    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
-    _name: str
-    _constant: bool
-
-    _lazy_template: PETSc.Mat | None = None
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
-    # }}}
-
-    # {{{ interface impls
-
-    mat: ClassVar[property] = utils.attr("_mat")
-    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat_spec.comm
-
-    # }}}
-
-    # {{{ factory methods
-
-    @classmethod
-    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], **kwargs):
-        mat = cls._make_petsc_mat(mat_spec, preallocator=True)
-        return cls(mat, mat_spec, **kwargs)
-
-    # }}}
-
-    def materialize(self) -> AllocatedPetscMatBuffer:
-        if not self._lazy_template:
+    def materialize(self) -> PetscMatBuffer:
+        if not hasattr(self, "_lazy_template"):
             self.assemble()
 
             template = self._make_petsc_mat(self.mat_spec)
@@ -869,17 +969,22 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        return AllocatedPetscMatBuffer(mat, self.mat_spec)
+        return PetscMatBuffer(mat)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
-        if template.type == "nest":
+        if template.type == PETSc.Mat.Type.NEST:
             for i, j in np.ndindex(template.getNestSize()):
                 subpreallocator = preallocator.getNestSubMatrix(i, j)
                 submat = template.getNestSubMatrix(i, j)
                 self._preallocate(subpreallocator, submat)
-        elif template.type == "python":
+        elif template.type == PETSc.Mat.Type.PYTHON:
             pass
         else:
+            if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
+                raise TypeError("Can only materialize preallocator mats")
+
+            # nnz, onnz = get_preallocation(preallocator)
+            # template.setPreallocationNNZ((nnz, onnz))
             preallocator.preallocatorPreallocate(template)
 
 
@@ -907,16 +1012,170 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return mat.duplicate(copy=copy)
 
 
-# TODO: Currently we assume that the nest structure of the underlying data
-# matches that of the axis tree. This isn't necessarily true.
-@dataclasses.dataclass(frozen=True)
-class BufferRef(DistributedObject):
-    buffer: AbstractBuffer
-    nest_indices: tuple[tuple[int, ...], ...] = ()
+class DensePythonMatContext:
+    """Matrix context for storing narrow and dense (usually Nx1 or 1xN) matrices as PETSc Vecs.
+
+    This is important in massively parallel settings where a single dense row would
+    live on a single process and hence be a significant performance bottleneck.
+
+    """
+
+    def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
+        self.mode = mode
+        self.buffer = buffer
+
+    @classmethod
+    def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:
+        if mode == "row":
+            shape = (1, size)
+        else:
+            assert mode == "column"
+            shape = (size, 1)
+        # There is no halo here so we use a local SF with no leaves
+        sf = pyop3.sf.local_sf(size, comm)
+        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType, **kwargs)
+        return cls(mode, buffer)
 
     @property
-    def handle(self):
-        return self.buffer.handle(nest_indices=self.nest_indices)
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        # TODO: if block size > 1 then the other size will need changing
+        if self.mode == "row":
+            return ((None, 1), (self.buffer.size, None))
+        else:
+            return ((self.buffer.size, None), (None, 1))
+
+    def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
+        """Set y = self @ x."""
+        if self.mode == "row":
+            # Example:
+            # * 'A' (self) has global size (5, 2)
+            # * 'x' has global size (5, 2)
+            # * 'y' has global size (2, 2)
+            #
+            #     A     ⊗  x  ➜  y
+            # ■ ■ ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■ ■ ■   ■ ■   ■ ■
+            #             ■ ■
+            #             ■ ■
+            #             ■ ■
+            with self.buffer.vec_ro() as vec:
+                y.setValue(0, vec.dot(x))
+        else:
+            # Example:
+            # * 'A' (self) has global size (5, 3)
+            # * 'x' has global size (3, 2)
+            # * 'y' has global size (5, 2)
+            #
+            #   A   ⊗  x  ➜  y
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■   ■ ■   ■ ■
+            # ■ ■ ■         ■ ■
+            # ■ ■ ■         ■ ■
+            #
+            # The algorithm is:
+            #
+            #     for i in range(5):
+            #       for j in range(2):
+            #         for k in range(3):
+            #           y[i,j] += A[i,k] * x[k,j]
+            #
+            # We can always assume that 'x' is small in both dimensions so
+            # those loops are safe to do explicitly (on the outside):
+            #
+            #     for j in range(2):
+            #       for k in range(3):
+            #         y[:,j] += A[:,k] * x[k,j]
+            #
+            # Which I know how to do efficiently using numpy.
+            nj = x.block_size
+            nk = self._vec.block_size
+            for j in range(nj):
+                for k in range(nk):
+                    y.buffer_w[:, j] += self._vec.buffer_r[:, k] * x.buffer_r[k, j]
+
+    def multTranspose(self, mat, x, y):
+        raise NotImplementedError
+        # if self.mode == "row":
+        # with self.dat.vec_ro as v:
+        #     if self.sizes[0][0] is None:
+        #         # Row matrix
+        #         if x.sizes[1] == 1:
+        #             v.copy(y)
+        #             a = np.zeros(1, dtype=dtypes.ScalarType)
+        #             if x.comm.rank == 0:
+        #                 a[0] = x.array_r
+        #             else:
+        #                 x.array_r
+        #             with mpi.temp_internal_comm(x.comm) as comm:
+        #                 comm.bcast(a)
+        #             y.scale(a)
+        #         else:
+        #             v.pointwiseMult(x, y)
+        # else:
+        # # Column matrix
+        # out = v.dot(x)
+        # if y.comm.rank == 0:
+        #     y.array[0] = out
+        # else:
+        #     y.array[...]
+
+    def multTransposeAdd(self, mat, x, y, z):
+        ''' z = y + mat^Tx '''
+        raise NotImplementedError
+        # if self.mode == "row":
+        # if self.sizes[0][0] is None:
+        #     # Row matrix
+        #     if x.sizes[1] == 1:
+        #         v.copy(z)
+        #         a = np.zeros(1, dtype=dtypes.ScalarType)
+        #         if x.comm.rank == 0:
+        #             a[0] = x.array_r
+        #         else:
+        #             x.array_r
+        #         with mpi.temp_internal_comm(x.comm) as comm:
+        #             comm.bcast(a)
+        #         if y == z:
+        #             # Last two arguments are aliased.
+        #             tmp = y.duplicate()
+        #             y.copy(tmp)
+        #             y = tmp
+        #         z.scale(a)
+        #         z.axpy(1, y)
+        #     else:
+        #         if y == z:
+        #             # Last two arguments are aliased.
+        #             tmp = y.duplicate()
+        #             y.copy(tmp)
+        #             y = tmp
+        #         v.pointwiseMult(x, z)
+        #         return z.axpy(1, y)
+        # else:
+        #             # Column matrix
+        #             out = v.dot(x)
+        #             y = y.array_r
+        #             if z.comm.rank == 0:
+        #                 z.array[0] = out + y[0]
+        #             else:
+        #                 z.array[...]
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        breakpoint()
+
+    def data_ro(self) -> np.ndarray:
+        return self.buffer.data_ro.reshape(self.shape)
+
+    def set_diagonal(self, value: numbers.Number) -> None:
+        data = self.buffer.data_wo  # do collectively so state is tracked collectively
+        if self.comm.rank == 0:
+            data[0] = value
+
+    def zeroEntries(self, mat):
+        self.buffer.zero()
+
+    def duplicate(self, *, copy=False):
+        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
 
     @property
     def comm(self) -> MPI.Comm:

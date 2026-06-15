@@ -8,14 +8,15 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
+import pyop3.record
 from pyop3 import dtypes, exceptions as exc, utils
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE
 from .base import Tensor
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
-@utils.record()
+@pyop3.record.record()
 class Scalar(Tensor):
 
     # {{{ instance attrs
@@ -23,7 +24,19 @@ class Scalar(Tensor):
     _name: str
     _buffer: AbstractBuffer
 
-    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, constant: bool | None = None, name: str | None = None, prefix: str | None = None):
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self._buffer))
+
+    def __init__(
+        self,
+        value: numbers.Number | None = None,
+        comm: MPI.Comm | None=None,
+        *,
+        buffer: AbstractBuffer | None = None,
+        constant: bool | None = None,
+        name: str | None = None,
+        prefix: str | None = None,
+    ):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
@@ -57,10 +70,10 @@ class Scalar(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[str] = utils.attr("_name")
-    buffer: ClassVar[ArrayBuffer] = utils.attr("_buffer")
+    name: ClassVar[str] = pyop3.record.attr("_name")
+    buffer: ClassVar[ArrayBuffer] = pyop3.record.attr("_buffer")
     dim: ClassVar[int] = 0
-    parent: ClassVar[None] = None
+    transform: ClassVar[None] = None
 
     def copy(self) -> Scalar:
         name = f"{self.name}_copy"
@@ -91,6 +104,15 @@ class Scalar(Tensor):
     @property
     def local_min(self) -> numbers.Number:
         return self.local_max
+
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        from pyop3.expr.visitors import evaluate_arraywise
+
+        other_eval = evaluate_arraywise(other)
+        if mode == "write":
+            self.buffer.data_wo[...] = other_eval
+        else:
+            self.buffer.data_rw[...] += other_eval
 
     # }}}
 

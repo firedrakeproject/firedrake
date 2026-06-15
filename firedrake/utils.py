@@ -2,19 +2,15 @@
 import collections.abc
 import warnings
 
-# TODO: use functools.cached_property directly everywhere
-from functools import cached_property  # noqa: F401
-
 from decorator import decorator
 from petsc4py import PETSc
 
+from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict
 from pyop3.dtypes import ScalarType, as_cstr
-from pyop3.dtypes import RealType     # noqa: F401
-from pyop3.dtypes import IntType      # noqa: F401
-from pyop3.dtypes import as_ctypes    # noqa: F401
+from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
+from pyop3.cache import cached_method
 from pyop3.utils import (  # noqa: F401
-    OrderedSet,
     readonly,
     pairwise,
     steps,
@@ -27,14 +23,15 @@ from pyop3.utils import (  # noqa: F401
     debug_assert,
     freeze,
     strict_int,
-    StrictlyUniqueDict,
-    StrictlyUniqueDefaultDict,
     invert,
     split_by,
     as_tuple,
     is_sorted,
+    unique_name as op3_unique_name,
 )
 
+from functools import cache
+from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
 
 
@@ -50,6 +47,83 @@ complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "comp
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
+
+
+@cache
+def get_device_type() -> str | None:
+    r"""Get PETSc device type.
+
+    Attempt to initialise a GPU and return the type of GPU
+    identified by PETSc.
+
+    Returns
+    -------
+    str | None
+        The PETSc device type, or `None` if no device is found.
+
+    """
+    try:
+        dev = PETSc.Device.create()
+    except PETSc.Error:
+        # Could not initialise device - not a failure condition as this could
+        # be a GPU-enabled PETSc installation running on a CPU-only host.
+        return None
+    dev_type = dev.getDeviceType()
+    dev.destroy()
+    return dev_type
+
+
+@cache
+def device_matrix_type(*, warn: bool = True) -> str | None:
+    r"""Get device matrix type
+
+    Attempt to initialise a GPU device and return the PETSc mat_type
+    compatible with that device, or None if no device is detected.
+    Typical Usage Example:
+    mat_type = device_matrix_type(pc.comm.rank == 0)
+
+    Parameters
+    ----------
+    warn
+        Emit a warning containing the reason a device mat_type
+        has not been returned. Defaults to True.
+
+    Raises
+    ------
+    UnrecognisedDeviceError
+        Raised when PETSc initialises a GPU device that
+        Firedrake does not understand
+
+    Returns
+    -------
+    str | None
+        The PETSc mat_type compatible with the GPU device detected on
+        this system or None
+
+    """
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
+    dev_type = get_device_type()
+    if dev_type is None:
+        if warn:
+            warnings.warn(
+                "This installation of Firedrake is GPU-enabled, but no GPU device has been detected"
+            )
+        return None
+    if dev_type not in _device_mat_type_map:
+        raise UnrecognisedDeviceError(
+            f"Unknown device type: {dev_type} initialised by PETSc. Firedrake "
+            f"currently understands {', '.join([k for k in _device_mat_type_map if k != 'HOST'])}"
+            "devices"
+        )
+
+    if warn:
+        if dev_type == "HOST":
+            warnings.warn(
+                "This installation of Firedrake is not GPU-enabled, to enable GPU functionality "
+                "PETSc will need to be rebuilt with some GPU capability appropriate for this system "
+                "(e.g. '--with-cuda=1')."
+            )
+    return _device_mat_type_map[dev_type]
 
 
 def _new_uid(comm):

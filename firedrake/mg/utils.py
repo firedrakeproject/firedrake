@@ -3,7 +3,7 @@ from immutabledict import immutabledict as idict
 from fractions import Fraction
 import pyop3 as op3
 from firedrake.utils import IntType
-from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
@@ -33,8 +33,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
@@ -79,8 +77,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
@@ -131,19 +127,12 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cells
+        iterset = Vc.mesh().cells.owned
         arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.local_size, arity*level_ratio), -1, dtype=IntType)
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().num_cells, arity*level_ratio), -1, dtype=IntType)
         values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.local_size, arity)
 
-        if Vc.extruded:
-            off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:iterset.local_size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
-        else:
-            coarse_to_fine_nodes[:iterset.local_size, :] = values
-        offset = Vf.offset
-        if offset is not None:
-            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
+        coarse_to_fine_nodes[:iterset.local_size, :] = values
 
         src_axis = iterset.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
@@ -156,9 +145,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
             name=target_axis.label
         )
-        # return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-        #                                      arity=arity*level_ratio, values=coarse_to_fine_nodes,
-        #                                      offset=offset))
         return cache.setdefault(key, node_map)
 
 
@@ -170,7 +156,7 @@ def physical_node_locations(V):
     mesh = V.mesh()
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
-    cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
+    cache = mesh.geometric_shared_data_cache["hierarchy_physical_node_locations"]
     key = (element, V.boundary_set)
     try:
         return cache[key]
@@ -178,7 +164,9 @@ def physical_node_locations(V):
         Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
+        locations = firedrake.assemble(
+            firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        )
         return cache.setdefault(key, locations)
 
 

@@ -38,12 +38,9 @@ def test_apply_bc_component(V, idx):
     f = Function(V)
     bc = DirichletBC(V.sub(idx), Constant(10), (1, 3))
     bc.apply(f)
-
-    for pt in V.axes[bc.constrained_points].iter():
-        if pt.target_exprs["dim0"] == idx:
-            assert f.dat.get_value(pt.target_exprs, path=pt.target_path) == 10
-        else:
-            assert f.dat.get_value(pt.target_exprs, path=pt.target_path) == 0
+    nodes = bc.nodes
+    assert np.allclose(f.dat.data_ro[nodes, idx], 10)
+    assert np.allclose(f.dat.data_ro[nodes, 1-idx], 0)
 
 
 def test_poisson_in_components(V):

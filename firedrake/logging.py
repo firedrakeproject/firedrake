@@ -5,7 +5,7 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import tsfc.logging             # noqa: F401
 import pyop3.log             # noqa: F401
 
-from pyop3.config import config as PYOP3_CONFIG
+import pyop3.config
 from pyop3.mpi import COMM_WORLD
 
 
@@ -72,6 +72,9 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
 
     for package in packages:
         logger = logging.getLogger(package)
+        # Avoids duplicating messages if someone directly invokes logging.info:
+        logger.propagate = False
+
         for handler in logger.handlers:
             logger.removeHandler(handler)
 
@@ -80,7 +83,7 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
             handler = logging.StreamHandler()
             handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
 
-        if comm is not None and comm.rank != 0 and not PYOP3_CONFIG.spmd_strict:
+        if comm is not None and comm.rank != 0 and not pyop3.config.spmd_strict:
             handler = logging.NullHandler()
 
         logger.addHandler(handler)

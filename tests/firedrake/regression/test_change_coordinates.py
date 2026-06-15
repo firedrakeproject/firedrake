@@ -45,3 +45,21 @@ def test_immerse_extruded():
     m = Mesh(new_coords)
 
     assert m.geometric_dimension == 3
+
+
+def test_relabeled_mesh_preserves_coord_changes():
+    orig_mesh = UnitSquareMesh(3, 3)
+
+    high_order_space = VectorFunctionSpace(orig_mesh, "CG", 3)
+    high_order_coords = Function(high_order_space).interpolate(orig_mesh.coordinates)
+    high_order_mesh = Mesh(high_order_coords)
+
+    x, _ = SpatialCoordinate(high_order_mesh)
+    marker_space = FunctionSpace(high_order_mesh, "DG", 0)
+    marker = Function(marker_space).interpolate(conditional(x > 0.5, 1., 0.))
+    relabeled_mesh = RelabeledMesh(high_order_mesh, [marker], [666])
+
+    expected = high_order_mesh.coordinates.dat.data_ro
+    actual = relabeled_mesh.coordinates.dat.data_ro
+    assert actual.shape == expected.shape
+    assert (actual == expected).all()
