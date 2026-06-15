@@ -2553,7 +2553,8 @@ values from f.)"""
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         if not mesh.extruded:
             all_coords = coords.dat.data_ro_with_halos[cell_node_list]
-            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+            self._bounding_box_coords = (np.min(all_coords, axis=1), np.max(all_coords, axis=1))
+            return self._bounding_box_coords
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
