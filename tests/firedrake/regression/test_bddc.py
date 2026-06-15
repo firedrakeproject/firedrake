@@ -25,7 +25,6 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
         "bddc_debug": debug,
-        "bddc_pc_bddc_use_deluxe_scaling": None,
     }
     if use_gradient is not None:
         # defaults to True for 3D H(curl) spaces
@@ -39,6 +38,7 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
 
     if adaptive:
         sp.update({
+            "bddc_pc_bddc_use_deluxe_scaling": None,
             "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_deluxe_zerorows": False,
             "bddc_pc_bddc_adaptive_threshold": 5,
