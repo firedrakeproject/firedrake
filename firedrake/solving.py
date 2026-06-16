@@ -270,7 +270,7 @@ def _extract_linear_solver_args(*args, **kwargs):
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
-    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", False)
 
     return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
 
@@ -326,7 +326,7 @@ def _extract_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
-    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", False)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \

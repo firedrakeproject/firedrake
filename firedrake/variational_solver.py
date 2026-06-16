@@ -5,6 +5,7 @@ from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
+from warnings import warn
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
@@ -194,7 +195,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_jacobian_callback=None,
                  pre_function_callback=None,
                  post_function_callback=None,
-                 pre_apply_bcs=True):
+                 pre_apply_bcs=False):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -293,8 +294,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
-                                         options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs)
+                                         options_prefix=self.options_prefix)
+        if pre_apply_bcs:
+            warn("Setting pre_apply_bcs=True is deprecated.", DeprecationWarning, stacklevel=2)
+        self.pre_apply_bcs = pre_apply_bcs or problem.restrict
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
@@ -376,7 +379,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
 
-        if self._ctx.pre_apply_bcs:
+        if self.pre_apply_bcs:
             for bc in problem.dirichlet_bcs():
                 bc.apply(problem.u_restrict)
 

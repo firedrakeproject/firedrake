@@ -168,9 +168,6 @@ class _SNESContext(object):
     transfer_manager
         Object that can transfer functions between levels,
         typically a :class:`~.TransferManager`.
-    pre_apply_bcs
-        If `False`, the problem is linearised around the initial guess before
-        imposing the boundary conditions.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -188,8 +185,7 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix: str | None = None,
-                 transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 transfer_manager=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -201,7 +197,6 @@ class _SNESContext(object):
         self.sub_mat_type = sub_mat_type
         self.sub_pmat_type = sub_pmat_type
         self.options_prefix = options_prefix
-        self.pre_apply_bcs = pre_apply_bcs
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
@@ -251,7 +246,7 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
+        if next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
@@ -263,7 +258,7 @@ class _SNESContext(object):
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=pre_apply_bcs,
+                                                zero_bc_nodes=False,
                                                 ).assemble
 
         self._jacobian_assembled = False
@@ -289,7 +284,6 @@ class _SNESContext(object):
             "appctx": self.appctx,
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
-            "pre_apply_bcs": self.pre_apply_bcs,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -467,10 +461,9 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        if not ctx.pre_apply_bcs:
-            # Compute DirichletBC residual
-            for bc in ctx._problem.dirichlet_bcs():
-                bc.apply(ctx._bc_residual, u=ctx._x)
+        # Compute DirichletBC residual
+        for bc in ctx._problem.dirichlet_bcs():
+            bc.apply(ctx._bc_residual, u=ctx._x)
 
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 

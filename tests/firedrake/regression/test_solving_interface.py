@@ -230,7 +230,8 @@ def mesh(request):
     return UnitIntervalMesh(10)
 
 
-def test_solve_cofunction_rhs(mesh):
+@pytest.mark.parametrize("pre_apply_bcs", (False, True))
+def test_solve_cofunction_rhs(mesh, pre_apply_bcs):
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -245,7 +246,7 @@ def test_solve_cofunction_rhs(mesh):
     Lold = L.copy()
 
     w = Function(V)
-    solve(a == L, w, bcs=bcs)
+    solve(a == L, w, bcs=bcs, pre_apply_bcs=pre_apply_bcs)
     assert errornorm(x, w) < 1E-10
     assert np.allclose(L.dat.data, Lold.dat.data)
 
