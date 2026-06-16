@@ -1,6 +1,8 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+import functools
+from typing import Callable, Self, Hashable
 from decorator import decorator
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
@@ -264,3 +266,20 @@ def check_netgen_installed() -> None:
             "are installed and available to Firedrake (see "
             "https://www.firedrakeproject.org/install.html#netgen)."
         )
+
+
+def cached_property_until(value: Callable[[Self], Hashable]):
+    def decorator(func):
+        @property
+        @functools.wraps(func)
+        def wrapper(self):
+            value_attribute = f"_{func.__name__}_cache"
+            current_value = value(self)
+            cached_value = getattr(self, value_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                result = func(self)
+                setattr(self, value_attribute, (current_value, result))
+                return result
+            return cached_value[1]
+        return wrapper
+    return decorator
