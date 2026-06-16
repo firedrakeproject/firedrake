@@ -70,6 +70,10 @@ if typing.TYPE_CHECKING:
     from firedrake import CoordinatelessFunction, Function
 
 
+if typing.TYPE_CHECKING:
+    from firedrake import CoordinatelessFunction, Function
+
+
 __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
     'SubDomainData', 'UNMARKED', 'DistributedMeshOverlapType',
@@ -1958,39 +1962,6 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def _interior_facet_strata_indices_plex(self) -> np.ndarray[IntType]:
         return self._facet_strata_indices_plex("interior")
-
-    def _facet_strata_indices_plex(self,facet_type: Literal["exterior"] | Literal["interior"]) -> np.ndarray[IntType]:
-        if facet_type == "exterior":
-            label_value = "exterior_facets"
-        else:
-            assert facet_type == "interior"
-            label_value = "interior_facets"
-        indices_plex = dmcommon.facets_with_label(self, label_value)
-        f_start, _ = self.topology_dm.getDepthStratum(self.dimension-1)
-        return utils.readonly(indices_plex - f_start)
-
-    # def _facet_numbers_classes_set(self, kind):
-    #     if kind not in ["interior", "exterior"]:
-    #         raise ValueError("Unknown facet type '%s'" % kind)
-    #     # Can not call target.{interior, exterior}_facets.facets
-    #     # if target is a mixed cell mesh (cell_closure etc. can not be defined),
-    #     # so directly call dmcommon.get_facets_by_class.
-    #     _numbers, _classes = dmcommon.get_facets_by_class(self.topology_dm, (kind + "_facets"), self._facet_ordering)
-    #     _classes = as_tuple(_classes, int, 3)
-    #     _set = op2.Set(_classes, f"{kind.capitalize()[:3]}Facets", comm=self.comm)
-    #     return _numbers, _classes, _set
-
-    # @cached_property
-    # def _exterior_facet_numbers_classes_set(self):
-    #     return self._facet_numbers_classes_set("exterior")
-    #
-    # @cached_property
-    # def _interior_facet_numbers_classes_set(self):
-    #     return self._facet_numbers_classes_set("interior")
-    #
-    # @cached_property
-    # def _facet_ordering(self):
-    #     return dmcommon.get_facet_ordering(self.topology_dm, self._old_to_new_facet_numbering)
 
     def _facet_strata_indices_plex(self,facet_type: Literal["exterior"] | Literal["interior"]) -> np.ndarray[IntType]:
         if facet_type == "exterior":

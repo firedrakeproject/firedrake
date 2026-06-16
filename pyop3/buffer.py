@@ -35,11 +35,6 @@ from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
-from ._buffer_cy import set_petsc_mat_diagonal
-
-
-MatTypeT = str | np.ndarray["MatTypeT"]
-
 
 class IncompatibleStarForestException(Exception):
     pass
@@ -688,6 +683,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         yield self._work_vec(block_shape)
         if mode in {"wo", "rw"}:
             self.inc_state()
+            self._leaves_valid = False
+            # TODO
+            # self._work_vec.stateIncrease()
 
     # }}}
 
@@ -812,11 +810,6 @@ class PetscMatBuffer(ConcreteBuffer):
 
     # }}}
 
-
-    @property
-    @abc.abstractmethod
-    def mat_spec(self) -> FullPetscMatBufferSpec:
-        pass
 
     # {{{ interface impls
 

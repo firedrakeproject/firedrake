@@ -332,18 +332,6 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[::-1])
 
 
-    # I think...
-    (2, 2) returns (2, 2) - 2i + j
-    (1, 2) returns (2, 1) - 2i + j
-    (2, 1) returns (1, 1) - i + j
-
-    """
-    assert drop_last, "old code otherwise"
-    # reversed_sizes = np.asarray(sizes, dtype=int)[::-1]
-    # strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])], dtype=int)
-    reversed_sizes = np.asarray(sizes)[::-1]
-    strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])])
-    return readonly(strides_[::-1])
 
 def pairwise(iterable, *, final=_nothing):
     if final is not _nothing:

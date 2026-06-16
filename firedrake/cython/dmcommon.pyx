@@ -2949,10 +2949,6 @@ def compute_dm_renumbering(
     # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
     # return renumbering_is
 
-    # return ordering_is.invertPermutation()
-    return ordering_is
-    # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
-    # return renumbering_is
 
 def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -> PETSc.IS:
     """Partition a serial point renumbering into owned and ghost points."""
@@ -4055,7 +4051,6 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
             if numAdj > maxAdjSize:
                 CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
-    CHKERR(DMPlexRestoreTransitiveClosure(dm, p, PETSC_FALSE, &starSize, &star))
     adjSize[0] = numAdj
     return 0
 
@@ -4422,11 +4417,13 @@ def submesh_create(PETSc.DM dm,
                                              ignoreHalo=ignore_label_halo,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
+
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
+
     return subdm
 
 
@@ -4466,6 +4463,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
     assert pStart == 0
     assert subpStart == 0
+
     CHKERR(DMGetLabel(subdm.dm, b"firedrake_is_ghost", &is_ghost))
     CHKERR(DMLabelCreateIndex(is_ghost, subpStart, subpEnd))
 
@@ -4499,7 +4497,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
             if ownership_gain[p] == 1:
                 CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
                 assert has
-                CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+                CHKERR(DMLabelClearValue(is_ghost, subp, 1))
 
         CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMLabelDestroyIndex(is_ghost))

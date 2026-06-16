@@ -33,7 +33,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
+from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices, is_mixed
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.exceptions import PointNotInDomainError
@@ -118,7 +118,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if isinstance(self.function_space(), MixedFunctionSpace):
+        if is_mixed(self.function_space()):
             # NOTE: This is quite tricky for fieldsplit. Previously the fields would
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
@@ -317,7 +317,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if isinstance(self.function_space().topological, MixedFunctionSpace):
+        if is_mixed(self.function_space()):
             return tuple(
                 type(self)(self.function_space().sub(i), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
@@ -355,7 +355,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         subfunctions
 
         """
-        if type(self.function_space().ufl_element()) is MixedElement:
+        if is_mixed(self.function_space()):
             return self.subfunctions[indices]
         elif not self.function_space().shape:
             # TODO: Decide if this is acceptable usage
@@ -538,12 +538,17 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self
 
     def __float__(self):
-
         if (
             self.ufl_element().family() == "Real"
             and self.function_space().shape == ()
         ):
-            return float(self.dat.data_ro[0])
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(utils.just_one(self.dat.data_ro))
+                else:
+                    value = icomm.bcast(None)
+            return float(value)
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 

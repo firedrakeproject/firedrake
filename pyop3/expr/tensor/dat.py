@@ -536,7 +536,6 @@ class Dat(Tensor):
             # Not a view, need to copy in and out
             if self._work_vec_buffer_state == self.buffer.state:
                 # Buffer data is unchanged so can leave the vec alone
-                self.has_yielded = True
                 self._vec_context_is_active = True
                 yield self._work_vec
 

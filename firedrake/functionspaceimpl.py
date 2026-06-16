@@ -660,7 +660,10 @@ class AbstractFunctionSpace:
     @cached_property
     @deprecated("axes.template_vec")
     def template_vec(self):
-        block_shape = self.shape if len(self) == 1 else ()
+        if is_mixed(self):
+            block_shape = ()
+        else:
+            block_shape = self.shape
         return self.layout_axes.template_vec(block_shape)
 
     @cached_method()
@@ -682,7 +685,7 @@ class AbstractFunctionSpace:
 
         """
         lgmap_axes = self.axes
-        if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
+        if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
@@ -692,7 +695,7 @@ class AbstractFunctionSpace:
         # track which BCs are used so we can warn if any are missed
         unused_bcs = set(bcs)
         if index is None:  # The lgmap is for the full space
-            if len(self) > 1:
+            if is_mixed(self):
                 split_bcs = []
                 for subspace in self:
                     matching_bcs = []
@@ -781,7 +784,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("cell_node_map_dat.data_ro")
     def cell_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize, "
                 "use a DoF list instead."
@@ -791,7 +794,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("exterior_facet_node_map_dat.data_ro")
     def exterior_facet_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize, "
                 "use a DoF list instead."
@@ -801,7 +804,7 @@ class AbstractFunctionSpace:
     @property
     @deprecated("interior_facet_node_map_dat.data_ro")
     def interior_facet_node_list(self) -> numpy.ndarray:
-        if len(self) > 1 or self.parent:
+        if is_mixed(self) or self.parent:
             warnings.warn(
                 "For mixed spaces it is no longer the case that offset=node*bsize "
                 "because the strides between nodes are not constant as they are "
@@ -898,7 +901,7 @@ class AbstractFunctionSpace:
         #     └──➤ {field: [{functionspace0: 1}, {functionspace1: 1}]}
         #          ├──➤ {some_label: 2}
         #          └──➤ {some_label: 1}
-        if len(self) > 1:
+        if is_mixed(self):
             map_dof_axes = iterset_axes.add_axis(None, packed_offsets.axes.root)
             for label, subspace in zip(self._labels, self):
                 path = iterset_axes.leaf_path | {"field": label}
@@ -1606,7 +1609,7 @@ class FunctionSpace(AbstractFunctionSpace):
             Entity node map.
 
         """
-        if len(self) > 1:
+        if is_mixed(self):
             raise NotImplementedError("will this work?")
 
         iter_mesh = iteration_spec.mesh
@@ -2632,6 +2635,96 @@ def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
         )
     return list(numpy.ndindex(shape))[index]
 
+    for component in axis.components:
+        subconstraints_ = tuple(
+            subconstraint
+            for subconstraint in subconstraints
+            if axis.label not in subconstraint.within_axes
+            or (axis.label, component.label) in subconstraint.within_axes.items()
+        )
+        if subconstraints_:
+            # FIXME: Not doing anything with visited_axes
+            subnest = _axis_nest_from_constraints(subconstraints_, visited_axes)
+            axis_nest[axis].append(subnest)
+
+    return idict(axis_nest) if axis_nest else axis
+
+
+
+def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequence[AxisConstraint]]) -> tuple[AxisConstraint]:
+    # start by collecting like axes
+    axis_info: defaultdict[op3.Axis, dict[op3.ComponentLabelT, idict]] = defaultdict(dict)
+    for root_component, constraints in zip(root_axis.components, axis_constraintss, strict=True):
+        for constraint in constraints:
+            axis_info[constraint.axis][root_component.label] = constraint.within_axes
+
+    # Now build the new set of constraints. To do this we inspect the
+    # per-component constraints for each axis: if the constraints are all the
+    # same then it is not necessary to specialise by component, otherwise an
+    # extra constraint is needed. For example:
+    #
+    # * Consider the "dof" axis for a mixed space with identical subspaces:
+    #
+    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}}
+    #
+    #   Here this is saying that 'dof_axis' exists under root components 0 and 1
+    #   and each time must satisfy the constraint of having '{"mesh": None}'
+    #   above them.
+    #
+    #   Since the constraints are identical for all components they do not need
+    #   to be specialised. The final constraint is thus:
+    #
+    #     AxisConstraint(dof_axis, {"mesh": None})
+    #
+    # * Alternatively consider a mixed space of CG1 x Real:
+    #
+    #     {mesh_axis: {0: {}}}
+    #
+    #   The "mesh" axis only exists for the CG1 subspace and so a new constraint
+    #   is needed:
+    #
+    #     AxisConstraint(mesh_axis, {"field": 0})
+    constraints = [AxisConstraint(root_axis)]
+    for axis, per_component_info in axis_info.items():
+        if (
+            per_component_info.keys() == set(root_axis.component_labels)
+            and utils.is_single_valued(per_component_info.values())
+        ):
+            # Axis present for all components and constraints match: use as is
+            within_axes = utils.single_valued(per_component_info.values())
+            constraints.append(AxisConstraint(axis, within_axes))
+        else:
+            # Constraint mismatch: need to specialise by component
+            for component_label, orig_within_axes in per_component_info.items():
+                within_axes = orig_within_axes | {root_axis.label: component_label}
+                constraints.append(AxisConstraint(axis, within_axes))
+    return tuple(constraints)
+
+
+@functools.singledispatch
+def parse_component_indices(indices: Any, shape: tuple[int, ...]) -> tuple[int, ...]:
+    raise TypeError
+
+
+@parse_component_indices.register(tuple)
+def _(indices: tuple[int, ...], shape: tuple[int, ...]) -> tuple[int, ...]:
+    return indices
+
+
+@parse_component_indices.register(int)
+def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
+    # Historically tensor-valued spaces would be addressed using a flat index
+    # instead of a tuple. Here we convert the old-style flat index to a
+    # nested one. Eventually we should be able to remove this and simply cast
+    # an integer index to a tuple (e.g. '3' to '(3,)').
+    if len(shape) > 1:
+        warnings.warn(
+            "Scalar indexing of a tensor-valued space is no longer recommended "
+            "practice, please pass a tuple instead",
+            FutureWarning,
+        )
+    return list(numpy.ndindex(shape))[index]
+
 def entity_dofs_key(entity_dofs):
     """Provide a canonical key for an entity_dofs dict.
 
@@ -2667,3 +2760,23 @@ def entity_permutations_key(entity_permutations):
         key.append(tuple(sub_key))
     key = tuple(key)
     return key
+
+
+@functools.singledispatch
+def is_mixed(obj) -> bool:
+    raise TypeError
+
+
+@is_mixed.register
+def _(elem: finat.ufl.FiniteElementBase) -> bool:
+    return type(elem) is finat.ufl.MixedElement
+
+
+@is_mixed.register
+def _(V: WithGeometryBase | AbstractFunctionSpace) -> bool:
+    return is_mixed(V.ufl_element())
+
+
+@is_mixed.register
+def _(arg: ufl.Argument, /) -> bool:
+    return is_mixed(arg.ufl_function_space())

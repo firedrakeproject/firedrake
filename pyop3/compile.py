@@ -77,6 +77,7 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
+<<<<<<< HEAD:pyop3/compile.py
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
 class CompilerOptions:
@@ -84,6 +85,16 @@ class CompilerOptions:
     lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
+=======
+
+# TODO: This might not be best living here, could have stuff like #include <petscmat.h>
+@dataclasses.dataclass(frozen=True)
+class CompilerOptions:
+    include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+>>>>>>> connorjward/pyop3:pyop2/compilation.py
     def __add__(self, other, /) -> Self:
         if not isinstance(other, CompilerOptions):
             return NotImplemented

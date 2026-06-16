@@ -1,4 +1,8 @@
 # Main Firedrake CI workflow run for pull requests or pushes to main or release
+<<<<<<< HEAD
+=======
+
+>>>>>>> connorjward/pyop3
 on:
   workflow_call:
     inputs:
