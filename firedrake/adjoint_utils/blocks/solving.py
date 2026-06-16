@@ -238,7 +238,8 @@ class CachedSolverBlock(Block):
 
         # tlm_output contribution
         self.hessian_cache.tlm_output.assign(tlm_output)
-        hessian_rhs -= firedrake.assemble(self.hessian_cache.d2Fdu2_form)
+        if not self.hessian_cache.d2Fdu2_form.empty():
+            hessian_rhs -= firedrake.assemble(self.hessian_cache.d2Fdu2_form)
 
         # tlm_input contribution
         for d2Fdmdu, dep in zip(self.hessian_cache.d2Fdmdu_forms,
