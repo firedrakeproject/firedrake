@@ -1674,6 +1674,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
 
                 with local_submat(mat.buffer.mat, V, V) as submat:
+                    breakpoint()
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )

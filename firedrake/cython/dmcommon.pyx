@@ -1393,8 +1393,10 @@ def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool
             marker_pointss = [dm.getStratumIS(FACE_SETS_LABEL, marker)]
 
         for marker_points in marker_pointss:
-            points = points.union(marker_points)
+            if marker_points:
+                points = points.union(marker_points)
     return points
+
 
 def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, boundary_set, extruded: bool) -> PETSc.IS:
     """'Restrict' a renumbering of DM points by moving constrained points to the end."""
