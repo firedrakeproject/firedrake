@@ -269,16 +269,19 @@ def check_netgen_installed() -> None:
 
 
 def cached_property_until(value: Callable[[Self], Hashable]):
+    """Decorator for a property that is cached until some value changes.
+    For examples of usage, see PointEvaluator and MeshGeometry.
+    """
     def decorator(func):
         @property
         @functools.wraps(func)
         def wrapper(self):
-            value_attribute = f"_{func.__name__}_cache"
+            cache_attribute = f"_{func.__name__}_cache"
             current_value = value(self)
-            cached_value = getattr(self, value_attribute, None)
+            cached_value = getattr(self, cache_attribute, None)
             if cached_value is None or cached_value[0] != current_value:
                 result = func(self)
-                setattr(self, value_attribute, (current_value, result))
+                setattr(self, cache_attribute, (current_value, result))
                 return result
             return cached_value[1]
         return wrapper
