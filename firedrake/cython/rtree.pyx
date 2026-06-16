@@ -74,6 +74,21 @@ cdef extern from "rtree-capi.h":
         double *maxs_out
     )
 
+    RTreeError rtree_collect_bounding_boxes(
+        const RTreeH *tree,
+        size_t level,
+        double **mins_out,
+        double **maxs_out,
+        size_t *nboxes_out
+    )
+
+    RTreeError rtree_free_bounding_boxes(
+        double *mins,
+        double *maxs,
+        size_t nboxes,
+        size_t dim
+    )
+
 cdef class RTree(object):
     """Python class for holding an Rtree."""
 
@@ -274,6 +289,29 @@ def discover_ranks(
     CHKERR(PetscFree(fromdata))
 
     return toranks, send_offsets, point_indices, fromranks_out, recv_counts_out
+
+def bounding_boxes_at_level(RTree rtree, size_t level, size_t dim):
+    cdef:
+        double *mins = NULL
+        double *maxs = NULL
+        size_t n_boxes = 0
+        RTreeError err
+        np.ndarray[np.float64_t, ndim=3, mode="c"] boxes
+
+    err = rtree_collect_bounding_boxes(rtree.tree, level, &mins, &maxs, &n_boxes)
+    if err != Success:
+        raise RuntimeError("rtree_bounding_boxes failed")
+
+    boxes = np.empty((n_boxes, 2, dim), dtype=np.float64)
+
+    for i in range(n_boxes):
+        for j in range(dim):
+            boxes[i, 0, j] = mins[i * dim + j]
+            boxes[i, 1, j] = maxs[i * dim + j]
+
+    rtree_free_bounding_boxes(mins, maxs, n_boxes, dim)
+
+    return boxes
 
 def tree_depth(RTree rtree):
     """Return the depth of the Rtree."""
