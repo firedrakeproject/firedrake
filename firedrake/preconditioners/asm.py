@@ -167,8 +167,6 @@ class ASMStarPC(ASMPatchPC):
             mesh = V.mesh().unique()
         except NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        if mesh.extruded:
-            raise NotImplementedError
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -220,10 +218,13 @@ class ASMVankaPC(ASMPatchPC):
             mesh = V.mesh().unique()
         except NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh_unique.topology_dm
 
-        if mesh_unique.extruded:
-            raise NotImplementedError("Need to do column patch")
+        if _get_columns_option(opts, mesh):
+            mesh_dm = mesh._base_mesh.topology_dm
+            sections = [Vsub._base_mesh_section for Vsub in V]
+        else:
+            mesh_dm = mesh.topology_dm
+            sections = [Vsub.local_section for Vsub in V]
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -249,6 +250,7 @@ class ASMVankaPC(ASMPatchPC):
             return (tuple(V[i] for i in include_subspaces), tuple(V[i] for i in exclude_subspaces))
 
         Z = splitting(V)
+
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = get_local_ises_indices(V)
@@ -256,7 +258,7 @@ class ASMVankaPC(ASMPatchPC):
 
         # Build index sets for the patches
         colors = get_colors(mesh_dm, use_coloring, depth, distance=3)
-        ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
+        ises = [build_vanka_indices(sections, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
                                     include_star, color) for color in colors]
         return ises
 
@@ -578,7 +580,7 @@ def build_star_indices(sections, V_local_ises_indices, mesh_dm, ordering, prefix
     return iset
 
 
-def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
+def build_vanka_indices(Z_sections, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
     """Return DOFs in the Vanka patches constructed at each point in seed_points.
 
     :arg Z: a tuple of the included/excluded FunctionSpaces to extract DOFs from
@@ -616,9 +618,8 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         # Grab unique points with stable ordering
         closure = reversed(dict.fromkeys(closure))
         V_points.extend(closure)
-        raise NotImplementedError("new api")
-        indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
-        indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
+        indices.extend(get_entity_dofs([Z_sections[0]], Z_local_ises_indices[0], V_points))
+        indices.extend(get_entity_dofs([Z_sections[1]], Z_local_ises_indices[1], Q_points))
 
     indices = numpy.array(indices, dtype=PETSc.IntType)
     indices = indices[indices >= 0]

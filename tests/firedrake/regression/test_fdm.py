@@ -46,6 +46,7 @@ fdmstar = {
 
 # FDM with static condensation
 facetstar = {
+    "ksp_monitor": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.FacetSplitPC",
     "facet_pc_type": "python",
