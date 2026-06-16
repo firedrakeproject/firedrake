@@ -17,7 +17,6 @@ ForwardSolveRecomputeCache = namedtuple(
         "func",
         "bcs",
         "solver",
-        "is_linear",
         "replaced_deps",
     ]
 )
@@ -149,6 +148,11 @@ class NonlinearVariationalSolverMixin:
         Fnew = replace(F, replace_map)
         unew = replace_map[problem.u]
 
+        Jnew = replace(problem.J, replace_map)
+        Jpnew = None
+        if problem.Jp and problem.Jp is not problem.J:
+            Jpnew = replace(problem.Jp, replace_map)
+
         # We also need to "replace" all the bcs in
         # the new NLVS so we can modify those values
         # without affecting user code.
@@ -166,7 +170,7 @@ class NonlinearVariationalSolverMixin:
 
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
-        nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
+        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,
@@ -182,7 +186,6 @@ class NonlinearVariationalSolverMixin:
             func=self._ad_problem.u,
             bcs=bcs_new,
             solver=nlvs,
-            is_linear=self._ad_problem.is_linear,
             replaced_deps=tuple(replace_map.values()),
         )
 
@@ -190,7 +193,7 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_tangent_cache(self):
         from firedrake import (
-            Function, Cofunction, derivative, TrialFunction,
+            Function, Cofunction, derivative,
             LinearVariationalProblem, LinearVariationalSolver)
 
         # If we build the TLM form from the cached
@@ -207,7 +210,7 @@ class NonlinearVariationalSolverMixin:
         # Then for the _partial_ derivatives:
         # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
         # (dF/du)*(du/dm) = -dF/dm
-        dFdu = derivative(F, u, TrialFunction(V))
+        dFdu = expand_derivatives(derivative(F, u))
         dFdm = Cofunction(V.dual())
         dudm = Function(V)
 
@@ -231,8 +234,6 @@ class NonlinearVariationalSolverMixin:
             replaced_tlms.append(mtlm)
 
             dFdm = derivative(-F, m, mtlm)
-            # TODO: Do we need expand_derivatives here? If so, why?
-            dFdm = expand_derivatives(dFdm)
             dFdm_tlm_forms.append(dFdm)
 
         tlm_val = Function(V)
@@ -336,34 +337,33 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_hessian_cache(self):
         from firedrake import (
-            Function, TestFunction)
+            Function, TrialFunction)
 
         nlvp = self._ad_forward_cache.solver._problem
         F = nlvp.F
         u = nlvp.u
         V = u.function_space()
 
-        # 1. Forms to calculate rhs of Hessian solve
+        # Solution of the adjoint equation, requires evaluate_adj to
+        # have been called
+        adj_sol = Function(V)
+        # Solution of the TLM equation, requires evaluate_tlm to
+        # have been called (which is handled by the driver)
+        tlm_output = Function(V)
+        # Solution of the second-order adjoint equation,
+        # this is computed during prepare_evaluate_hessian
+        adj2_sol = Function(V)
 
-        # Calculate d^2F/du^2 * du/dm * dm
+        # 1. Forms to calculate rhs of Hessian solve
+        # Calculate d^2F*/du^2 * du/dm * dm
         # where dm is direction for tlm action so du/dm * dm is tlm output
         dFdu = self._ad_tangent_cache.dFdu
-        tlm_output = Function(V)
-        d2Fdu2 = derivative(dFdu, u, tlm_output)
-        # print()
-        # print(f"{dFdu = }")
-        # print()
-        # print(f"{d2Fdu2 = }")
-        # print()
-        d2Fdu2 = expand_derivatives(d2Fdu2)
+        dFdu_adj = action(adjoint(dFdu), adj_sol)
 
-        adj_sol = Function(V)
-
-        # Contribution from tlm_output
-        if len(d2Fdu2.integrals()) > 0:
-            d2Fdu2_form = action(adjoint(d2Fdu2), adj_sol)
-        else:
-            d2Fdu2_form = d2Fdu2
+        d2Fdu2 = derivative(dFdu_adj, u, tlm_output)
+        # expand_derivatives will simplify down to an empty
+        # form if required
+        d2Fdu2_form = expand_derivatives(d2Fdu2)
 
         # Contributions from each tlm_input
         dFdu_adj = action(self._ad_adjoint_cache.dFdu_adj, adj_sol)
@@ -376,27 +376,21 @@ class NonlinearVariationalSolverMixin:
             d2Fdmdu_forms.append(d2Fdmdu)
 
         # 2. Forms to calculate contribution from each control
-        adj2_sol = Function(V)
-
-        Fadj = action(F, adj_sol)
-        Fadj2 = action(F, adj2_sol)
-
         dFdm_adj2_forms = []
         d2Fdm2_adj_forms = []
         d2Fdudm_forms = []
         for m in self._ad_forward_cache.replaced_deps:
-            dm = TestFunction(m.function_space())
-            dFdm_adj2 = expand_derivatives(
-                derivative(Fadj2, m, dm))
+            dm = TrialFunction(m.function_space())
+            dFdm = derivative(F, m, dm)
 
+            dFdm_adj2 = action(adjoint(dFdm), adj2_sol)
             dFdm_adj2_forms.append(dFdm_adj2)
 
-            dFdm_adj = derivative(Fadj, m, dm)
-
-            d2Fdudm = expand_derivatives(
-                derivative(dFdm_adj, u, tlm_output))
-
-            d2Fdudm_forms.append(d2Fdudm)
+            # we need to expand derivatives before taking
+            # the second derivative
+            dFdm_adj = expand_derivatives(action(adjoint(dFdm), adj_sol))
+            d2Fdudm = derivative(dFdm_adj, u, tlm_output)
+            d2Fdudm_forms.append(expand_derivatives(d2Fdudm))
 
             d2Fdm2_adj_forms_k = []
             for m2, dm2 in zip(self._ad_forward_cache.replaced_deps,
