@@ -36,9 +36,10 @@ fdmstar = {
         "pc_python_type": "firedrake.FDMPC",
         "fdm": {
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_column": 0,
         }
     }
 }
@@ -72,9 +73,10 @@ facetstar = {
             "esteig_ksp_norm_type": "natural",
             "ksp_chebyshev_esteig": "0.5,0.5,0.0,1.0",
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_mat_ordering_type": "nd",
             "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_column": 0,
         }
     }
 }

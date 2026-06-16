@@ -1,5 +1,8 @@
 import pytest
 import numpy as np
+
+import pyop3 as op3
+
 from firedrake import *
 
 
@@ -205,8 +208,8 @@ def test_tensor_function_zero_with_subset(W):
     assert np.allclose(f.dat.data_ro, 1.0)
 
     f.zero(subset=[0, 1, 2])
-    assert np.allclose(reshape(f)[:3], 0.0)
-    assert np.allclose(reshape(f)[3:], 1.0)
+    assert np.allclose(f.dat.data_ro[:3], 0.0)
+    assert np.allclose(f.dat.data_ro[3:], 1.0)
 
 
 def test_component_function_zero(W):
@@ -233,7 +236,7 @@ def test_component_function_zero_with_subset(W):
 
     f.sub(0).zero(subset=[0, 1, 2])
 
-    f_data = f.dat.data_ro.reshape((-1, *W.shape))
+    f_data = f.dat.data_ro
     for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
         assert np.allclose(f_data[:3, i, j], expected)

@@ -1,4 +1,4 @@
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain
 import textwrap
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
@@ -10,7 +10,7 @@ from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.mesh import get_iteration_spec
-from firedrake.utils import IntType_c, cached_property, ScalarType
+from firedrake.utils import IntType_c, ScalarType
 from firedrake.pack import pack
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
@@ -142,7 +142,7 @@ class PMGBase(PCSNESBase):
             elements.append(ele)
 
         sf = odm.getPointSF()
-        section = odm.getDefaultSection()
+        section = odm.getLocalSection()
         attach_hooks(pdm, level=len(elements)-1, sf=sf, section=section)
         # Now overwrite some routines on the DM
         pdm.setRefine(None)
@@ -293,9 +293,9 @@ class PMGBase(PCSNESBase):
         cctx._nullspace = self.coarsen_nullspace(fctx._nullspace, cV, interpolate)
         cctx._nullspace_T = self.coarsen_nullspace(fctx._nullspace_T, cV, interpolate)
         cctx._near_nullspace = self.coarsen_nullspace(fctx._near_nullspace, cV, interpolate)
-        cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
-        cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
-        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
+        cctx.set_nullspace(cctx._nullspace, cV.field_ises, transpose=False, near=False)
+        cctx.set_nullspace(cctx._nullspace_T, cV.field_ises, transpose=True, near=False)
+        cctx.set_nullspace(cctx._near_nullspace, cV.field_ises, transpose=False, near=True)
         return cdm
 
     def coarsen_quadrature(self, metadata, fdeg, cdeg):
@@ -469,7 +469,7 @@ class PMGPC(PCBase, PMGBase):
         return ppc
 
     def apply(self, pc, x, y):
-        return self.ppc.apply(x, y)
+        self.ppc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
         return self.ppc.applyTranspose(x, y)
@@ -534,16 +534,11 @@ class PMGSNES(SNESBase, PMGBase):
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
-    to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, Vf.ufl_element())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.mesh().coordinates] + coefficients
-
-    return op2.Kernel(kernel.ast, kernel.name,
-                      requires_zeroed_output_arguments=True,
-                      flop_count=kernel.flop_count,
-                      events=(kernel.event,)), coefficients
+    return kernel, coefficients
 
 
 def expand_element(ele):
@@ -836,7 +831,7 @@ static inline void permute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
     /*
-    Apply a cyclic permutation to a n0 x n1 x n2 x n3 array x, exponsing axis as
+    Apply a cyclic permutation to a n0 x n1 x n2 x n3 array x, exposing axis as
     the fast direction.  Write the result on y.
     */
 
@@ -1060,25 +1055,9 @@ def get_piola_tensor(mapping, domain, inverse=False):
         raise ValueError("Mapping %s is not supported" % mapping)
 
 
-def cache_generate_code(kernel, comm):
-    _cachedir = os.environ.get('PYOP3_CACHE_DIR',
-                               os.path.join(tempfile.gettempdir(),
-                                            'pyop2-cache-uid%d' % os.getuid()))
-
-    key = kernel.cache_key[0]
-    shard, disk_key = key[:2], key[2:]
-    filepath = os.path.join(_cachedir, shard, disk_key)
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
-            code = f.read()
-    else:
-        code = loopy.generate_code_v2(kernel.code).device_code()
-        if comm.rank == 0:
-            os.makedirs(os.path.join(_cachedir, shard), exist_ok=True)
-            with open(filepath, 'w') as f:
-                f.write(code)
-        comm.barrier()
-    return code
+@op3.cache.memory_and_disk_cache()
+def cache_generate_code(kernel, comm) -> str:
+    return loopy.generate_code_v2(kernel.ast).device_code()
 
 
 def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
@@ -1221,7 +1200,7 @@ class StandaloneInterpolationMatrix(object):
             weight.dat[mesh.closure(c)].iassign(1),
             eager=True,
         )
-        with weight.vec_rw as w:
+        with weight.dat.vec_rw as w:
             w.reciprocal()
         return weight
 
@@ -1252,10 +1231,13 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _build_custom_interpolators(self):
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+
         # We generate custom prolongation and restriction kernels because
         # dual evaluation of EnrichedElement is not yet implemented in FInAT
         uf_perm, _, _ = get_permutation_to_nodal_elements(self.Vf)
         uc_perm, _, _ = get_permutation_to_nodal_elements(self.Vc)
+
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
         loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
 
@@ -1266,14 +1248,22 @@ class StandaloneInterpolationMatrix(object):
                          pack(self.uf, loop_info, permutation=uf_perm),
                          pack(self._weight, loop_info, permutation=uf_perm)]
         coefficient_args = [pack(c, loop_info) for c in coefficients]
-        prolong = op3.loop(
+        prolong_expr = op3.loop(
             loop_info.loop_index,
             prolong_kernel(*prolong_args, *coefficient_args),
         )
-        restrict = op3.loop(
+
+        def prolong():
+            prolong_expr(compiler_parameters={"optimize": True})
+
+        restrict_expr = op3.loop(
             loop_info.loop_index,
             restrict_kernel(*restrict_args, *coefficient_args),
         )
+
+        def restrict():
+            restrict_expr(compiler_parameters={"optimize": True})
+
         return prolong, restrict
 
     def _prolong(self):
@@ -1445,54 +1435,46 @@ return;
 
         coeff_names = tuple(f"c{i}" for i in range(len(coefficients)))
 
-        prolong_loopy_kernel = lp.make_kernel(
-            ["{ : }"],
+        prolong_kernel = op3.Function.from_c_string(
+            "prolongation",
+            prolong_c_code,
             [
-                lp.CInstruction((), prolong_c_code, frozenset({"y", "x", "w", *coeff_names}), ("y",)),
+                ("y", ScalarType, op3.INC),
+                ("x", ScalarType, op3.READ),
+                ("w", ScalarType, op3.READ),
+                *(
+                    (f"c{i}", ScalarType, op3.READ)
+                    for i in range(len(coefficients))
+                ),
             ],
-            [
-                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=True),
-                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=False),
-                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
-                *[
-                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
-                    for coeff_name in coeff_names
-                ],
-            ],
-            name="prolongation",
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
             preambles=[
                 ("10_mapping", mapping_code),
                 ("10_kronmxv", kronmxv_code),
             ],
-        )
-        restrict_loopy_kernel = lp.make_kernel(
-            ["{ : }"],
-            [
-                lp.CInstruction((), restrict_c_code, frozenset({"x", "y", "w", *coeff_names}), ("x",)),
-            ],
-            [
-                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=True),
-                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=False),
-                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
-                *[
-                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
-                    for coeff_name in coeff_names
-                ],
-            ],
-            name="restriction",
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
-            preambles=[
-                ("10_mapping", mapping_code),
-                ("10_kronmxv", kronmxv_code),
-            ],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
         )
 
-        intents = [op3.INC, op3.READ, op3.READ] + [op3.READ] * len(coefficients)
-        prolong_kernel = op3.Function(prolong_loopy_kernel, intents)
-        restrict_kernel = op3.Function(restrict_loopy_kernel, intents)
+        restrict_kernel = op3.Function.from_c_string(
+            "restriction",
+            restrict_c_code,
+            [
+                ("x", ScalarType, op3.INC),
+                ("y", ScalarType, op3.READ),
+                ("w", ScalarType, op3.READ),
+                *(
+                    (f"c{i}", ScalarType, op3.READ)
+                    for i in range(len(coefficients))
+                ),
+            ],
+            preambles=[
+                ("10_mapping", mapping_code),
+                ("10_kronmxv", kronmxv_code),
+            ],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
+        )
+
         return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):
@@ -1566,7 +1548,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     def getNestSubMatrix(self, i, j):
         if i == j:
             s = self._standalones[i]
-            sizes = (s.uf.template_vec.getSizes(), s.uc.template_vec.getSizes())
+            sizes = (s.uf.function_space().template_vec.sizes, s.uc.function_space().template_vec.sizes)
             M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
             M_shll.setUp()
             return M_shll

@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <spatialindex/capi/sidx_api.h>
+#include <rtree-capi.h>
 #include <float.h>
 #include <evaluate.h>
 
@@ -14,7 +14,7 @@ int locate_cell(struct Function *f,
         size_t ncells_ignore,
         int* cells_ignore)
 {
-    RTError err;
+    RTreeError err;
     int cell = -1;
     int cell_ignore_found = 0;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
@@ -26,83 +26,49 @@ int locate_cell(struct Function *f,
     pointers refer to is updated as necessary. */
     double ref_cell_dist_l1 = DBL_MAX;
     double current_ref_cell_dist_l1 =  -0.5;
-    /* NOTE: `tolerance`, which is used throughout this funciton, is a static
+    /* NOTE: `tolerance`, which is used throughout this function, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
-    if (f->sidx) {
-        int64_t *ids = NULL;
-        uint64_t nids = 0;
-        /* We treat our list of candidate cells (ids) from libspatialindex's
-            Index_Intersects_id as our source of truth: the point must be in
-            one of the cells. */
-        err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
-        if (err != RT_None) {
-            fputs("ERROR: Index_Intersects_id failed in libspatialindex!", stderr);
-            return -1;
+    size_t *ids = NULL;
+    size_t nids = 0;
+    err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
+    if (err != Success) {
+        fputs("ERROR: rtree_locate_all_at_point failed.\n", stderr);
+        rtree_free_ids(ids, nids);
+        return -1;
+    }
+    for (size_t i = 0; i < nids; i++) {
+        current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+        for (size_t j = 0; j < ncells_ignore; j++) {
+            if (ids[i] == cells_ignore[j]) {
+                cell_ignore_found = 1;
+                break;
+            }
         }
-        for (uint64_t i = 0; i < nids; i++) {
-            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-            for (uint64_t j = 0; j < ncells_ignore; j++) {
-                if (ids[i] == cells_ignore[j]) {
-                    cell_ignore_found = 1;
-                    break;
-                }
-            }
-            if (cell_ignore_found) {
-                cell_ignore_found = 0;
-                continue;
-            }
-            if (current_ref_cell_dist_l1 <= 0.0) {
-                /* Found cell! */
+
+        if (cell_ignore_found) {
+            cell_ignore_found = 0;
+            continue;
+        }
+        if (current_ref_cell_dist_l1 <= 0.0) {
+            /* Found cell! */
+            cell = ids[i];
+            memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+            found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
+            break;
+        }
+        else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
+            /* getting closer... */
+            ref_cell_dist_l1 = current_ref_cell_dist_l1;
+            if (ref_cell_dist_l1 < tolerance) {
+                /* Close to cell within tolerance so could be this cell */
                 cell = ids[i];
                 memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                break;
-            }
-            else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                /* getting closer... */
-                ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                if (ref_cell_dist_l1 < tolerance) {
-                    /* Close to cell within tolerance so could be this cell */
-                    cell = ids[i];
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                }
-            }
-        }
-        free(ids);
-    } else {
-        for (int c = 0; c < f->n_cells; c++) {
-            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
-            for (uint64_t j = 0; j < ncells_ignore; j++) {
-                if (c == cells_ignore[j]) {
-                    cell_ignore_found = 1;
-                    break;
-                }
-            }
-            if (cell_ignore_found) {
-                cell_ignore_found = 0;
-                continue;
-            }
-            if (current_ref_cell_dist_l1 <= 0.0) {
-                /* Found cell! */
-                cell = c;
-                memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                break;
-            }
-            else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                /* getting closer... */
-                ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                if (ref_cell_dist_l1 < tolerance) {
-                    /* Close to cell within tolerance so could be this cell */
-                    cell = c;
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                }
+                found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
             }
         }
     }
+    rtree_free_ids(ids, nids);
     return cell;
 }

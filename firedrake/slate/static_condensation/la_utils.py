@@ -317,8 +317,12 @@ class SchurComplementBuilder(object):
 
     def _split_mixed_operator(self):
         split_mixed_op = dict(split_form(self.Atilde.form))
-        id0, id1 = (self.vidx, self.pidx)
-        A00 = Tensor(split_mixed_op[(id0, id0)])
+
+        if self.nfields > 1:
+            id0, id1 = (self.vidx, self.pidx)
+            A00 = Tensor(split_mixed_op[(id0, id0)])
+        else:
+            A00 = Tensor(split_mixed_op[(None, None)])
         self.list_split_mixed_ops = [A00, None, None, None]
 
         if self.nfields > 1:
@@ -328,13 +332,13 @@ class SchurComplementBuilder(object):
             self.list_split_mixed_ops = [A00, A01, A10, A11]
 
             split_trace_op = dict(split_form(self.K.form))
-            K0 = Tensor(split_trace_op[(0, id0)])
-            K1 = Tensor(split_trace_op[(0, id1)])
+            K0 = Tensor(split_trace_op[(None, id0)])
+            K1 = Tensor(split_trace_op[(None, id1)])
             self.list_split_trace_ops = [K0, K1]
 
             split_trace_op_transpose = dict(split_form(self.KT.form))
-            K0 = Tensor(split_trace_op_transpose[(id0, 0)])
-            K1 = Tensor(split_trace_op_transpose[(id1, 0)])
+            K0 = Tensor(split_trace_op_transpose[(id0, None)])
+            K1 = Tensor(split_trace_op_transpose[(id1, None)])
             self.list_split_trace_ops_transpose = [K0, K1]
 
     def _check_options(self, valid_options):

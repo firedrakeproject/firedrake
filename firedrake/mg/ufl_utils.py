@@ -1,7 +1,7 @@
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import as_domain, extract_unique_domain
+from ufl.domain import extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
@@ -99,14 +99,18 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = as_domain(it)
+        mesh = it.ufl_domain()
         new_mesh = self(mesh, self)
         if isinstance(integrand, ufl.classes.Zero):
             continue
         if it.subdomain_data() is not None:
             raise CoarseningError("Don't know how to coarsen subdomain data")
+        # Coarsen secondary meshes in cross-mesh integrals (e.g. intersect_measures).
+        integral_type_map = {self(d, self): itype
+                             for d, itype in it.extra_domain_integral_type_map().items()}
         new_itg = it.reconstruct(integrand=integrand,
-                                 domain=new_mesh)
+                                 domain=new_mesh,
+                                 extra_domain_integral_type_map=integral_type_map)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
     return form
@@ -185,19 +189,26 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
-        cctx = get_appctx(coarse)
-        cmapping = cctx._coefficient_mapping
-        if cmapping is None:
-            return
-        for c in cmapping:
-            if is_dual(c):
-                manager.restrict(c, cmapping[c])
-            else:
-                manager.inject(c, cmapping[c])
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
+        while coarse:
+            cctx = get_appctx(coarse)
+            cmapping = cctx._coefficient_mapping
+            if cmapping is None:
+                return
+            for c in cmapping:
+                if is_dual(c):
+                    manager.restrict(c, cmapping[c])
+                else:
+                    manager.inject(c, cmapping[c])
+            # Apply bcs
+            if cctx.pre_apply_bcs:
+                for bc in cctx._problem.dirichlet_bcs():
+                    bc.apply(cctx._x)
+            # When the solution is in the real space
+            # PETSc fails to call this hook on coarse levels.
+            # As a workaround, we inject into all levels.
+            has_real_space = any(Vsub.ufl_element().family() == "Real"
+                                 for Vsub in cctx._x.function_space())
+            coarse = coarse.getCoarseDM() if has_real_space else None
 
     dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):
@@ -271,47 +282,45 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
 
+    # Get options prefix for current level
+    parent_context = context
+    while parent_context._fine:
+        parent_context = parent_context._fine
+    parent_prefix = parent_context.options_prefix
+    opts = PETSc.Options(parent_prefix)
+    if opts.getString("snes_type", "") == "fas":
+        solver_prefix = "fas_"
+    else:
+        solver_prefix = "mg_"
     _, level = utils.get_level(problem.u_restrict.function_space().mesh())
     if level == 0:
-        # Use different mat_type on coarsest level
-        opts = PETSc.Options(context.options_prefix)
-        if opts.getString("snes_type", "") == "fas":
-            solver_prefix = "fas_"
-        else:
-            solver_prefix = "mg_"
-
-        coarse_mat_type = opts.getString(f"{solver_prefix}coarse_mat_type", "")
-        if coarse_mat_type == "":
-            coarse_mat_type = context.mat_type
-            default_pmat_type = context.pmat_type
-        else:
-            default_pmat_type = coarse_mat_type
-        coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
-                                          default_pmat_type)
-
-        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type", "")
-        if coarse_sub_mat_type == "":
-            coarse_sub_mat_type = context.sub_mat_type
-            default_sub_pmat_type = context.sub_pmat_type
-        else:
-            default_sub_pmat_type = coarse_sub_mat_type
-        coarse_sub_pmat_type = opts.getString(f"{solver_prefix}coarse_sub_pmat_type",
-                                              default_sub_pmat_type or "") or None
+        levels_prefix = f"{solver_prefix}coarse_"
     else:
-        coarse_mat_type = context.mat_type
-        coarse_pmat_type = context.pmat_type
-        coarse_sub_mat_type = context.sub_mat_type
-        coarse_sub_pmat_type = context.sub_pmat_type
+        levels_prefix = f"{solver_prefix}levels_"
+    current_level_prefix = f"{solver_prefix}levels_{level}_"
+    options_prefix = f"{parent_prefix}{current_level_prefix}"
 
-    coarse = _SNESContext(problem,
-                          mat_type=coarse_mat_type,
-                          pmat_type=coarse_pmat_type,
-                          sub_mat_type=coarse_sub_mat_type,
-                          sub_pmat_type=coarse_sub_pmat_type,
-                          appctx=new_appctx,
-                          options_prefix=context.options_prefix,
-                          transfer_manager=context.transfer_manager,
-                          pre_apply_bcs=context.pre_apply_bcs)
+    # Use different mat_type on each level
+    mat_type = None
+    pmat_type = None
+    sub_mat_type = None
+    sub_pmat_type = None
+    for prefix in (levels_prefix, current_level_prefix):
+        mat_type = opts.getString(f"{prefix}mat_type", "") or mat_type
+        pmat_type = opts.getString(f"{prefix}pmat_type", "") or pmat_type
+        sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or sub_mat_type
+        sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or sub_pmat_type
+
+    pmat_type = pmat_type or mat_type
+    sub_pmat_type = sub_pmat_type or sub_mat_type
+    coarse = context.reconstruct(problem=problem,
+                                 mat_type=mat_type,
+                                 pmat_type=pmat_type,
+                                 sub_mat_type=sub_mat_type,
+                                 sub_pmat_type=sub_pmat_type,
+                                 appctx=new_appctx,
+                                 options_prefix=options_prefix,
+                                 )
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
     context._coarse = coarse
@@ -332,7 +341,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 if parentdm.getAttr("__setup_hooks__"):
                     add_hook(parentdm, teardown=partial(pop_appctx, coarseneddm, coarse))
 
-    ises = problem.J.arguments()[0].function_space()._ises
+    ises = problem.J.arguments()[0].function_space().field_ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
     coarse.set_nullspace(coarse._nullspace, ises, transpose=False, near=False)
     coarse._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
@@ -437,7 +446,7 @@ class Injection(object):
         self.manager = manager
 
     def mult(self, mat, x, y):
-        with self.ffn.vec_wo as v:
+        with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
         for bc in self.cbcs:

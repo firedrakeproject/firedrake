@@ -33,6 +33,7 @@
 
 
 from abc import ABC
+import dataclasses
 import os
 import platform
 import shutil
@@ -47,18 +48,18 @@ from functools import partial
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import gettempdir, mkstemp
-from typing import Hashable
+from typing import Hashable, Self
 from random import randint
 
+import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.config
 from pyop3 import mpi
 from pyop3.cache import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
-from pyop3.config import config
 from pyop3.exceptions import CompilationException
 from pyop3.log import warning, debug, progress, INFO
-from pyop3.pyop2_utils import get_petsc_variables
 
 
 def _check_hashes(x, y, datatype):
@@ -74,10 +75,25 @@ _compiler = None
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
-MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
-# PETSc Configuration
-petsc_variables = get_petsc_variables()
+
+# TODO: This might not be best living here, could have stuff like #include <petscmat.h>
+@dataclasses.dataclass(frozen=True)
+class CompilerOptions:
+    include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+    def __add__(self, other, /) -> Self:
+        if not isinstance(other, CompilerOptions):
+            return NotImplemented
+
+        return type(self)(
+            include_dirs=self.include_dirs+other.include_dirs,
+            lib_dirs=self.lib_dirs+other.lib_dirs,
+            libs=self.libs+other.libs,
+        )
 
 
 def set_default_compiler(compiler):
@@ -272,47 +288,46 @@ class Compiler(ABC):
 
     @property
     def cc(self):
-        return self._cc or petsc_variables["CC"]
+        return self._cc or petsctools.get_petscvariables()["CC"]
 
     @property
     def cxx(self):
-        return self._cxx or petsc_variables["CXX"]
+        return self._cxx or petsctools.get_petscvariables()["CXX"]
 
     @property
     def ld(self):
         return self._ld
 
     @property
-    def cflags(self):
-        cflags = self._cflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cflags += self._debugflags
-        else:
-            cflags += self._optflags
-        if config.cflags:
-            cflags += config.cflags
-        return cflags
+    def cflags(self) -> tuple[str, ...]:
+        return (
+            *self._cflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *pyop3.config.extra_cflags,
+        )
 
     @property
-    def cxxflags(self):
-        cxxflags = self._cxxflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cxxflags += self._debugflags
-        else:
-            cxxflags += self._optflags
-        if config.cxxflags:
-            cxxflags += config.cxxflags
-        return cxxflags
+    def cxxflags(self) -> tuple[str, ...]:
+        return (
+            *self._cxxflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *pyop3.config.extra_cxxflags,
+        )
 
     @property
-    def ldflags(self):
-        ldflags = self._ldflags + self._extra_linker_flags
-        if config.ldflags:
-            ldflags += config.ldflags
-        return ldflags
+    def ldflags(self) -> tuple[str, ...]:
+        return (
+            *self._ldflags,
+            *self._extra_linker_flags,
+            *pyop3.config.extra_ldflags,
+        )
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         return ()
 
 
@@ -356,30 +371,17 @@ class LinuxGnuCompiler(Compiler):
     _debugflags = ("-O0", "-g")
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         """Flags to work around bugs in compilers."""
-        ver = self._version
-        cflags = ()
-        if Version("4.8.0") <= ver < Version("4.9.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
-            cflags = ("-fno-ivopts",)
-        if Version("5.0") <= ver <= Version("5.4.0"):
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("6.0.0") <= ver < Version("6.5.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.1.0") <= ver < Version("7.1.2"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.3") <= ver <= Version("7.5"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
-            # See also https://github.com/firedrakeproject/firedrake/issues/1442
-            # And https://github.com/firedrakeproject/firedrake/issues/1717
-            # Bug also on skylake with the vectoriser in this
-            # combination (disappears without
-            # -fno-tree-loop-vectorize!)
-            cflags = ("-fno-tree-loop-vectorize", "-mno-avx512f")
-        return cflags
+        cflags = []
+        if not self._debug and self._version >= Version("15"):
+            # Disable '-O3' for GCC versions >=15 because it causes issues with
+            # complex interpolation kernels
+            # TODO: revisit this in later GCC releases to see if we can set a
+            # maximum version constraint
+            # (see https://github.com/firedrakeproject/firedrake/issues/5107)
+            cflags.append("-O2")
+        return tuple(cflags)
 
 
 class LinuxClangCompiler(Compiler):
@@ -459,14 +461,13 @@ def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
     else:
         # Sniff compiler from file extension,
         if extension == "cpp":
-            exe = petsc_variables["CXX"]
+            exe = petsctools.get_petscvariables()["CXX"]
         else:
-            exe = petsc_variables["CC"]
+            exe = petsctools.get_petscvariables()["CC"]
         compiler = sniff_compiler(exe, comm)
 
-    debug = config.debug
-    compiler_instance = compiler(cppargs, ldargs, debug=debug)
-    if config.check_src_hashes or config.debug:
+    compiler_instance = compiler(cppargs, ldargs, debug=pyop3.config.compiler_use_debug_flags)
+    if pyop3.config.check_src_hashes:
         check_source_hashes(compiler_instance, code, extension, comm)
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)
@@ -532,7 +533,7 @@ def check_source_hashes(compiler, code, extension, comm):
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
             # Dump all src code to disk for debugging
-            output = Path(config.cache_dir).joinpath("mismatching-kernels")
+            output = Path(pyop3.config.cache_dir).joinpath("mismatching-kernels")
             srcfile = output.joinpath(f"src-rank{icomm.rank}.{extension}")
             if icomm.rank == 0:
                 output.mkdir(parents=True, exist_ok=True)
@@ -540,17 +541,16 @@ def check_source_hashes(compiler, code, extension, comm):
             with open(srcfile, "w") as fh:
                 fh.write(code)
             icomm.barrier()
-            breakpoint()
             raise CompilationException(f"Generated code differs across ranks (see output in {output})")
 
 
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    make_cache=lambda: CompilerDiskAccess(config.cache_dir, extension=".so")
+    make_cache=lambda: CompilerDiskAccess(pyop3.config.cache_dir, extension=".so")
 )
 @PETSc.Log.EventDecorator()
-def make_so(compiler, code, extension, comm, filename=None):
+def make_so(compiler, code, extension, comm):
     """Build a shared library and load it
 
     :arg compiler: The compiler to use to create the shared library.
@@ -558,7 +558,6 @@ def make_so(compiler, code, extension, comm, filename=None):
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
-    :arg filename: Optional
     Returns a :class:`ctypes.CDLL` object of the resulting shared
     library."""
     # Compilation communicators are reference counted on the PyOP2 comm
@@ -573,62 +572,74 @@ def make_so(compiler, code, extension, comm, filename=None):
         exe = compiler.cc
         compiler_flags = compiler.cflags
 
-    # Compile on compilation communicator (ccomm) rank 0
-    soname = None
-    if ccomm.rank == 0:
-        if filename is None:
-            # Adding random 2-digit hexnum avoids using excessive filesystem inodes
-            tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
-            tempdir.mkdir(parents=True, exist_ok=True)
-            # This path + filename should be unique
-            descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
-            filename = Path(filename)
-        else:
-            filename.parent.mkdir(exist_ok=True)
+    def compile_single_rank():
+        # Adding random 2-digit hexnum avoids using excessive filesystem inodes
+        tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
+        tempdir.mkdir(parents=True, exist_ok=True)
+        # This path + filename should be unique
+        descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
+        filename = Path(filename)
 
         cname = filename
         oname = filename.with_suffix(".o")
         soname = filename.with_suffix(".so")
         logfile = filename.with_suffix(".log")
         errfile = filename.with_suffix(".err")
-        with progress(INFO, 'Compiling wrapper'):
-            # Write source code to disk
-            with open(cname, "w") as fh:
-                fh.write(code)
-            os.close(descriptor)
 
-            if not compiler.ld:
-                # Compile and link
-                cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
-                _run(cc, logfile, errfile)
+        try:
+            with progress(INFO, 'Compiling wrapper'):
+                # Write source code to disk
+                with open(cname, "w") as fh:
+                    fh.write(code)
+                os.close(descriptor)
+
+                if not compiler.ld:
+                    # Compile and link
+                    cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
+                    _run(cc, logfile, errfile)
+                else:
+                    # Compile
+                    cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
+                    _run(cc, logfile, errfile)
+                    # Extract linker specific "cflags" from ldflags and link
+                    ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
+                    _run(ld, logfile, errfile, step="Linker", filemode="a")
+        except subprocess.CalledProcessError as e:
+            msg = dedent(f"""
+                Command "{e.cmd}" return error status {e.returncode}.
+                Unable to compile code
+            """)
+            if os.environ.get("FIREDRAKE_CI", False):
+                msg += dedent(f"""
+                    Code is:
+                    {code}
+                """)
+                with open(errfile) as err:
+                    msg += dedent(f"""
+                        Compiler output is:
+                        {''.join(err.readlines())}
+                    """)
             else:
-                # Compile
-                cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
-                _run(cc, logfile, errfile)
-                # Extract linker specific "cflags" from ldflags and link
-                ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
-                _run(ld, logfile, errfile, step="Linker", filemode="a")
+                msg += dedent(f"""
+                    Compile log in {logfile!s}
+                    Compile errors in {errfile!s}
+                """)
+            raise CompilationException(msg) from e
+        else:
+            return soname
 
-    return ccomm.bcast(soname, root=0)
+    return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
     """ Run a compilation command and handle logging + errors.
     """
     debug(f"{step} command: {' '.join(cc)}")
-    try:
-        with open(logfile, filemode) as log, open(errfile, filemode) as err:
-            log.write(f"{step} command:\n")
-            log.write(" ".join(cc))
-            log.write("\n\n")
-            subprocess.check_call(cc, stderr=err, stdout=log)
-    except subprocess.CalledProcessError as e:
-        raise CompilationException(dedent(f"""
-            Command "{e.cmd}" return error status {e.returncode}.
-            Unable to compile code
-            Compile log in {logfile!s}
-            Compile errors in {errfile!s}
-            """))
+    with open(logfile, filemode) as log, open(errfile, filemode) as err:
+        log.write(f"{step} command:\n")
+        log.write(" ".join(cc))
+        log.write("\n\n")
+        subprocess.check_call(cc, stderr=err, stdout=log)
 
 
 def add_profiling_events(dll, events):
@@ -654,7 +665,7 @@ def clear_compiler_disk_cache(prompt=False):
 
     :arg prompt: if ``True`` prompt before removing any files
     """
-    cachedirs = [config.cache_dir, MEM_TMP_DIR]
+    cachedirs = [pyop3.config.cache_dir, MEM_TMP_DIR]
 
     for directory in cachedirs:
         if not os.path.exists(directory):

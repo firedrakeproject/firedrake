@@ -32,8 +32,12 @@ def check_min_python_version() -> None:
         "requires-python = \">=(.*)\""
     )
     check_file_contains_pattern(
-        REPO_ROOT / "docs/source/install.rst",
+        REPO_ROOT / "docs" / "source" / "install.rst",
         f"Python \\({min_python_version} or greater\\)"
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "scripts" / "firedrake-configure",
+        f"MINIMUM_PYTHON_VERSION = \"{min_python_version}\""
     )
 
 

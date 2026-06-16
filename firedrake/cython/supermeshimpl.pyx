@@ -74,8 +74,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     simplex_B = numpy.empty_like(simplex_A, dtype=ScalarType)
     simplices_C = numpy.empty(MAGIC[gdim], dtype=ScalarType)
 
-    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
-    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
+    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
+    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
     V_A_cell_node_map = V_A.cell_node_list
     V_B_cell_node_map = V_B.cell_node_list
     num_dof_A = V_A.cell_node_list.shape[1]
@@ -142,14 +142,24 @@ def intersection_finder(mesh_A, mesh_B):
     vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertex_map_A = mesh_A.coordinates.function_space().cell_node_list.astype(int)
     vertex_map_B = mesh_B.coordinates.function_space().cell_node_list.astype(int)
-    nnodes_A = mesh_A.coordinates.function_space().axes.size
-    nnodes_B = mesh_B.coordinates.function_space().axes.size
+    nnodes_A = mesh_A.coordinates.function_space().axes.local_size
+    nnodes_B = mesh_B.coordinates.function_space().axes.local_size
     dim_A = mesh_A.geometric_dimension
     dim_B = mesh_B.geometric_dimension
     ncells_A = mesh_A.num_cells
     ncells_B = mesh_B.num_cells
     loc_A = vertex_map_A.shape[1]
     loc_B = vertex_map_B.shape[1]
+
+    # NOTE: supermesh test_periodic is stochastically failing here even though the inputs are fixed
+    # print(nnodes_A)
+    # print(ncells_A)
+    # print(nnodes_B)
+    # print(ncells_B)
+    # print(vertices_A)
+    # print(vertex_map_A)
+    # print(vertices_B)
+    # print(vertex_map_B)
 
     libsupermesh_tree_intersection_finder_set_input(&nnodes_A, &dim_A, &ncells_A, &loc_A,
                                                     &nnodes_B, &dim_B, &ncells_B, &loc_B,
@@ -165,9 +175,14 @@ def intersection_finder(mesh_A, mesh_B):
 
     libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
 
+    # print(indices)
+    # print(indptr)
+
     out = {}
     for cell_A in range(ncells_A):
         (start, end) = indptr[cell_A], indptr[cell_A + 1]
         out[cell_A] = indices[start:end]
+
+    # print(out)
 
     return out

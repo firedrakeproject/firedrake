@@ -1,5 +1,4 @@
-import os as _os
-from pyop3.config import config
+from pyop3.config import config_ as config
 
 def _fixup_pytools():
     # Many pyop3 objects inherit from pytools.RecordWithoutPickling.
@@ -19,7 +18,9 @@ del _fixup_pytools
 
 # think the command line is a better way to do this.
 def _init_likwid():
-    if "LIKWID_MODE" in _os.environ:
+    import os
+
+    if "LIKWID_MODE" in os.environ:
         # TODO: nice error message if import fails
         import atexit
         import pylikwid
@@ -32,20 +33,15 @@ _init_likwid()
 del _init_likwid
 
 
-# UNDO ME
-import pyop3.extras
-
-
-from pyop3.insn import Intent
-import pyop3.dtypes, pyop3.tree
-import pyop3.ir
+import pyop3.dtypes
+import pyop3.lower
 import pyop3.insn.visitors as insn_visitors
 from pyop3.expr.tensor import (  # noqa: F401
-    Tensor, FancyIndexWriteException, Dat, Scalar, Mat, AggregateMat, AggregateDat,
-    RowDatPythonMatContext, ColumnDatPythonMatContext, OutOfPlaceCallableTensorTransform
+    Tensor, Dat, Scalar, Mat, AggregateMat, AggregateDat,
+    OutOfPlaceCallableTensorTransform
 )
-from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression
-from pyop3.tree.axis_tree import (  # noqa: F401
+from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NAN
+from pyop3.axis_tree import (  # noqa: F401
     Axis,
     AxisForest,
     AxisTarget,
@@ -54,14 +50,12 @@ from pyop3.tree.axis_tree import (  # noqa: F401
     AxisTree,
     IndexedAxisTree,
 )
-from pyop3.expr.base import NAN  # noqa: F401
-from pyop3.expr.visitors import collect_axis_vars, replace  # noqa: F401
+from pyop3.expr.visitors import collect_axis_vars, evaluate, replace, replace_terminals  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
-    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, LGMap
+    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, PetscMatBuffer
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
-from pyop3.expr.visitors import evaluate  # noqa: F401
-from pyop3.tree.index_tree import (  # noqa: F401
+from pyop3.index_tree import (  # noqa: F401
     AffineSliceComponent,
     Index,
     IndexTree,
@@ -76,6 +70,7 @@ from pyop3.tree.index_tree import (  # noqa: F401
     as_slice,
 )
 from pyop3.insn import (  # noqa: F401
+    Intent,
     INC,
     MAX_RW,
     MAX_WRITE,
@@ -84,20 +79,20 @@ from pyop3.insn import (  # noqa: F401
     READ,
     RW,
     WRITE,
-    DummyKernelArgument,
     Function,
     Loop,
-    OpaqueKernelArgument,
-    ArrayAssignment,
+    Assignment,
     do_loop,
     loop_ as loop,
     exscan,
     AssignmentType,
 )
+from pyop3.device import ( # noqa: F401
+    HOST_DEVICE,
+    CUDAGPU,
+    offloading
+)
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
-from pyop3.tree.index_tree.parse import as_index_forest
-from pyop3.tree import accumulate_path
-from pyop3.ir import LOOPY_TARGET, LOOPY_LANG_VERSION
-
-del _os
+from pyop3.index_tree.parse import as_index_forest
+from pyop3.lower import LOOPY_TARGET, LOOPY_LANG_VERSION

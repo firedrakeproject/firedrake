@@ -1,1 +1,0 @@
-from .lower import LOOPY_LANG_VERSION, LOOPY_TARGET

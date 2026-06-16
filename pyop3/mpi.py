@@ -36,6 +36,7 @@
 """PyOP2 MPI communicator."""
 
 
+from typing import Any, Callable
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 from itertools import count
@@ -48,10 +49,9 @@ import os
 import tempfile
 import weakref
 
-from pyop3.config import config
+import pyop3.config
 from pyop3.exceptions import CompilationException
 from pyop3.log import debug, LOGGER, DEBUG
-from pyop3.pyop2_utils import trim
 
 
 __all__ = (
@@ -158,14 +158,13 @@ class PyOP2CommError(ValueError):
 # PYOP2_FINALISED flag.
 
 
-if config.spmd_strict:
+if pyop3.config.spmd_strict:
     def collective(fn):
-        extra = trim("""
-        This function is logically collective over MPI ranks, it is an
-        error to call it on fewer than all the ranks in MPI communicator.
-        PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
-        guarded by a barrier where possible.
-        """)
+        extra = """\
+This function is logically collective over MPI ranks, it is an
+error to call it on fewer than all the ranks in MPI communicator.
+PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
+guarded by a barrier where possible."""
 
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -204,17 +203,16 @@ if config.spmd_strict:
                 comm.Barrier()
             return value
 
-        wrapper.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        wrapper.__doc__ = f"{fn.__doc__}\n\n{extra}" if fn.__doc__ else extra
         return wrapper
 else:
     def collective(fn):
-        extra = trim("""
-        This function is logically collective over MPI ranks, it is an
-        error to call it on fewer than all the ranks in MPI communicator.
-        You can set PYOP2_SPMD_STRICT=1 in your environment to try and catch
-        non-collective calls.
-        """)
-        fn.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        extra = """\
+This function is logically collective over MPI ranks, it is an
+error to call it on fewer than all the ranks in MPI communicator.
+You can set PYOP2_SPMD_STRICT=1 in your environment to try and catch
+non-collective calls."""
+        fn.__doc__ = f"{fn.__doc__}\n\n{extra}" if fn.__doc__ else extra
         return fn
 
 
@@ -462,10 +460,10 @@ def create_split_comm(comm):
     else:
         debug("Creating compilation communicator using MPI_Split + filesystem")
         if comm.rank == 0:
-            if not os.path.exists(config.cache_dir):
-                os.makedirs(config.cache_dir, exist_ok=True)
+            if not os.path.exists(pyop3.config.cache_dir):
+                os.makedirs(pyop3.config.cache_dir, exist_ok=True)
             tmpname = tempfile.mkdtemp(prefix="rank-determination-",
-                                       dir=config.cache_dir)
+                                       dir=pyop3.config.cache_dir)
         else:
             tmpname = None
         tmpname = comm.bcast(tmpname, root=0)
@@ -538,7 +536,7 @@ def compilation_comm(comm, obj):
     if not is_pyop2_comm(comm):
         raise PyOP2CommError("Communicator is not a PyOP2 comm")
     # Should we try and do node-local compilation?
-    if config.node_local_compilation:
+    if pyop3.config.node_local_compilation:
         comp_comm = get_compilation_comm(comm)
         if comp_comm is not None:
             debug("Found existing compilation communicator")
@@ -573,6 +571,44 @@ def finalize_safe_debug():
         else:
             debug = lambda string: print(string)
     return debug
+
+
+def safe_noncollective(comm: MPI.Comm, func: Callable[[], Any], *, root: int) -> Any:
+    """Run a function on a single rank of ``comm`` in a deadlock safe way.
+
+    If an exception is raised on the active rank then this is caught and
+    raised collectively.
+
+    Parameters
+    ----------
+    comm
+        The communicator.
+    func
+        The operation to be performed on a single rank. This should be a
+        callable that takes no arguments.
+    root
+        The rank performing the operation.
+
+    Returns
+    -------
+    Any
+        The result of ``func``, broadcasted to all ranks.
+
+    """
+    if comm.rank == root:
+        try:
+            result = func()
+        except BaseException as e:
+            result = e
+    else:
+        result = None
+
+    with temp_internal_comm(comm) as icomm:
+        result = icomm.bcast(result, root=root)
+    if isinstance(result, BaseException):
+        raise result
+    else:
+        return result
 
 
 @atexit.register

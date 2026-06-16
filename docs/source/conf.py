@@ -18,6 +18,11 @@
 
 # -- General configuration -----------------------------------------------
 
+# Disable warnings for missing options when running sphinx as PETSc does
+# not know what to do with the sphinx arguments.
+import os
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
@@ -104,7 +109,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -136,8 +141,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    # Ignore undocumented PyOP2
-    ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -152,10 +155,13 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
+    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
+    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # Dodgy links
 linkcheck_ignore = [
+    r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
@@ -172,6 +178,9 @@ linkcheck_ignore = [
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
+    r'https://www.ox.ac.uk',
+    r'https://buy.crosscountrytrains.co.uk',
+    r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
 
@@ -412,10 +421,10 @@ texinfo_documents = [(
 # -- Options for intersphinx ---------------------------------------------
 
 intersphinx_mapping = {
-    'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
@@ -424,7 +433,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
-    'torch': ('https://pytorch.org/docs/stable/', None),
+    'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 

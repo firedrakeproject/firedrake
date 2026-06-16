@@ -107,7 +107,7 @@ class VectorSpaceBasis(object):
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.vec as v:
+        with b.dat.vec_ro as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 

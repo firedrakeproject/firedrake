@@ -78,12 +78,9 @@ def pseudo_random_coords(size):
 
 def functionspace_tests(vm):
     # Prep
-    num_cells = vm.cells.owned.size
+    num_cells = vm.cells.owned.local_size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = vm.cells.size - num_cells
-
-    def reshape(_data):
-        return _data.reshape((-1, vm.geometric_dimension))
+    num_cells_halo = vm.cells.local_size - num_cells
 
     # Can create DG0 function space
     V = FunctionSpace(vm, "DG", 0)
@@ -99,14 +96,14 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == num_cells
-    assert f.function_space().axes.size == g.function_space().axes.size == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.local_size == g.function_space().axes.owned.local_size == num_cells
+    assert f.function_space().axes.local_size == g.function_space().axes.local_size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
     # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
     # () and shape (1,).
-    assert np.allclose(f.dat.data_ro, np.prod(reshape(vm.coordinates.dat.data_ro), axis=1))
+    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro, axis=1))
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)
@@ -130,7 +127,7 @@ def functionspace_tests(vm):
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(
         h.dat.data_ro_with_halos[idxs_to_include],
-        np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
+        np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1),
     )
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # Using permutation matrix
@@ -144,67 +141,65 @@ def functionspace_tests(vm):
     h2.interpolate(2*g)
     assert np.allclose(
         h2.dat.data_ro_with_halos[idxs_to_include],
-        2*np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
+        2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1),
     )
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
     assert np.allclose(
         g.dat.data_ro_with_halos,
-        np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1),
+        np.prod(vm.coordinates.dat.data_ro_with_halos, axis=1),
     )
 
     h = assemble(interpolate(g, W))
     assert np.allclose(
         h.dat.data_ro_with_halos[idxs_to_include],
-        np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
+        np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1),
     )
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
     h2 = assemble(interpolate(2*g, W))
     assert np.allclose(
         h2.dat.data_ro_with_halos[idxs_to_include],
-        2*np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
+        2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1),
     )
 
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(interpolate(TestFunction(V), h_star))
-    assert np.allclose(g.dat.data_ro_with_halos, np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1))
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos, axis=1))
 
     g2 = assemble(interpolate(2 * TestFunction(V), h_star))
-    assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1))
+    assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos, axis=1))
 
     h_star = assemble(interpolate(TestFunction(W), g))
     h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(
         h.dat.data_ro_with_halos[idxs_to_include],
-        np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
+        np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1),
     )
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
 
     h2 = assemble(interpolate(2 * TestFunction(W), g))
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1))
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include], axis=1))
 
     g = assemble(interpolate(h, V))
     assert np.allclose(
         g.dat.data_ro_with_halos,
-        np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1),
+        np.prod(vm.coordinates.dat.data_ro_with_halos, axis=1),
     )
     g2 = assemble(interpolate(2 * h, V))
     assert np.allclose(
         g2.dat.data_ro_with_halos,
-        2*np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1),
+        2*np.prod(vm.coordinates.dat.data_ro_with_halos, axis=1),
     )
 
 
 def vectorfunctionspace_tests(vm):
     # Prep
-    num_cells = vm.cells.owned.size
+    num_cells = vm.cells.owned.local_size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = vm.cells.size - num_cells
+    num_cells_halo = vm.cells.local_size - num_cells
 
     gdim = vm.geometric_dimension
-    def reshape(_data):
-        return _data.reshape((-1, gdim))
 
     # Can create DG0 function space
     V = VectorFunctionSpace(vm, "DG", 0)
@@ -219,8 +214,8 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size // gdim == g.function_space().axes.owned.size // gdim == num_cells
-    assert f.function_space().axes.size // gdim == g.function_space().axes.size // gdim == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.local_size // gdim == g.function_space().axes.owned.local_size // gdim == num_cells
+    assert f.function_space().axes.local_size // gdim == g.function_space().axes.local_size // gdim == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     assert np.allclose(f.dat.data_ro, 2*vm.coordinates.dat.data_ro)
@@ -232,7 +227,7 @@ def vectorfunctionspace_tests(vm):
     # num_vertices (globally) times. Note that we get a vertex cell for
     # each geometric dimension so we have to sum over geometric
     # dimension too.
-    R = VectorFunctionSpace(vm, "R", dim=gdim)
+    R = VectorFunctionSpace(vm, "R", 0, dim=gdim)
     ones = Function(R).assign(1)
     f.interpolate(ones)
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
@@ -249,10 +244,10 @@ def vectorfunctionspace_tests(vm):
     vm.input_ordering.topology_dm.restoreField("parentcellnum")
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(
-        reshape(h.dat.data_ro)[idxs_to_include],
-        2*reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include],
+        h.dat.data_ro[idxs_to_include],
+        2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include],
     )
-    assert np.all(reshape(h.dat.data_ro_with_halos)[~idxs_to_include] == -1)
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # Using permutation matrix
     perm_mat = assemble(interpolate(TrialFunction(V), W), mat_type="aij")
     h2 = assemble(perm_mat @ g)

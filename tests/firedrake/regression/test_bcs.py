@@ -313,10 +313,11 @@ def test_mixed_bcs(diagonal):
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    _, label1 = W._labels
     if diagonal:
-        data = A.dat[1].data_ro
+        data = A.dat[label1].data_ro
     else:
-        data = A.M[1, 1].values.diagonal()
+        data = A.M[label1, label1].values.diagonal()
     assert np.allclose(data[bc.nodes], 1.0)
 
 
@@ -342,15 +343,17 @@ def test_invalid_marker_raises_error(a, V):
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
-    #    +----+----+
+    #    +----+----b
     #    |\ 1 | 2 /
     #  1 | \  |  / 2
     #    |  \ | /
     #    | 0 \|/
-    #    +----+
+    #    +----a
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
+    # We are imposing a BC over subdomain 2 (RHS) so expect to see vertices
+    # 'a' (owned by rank 0) and 'b' (owned by rank 1 and invisible to rank 0).
     dm = plex_from_cell_list(
         2,
         [[0, 1, 2],
@@ -385,20 +388,12 @@ def test_bc_nodes_cover_ghost_dofs():
     V = FunctionSpace(mesh, "CG", 1)
     bc = DirichletBC(V, 0, 2)
 
-    # I suspect that this may be failing because constrained_points might not
-    # know about the owned/ghost differences.
-    offsets = []
-    for pt in V.axes[bc.constrained_points].iter():
-        offsets.append(V.axes.offset(pt.target_exprs, path=pt.target_path))
-
     if mesh.comm.rank == 0:
-        expected = [1]
+        assert np.allclose(bc.nodes, [1])
     else:
-        expected = [1, 2]
-    assert np.array_equal(offsets, expected)
+        assert np.allclose(bc.nodes, [0, 3])
 
 
-@pytest.mark.skip(reason="pyop3 TODO")  # extruded
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)
@@ -428,9 +423,11 @@ def test_bcs_mixed_real():
     u0, u1 = TrialFunctions(V)
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
-    A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0, 1].values, [0, 0, 0.25, 0.25])
-    assert np.allclose(A.M[1, 0].values, [0, 0, 0.25, 0.25])
+    A = assemble(a, bcs=bc)
+
+    label0, label1 = V._labels
+    assert np.allclose(A.M[label0, label1].values, [[0.00], [0.25], [0.25], [0.00]])
+    assert np.allclose(A.M[label1, label0].values, [[0.00, 0.25, 0.25, 0.00]])
 
 
 def test_bcs_mixed_real_vector():
@@ -443,8 +440,15 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0, 1].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
-    assert np.allclose(A.M[1, 0].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
+
+    label0, label1 = V._labels
+    assert np.allclose(
+        A.M[label0, label1].values, [[[0.25], [0.], [0.25], [0.25], [0.25], [0.25], [0.25], [0.]]]
+    )
+    assert np.allclose(
+        A.M[label1, label0].values,
+        [[0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.]]
+    )
 
 
 def test_homogeneous_bc_residual():

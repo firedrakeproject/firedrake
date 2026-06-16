@@ -85,7 +85,7 @@ SciPy in the following way:
     import scipy.sparse as sp
 
     indptr, indices, data = petsc_mat.getValuesCSR()
-    scipy_mat = sp.csr_matrix((data, indices, indptr), shape=petsc_mat.getSize())
+    scipy_mat = sp.csr_array((data, indices, indptr), shape=petsc_mat.getSize())
 
 The sparsity pattern may then be straightforwardly plotted
 using matplotlib:

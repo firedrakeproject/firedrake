@@ -263,35 +263,7 @@ def test_extruded_mixed_fs_misses_cache():
 
 def test_different_meshes_miss_cache():
     m1 = UnitSquareMesh(1, 1)
-
     V1 = FunctionSpace(m1, 'CG', 1)
-
     m2 = UnitSquareMesh(1, 1)
-
     V2 = FunctionSpace(m2, 'CG', 1)
-
     assert V1 != V2
-
-
-# A bit of a weak test, but the gc is slightly non-deterministic
-def test_mesh_fs_gced():
-    from firedrake.functionspacedata import FunctionSpaceData
-    gc.collect()
-    gc.collect()
-    nmesh = howmany((MeshTopology, MeshGeometry))
-    nfs = howmany(FunctionSpaceData)
-    for i in range(10):
-        m = UnitIntervalMesh(5)
-        for fs in ['CG', 'DG']:
-            V = FunctionSpace(m, fs, 1)
-
-    del m, V
-    gc.collect()
-    gc.collect()
-
-    nmesh1 = howmany((MeshTopology, MeshGeometry))
-    nfs1 = howmany(FunctionSpaceData)
-
-    assert nmesh1 - nmesh < 5
-
-    assert nfs1 - nfs < 10

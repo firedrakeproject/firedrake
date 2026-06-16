@@ -33,7 +33,7 @@ reports on the portion of the mesh it owns::
 
     mesh = UnitSquareMesh(3, 3)
     PETSc.Sys.Print('  rank %d owns %d elements and can access %d vertices' \
-                    % (mesh.comm.rank, mesh.num_cells(), mesh.num_vertices()),
+                    % (mesh.comm.rank, mesh.num_cells, mesh.num_vertices),
                     comm=COMM_SELF)
 
 The *elements* of the mesh are owned uniquely in parallel, while the

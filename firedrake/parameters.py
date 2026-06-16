@@ -1,8 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 import dataclasses
 
-from pyop3.config import config as PYOP3_CONFIG
-from pyop3.ir.lower import LOOPY_TARGET
+from pyop3.lower import LOOPY_TARGET
 from tsfc import default_parameters
 import sys
 from firedrake.utils import ScalarType, ScalarType_c
@@ -59,13 +58,7 @@ class Parameters(dict):
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
-# Default to the values of PyOP2 configuration dictionary
-pyop2_opts = Parameters("pyop2_options",
-                        **dataclasses.asdict(PYOP3_CONFIG))
-
 target = LOOPY_TARGET
-
-parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
 parameters["form_compiler"]['scalar_type'] = ScalarType

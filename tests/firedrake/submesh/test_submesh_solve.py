@@ -475,9 +475,7 @@ def _test_submesh_solve_quad_triangle_poisson(nref, degree):
     plex = mesh.topology_dm
     for _ in range(nref):
         plex = plex.refine()
-    plex.removeLabel("pyop2_core")
-    plex.removeLabel("pyop2_owned")
-    plex.removeLabel("pyop2_ghost")
+    plex.removeLabel("firedrake_is_ghost")
     mesh = Mesh(plex)
     h = 0.1 / 2**nref  # roughly
     mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
@@ -580,9 +578,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     plex = mesh.topology_dm
     for _ in range(nref):
         plex = plex.refine()
-    plex.removeLabel("pyop2_core")
-    plex.removeLabel("pyop2_owned")
-    plex.removeLabel("pyop2_ghost")
+    plex.removeLabel("firedrake_is_ghost")
     mesh = Mesh(plex, distribution_parameters=distribution_parameters)
     mesh1 = Submesh(mesh, dim, 1)
     x1, y1, z1 = SpatialCoordinate(mesh1)
@@ -707,9 +703,7 @@ def test_submesh_solve_2d_1d_poisson_hermite():
     plex = mesh3d.topology_dm
     for _ in range(2):
         plex = plex.refine()
-    plex.removeLabel("pyop2_core")
-    plex.removeLabel("pyop2_owned")
-    plex.removeLabel("pyop2_ghost")
+    plex.removeLabel("firedrake_is_ghost")
     mesh3d = Mesh(plex, distribution_parameters=distribution_parameters)
     xyz = SpatialCoordinate(mesh3d)
     HDivTrace0 = FunctionSpace(mesh3d, "Q", 2)

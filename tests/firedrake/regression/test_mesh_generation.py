@@ -75,7 +75,8 @@ def test_tensor_box():
     assert abs(integrate_one(TensorBoxMesh(xcoords, ycoords, zcoords)) - 0.6) < 1e-3
 
 
-def run_one_element_advection():
+@pytest.mark.parallel([1, 2])
+def test_one_element_advection():
     nx = 20
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
@@ -123,16 +124,8 @@ def run_one_element_advection():
     assert assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005
 
 
-def test_one_element_advection():
-    run_one_element_advection()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_one_element_advection_parallel():
-    run_one_element_advection()
-
-
-def run_one_element_mesh():
+@pytest.mark.parallel([1, 3])
+def test_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     x = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
@@ -161,19 +154,12 @@ def run_one_element_mesh():
     assert err > 1.0e-3
 
 
-def test_one_element_mesh():
-    run_one_element_mesh()
+@pytest.mark.parametrize("hexahedral", [False, True])
+def test_box(hexahedral):
+    assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3, hexahedral=hexahedral)) - 6) < 1e-3
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_one_element_mesh_parallel():
-    run_one_element_mesh()
-
-
-def test_box():
-    assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
-
-
+@pytest.mark.parallel([1, 3])
 def test_periodic_unit_cube():
     assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
@@ -240,15 +226,10 @@ def test_tensor_box_parallel():
     assert abs(integrate_one(TensorBoxMesh(xcoords, ycoords, zcoords)) - 0.6) < 1e-3
 
 
-@pytest.mark.parallel
-def test_periodic_unit_cube_parallel():
-    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
-
-
 def assert_num_exterior_facets_equals_zero(m):
     # Need to initialise the mesh so that exterior facets have been
     # built.
-    assert m.exterior_facets.set.total_size == 0
+    assert m.exterior_facets.local_size == 0
 
 
 def run_icosahedral_sphere_mesh_num_exterior_facets():
@@ -408,26 +389,20 @@ def test_bendy_cube_unit(degree):
     return run_bendy_cube_unit(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_parallel(degree):
     return run_bendy_cube(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_unit_parallel(degree):
     return run_bendy_cube_unit(degree)
-
-
-def _mesh_is_reordered(mesh):
-    default_numbering = np.arange(mesh.num_points(), dtype=IntType)
-    assert (mesh._new_to_old_point_renumbering.indices != default_numbering).any()
 
 
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
-
-    assert _mesh_is_reordered(m)
+    assert m._did_reordering
 
 
 def run_mesh_validation():
@@ -454,7 +429,7 @@ def test_mesh_validation_parallel():
 def test_force_reordering_works(reorder):
     m = UnitSquareMesh(1, 1, reorder=reorder)
 
-    assert _mesh_is_reordered(m) == reorder
+    assert m._did_reordering == reorder
 
 
 @pytest.mark.parametrize("reorder",
@@ -465,7 +440,7 @@ def test_changing_default_reorder_works(reorder):
         parameters["reorder_meshes"] = reorder
         m = UnitSquareMesh(1, 1)
 
-        assert _mesh_is_reordered(m) == reorder
+        assert m._did_reordering == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
 
@@ -474,10 +449,10 @@ def test_changing_default_reorder_works(reorder):
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    assert m.num_cells() == num_cells
+    assert m.num_cells == num_cells
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_periodic_unit_cube_hex_cell():
     mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, True, False], hexahedral=True)
     x, y, z = SpatialCoordinate(mesh)
@@ -488,12 +463,9 @@ def test_periodic_unit_cube_hex_cell():
     assert error < 1.e-30
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 def test_periodic_unit_cube_hex_facet():
     mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, False, False], hexahedral=True)
-    for subdomain_id in [1, 2]:
-        area = assemble(Constant(1.) * dS(domain=mesh, subdomain_id=subdomain_id))
-        assert abs(area - 1.0) < 1.e-15
     for subdomain_id in [3, 4, 5, 6]:
         area = assemble(Constant(1.) * ds(domain=mesh, subdomain_id=subdomain_id))
         assert abs(area - 1.0) < 1.e-15

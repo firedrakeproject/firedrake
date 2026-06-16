@@ -159,7 +159,7 @@ def test_random_cofunction(brng, meth_args):
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = getattr(rg_wrap, meth)(V, *args)
-        with f.vec_ro as v:
+        with f.dat.vec_ro as v:
             if meth in ('rand', 'randn'):
                 assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
             else:

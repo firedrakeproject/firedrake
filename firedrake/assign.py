@@ -1,3 +1,4 @@
+import enum
 import functools
 import numbers
 import operator
@@ -5,16 +6,20 @@ from functools import cached_property
 from types import EllipsisType
 from typing import Any
 
+import numpy as np
+from mpi4py import MPI
+
+
+from pyadjoint.tape import annotate_tape
 import finat.ufl
 import numpy as np
 import pyop3 as op3
 import pytools
+import ufl.classes
 from pyadjoint.tape import annotate_tape
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
-from ufl.corealg.map_dag import map_expr_dag
-from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import extract_unique_domain
+from ufl.corealg.dag_traverser import DAGTraverser
 
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
@@ -22,19 +27,8 @@ from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, ScalarType, split_by
 
-from mpi4py import MPI
 
-
-def _isconstant(expr):
-    return isinstance(expr, Constant) or \
-        (isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() == "Real")
-
-
-def _isfunction(expr):
-    return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
-
-
-class CoefficientCollector(MultiFunction):
+class AssignExprBuilder(DAGTraverser):
     """Multifunction used for converting an expression into a weighted sum of coefficients.
 
     Calling ``map_expr_dag(CoefficientCollector(), expr)`` will return a tuple whose entries
@@ -47,96 +41,137 @@ class CoefficientCollector(MultiFunction):
     may be either a :class:`firedrake.constant.Constant` or :class:`firedrake.function.Function`.
     """
 
-    def product(self, o, a, b):
-        scalars, vectors = split_by(self._is_scalar_equiv, [a, b])
-        # Case 1: scalar * scalar
-        if len(scalars) == 2:
-            # Compress the first argument (arbitrary)
-            scalar, vector = scalars
-        # Case 2: scalar * vector
-        elif len(scalars) == 1:
-            scalar, = scalars
-            vector, = vectors
-        # Case 3: vector * vector (invalid)
-        else:
+    def __init__(self, function_space):
+        self.function_space = function_space
+        self.array_assign_allowed = True
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, *args, **kwargs):
+        super().process(*args, **kwargs)
+
+    @process.register(Function)
+    @process.register(Cofunction)
+    def _(self, func) -> op3.Dat:
+        if (
+            func.ufl_element().family() != "Real"
+            and func.ufl_element() != self.function_space.ufl_element()
+        ):
+            raise ValueError("All functions in the expression must have the same "
+                             "element as the assignee")
+
+        # NOTE: Is it really valid to consider Real a scalar type here? It means that we are
+        is_scalar = func.ufl_element().family() == "Real"
+        is_vector = not is_scalar
+
+        func_mesh = func.function_space().mesh()
+        if func_mesh != self.function_space.mesh():
+            if not self.function_space.mesh().submesh_youngest_common_ancestor(func_mesh):
+                raise ValueError(
+                    "All functions in the expression must be defined on a single domain "
+                    "that is in the same submesh family as domain of the assignee"
+                )
+
+            # To get this to work I think that we have to pass a loop
+            # index along. Else we can't use maps.
+            raise NotImplementedError("TODO")
+
+        if func.function_space() != self.function_space:
+            # If we have a restricted function space we have different data
+            # layouts so naive array assignment will fail
+            self.array_assign_allowed = False
+
+        return func.dat, is_scalar, is_vector
+
+    @process.register(Constant)
+    def _(self, const) -> tuple[op3.Dat, bool, bool]:
+        # TODO: Might want to restrict the allowed shapes here to only scalar and
+        # self.function_space.shape
+        return const.dat, True, False
+
+    @process.register(ufl.classes.ScalarValue)
+    def _(self, num) -> numbers.Number:
+        return num.value(), True, False
+
+    @process.register(ufl.classes.Zero)
+    def _(self, zero) -> numbers.Number:
+        return 0, True, False
+
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, _: ufl.classes.Product, a, b):
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
+
+        if a_is_vector and b_is_vector:
             raise ValueError("Expressions containing the product of two vector-valued "
                              "subexpressions cannot be used for assignment. Consider using "
                              "interpolate instead.")
-        scaling = self._as_scalar(scalar)
-        return tuple((coeff, weight*scaling) for coeff, weight in vector)
 
-    def division(self, o, a, b):
-        # Division is only valid if b (the divisor) is a scalar
-        if self._is_scalar_equiv(b):
-            divisor = self._as_scalar(b)
-            return tuple((coeff, weight/divisor) for coeff, weight in a)
-        else:
+        is_scalar = a_is_scalar and b_is_scalar
+        is_vector = a_is_vector or b_is_vector
+        return a_expr * b_expr, is_scalar, is_vector
+
+    @process.register(ufl.classes.Division)
+    @DAGTraverser.postorder
+    def _(self, o, a, b):
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
+
+        if b_is_vector:
             raise ValueError("Expressions involving division by a vector-valued subexpression "
                              "cannot be used for assignment. Consider using interpolate instead.")
 
-    def sum(self, o, a, b):
-        # Note: a and b are tuples of (coefficient, weight) so addition is concatenation
-        return a + b
+        is_scalar = a_is_scalar and b_is_scalar
+        is_vector = a_is_vector
+        return a_expr / b_expr, is_scalar, is_vector
 
-    def power(self, o, a, b):
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, _: ufl.classes.Sum, a, b):
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
+
+        is_scalar = a_is_scalar and b_is_scalar
+        is_vector = a_is_vector or b_is_vector
+        return a_expr + b_expr, is_scalar, is_vector
+
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, o: ufl.classes.Power, a, b):
+        raise NotImplementedError("TODO")
         # Only valid if a and b are scalars
         return ((Constant(self._as_scalar(a) ** self._as_scalar(b)), 1),)
 
-    def abs(self, o, a):
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, _: ufl.classes.Abs, a):
+        raise NotImplementedError("TODO")
         # Only valid if a is a scalar
         return ((Constant(abs(self._as_scalar(a))), 1),)
 
-    def _scalar(self, o):
-        return ((Constant(o), 1),)
-
-    int_value = _scalar
-    float_value = _scalar
-    complex_value = _scalar
-    zero = _scalar
-
-    def multi_index(self, o):
+    @process.register
+    def _(self, _: ufl.classes.MultiIndex):
+        # never used by parent types
         pass
 
-    def indexed(self, o, a, _):
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, _: ufl.classes.Indexed, a, ii):
         return a
 
-    def component_tensor(self, o, a, _):
+    @process.register
+    @DAGTraverser.postorder
+    def _(self, _: ufl.classes.ComponentTensor, a, ii):
         return a
 
-    def coefficient(self, o):
-        return ((o, 1),)
 
-    def cofunction(self, o):
-        return ((o, 1),)
-
-    def constant_value(self, o):
-        return ((o, 1),)
-
-    def expr(self, o, *operands):
-        raise NotImplementedError(f"Handler not defined for {type(o)}")
-
-    def _is_scalar_equiv(self, weighted_coefficients):
-        """Return ``True`` if the sequence of ``(coefficient, weight)`` can be compressed to
-        a single scalar value.
-
-        This is only true when all coefficients are :class:`firedrake.Constant` or
-        are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
-        in both cases ``c.dat.dim`` must have shape ``(1,)``.
-        """
-        return all(_isconstant(c) and c.ufl_shape == () for (c, _) in weighted_coefficients)
-
-    def _as_scalar(self, weighted_coefficients):
-        """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
-
-        This is necessary because we do not know a priori whether a :class:`firedrake.Constant`
-        is going to be used as a scale factor (e.g. ``u.assign(Constant(2)*v)``), or as a
-        constant to be added (e.g. ``u.assign(2*v + Constant(3))``). Therefore we only
-        compress to a scalar when we know it is required (e.g. inside a product with a
-        :class:`~.firedrake.function.Function`).
-        """
-        return pytools.one(
-            functools.reduce(operator.add, (c.dat.data_ro*w for c, w in weighted_coefficients))
-        )
+class AssignmentMode(enum.Enum):
+    STANDARD = enum.auto()
+    IADD = enum.auto()
+    ISUB = enum.auto()
+    IMUL = enum.auto()
+    IDIV = enum.auto()
 
 
 class Assigner:
@@ -152,43 +187,21 @@ class Assigner:
         Subset to apply the assignment over.
 
     """
-    symbol = "="
+    # symbol = "="
 
-    _coefficient_collector = CoefficientCollector()
+    # _coefficient_collector = AssignExprBuilder()
 
-    def __init__(self, assignee, expression, subset=Ellipsis):
+    def __init__(self, assignee, expression, subset=Ellipsis, *, mode: AssignmentMode = AssignmentMode.STANDARD):
         expression = as_ufl(expression)
-        source_meshes = set()
-        for coeff in extract_coefficients(expression):
-            if isinstance(coeff, (Function, Cofunction)) and coeff.ufl_element().family() != "Real":
-                if coeff.ufl_element() != assignee.ufl_element():
-                    raise ValueError("All functions in the expression must have the same "
-                                     "element as the assignee")
-                source_meshes.add(extract_unique_domain(coeff))
-        if len(source_meshes) == 0:
-            pass
-        elif len(source_meshes) == 1:
-            target_mesh = extract_unique_domain(assignee)
-            source_mesh, = source_meshes
-            if target_mesh.submesh_youngest_common_ancester(source_mesh) is None:
-                raise ValueError(
-                    "All functions in the expression must be defined on a single domain "
-                    "that is in the same submesh family as domain of the assignee"
-                )
-        else:
-            raise ValueError(
-                "All functions in the expression must be defined on a single domain"
-            )
-        subset = parse_subset(subset)
+
         self._assignee = assignee
         self._expression = expression
-        self._subset = subset
+        self._subset = parse_subset(subset)
+        self._mode = mode
 
-    def __str__(self):
-        return f"{self._assignee} {self.symbol} {self._expression}"
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self._assignee!r}, {self._expression!r})"
+        expr_builder = AssignExprBuilder(assignee.function_space())
+        self._assign_expr, self._expr_is_scalar, self._expr_is_vector = expr_builder(expression)
+        self._array_assign_allowed = expr_builder.array_assign_allowed
 
     @PETSc.Log.EventDecorator()
     def assign(self, allow_missing_dofs=False):
@@ -206,252 +219,116 @@ class Assigner:
                 "Taping with explicit Assigner objects is not supported yet. "
                 "Use Function.assign instead."
             )
-        # To minimize communication during assignment we perform a number of tricks:
-        # * If we are not assigning to a subset then we can always write to the
-        #   halo. The validity of the original assignee dat halo does not matter
-        #   since we are overwriting it entirely.
-        # * We can also write to the halo if we are assigning to a subset provided
-        #   that the assignee halo is not dirty to start with.
-        # * If we are assigning to a subset where the assignee dat has a dirty halo,
-        #   then we should only write to the owned values. There is no point in
-        #   writing to the halo since a full halo exchange is still required.
-        # * If any of the functions in the expression do not have valid halos then
-        #   we only write to the owned values in the assignee. Otherwise we might
-        #   end up doing a lot of halo exchanges for the expression just to avoid
-        #   a single halo exchange for the assignee.
-        # * If we do write to the halo then the resulting halo will never be dirty.
-        # If mixed, loop over individual components
-        lhs_func = self._assignee
-        funcs = self._functions
-        subset = self._subset
 
-        target_mesh = extract_unique_domain(lhs_func)
-        target_V = lhs_func.function_space()
-        source_meshes = set(extract_unique_domain(f) for f in funcs)
-        if len(source_meshes) == 0:
-            # Assign constants only.
-            single_mesh_assign = True
-        elif len(source_meshes) == 1:
-            source_mesh, = source_meshes
-            if target_mesh is source_mesh:
-                # Assign (co)functions from one mesh to the same mesh.
-                single_mesh_assign = True
-            else:
-                # Assign (co)functions between a submesh and the parent or between two submeshes.
-                single_mesh_assign = False
+        array_assign_allowed = self._array_assign_allowed and self._subset is Ellipsis
+
+        match self._mode:
+            case AssignmentMode.STANDARD:
+                expr = self._assign_expr
+            case AssignmentMode.IADD:
+                expr = self._assignee.dat + self._assign_expr
+            case AssignmentMode.ISUB:
+                expr = self._assignee.dat - self._assign_expr
+            case AssignmentMode.IMUL:
+                assert self._expr_is_scalar
+                expr = self._assignee.dat * self._assign_expr
+            case AssignmentMode.IDIV:
+                assert self._expr_is_scalar
+                expr = self._assignee.dat / self._assign_expr
+            case _:
+                raise NotImplementedError
+
+        assignee = self._assignee.dat[self._subset]
+        if array_assign_allowed:
+            # TODO: This is technically less efficient than the compile strategy
+            # for repeated use. This should be exposed to the user.
+            assignee.assign(expr, eager=True, eager_strategy="array")
         else:
-            raise ValueError("All functions in the expression must be defined on a single domain")
-        if single_mesh_assign:
-            self._assign_single_mesh(lhs_func, subset, funcs, operator)
-        else:
-            self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
+            # TODO: cache the expression for faster reuse of the assembler
+            assignee.assign(expr, eager=True, eager_strategy="compile")
 
-    def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
-        # disable for now
-        assign_to_halos = False
-        # assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
-        # if assign_to_halos:
-        #     subset_indices = ... if subset is None else subset.indices
-        #     data_ro = operator.attrgetter("data_ro_with_halos")
-        # else:
-        #     subset_indices = ... if subset is None else subset.owned_indices
-        data_ro = operator.attrgetter("data_ro")
-        func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
-        rvalue = self._compute_rvalue(func_data)
-        self._assign_single_dat(lhs_func.dat, subset, rvalue, assign_to_halos)
-        if assign_to_halos:
-            lhs_func.dat.halo_valid = True
-
-    def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
-        target_mesh = extract_unique_domain(lhs_func)
-        target_V = lhs_func.function_space()
-        source_V, = set(f.function_space() for f in funcs)
-        raise NotImplementedError("entity node map is the wrong choice")
-        composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
-        indices_active = composed_map.indices_active_with_halo
-        indices_active_all = indices_active.all()
-        indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
-        if subset is None:
-            if not indices_active_all and not allow_missing_dofs:
-                raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-            subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
-            subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
-        else:
-            subset_indices_target, perm, _ = np.intersect1d(
-                target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
-                subset.indices,
-                return_indices=True,
-            )
-            if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
-                raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-            subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
-        # Use buffer array to make sure that owned DoFs are updated upon assigning.
-        # The following example illustrates the issue that a naive assignment would cause.
-        #
-        # Consider the following target/source meshes distributed over 2 processes
-        # with no partition overlap:
-        #
-        #                0----0----0----1----1
-        #                |         |         |
-        # target         0    0    0    1    1
-        # (parent mesh)  |         |         |
-        #                0----0----0----1----1  (owning ranks are shown)
-        #
-        #                          1----1----1
-        #                          |         |
-        # source                   1    1    1
-        # (submesh)                |         |
-        #                          1----1----1  (owning ranks are shown)
-        #
-        # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
-        # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
-        # only be updated on rank 1, which sees those DoFs as ghost, and those
-        # updated values on rank 1 would be overridden by the old values on rank 0
-        # upon a halo exchange.
-        #
-        # TODO: Use work array for buffer?
-        buffer = type(lhs_func)(target_V)
-        finfo = np.finfo(lhs_func.dat.dtype)
-        buffer.dat._data[:] = finfo.max
-        func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
-        rvalue = self._compute_rvalue(func_data)
-        self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
-        # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
-        buffer.dat.local_to_global_begin(op2.MIN)
-        buffer.dat.local_to_global_end(op2.MIN)
-        indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
-        lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
-
-    @cached_property
-    def _constants(self):
-        return tuple(c for (c, _) in self._weighted_coefficients if _isconstant(c))
-
-    @cached_property
-    def _constant_weights(self):
-        return tuple(w for (c, w) in self._weighted_coefficients if _isconstant(c))
-
-    @cached_property
-    def _functions(self):
-        return tuple(c for (c, _) in self._weighted_coefficients if _isfunction(c))
-
-    @cached_property
-    def _function_weights(self):
-        return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
-
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs[subset]
-
-        try:
-            if assign_to_halos:
-                lhs_dat.data_wo_with_halos[...] = rvalue
-            else:
-                lhs_dat.data_wo[...] = rvalue
-        except op3.FancyIndexWriteException:
-            # convert rvalue into an expression pyop3 understands
-            if isinstance(rvalue, numbers.Number):
-                pass
-            elif rvalue.size == 1:
-                rvalue = rvalue.item()
-            else:
-                assert not assign_to_halos  # really nasty, sizes are slightly different...
-                if rvalue.size == lhs_dat.axes.owned.local_size:
-                    expr_axes = lhs_dat.axes.owned.materialize()
-                else:
-                    block_shape = self._assignee.function_space().shape or (1,)
-
-                    if rvalue.size != np.prod(block_shape, dtype=int):
-                        raise ValueError("Assignee and assignment values are different shapes")
-
-                    expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
-                rvalue = op3.Dat(expr_axes, data=rvalue)
-
-            # instead of:
-            # lhs_dat.assign(rvalue, eager=True)
-            op3.loop(
-                p := lhs_dat.axes.owned.iter(),
-                lhs_dat[p].assign(rvalue[p]),
-                eager=True,
-            )
-
-    def _compute_rvalue(self, func_data):
-        # There are two components to the rvalue: weighted functions (in the same function space),
-        # and constants (e.g. u.assign(2*v + 3)).
-        func_rvalue = (func_data.T @ self._function_weights).T
-        const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
-        const_rvalue = const_data.T @ self._constant_weights
-
-        return func_rvalue + const_rvalue
-
-    @cached_property
-    def _weighted_coefficients(self):
-        # TODO: It would be nice to stash this on the expression so we can avoid extra
-        # traversals for non-persistent Assigner objects, but expressions do not currently
-        # have caches attached to them.
-        return map_expr_dag(self._coefficient_collector, self._expression)
-
-
-class IAddAssigner(Assigner):
-    """Assigner class for ``firedrake.function.Function.__iadd__``."""
-    symbol = "+="
-
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        # convert to a numpy type
-        rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
-
-        try:
-            if assign_to_halos:
-                lhs[subset].data_wo_with_halos[...] += rval
-            else:
-                lhs[subset].data_wo[...] += rval
-        except op3.FancyIndexWriteException:
-            raise NotImplementedError("Need expression assignment")
-
-
-class ISubAssigner(Assigner):
-    """Assigner class for ``firedrake.function.Function.__isub__``."""
-    symbol = "-="
-
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        # convert to a numpy type
-        rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
-
-        try:
-            if assign_to_halos:
-                lhs[subset].data_wo_with_halos[...] -= rval
-            else:
-                lhs[subset].data_wo[...] -= rval
-        except op3.FancyIndexWriteException:
-            raise NotImplementedError("Need expression assignment")
-
-
-class IMulAssigner(Assigner):
-    """Assigner class for ``firedrake.function.Function.__imul__``."""
-    symbol = "*="
-
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
-        if self._functions:
-            raise ValueError("Only multiplication by scalars is supported")
-
-        if assign_to_halos:
-            lhs[indices].data_wo_with_halos[...] *= rvalue
-        else:
-            lhs[indices].data_wo[...] *= rvalue
-
-
-class IDivAssigner(Assigner):
-    """Assigner class for ``firedrake.function.Function.__itruediv__``."""
-    symbol = "/="
-
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
-        if self._functions:
-            raise ValueError("Only division by scalars is supported")
-
-        if assign_to_halos:
-            # TODO set modified
-            lhs[indices].buffer._data[...] /= rvalue
-        else:
-            lhs[indices].data_wo[...] /= rvalue
-
+    # def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
+    #     data_ro = operator.attrgetter("data_ro")
+    #     # subset_indices = Ellipsis if subset is None else indices(subset)
+    #
+    #     # def source_indices(f):
+    #     #     target_space = lhs_func.function_space()
+    #     #     target_map = target_space.cell_node_map()
+    #     #     source_map = f.function_space().cell_node_map()
+    #     #     if source_map is target_map:
+    #     #         # Source and target spaces have the same DoF ordering.
+    #     #         return subset_indices
+    #     #     else:
+    #     #         # Permute source indices into the target ordering.
+    #     #         size = target_space.dof_dset.total_size
+    #     #         perm = np.empty((size,), dtype=source_map.values.dtype)
+    #     #         np.put(perm, values(target_map), values(source_map))
+    #     #         perm = perm[:target_space.axes.owned.local_size]
+    #     #         return perm[subset_indices]
+    #
+    #     func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
+    #     rvalue = self._compute_rvalue(func_data)
+    #     self._assign_single_dat(lhs_func.dat, subset, rvalue)
+    #
+    # def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
+    #     target_mesh = extract_unique_domain(lhs_func)
+    #     target_V = lhs_func.function_space()
+    #     source_V, = set(f.function_space() for f in funcs)
+    #     raise NotImplementedError("entity node map is the wrong choice")
+    #     composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
+    #     indices_active = composed_map.indices_active_with_halo
+    #     indices_active_all = indices_active.all()
+    #     indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
+    #     if subset is None:
+    #         if not indices_active_all and not allow_missing_dofs:
+    #             raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+    #         subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
+    #         subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
+    #     else:
+    #         subset_indices_target, perm, _ = np.intersect1d(
+    #             target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
+    #             subset.indices,
+    #             return_indices=True,
+    #         )
+    #         if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
+    #             raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+    #         subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
+    #     # Use buffer array to make sure that owned DoFs are updated upon assigning.
+    #     # The following example illustrates the issue that a naive assignment would cause.
+    #     #
+    #     # Consider the following target/source meshes distributed over 2 processes
+    #     # with no partition overlap:
+    #     #
+    #     #                0----0----0----1----1
+    #     #                |         |         |
+    #     # target         0    0    0    1    1
+    #     # (parent mesh)  |         |         |
+    #     #                0----0----0----1----1  (owning ranks are shown)
+    #     #
+    #     #                          1----1----1
+    #     #                          |         |
+    #     # source                   1    1    1
+    #     # (submesh)                |         |
+    #     #                          1----1----1  (owning ranks are shown)
+    #     #
+    #     # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
+    #     # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
+    #     # only be updated on rank 1, which sees those DoFs as ghost, and those
+    #     # updated values on rank 1 would be overridden by the old values on rank 0
+    #     # upon a halo exchange.
+    #     #
+    #     # TODO: Use work array for buffer?
+    #     buffer = type(lhs_func)(target_V)
+    #     finfo = np.finfo(lhs_func.dat.dtype)
+    #     buffer.dat._data[:] = finfo.max
+    #     func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
+    #     rvalue = self._compute_rvalue(func_data)
+    #     self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
+    #     # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
+    #     buffer.dat.local_to_global_begin(op2.MIN)
+    #     buffer.dat.local_to_global_end(op2.MIN)
+    #     indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
+    #     lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
 
 @functools.singledispatch
 def parse_subset(obj: Any) -> op3.Slice | EllipsisType:
@@ -482,5 +359,5 @@ def _(subset: op3.Subset) -> op3.Slice:
 @parse_subset.register(tuple)
 def _(subset: list | tuple) -> op3.Slice:
     subset_dat = op3.Dat.from_sequence(subset, dtype=IntType)
-    subset = op3.Subset(0, subset_dat)
+    subset = op3.Subset(None, subset_dat)
     return parse_subset(subset)

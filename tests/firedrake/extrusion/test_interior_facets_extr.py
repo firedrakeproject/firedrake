@@ -50,12 +50,13 @@ def test_interior_facet_vfs_extr_horiz_2d_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS_h)
     mm = assemble(inner(u2('-'), v1('-'))*dS_h)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)
 
 
 def test_interior_facet_vfs_extr_horiz_3d_rhs():
@@ -136,9 +137,10 @@ def test_interior_facet_vfs_extr_vert_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS_v)
     mm = assemble(inner(u2('-'), v1('-'))*dS_v)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)

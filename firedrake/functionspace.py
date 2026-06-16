@@ -32,7 +32,8 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
@@ -50,9 +51,6 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all
     other arguments are ignored and the element is returned immediately.
 
-    As a side effect, this function finalises the initialisation of
-    the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
-    :meth:`.MeshGeometry.init`) as appropriate.
     """
     topology = mesh.topology
     cell = topology.ufl_cell()
@@ -71,7 +69,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
                                      quad_scheme=quad_scheme)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
-                                     cell=as_cell("interval"),
+                                     cell=ufl.interval,
                                      degree=vdegree,
                                      variant=variant,
                                      quad_scheme=quad_scheme)
@@ -83,7 +81,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, quad_scheme=None):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, _labels=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -93,7 +91,8 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name:
         An optional name for the function space.
     vfamily :
@@ -117,7 +116,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels)
 
 
 @PETSc.Log.EventDecorator()
@@ -132,7 +131,8 @@ def DualSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name :
         An optional name for the function space.
     vfamily:
@@ -171,7 +171,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     dim :
         An optional number of degrees of freedom per function space
         node (defaults to the geometric dimension of the mesh).
@@ -223,7 +224,8 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     shape :
         An optional shape for the tensor-valued degrees of freedom at
         each function space node (defaults to a square tensor using the
@@ -265,7 +267,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -308,19 +310,22 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
+    unmixed_spaces = []
     for space in spaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace, impl.RestrictedFunctionSpace):
-            continue
+            unmixed_space = space
         elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
             if space.component is not None:
                 raise ValueError("Can't make mixed space with %s" % space)
-            continue
+            unmixed_space = space.parent._orig_spaces[space.index]
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
+        unmixed_spaces.append(unmixed_space)
+
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
-    new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
-    return cls.create(new, mixed_mesh_geometry)
+    new = impl.MixedFunctionSpace(unmixed_spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)
+    return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
@@ -338,7 +343,17 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
         An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
-                                                                 boundary_set=boundary_set,
-                                                                 name=name),
-                                    function_space.mesh())
+    if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
+        raise TypeError(f"Can't make restricted space with {type(function_space).__name__}")
+
+    make_space = type(function_space)
+    mesh = function_space.mesh()
+
+    if function_space.boundary_set:
+        boundary_set = frozenset(boundary_set) | function_space.boundary_set
+        function_space = function_space.function_space
+
+    return make_space(impl.RestrictedFunctionSpace(function_space.topological,
+                                                   boundary_set=boundary_set,
+                                                   name=name),
+                      mesh)

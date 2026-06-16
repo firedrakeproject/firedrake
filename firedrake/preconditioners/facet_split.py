@@ -8,6 +8,7 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
+import firedrake.mesh
 import numpy
 
 
@@ -95,7 +96,7 @@ class FacetSplitPC(PCBase):
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
         elif self.subset:
-            global_indices = V.axes.lgmap(V.block_shape).apply(self.subset.indices)
+            global_indices = V._lgmap.apply(self.subset.indices)
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             self.mixed_opmat = self._permute_op()
@@ -124,6 +125,7 @@ class FacetSplitPC(PCBase):
 
         scpc.setDM(mixed_dm)
         scpc.setOptionsPrefix(options_prefix)
+
         scpc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
         self.pc = scpc
         with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=False):
@@ -178,8 +180,11 @@ class FacetSplitPC(PCBase):
         dm = self.pc.getDM()
         xwork, ywork = self.work_vecs or (x, y)
         self.restrict(x, xwork)
+        # xwork.view()  # good
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.apply(xwork, ywork)
+        # ywork.view()  # bad
+        # exit(0)
         self.prolong(ywork, y)
 
     def applyTranspose(self, pc, x, y):
@@ -244,27 +249,29 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
-    v_func = Function(V, val=numpy.arange(V.axes.size, dtype=PETSc.IntType), dtype=PETSc.IntType)
-    w_func = Function(W, val=numpy.full(W.axes.size, -1, dtype=PETSc.IntType), dtype=PETSc.IntType)
+    v_func = Function(V, val=numpy.arange(V.axes.local_size, dtype=PETSc.IntType), dtype=PETSc.IntType)
+    w_func = Function(W, val=numpy.full(W.axes.local_size, -1, dtype=PETSc.IntType), dtype=PETSc.IntType)
 
     vsize = sum(Vsub.finat_element.space_dimension() for Vsub in V)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     if len(eperm) < vsize:
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
-    eperm_dat = op3.Dat.from_array(eperm, prefix="perm", buffer_kwargs={"constant": True})
 
-    # TODO: now we can pass permutation to pack do we need this?
+    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.block_size for Vsub in W)
+    c_code = f"""\
+int perm[{len(eperm)}] = {{ {', '.join(map(str, eperm))} }};
 
-    # debug
-    c = V.mesh().cells.owned.iter()
-    b = pack(v_func, c, "cell")[eperm_dat]
-    a = pack(w_func, c, "cell").reshape(b.axes.materialize())
-
-    # import pyop3.extras.debug
-    # pyop3.extras.debug.enable_conditional_breakpoints()
-    op3.loop(
-        c,
-        a.assign(b),
-        eager=True,
+for (PetscInt i=0; i<{wsize}; i++)
+  w[i] = v[perm[i]];"""
+    kernel = op3.Function.from_c_string(
+        "copy",
+        c_code,
+        [("w", PETSc.IntType, op3.WRITE), ("v", PETSc.IntType, op3.READ)],
     )
-    return w_func.dat.data_ro
+
+    loop_info = firedrake.mesh.get_iteration_spec(V.mesh(), "cell")
+    v_packed = pack(v_func, loop_info)
+    w_packed = pack(w_func, loop_info)
+    op3.loop(loop_info.loop_index, kernel(w_packed, v_packed), eager=True)
+    retval = w_func.dat.data_ro
+    return retval

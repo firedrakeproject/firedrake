@@ -6,9 +6,10 @@ from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain
 import firedrake
-from firedrake import utils, function, cofunction
+from firedrake import utils
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
+from functools import cached_property
 
 
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
@@ -50,15 +51,15 @@ class Argument(ufl.argument.Argument):
     def coefficients(self):
         return ()
 
-    @utils.cached_property
+    @cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
 
-    @utils.cached_property
+    @cached_property
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map
 
-    @utils.cached_property
+    @cached_property
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map
 
@@ -102,15 +103,15 @@ class Coargument(ufl.argument.Coargument):
                                          number, part=part)
         self._function_space = function_space
 
-    @utils.cached_property
+    @cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
 
-    @utils.cached_property
+    @cached_property
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map
 
-    @utils.cached_property
+    @cached_property
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map
 
@@ -379,11 +380,12 @@ def extract_domains(f):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
+    from firedrake import Cofunction
     from firedrake.mesh import MeshSequenceGeometry
 
     if isinstance(f, firedrake.slate.TensorBase):
         return f.ufl_domains()
-    elif isinstance(f, (cofunction.Cofunction, Coargument)):
+    elif isinstance(f, (Cofunction, Coargument)):
         # ufl.domain.extract_domains does not work.
         mesh = f.function_space().mesh()
         if isinstance(mesh, MeshSequenceGeometry):
@@ -412,7 +414,9 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
+    from firedrake import Function, Cofunction
+
+    if isinstance(func, (Function, Cofunction, Argument, Coargument)):
         return func.function_space().mesh().unique()
     else:
         return ufl.domain.extract_unique_domain(func)

@@ -6,6 +6,7 @@ import ufl
 import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from pyop3 import mpi
+from pyop3.cache import with_heavy_caches
 from ufl.form import BaseForm
 from finat.ufl import MixedElement
 
@@ -16,10 +17,14 @@ from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.petsc import PETSc
 
 
 __all__ = ["Cofunction", "RieszMap"]
+
+
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.function_space().mesh()))
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):
@@ -103,12 +108,12 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         self._arguments = (ufl_expr.Argument(self.function_space().dual(), 0),)
         self._coefficients = (self,)
 
-    @utils.cached_property
+    @cached_property
     @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if functionspaceimpl.is_mixed(self.function_space()):
             subfuncs = []
             for i, component in enumerate(self.dat.axes.trees[0].root.components):
                 subspace = self.function_space().sub(i)
@@ -121,13 +126,14 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         shape = self.function_space().shape
+        assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                op3.ScalarIndex(f"dim{i_}", None, j_)
                 for i_, j_ in enumerate(ix)
             ))
             component = type(self)(
@@ -150,9 +156,15 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[i]
+        elif not self.function_space().shape:
+            # TODO: Decide if this is acceptable usage
+            if i != 0:
+                raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
+            return self
+        else:
+            return self._components[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -185,6 +197,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
+    @_with_mesh_heavy_cache
     def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 
@@ -237,7 +250,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
-                if subset is not None:
+                if subset is not Ellipsis:
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
@@ -382,21 +395,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 
-    @property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
-        :class:`Cofunction`. One or (for rank-1 and 2
-        :class:`.FunctionSpace`\s) more degrees of freedom are stored
-        at each node.
-        """
-        return self.function_space().node_set
-
-    @property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Cofunction`."""
-        return self.function_space().dof_dset
-
     def ufl_id(self):
         return self.uid
 
@@ -427,19 +425,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     def cell_node_map(self):
         return self.function_space().cell_node_map()
-
-    # TODO: Don't need these any more
-    @property
-    def vec_ro(self):
-        return self.dat.vec_ro
-
-    @property
-    def vec_wo(self):
-        return self.dat.vec_wo
-
-    @property
-    def vec_rw(self):
-        return self.dat.vec_rw
 
 
 class RieszMap:

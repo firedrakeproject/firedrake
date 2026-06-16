@@ -6,26 +6,14 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
+@pytest.fixture(autouse=True)
+def autouse_set_test_tape(set_test_tape):
+    pass
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=1234))
-
-
-@pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
 
 
 @pytest.mark.skipcomplex
@@ -59,8 +47,8 @@ def test_assemble_0_forms_mixed():
     rf = ReducedFunctional(s, Control(u))
     # derivative is: (1+4*u)*dx - summing is equivalent to testing with 1
     dJdm = rf.derivative(apply_riesz=True)
-    assert_allclose(dJdm.dat[0].data_ro, 1. + 4. * 7)
-    assert_allclose(dJdm.dat[1].data_ro, 0.0)
+    assert_allclose(dJdm.subfunctions[0].dat.data_ro, 1. + 4. * 7)
+    assert_allclose(dJdm.subfunctions[1].dat.data_ro, 0.0)
 
 
 @pytest.mark.skipcomplex

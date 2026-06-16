@@ -3,8 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
-# TODO RELEASE set to ">=3.25"
-PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
+PETSC_SUPPORTED_VERSIONS = ">=3.25.0"
 
 
 def init_petsc():
@@ -68,18 +67,20 @@ from firedrake.checkpointing import (  # noqa: F401
 from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
 from firedrake.constant import Constant  # noqa: F401
 from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
-from firedrake.exceptions import ConvergenceError  # noqa: F401
+from firedrake.exceptions import (  # noqa: F401
+    FiredrakeException, ConvergenceError, MismatchingDomainError,
+    VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
+    SerialExecutionOnlyError, PointNotInDomainError,
+)
 from firedrake.function import (  # noqa: F401
-    Function, PointNotInDomainError,
-    CoordinatelessFunction, PointEvaluator
+    Function, CoordinatelessFunction, PointEvaluator
 )
 from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
     TensorFunctionSpace, RestrictedFunctionSpace
 )
 from firedrake.interpolation import (  # noqa: F401
-    interpolate, Interpolate, DofNotDefinedError,
-    get_interpolator
+    interpolate, Interpolate, get_interpolator
 )
 from firedrake.linear_solver import LinearSolver  # noqa: F401
 from firedrake.preconditioners import (  # noqa: F401
@@ -87,21 +88,22 @@ from firedrake.preconditioners import (  # noqa: F401
     ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
-    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC
+    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
+    CovariancePC, OffloadPC
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
-    SubDomainData, unmarked, DistributedMeshOverlapType,
+    SubDomainData, UNMARKED, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
-    VertexOnlyMeshTopology, VertexOnlyMeshMissingPointsError,
-    MeshSequenceGeometry, MeshSequenceTopology
+    VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
 )
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
-    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
-    OpenCascadeMeshHierarchy
+    OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
+    AdaptiveTransferManager
 )
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401

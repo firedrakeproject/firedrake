@@ -1,42 +1,20 @@
-# This file is part of PyOP2
-#
-# PyOP2 is Copyright (c) 2012, Imperial College London and
-# others. Please see the AUTHORS file in the main source directory for
-# a full list of copyright holders.  All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in the
-#       documentation and/or other materials provided with the distribution.
-#     * The name of Imperial College London or that of other
-#       contributors may not be used to endorse or promote products
-#       derived from this software without specific prior written
-#       permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTERS
-# ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
-# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
-# OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright (c) 2026, Imperial College London and others.
+# Please see the AUTHORS file in the main source directory for
+# a full list of copyright holders. All rights reserved.
 
 """Provides common base classes for cached objects."""
+
+import abc
+import atexit
 import cachetools
+import collections
 import contextlib
 import functools
+import gc
 import hashlib
 import os
+import re
+import sys
 import pickle
 import weakref
 from collections.abc import Mapping, MutableMapping
@@ -50,9 +28,12 @@ from typing import Any, Callable, Hashable
 
 from petsc4py import PETSc
 
+import pyop3.config
 from pyop3 import utils
-from pyop3.config import config
-from pyop3.log import debug
+from pyop3.collections import AlwaysEmptyDict
+from pyop3.constants import _nothing
+from pyop3.exceptions import CacheException
+from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
@@ -62,19 +43,72 @@ _CACHE_CIDX = count()
 _KNOWN_CACHES = []
 
 
-def cached_on(obj, key=cachetools.keys.hashkey):
+# TODO: This should live in utils.py but there is a (bad) import of pyop3.cache
+# that prohibits this for now.
+class gc_disabled(contextlib.ContextDecorator):
+    """Context manager for temporarily disabling the garbage collector.
+
+    It may also be used as a function decorator.
+
+    """
+    def __init__(self):
+        # Track GC status using a stack because recursive uses as a function
+        # decorator will reuse the same object
+        self._was_enabled = []
+
+    def __enter__(self):
+        self._was_enabled.append(gc.isenabled())
+        gc.disable()
+
+    def __exit__(self, *args, **kwargs):
+        if self._was_enabled.pop(-1):
+            gc.enable()
+
+
+def _get_refcounts(lifetime_objs):
+    return [sys.getrefcount(obj) for obj in lifetime_objs]
+
+
+# TODO: remove the unsafe refcounts bit
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
+    """
+    Parameters
+    ----------
+    TODO
+    """
     def decorator(func):
         def wrapper(*args, **kwargs):
-            cache = obj(*args, **kwargs)
-            assert isinstance(cache, CacheMixin)
+            obj = get_obj(*args, **kwargs)
+            if multi:
+                objs = obj
+            else:
+                objs = (obj,)
 
-            k = key(*args, **kwargs)
-            try:
-                return cache.cache_get(k)
-            except KeyError:
+            # Create any missing caches
+            for obj in objs:
+                if not hasattr(obj, "_pyop3_cache"):
+                    # Use object.__setattr__ to get around frozen dataclasses
+                    object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
+
+            key = get_key(*args, **kwargs)
+
+            value = _nothing
+            for obj in objs:
+                cache = obj._pyop3_cache[func.__qualname__]
+                try:
+                    value = cache[key]
+                except KeyError:
+                    pass
+            if value is _nothing:
                 value = func(*args, **kwargs)
-                cache.cache_set(k, value)
-                return value
+
+            # Store in all of the caches
+            for obj in objs:
+                cache = obj._pyop3_cache[func.__qualname__]
+                if key not in cache:
+                    cache[key] = value
+
+            return value
         return wrapper
     return decorator
 
@@ -85,19 +119,27 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-class CacheMixin:
-    """Mixin class for objects that may be treated as a cache."""
-    def __init__(self):
-        self._cache = {}
-
-    def cache_get(self, key):
-        return self._cache[key]
-
-    def cache_set(self, key, value):
-        self._cache[key] = value
+def get_method_cache(obj):
+    if not hasattr(obj, "_pyop3_method_cache"):
+        # Use object.__setattr__ to get around frozen dataclasses
+        object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
+    return obj._pyop3_method_cache
 
 
-def cache_filter(comm=None, comm_name=None, alive=True, function=None, cache_type=None):
+def cached_method(key=default_hashkey):
+    """TODO"""
+    # Since this is a cache for an instance we ignore the 'self' argument
+    def method_cache_key(self, *args, **kwargs):
+        return key(*args, **kwargs)
+
+    def wrapper(func):
+        return cachetools.cachedmethod(
+            lambda self: get_method_cache(self)[func.__qualname__], method_cache_key
+        )(func)
+    return wrapper
+
+
+def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
     """ Filter PyOP2 caches based on communicator, function or cache type.
     """
     caches = _KNOWN_CACHES
@@ -110,7 +152,7 @@ def cache_filter(comm=None, comm_name=None, alive=True, function=None, cache_typ
     if comm_name is not None:
         caches = filter(lambda c: c.comm_name == comm_name, caches)
     if alive:
-        caches = filter(lambda c: c.comm != MPI.COMM_NULL, caches)
+        caches = filter(lambda c: not isinstance(c, _DeadInstrumentedCache), caches)
     if function is not None:
         if isinstance(function, str):
             caches = filter(lambda c: function in c.func_name, caches)
@@ -148,76 +190,119 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
     return comm_caches
 
 
-def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
-    value = cache.get(key, CACHE_MISS)
-
-    if config.debug:
-        message = [f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "]
-        message.append(f"key={key} in cache: '{cache}' ")
-        if value is CACHE_MISS:
-            message.append("miss")
-        else:
-            message.append("hit")
-        message = "".join(message)
-        debug(message)
-
-    return value
-
-
-class _CacheRecord:
-    """Object that records cache statistics."""
-    def __init__(self, cidx, comm, func, cache):
+class _AbstractInstrumentedCache(abc.ABC):
+    def __init__(self, cidx, comm, func):
         self.cidx = cidx
         self.comm = comm
         self.comm_name = comm.name
         self.func = func
         self.func_module = func.__module__
         self.func_name = func.__qualname__
-        self.cache = weakref.ref(cache)
-        fin = weakref.finalize(cache, self.finalize, cache)
-        fin.atexit = False
+        self.known_cache_index = len(_KNOWN_CACHES)
+        _KNOWN_CACHES.append(weakref.proxy(self))
+
+    @property
+    @abc.abstractmethod
+    def size(self) -> int:
+        ...
+
+    @property
+    @abc.abstractmethod
+    def maxsize(self) -> int:
+        ...
+
+
+class _InstrumentedCache(_AbstractInstrumentedCache):
+    def __init__(self, cidx, comm, func, cache):
+        self.cache = cache
         self.cache_name = cache.__class__.__qualname__
         try:
             self.cache_loc = cache.cachedir
         except AttributeError:
             self.cache_loc = "Memory"
 
-    def get_stats(self, cache=None):
-        if cache is None:
-            cache = self.cache()
-        hit = miss = size = maxsize = -1
-        if cache is None:
-            hit, miss, size, maxsize = self.hit, self.miss, self.size, self.maxsize
-        if isinstance(cache, cachetools.Cache):
-            size = cache.currsize
-            maxsize = cache.maxsize
-        if hasattr(cache, "instrument__"):
-            hit = cache.hit
-            miss = cache.miss
-            if size == -1:
-                try:
-                    size = len(cache)
-                except NotImplementedError:
-                    pass
-            if maxsize is None:
-                try:
-                    maxsize = cache.max_size
-                except AttributeError:
-                    pass
-        return hit, miss, size, maxsize
+        self.hit = 0
+        self.miss = 0
 
-    def finalize(self, cache):
-        self.hit, self.miss, self.size, self.maxsize = self.get_stats(cache)
+        super().__init__(cidx, comm, func)
+
+    def __del__(self):
+        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm, self.func, self.hit, self.miss, self.size, self.maxsize)
+
+    def __getitem__(self, key):
+        try:
+            value = self.cache[key]
+        except KeyError as e:
+            self.miss += 1
+
+            if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
+                LOGGER.warning(
+                    f"Cache '{self}' has recorded 1000 misses at a hit rate of "
+                    "greater than 80%. This indicates a problem with your cache key."
+                )
+
+            raise e
+        else:
+            self.hit += 1
+            return value
+
+    def __setitem__(self, key, value) -> None:
+        self.cache[key] = value
+
+    def get(self, key, default=None):
+        try:
+            value = self[key]
+        except KeyError:
+            self.miss += 1
+            return default
+        else:
+            self.hit += 1
+            return value
+
+    # TODO: singledispatch
+    @property
+    def size(self) -> int:
+        # TODO: quite ick here
+        try:
+            return len(self.cache)
+        except:
+            return self.miss
+
+    # TODO: singledispatch
+    @property
+    def maxsize(self) -> int:
+        if isinstance(self.cache, cachetools.Cache):
+            return self.cache.maxsize
+        else:
+            return -1
+
+
+class _DeadInstrumentedCache(_AbstractInstrumentedCache):
+    def __init__(self, cidx, cache_name, cache_loc, comm, func, nhit, nmiss, size, maxsize):
+        self.cache_name = cache_name
+        self.cache_loc = cache_loc
+        self.hit = nhit
+        self.miss = nmiss
+        self._size = size
+        self._maxsize = maxsize
+        super().__init__(cidx, comm, func)
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def maxsize(self) -> int:
+        return self._maxsize
 
 
 def print_cache_stats(*args, **kwargs):
-    """ Print out the cache hit/miss/size/maxsize stats for PyOP2 caches.
-    """
+    """Print cache statistics."""
     data = defaultdict(lambda: defaultdict(list))
     for entry in cache_filter(*args, **kwargs):
-        active = (entry.comm != MPI.COMM_NULL)
+        active = not isinstance(entry, _DeadInstrumentedCache)
         data[(entry.comm_name, active)][(entry.cache_name, entry.cache_loc)].append(
-            (entry.cidx, entry.func_module, entry.func_name, entry.get_stats())
+            (entry.cidx, entry.func_module, entry.func_name, (entry.hit, entry.miss, entry.size, entry.maxsize))
         )
 
     tab = "  "
@@ -245,9 +330,13 @@ def print_cache_stats(*args, **kwargs):
                 print(f"|{cache_location:78}|")
             for entry in function_list:
                 function_title = f"{tab*2}id={entry[0]} {'.'.join(entry[1:3])}"
-                stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col))
+                stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col, strict=True))
                 print(f"|{function_title:{col[0]}}|{stats_row:{col[1]}}|")
         print(hline)
+
+
+if pyop3.config.print_cache_stats:
+    atexit.register(print_cache_stats)
 
 
 class _CacheMiss:
@@ -255,6 +344,9 @@ class _CacheMiss:
 
 
 CACHE_MISS = _CacheMiss()
+
+
+_obj_address_regex = re.compile(r"<.+ object at 0x[0-9a-f]+>")
 
 
 @functools.cache
@@ -267,12 +359,12 @@ def as_hexdigest(*args) -> str:
     calling it wherever possible.
 
     """
-    hash_ = hashlib.md5()
-    for a in args:
-        if isinstance(a, MPI.Comm):
-            raise TypeError("Communicators cannot be hashed, caching will be broken!")
-        hash_.update(str(a).encode())
-    return hash_.hexdigest()
+    fodder = str(args)
+    utils.debug_assert(
+        lambda: re.search(_obj_address_regex, fodder) is None,
+        f"Key '{fodder}' contains a memory address so cannot be cached to disk",
+    )
+    return hashlib.md5(fodder.encode()).hexdigest()
 
 
 class DictLikeDiskAccess(MutableMapping):
@@ -381,50 +473,13 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
     return default_hashkey(*hash_args, **hash_kwargs)
 
 
-def instrument(cls):
-    """ Class decorator for dict-like objects for counting cache hits/misses.
-    """
-    @wraps(cls, updated=())
-    class _wrapper(cls):
-        instrument__ = True
-
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.hit = 0
-            self.miss = 0
-
-        def get(self, key, default=None):
-            value = super().get(key, default)
-            if value is default:
-                self.miss += 1
-            else:
-                self.hit += 1
-            return value
-
-        def __getitem__(self, key):
-            try:
-                value = super().__getitem__(key)
-                self.hit += 1
-            except KeyError as e:
-                self.miss += 1
-                raise e
-            return value
-    return _wrapper
-
-
 class DEFAULT_CACHE(dict):
     pass
 
 
-# Example of how to instrument and use different default caches:
-# from functools import partial
-# EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
-
 # Turn on cache measurements if printing cache info is enabled
 # FIXME: make a function, not global config
 # if configuration["print_cache_info"]:
-#     DEFAULT_CACHE = instrument(DEFAULT_CACHE)
-#     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
 # TODO: One day should use the compilation comm to do the bcast
@@ -471,36 +526,60 @@ def parallel_cache(
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Create a PyOP2 comm associated with the key, so it is decrefed
-            # when the wrapper exits
-
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
                 if heavy and len(_heavy_caches) == 0:
-                    cache = utils.AlwaysEmptyDict()
+                    LOGGER.debug(
+                        f"{func.__qualname__} is heavy cached but no heavy cache has been set"
+                    )
+                    caches = (AlwaysEmptyDict(),)
+                    cache_type = AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
-                    # Get the right cache from the comm
-                    comm_caches = get_comm_caches(comm)
-                    try:
-                        cache = comm_caches[cache_id]
-                    except KeyError:
+                    def make_instrumented_cache():
                         cache = make_cache()
-                        if heavy:
-                            assert not isinstance(cache, DictLikeDiskAccess), "Disk caches cannot be heavy"
-                            # The lifetime of the cache must be tied to the
-                            # heavy cache object, so the comm should only hold
-                            # a weakref.
-                            for heavy_cache in _heavy_caches.values():
-                                heavy_cache[cache_id] = cache
-                            comm_caches[cache_id] = weakref.proxy(cache)
-                        else:
+                        return _InstrumentedCache(cache_id, comm, func, cache)
+
+                    comm_caches = get_comm_caches(comm)
+                    if heavy:
+                        if cache_id not in comm_caches:
+                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+
+                        caches = []
+                        cache_type = None
+                        for lifetime_obj in _heavy_caches:
+                            try:
+                                cache = comm_caches[cache_id][lifetime_obj]
+                            except KeyError:
+                                cache = make_instrumented_cache()
+                                comm_caches[cache_id][lifetime_obj] = cache
+
+                            if cache_type is None:
+                                cache_type = type(cache)
+                            caches.append(cache)
+                        caches = tuple(caches)
+                        assert cache_type is not None
+                        assert not issubclass(cache_type, DictLikeDiskAccess), "Disk caches cannot be heavy"
+                    else:
+                        try:
+                            cache = comm_caches[cache_id]
+                        except KeyError:
+                            cache = make_instrumented_cache()
                             comm_caches[cache_id] = cache
-                        _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                        caches = (cache,)
+                        cache_type = type(cache)
 
                 key = hashkey(*args, **kwargs)
-                value = get_cache_entry(comm, cache, key)
 
-                if isinstance(cache, DictLikeDiskAccess):
+                for cache in caches:
+                    try:
+                        value = cache[key]
+                        break
+                    except KeyError:
+                        pass
+                else:
+                    value = CACHE_MISS
+
+                if issubclass(cache_type, DictLikeDiskAccess):
                     if bcast:
                         # Since disk caches share state between ranks there are extra
                         # opportunities for mismatching hit/miss results and hence
@@ -531,7 +610,7 @@ def parallel_cache(
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
                     if (
-                        config.spmd_strict
+                        pyop3.config.spmd_strict
                         and not utils.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
@@ -545,7 +624,9 @@ def parallel_cache(
                     else:
                         value = func(*args, **kwargs)
 
-            return cache.setdefault(key, value)
+                for cache in caches:
+                    cache[key] = value
+                return value
         return wrapper
     return decorator
 
@@ -566,19 +647,58 @@ def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 
-def disk_only_cache(*args, cachedir=config.cache_dir, **kwargs):
+def disk_only_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     return parallel_cache(*args, **kwargs, make_cache=lambda: DictLikeDiskAccess(cachedir))
 
 
-def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
+def memory_and_disk_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     def decorator(func):
         return memory_cache(*args, **kwargs)(disk_only_cache(*args, cachedir=cachedir, **kwargs)(func))
     return decorator
 
 
-_heavy_caches = weakref.WeakKeyDictionary()
+_heavy_caches = weakref.WeakSet()
 
 
-def register_heavy_cache(obj: Any) -> None:
-    assert obj not in _heavy_caches
-    _heavy_caches[obj] = {}
+class heavy_caches:
+    """Context manager that pushes and pops lifetime objects.
+
+    For this to be parallel safe, the contract here is that, by using this
+    decorator, you are guaranteeing that all operations within the context
+    manager are at most collective to the level of the the communicator of
+    the lifetime objects.
+
+    """
+
+    def __init__(self, objs: Any) -> None:
+        objs = utils.as_tuple(objs)
+        self._objs = objs
+        # keep track of the objects we inserted ourselves, if they were already
+        # there then we don't want to remove them!
+        self._added_objs = set()
+
+    def __enter__(self) -> None:
+        for obj in self._objs:
+            if obj not in _heavy_caches:
+                _heavy_caches.add(obj)
+                self._added_objs.add(obj)
+
+    def __exit__(self, *args) -> None:
+        for obj in self._added_objs:
+            _heavy_caches.remove(obj)
+        self._added_objs.clear()
+
+
+def with_heavy_caches(get_obj: Callable) -> Callable:
+    """Function decorator that pushes and pops lifetime objects."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            obj = get_obj(*args, **kwargs)
+            with heavy_caches(obj):
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: {self})
+"""Method decorator that sets ``self`` as a heavy cache."""

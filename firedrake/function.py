@@ -1,7 +1,7 @@
 import textwrap
 import numpy as np
 from functools import cached_property
-import rtree
+import firedrake_rtree
 import sys
 import ufl
 import warnings
@@ -16,12 +16,14 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from immutabledict import immutabledict as idict
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 from mpi4py import MPI
 
 import pyop3 as op3
+from pyop3.cache import with_heavy_caches
 from pyop3.mpi import internal_comm
+import petsctools
 
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
@@ -31,23 +33,25 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices, is_mixed
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.exceptions import PointNotInDomainError
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cells", c_int),
-                ("coords", c_void_p),
+    _fields_ = [("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
-                ("f_offset", c_int),
-                ("sidx", c_void_p)]
+                ("rtree", c_void_p)]
+
+
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.function_space().mesh()))
 
 
 class CoordinatelessFunction(ufl.Coefficient):
@@ -114,12 +118,12 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if isinstance(self.function_space(), MixedFunctionSpace):
+        if is_mixed(self.function_space()):
             # NOTE: This is quite tricky for fieldsplit. Previously the fields would
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
             subfuncs = []
-            for i, component in enumerate(self.dat.axes.trees[0].root.components):
+            for i, component in enumerate(self.function_space().field_axis.components):
                 subspace = self.function_space().sub(i)
                 subdat = self.dat[component.label]
                 subfunc = CoordinatelessFunction(
@@ -130,13 +134,14 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self) -> np.ndarray["CoordinatelessFunction"]:
         shape = self.function_space().shape
+        assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                op3.ScalarIndex(f"dim{i_}", None, j_)
                 for i_, j_ in enumerate(ix)
             ))
             component = type(self)(
@@ -162,6 +167,21 @@ class CoordinatelessFunction(ufl.Coefficient):
         mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
         return data[i]
+
+    @property
+    def cell_node_map(self):
+        return self.function_space().cell_node_map
+    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
+
+    @property
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map
+    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
+
+    @property
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map
+    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -236,7 +256,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         :param count: The :class:`ufl.Coefficient` count which creates the
             symbolic identity of this :class:`Function`.
         """
-
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
@@ -298,7 +317,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if isinstance(self.function_space().topological, MixedFunctionSpace):
+        if is_mixed(self.function_space()):
             return tuple(
                 type(self)(self.function_space().sub(i), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
@@ -336,8 +355,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         subfunctions
 
         """
-        if type(self.function_space().ufl_element()) is MixedElement:
+        if is_mixed(self.function_space()):
             return self.subfunctions[indices]
+        elif not self.function_space().shape:
+            # TODO: Decide if this is acceptable usage
+            if indices != 0:
+                raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
+            return self
         else:
             indices = parse_component_indices(indices, self.function_space().shape)
             return self._components[indices]
@@ -409,6 +433,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
+    @_with_mesh_heavy_cache
     def assign(self, expr, subset=None, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 
@@ -456,7 +481,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
-            from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
@@ -487,39 +511,49 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
-        from firedrake.assign import IAddAssigner
-        IAddAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IADD).assign()
         return self
 
     @FunctionMixin._ad_annotate_isub
     def __isub__(self, expr):
-        from firedrake.assign import ISubAssigner
-        ISubAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.ISUB).assign()
         return self
 
     @FunctionMixin._ad_annotate_imul
     def __imul__(self, expr):
-        from firedrake.assign import IMulAssigner
-        IMulAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IMUL).assign()
         return self
 
     @FunctionMixin._ad_annotate_itruediv
     def __itruediv__(self, expr):
-        from firedrake.assign import IDivAssigner
-        IDivAssigner(self, expr).assign()
+        from firedrake.assign import Assigner, AssignmentMode
+
+        Assigner(self, expr, mode=AssignmentMode.IDIV).assign()
         return self
 
     def __float__(self):
-
         if (
             self.ufl_element().family() == "Real"
             and self.function_space().shape == ()
         ):
-            return float(self.dat.data_ro[0])
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(utils.just_one(self.dat.data_ro))
+                else:
+                    value = icomm.bcast(None)
+            return float(value)
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -529,7 +563,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
@@ -537,10 +570,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
-        c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+        c_function.rtree = mesh.rtree and mesh.rtree.ctypes
 
         # Return pointer
         return ctypes.pointer(c_function)
@@ -583,7 +617,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :kwarg tolerance: Tolerence to use when checking if a point is
             in a cell. Default is the ``tolerance`` provided when
             creating the :func:`~.Mesh` the function is defined on.
-            Changing this from default will cause the spatial index to
+            Changing this from default will cause the rtree to
             be rebuilt which can take some time.
         """
         # Shortcut if function space is the R-space
@@ -698,34 +732,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
-    # TODO: dont need these any more
-    @property
-    def vec_ro(self):
-        return self.dat.vec_ro
-
-    @property
-    def vec_wo(self):
-        return self.dat.vec_wo
-
-    @property
-    def vec_rw(self):
-        return self.dat.vec_rw
-
-
-class PointNotInDomainError(Exception):
-    r"""Raised when attempting to evaluate a function outside its domain,
-    and no fill value was given.
-
-    Attributes: domain, point
-    """
-
-    def __init__(self, domain, point):
-        self.domain = domain
-        self.point = point
-
-    def __str__(self):
-        return f"Domain {self.domain} does not contain point {self.point}"
-
 
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
@@ -808,7 +814,7 @@ class PointEvaluator:
         function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
+        if coord_changed := function_mesh.coordinates.dat.buffer.state != self.mesh._saved_coordinate_dat_version:
             # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
             self.mesh = function_mesh
         if tol_changed := self.mesh.tolerance != self.tolerance:
@@ -853,7 +859,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop3 import compile as compilation
-    from pyop3.pyop2_utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
@@ -867,7 +872,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1, int const dat1_offset)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
         {{
           {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
           {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
@@ -877,7 +882,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
               t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
           for (int32_t i = 0; i < {func_shape}; ++i)
             for (int32_t j = 0; j < {func_bsize}; ++j) {{
-              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j + dat1_offset];
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j];
             }}
           evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
         }}"""
@@ -888,16 +893,15 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    libspatialindex_so = Path(rtree.core.rt._name).absolute()
-    lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-    ldargs += [str(libspatialindex_so), lsi_runpath]
+    ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
     dll = compilation.load(
         src, "c",
-        cppargs=[
+        cppargs=(
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+            f"-I{firedrake_rtree.get_include()}",
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ),
         ldargs=ldargs,
         comm=function.comm
     )

@@ -4,7 +4,7 @@ import pytest
 
 import pyop3 as op3
 from firedrake import *
-from pyop3.ir import LOOPY_LANG_VERSION, LOOPY_TARGET
+from pyop3.lower import LOOPY_LANG_VERSION, LOOPY_TARGET
 
 
 def make_max_kernel():

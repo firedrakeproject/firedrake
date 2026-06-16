@@ -1,6 +1,8 @@
 from functools import cached_property
 from contextlib import contextmanager
 
+import pyop3 as op3
+
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
@@ -73,30 +75,25 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         """
         def local_function(i):
             V = self._fs.local_spaces[i]
-            usubs = self._subcomponents(i)
-            if len(usubs) == 1:
-                dat = usubs[0].dat
+            cidxs = self._fs._component_indices(i)
+            if isinstance(cidxs, str):
+                subdat = self._full_local_function.dat[cidxs]
             else:
-                dat = MixedDat((u.dat for u in usubs))
-            return Function(V, val=dat)
+                # assert len(cidxs) > 1
+                # slice_ = op3.Slice(
+                #     "field",
+                #     [
+                #         op3.AffineSliceComponent(idx, label=idx)
+                #         for idx in cidxs
+                #     ],
+                #     label="field",
+                # )
+                subdat = self._full_local_function.dat[list(cidxs)]
+            subdat.data
+            return Function(V, val=subdat)
 
         return tuple(local_function(i)
                      for i in range(self._fs.nlocal_spaces))
-
-    def _subcomponents(self, i):
-        """
-        Return the subfunctions of the local mixed function storage
-        corresponding to the i-th local function.
-
-        Firedrake doesn't support nested ``MixedFunctionSpace``, so internally
-        :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace` flattens all the
-        local :class:`~firedrake.functionspaceimpl.FunctionSpace` into a
-        single ``MixedFunctionSpace``. This method retrieves the components of
-        the flattened MixedFunction corresponding to the i-th local
-        :class:`~firedrake.function.Function`.
-        """
-        return tuple(self._full_local_function.subfunctions[j]
-                     for j in self._fs._component_indices(i))
 
     @PETSc.Log.EventDecorator()
     def riesz_representation(self, **kwargs):
@@ -191,9 +188,20 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         return self
 
     @PETSc.Log.EventDecorator()
+    def __isub__(self, other):
+        self += -1*other
+        return self
+
+    @PETSc.Log.EventDecorator()
     def __add__(self, other):
         new = self.copy()
         new += other
+        return new
+
+    @PETSc.Log.EventDecorator()
+    def __sub__(self, other):
+        new = self.copy()
+        new -= other
         return new
 
     @PETSc.Log.EventDecorator()
@@ -204,13 +212,18 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     @PETSc.Log.EventDecorator()
     def __rmul__(self, other):
+        new = self.copy()
         if type(other) is type(self):
-            for us, uo in zip(self.subfunctions, other.subfunctions):
-                us.assign(us*uo)
+            for un, uo in zip(new.subfunctions, other.subfunctions):
+                un.assign(uo*un)
         else:
-            for us in self.subfunctions:
-                us *= other
-        return self
+            for un in new.subfunctions:
+                un.assign(other*un)
+        return new
+
+    @PETSc.Log.EventDecorator()
+    def __neg__(self):
+        return (-1)*self
 
     @contextmanager
     def vec(self):
@@ -220,11 +233,11 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.vec.
-        # The data in _full_local_function.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be up to date.
-        # However, because the copies in the _full_local_function.vec
+        # However, because the copies in the _full_local_function.dat.vec
         # context manager are done without _vec knowing, we have to manually
         # increment the state to make sure its still in sync.
         with self._full_local_function.dat.vec:
@@ -239,8 +252,8 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.vec.
-        # The data in _full_local_function.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be up to date.
         with self._full_local_function.dat.vec_ro:
@@ -255,12 +268,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.vec.
-        # The data in _full_local_function.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be copied back into
         # the _full_local_function properly when exiting the context manager.
-        # Because the _full_local_function.vec_wo context manager doesn't
+        # Because the _full_local_function.dat.vec_wo context manager doesn't
         # copy any data on entry, this time we don't have to manually increase
         # _vec's state. If the user modifies _vec inside out context manager then
         # _vec will know and will handle incrementing it's state itself.

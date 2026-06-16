@@ -19,40 +19,21 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
-from pyop3.cache import memory_cache
-from pyop3.config import config
+import pyop3.config
+import pyop3.exceptions
+from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
+from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
 from pyop3.mpi import collective
 
-import pyop3.extras.debug
-
-
-# NOTE: Perhaps better inside another module
-PYOP3_DECIDE = object()
-"""Placeholder indicating that a value should be set by pyop3.
-
-This is important in cases where the more traditional `None` is actually
-meaningful.
-
-"""
-
-
-_nothing = object()
-"""Sentinel value indicating nothing should be done.
-
-This is useful in cases where `None` holds some meaning.
-
-"""
-
-
-
-class UnorderedCollectionException(Pyop3Exception):
-    """Exception raised when an ordered collection is required."""
-
-
-class EmptyCollectionException(Pyop3Exception):
-    """Exception raised when a non-empty collection is required."""
+ndarray_types = (np.ndarray,)
+try: 
+    import cupy as cp
+except ImportError:
+    pass
+else:
+    ndarray_types += (cp.ndarray,)
 
 
 class UniqueNameGenerator(pytools.UniqueNameGenerator):
@@ -84,6 +65,44 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
         else:
             return generator(default_prefix)
 
+# does this live here?
+class Renamer:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def add(self, obj: Any):
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[type(obj)])
+            label = f"{type(obj).__name__}_{index}"
+            return self._store.setdefault(obj, label)
+
+# same as above but takes in strings
+class Renamer2:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        assert isinstance(key, str)
+        return self._store[key]
+
+    def add(self, obj: str, obj_type: str):
+        assert isinstance(obj, str)
+        assert isinstance(obj_type, str)
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[obj_type])
+            label = f"{obj_type}_{index}"
+            return self._store.setdefault(obj, label)
+
+
 
 # NOTE: Python 3.13 has warnings.deprecated
 def deprecated(prefer=None, internal=False):
@@ -101,6 +120,7 @@ def deprecated(prefer=None, internal=False):
     return decorator
 
 
+# remove me
 class auto:
     pass
 
@@ -120,139 +140,12 @@ class Identified(abc.ABC):
 
 
 class Labelled(abc.ABC):
-    def __init__(self, label):
-        self.label = label if label is not PYOP3_DECIDE else self.unique_label()
+    # def __init__(self, label):
+    #     self.label = label if label is not PYOP3_DECIDE else self.unique_label()
 
     @classmethod
     def unique_label(cls) -> str:
         return unique_name(f"_label_{cls.__name__}")
-
-
-# TODO is Identified really useful?
-# class UniqueRecord(pytools.ImmutableRecord, Identified):
-#     fields = {"id"}
-#
-#     def __init__(self, id=None):
-#         pytools.ImmutableRecord.__init__(self)
-#         Identified.__init__(self, id)
-
-
-class ValueMismatchException(Pyop3Exception):
-    pass
-
-
-class AlwaysEmptyDict(dict):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def __setitem__(self, key, value, /) -> None:
-        pass
-
-    def setdefault(self, key, default=None, /):
-        return default
-
-
-class StrictlyUniqueDict(dict):
-    """A dictionary where overwriting entries will raise an error."""
-    def __setitem__(self, key, value, /) -> None:
-        if key in self and value != self[key]:
-            raise ValueMismatchException
-        return super().__setitem__(key, value)
-
-
-class StrictlyUniqueDefaultDict(collections.defaultdict):
-    def __setitem__(self, key, value, /) -> None:
-        if key in self and value != self[key]:
-            raise ValueMismatchException
-        return super().__setitem__(key, value)
-
-
-# NOTE: This has a lot of scope for improvements
-class UniqueList(list):
-    def append(self, value, /) -> None:
-        if value in self:
-            raise ValueMismatchException
-        return super().append(value)
-
-
-class AbstractOrderedSet:
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self._values!r})"
-
-    def __str__(self) -> str:
-        return f"{{{', '.join(map(str, self._values))}}}"
-
-    def __len__(self) -> int:
-        return len(self._values)
-
-    def __eq__(self, other, /) -> bool:
-        return type(other) is type(self) and other._values == self._values
-
-    def __getitem__(self, index, /):
-        return self._values[index]
-
-    def __contains__(self, item, /) -> bool:
-        return item in self._values
-
-    def __iter__(self):
-        # return iter(self._values.keys())
-        return iter(self._values)
-
-    def __reversed__(self):
-        return iter(reversed(self._values))
-
-    def __or__(self, other, /) -> Self:
-        assert is_ordered_sequence(other)
-        values = list(self._values)
-        for item in other:
-            if item not in values:
-                values.append(item)
-        return type(self)(values)
-
-    def union(self, /, *others) -> Self:
-        new = self
-        for other in others:
-            new |= other
-        return new
-
-    def index(self, value, /) -> Any:
-        return self._values.index(value)
-
-
-class OrderedSet(AbstractOrderedSet):
-    """A mutable ordered set."""
-
-    def __init__(self, values=None, /) -> None:
-        if values is not None:
-            self._values = list(values)
-        else:
-            self._values = []
-
-
-    def index(self, value) -> int:
-        return self._values.index(value)
-
-    def count(self, value) -> int:
-        # why did I write this?
-        raise NotImplementedError
-
-    def copy(self) -> OrderedSet:
-        return OrderedSet(self._values)
-
-    def add(self, value):
-        # self._values[value] = None
-        if value not in self._values:
-            self._values.append(value)
-
-
-class OrderedFrozenSet(AbstractOrderedSet):
-
-    def __init__(self, values: collections.abc.Sequence = (), /) -> None:
-        self._values = tuple(values)
-
-    def __hash__(self) -> int:
-        return hash((type(self), self._values))
 
 
 def as_tuple(item: Any) -> tuple[Any, ...]:
@@ -266,40 +159,27 @@ def split_at(iterable, index):
     return iterable[:index], iterable[index:]
 
 
-class PrettyTuple(tuple):
-    """Implement a tuple with nice syntax for recursive functions. Like set notation."""
+def single_valued(iterable):
+    items = iter(iterable)
+    try:
+        first = next(items)
+    except StopIteration:
+        raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
-    def __or__(self, other):
-        return type(self)(self + (other,))
+    for item in items:
+        if not safe_equals(first, item):
+            raise RuntimeError
 
-
-class LengthMismatchException(Pyop3Exception):
-    pass
-
-
-@deprecated("Use zip(strict=True) instead")
-def strict_zip(*iterables):
-    return zip(*iterables, strict=True)
+    return first
 
 
-def rzip(*iterables):
-    if any(not isinstance(it, collections.abc.Sized) for it in iterables):
-        raise ValueError("Can only rzip with objects that have a known length")
-
-    max_length = max(len(it) for it in iterables)
-    return zip(*(pad(it, max_length, False) for it in iterables))
-
-
-def pad(iterable, length, after=True, padding_value=None):
-    missing = [padding_value] * (length - len(iterable))
-    if after:
-        return itertools.chain(iterable, missing)
+def is_single_valued(iterable):
+    try:
+        single_valued(iterable)
+    except RuntimeError as e:
+        return False
     else:
-        return itertools.chain(missing, iterable)
-
-
-single_valued = pytools.single_valued
-is_single_valued = pytools.is_single_valued
+        return True
 
 
 def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
@@ -355,7 +235,7 @@ def is_sequence(item):
 
 def flatten(iterable):
     """Recursively flatten a nested iterable."""
-    if isinstance(iterable, np.ndarray):
+    if isinstance(iterable, tuple(ndarray_types)):
         return iterable.flatten()
     if not isinstance(iterable, (list, tuple)):
         return (iterable,)
@@ -404,14 +284,14 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
     try:
         first = next(iterator)
     except StopIteration:
-        raise ValueError("Iterable is empty")
+        raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
     try:
         second = next(iterator)
     except StopIteration:
         return first
     else:
-        raise ValueError("Too many values")
+        raise pyop3.exceptions.NonUnitIterableException("Iterable contains too many values")
 
 
 def popwhen(predicate, iterable):
@@ -487,6 +367,11 @@ def strict_int(num: numbers.Number) -> IntType:
     return strict_cast(num, IntType)
 
 
+def strict_floordiv(num: numbers.Number, fac):
+    assert num % fac == 0
+    return num // fac
+
+
 def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
     return np.dtype(dtype) if dtype else default
 
@@ -511,43 +396,19 @@ def map_when(func, when_func, iterable):
         else:
             yield item
 
-
-def readonly(array):
-    """Return a readonly view of a numpy array."""
+def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
+    """Return a readonly view of a numpy/cupy array."""
     view = array.view()
-    view.setflags(write=False)
+    if isinstance(array, np.ndarray):
+        view.setflags(write=False)
     return view
 
-
 def debug_assert(predicate, msg=None):
-    if config.debug:
+    if pyop3.config.debug_checks:
         if msg:
             assert predicate(), msg
         else:
             assert predicate()
-
-
-_ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
-
-_dict_keys_type = type({}.keys())
-_dict_values_type = type({}.values())
-_dict_items_type = type({}.items())
-_ordered_sequence_types = (
-    list,
-    tuple,
-    AbstractOrderedSet,
-    _dict_keys_type,
-    _dict_values_type,
-    _dict_items_type,
-)
-
-
-def is_ordered_mapping(obj: Mapping) -> bool:
-    return isinstance(obj, _ordered_mapping_types)
-
-
-def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
-    return isinstance(obj, _ordered_sequence_types)
 
 
 # TODO: case for using typing generics
@@ -625,90 +486,6 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-def record():
-    return _make_record_class(eq=False)
-
-
-def frozenrecord():
-    return _make_record_class(frozen=True)
-
-
-def _make_record_class(**kwargs):
-    def wrapper(cls):
-        cls = dataclasses.dataclass(**kwargs)(cls)
-        cls.__record_init__ = _record_init
-
-        def _record_method_cache(self):
-            return collections.defaultdict(dict)
-
-        # if kwargs.get("frozen", False):
-        #     cls.__hash__ = _frozenrecord_hash
-
-        return cls
-    return wrapper
-
-
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
-    new_attrs = {}
-    attrs_changed = False
-    for field in dataclasses.fields(self):
-        orig_attr = getattr(self, field.name)
-        new_attr = attrs.pop(field.name, orig_attr)
-        if not safe_equals(new_attr, orig_attr):
-            attrs_changed = True
-        new_attrs[field.name] = new_attr
-
-    if attrs:
-        valid_attr_names = tuple(field.name for field in dataclasses.fields(self))
-        raise AssertionError(
-            f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
-        )
-
-    if not attrs_changed:
-        return self
-    # TODO: make .comm an attr for all frozen records?
-    elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
-        try:
-            return _make_record_maybe_singleton(self, new_attrs)
-        except UnhashableObjectException:
-            return _make_record(self, new_attrs)
-    else:
-        return _make_record(self, new_attrs)
-
-
-@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
-def _make_record_maybe_singleton(*args, **kwargs):
-    return _make_record(*args, **kwargs)
-
-
-def _make_record(self, attrs):
-    new = object.__new__(type(self))
-    for field_name, attr in attrs.items():
-        object.__setattr__(new, field_name, attr)
-
-    if hasattr(new, "__post_init__"):
-        new.__post_init__()
-
-    return new
-
-
-def _frozenrecord_hash(self):
-    if hasattr(self, "_cached_hash"):
-        return self._cached_hash
-
-    hash_ = hash(dataclasses.fields(self))
-    object.__setattr__(self, "_cached_hash", hash_)
-    return hash_
-
-
-def attr(attr_name: str) -> property:
-    return property(lambda self: getattr(self, attr_name))
-
-
-class UnhashableObjectException(Exception):
-    pass
-
-
 @functools.singledispatch
 def freeze(obj: Any) -> Hashable:
     raise UnhashableObjectException
@@ -743,27 +520,6 @@ def _(dict_: dict) -> immutabledict:
 @freeze.register
 def _(hashable: Hashable) -> Hashable:
     return hashable
-
-
-# def match_attr(iterable, /, attr_name: str, *, allow_missing=False) -> Any:
-#     attr = None
-#     attr_found = False
-#     for item in iterflat(iterable):
-#         if hasattr(item, attr_name):
-#             new_attr = getattr(item, attr_name)
-#
-#             if attr_found:
-#                 assert new_attr == attr
-#             else:
-#                 attr = new_attr
-#
-#             attr_found = True
-#         elif not allow_missing:
-#             raise RuntimeError
-#
-#     assert attr_found
-#     return attr
-
 
 
 def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
@@ -808,7 +564,8 @@ def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) ->
 
         if selected_comm is None or item_comm.size > selected_comm.size:
             selected_comm = item_comm
-    assert selected_comm is not None
+    if not allow_undefined:
+        assert selected_comm is not None
     return selected_comm
 
 
@@ -851,12 +608,6 @@ def regexify(pattern: str):
     return pattern
 
 
-def unsafe_cache(*args, **kwargs):
-    import pyop3
-    pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
-    return functools.cache(*args, **kwargs)
-
-
 def is_ellipsis_type(obj: Any) -> bool:
     return (
         obj is Ellipsis
@@ -884,31 +635,23 @@ def dict_stack(dict_, to_push):
         dict_.pop(key)
 
 
-def _get_method_cache(obj):
-    if not hasattr(obj, "_method_cache"):
-        # Use object.__setattr__ to get around frozen dataclasses
-        object.__setattr__(obj, "_method_cache", collections.defaultdict(dict))
-    return obj._method_cache
-
-
-def cached_method(*args, **kwargs):
-    def wrapper(func):
-        return cachetools.cachedmethod(
-            lambda self: _get_method_cache(self)[func.__qualname__], *args, **kwargs
-        )(func)
-    return wrapper
-
-
 def pretty_type(obj: Any) -> str:
     type_ = type(obj)
     return f"{type_.__module__}.{type_.__name__}"
 
 
-@functools.singledispatch
 def safe_equals(a, b, /) -> bool:
-    return a == b
+    if any(isinstance(x, ndarray_types) for x in [a, b]):
+        return (a == b).all()
+
+    elif any(isinstance(x, Mapping) for x in [a, b]):
+        if a.keys() != b.keys(): 
+            return False 
+        return all(safe_equals(a[k], b[k]) for k in a)
+
+    else:
+        return bool(a == b)
 
 
-@safe_equals.register(np.ndarray)
-def _(a, b, /) -> bool:
-    return (a == b).all()
+def raise_visitor_type_error(obj):
+    raise TypeError(f"No handler defined for {pretty_type(obj)}")

@@ -87,7 +87,7 @@ class SCPC(SCBase):
         """
         self.weight = Function(Vc)
         par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
-        with self.weight.vec as wc:
+        with self.weight.dat.vec_rw as wc:
             wc.reciprocal()
 
         # Get expressions for the condensed linear system
@@ -154,7 +154,7 @@ class SCPC(SCBase):
 
         # Set the dm for the condensed solver
         c_ksp.setDM(c_dm)
-        c_ksp.setDMActive(False)
+        c_ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         c_ksp.setOptionsPrefix(prefix)
         c_ksp.setOperators(A=Smat, P=Smat_pc)
         self.condensed_ksp = c_ksp
