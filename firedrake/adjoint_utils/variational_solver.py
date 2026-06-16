@@ -150,7 +150,7 @@ class NonlinearVariationalSolverMixin:
 
         Jnew = replace(problem.J, replace_map)
         Jpnew = None
-        if problem.Jp is not problem.J:
+        if problem.Jp and problem.Jp is not problem.J:
             Jpnew = replace(problem.Jp, replace_map)
 
         # We also need to "replace" all the bcs in
