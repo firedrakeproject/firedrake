@@ -742,13 +742,19 @@ class PointEvaluator:
         self.points = self.points.reshape(-1, gdim)
 
         self.mesh = mesh
-
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
-        self.tolerance = tolerance
-        self.vom = VertexOnlyMesh(
-            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
-            redundant=redundant, tolerance=tolerance
+        if tolerance is not None:
+            mesh.tolerance = tolerance
+
+    @cached_property_until(
+        lambda self: (self.mesh.coordinates.dat.dat_version, self.mesh.tolerance)
+    )
+    def vom(self) -> MeshGeometry:
+        """The VOM used for point evaluation. This is cached until the mesh coordinates or tolerance change."""
+        return VertexOnlyMesh(
+            self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+            redundant=self.redundant, tolerance=None
         )
 
     def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
@@ -786,19 +792,9 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh().unique()
-        if function_mesh is not self.mesh:
+        if function.function_space().mesh().unique() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
-            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
-            self.mesh = function_mesh
-        if tol_changed := self.mesh.tolerance != self.tolerance:
-            self.tolerance = self.mesh.tolerance
-        if coord_changed or tol_changed:
-            self.vom = VertexOnlyMesh(
-                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
-                redundant=self.redundant, tolerance=self.tolerance
-            )
+        vom = self.vom
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
@@ -812,8 +808,8 @@ class PointEvaluator:
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
 
-        P0DG = fs(self.vom, "DG", 0)
-        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+        P0DG = fs(vom, "DG", 0)
+        P0DG_io = fs(vom.input_ordering, "DG", 0)
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
