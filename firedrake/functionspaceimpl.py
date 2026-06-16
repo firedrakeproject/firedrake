@@ -457,7 +457,7 @@ class WithGeometryBase:
             lgmap = self._lgmap
         return mask_lgmap(self, self.axes, lgmap, bcs, self.block_shape)
 
-    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, unsafe_refcounts=True)
+    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key)
     def get_facet_closure_nodes(self, mesh, key):
         """Function space nodes in the closure of facets with a given
         marker.

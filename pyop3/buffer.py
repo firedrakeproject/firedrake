@@ -795,6 +795,13 @@ class PetscMatBuffer(ConcreteBuffer):
         self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
+        # destroyed too early and subsequently some non-data attributes end up crashing.
+        # The Right Thing is just to not destroy them - we have a GC after all.
+        self._mat_type = self.mat.type
 
     # }}}
 
@@ -873,7 +880,7 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def mat_type(self) -> str:
-        return self.mat.type
+        return self._mat_type
 
     def assemble(self) -> None:
         self.mat.assemble()

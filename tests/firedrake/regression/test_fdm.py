@@ -142,14 +142,11 @@ def variant(request):
 def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
     expected = [16, 12] if mesh.topological_dimension == 3 else [9, 7]
-    # solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
-    solvers = [facetstar]  # debugging
+    solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
-        print("degree", degree)
         V = FunctionSpace(mesh, family, degree, variant=variant)
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
-            print("sp", sp)
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
