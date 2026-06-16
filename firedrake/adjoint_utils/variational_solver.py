@@ -148,11 +148,10 @@ class NonlinearVariationalSolverMixin:
         Fnew = replace(F, replace_map)
         unew = replace_map[problem.u]
 
-        # for linear problems, we should provide the Jacobian
-        # since we know it
-        Jnew = None
-        if problem.is_linear:
-            Jnew = replace(problem.J, replace_map)
+        Jnew = replace(problem.J, replace_map)
+        Jpnew = None
+        if problem.Jp is not problem.J:
+            Jpnew = replace(problem.Jp, replace_map)
 
         # We also need to "replace" all the bcs in
         # the new NLVS so we can modify those values
@@ -171,7 +170,7 @@ class NonlinearVariationalSolverMixin:
 
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
-        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, bcs=bcs_new)
+        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,
