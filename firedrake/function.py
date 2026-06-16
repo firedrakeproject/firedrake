@@ -20,11 +20,10 @@ from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes
+from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c
 
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
-from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
@@ -75,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = utils._new_uid(self.comm)
+        self.uid = _new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -564,7 +563,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        coord = np.asarray(coord, dtype=utils.ScalarType)
+        coord = np.asarray(coord, dtype=ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
@@ -602,8 +601,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
-        if utils.complex_mode:
+        arg = np.asarray(arg, dtype=ScalarType)
+        if complex_mode:
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
@@ -734,7 +733,7 @@ class PointEvaluator:
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks. Default is True.
         """
-        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.points = np.asarray(points, dtype=ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
         gdim = mesh.geometric_dimension
@@ -823,7 +822,7 @@ class PointEvaluator:
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
-                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+                result = np.empty((len(self.points),) + shape, dtype=ScalarType)
             self.mesh.comm.Bcast(result)
         return result
 
@@ -851,7 +850,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     arg = function.dat(op2.READ, function.cell_node_map())
     args.append(arg)
 
-    p_ScalarType_c = f"{utils.ScalarType_c}*"
+    p_ScalarType_c = f"{ScalarType_c}*"
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
                                             forward_args=[p_ScalarType_c,
                                                           p_ScalarType_c],
