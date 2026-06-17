@@ -45,7 +45,7 @@ def warn(msg: str):
 
 # Start by checking the Python version, older Pythons may not be able to run
 # this script.
-MINIMUM_PYTHON_VERSION = "3.10"
+MINIMUM_PYTHON_VERSION = "3.11"
 if sys.version < MINIMUM_PYTHON_VERSION:
     error(f"Firedrake requires Python {MINIMUM_PYTHON_VERSION} or greater")
 

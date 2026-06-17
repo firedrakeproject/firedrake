@@ -326,8 +326,8 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     assert np.allclose(ref3, np.diag(res3), rtol=1e-14)
 
 
-@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
-def test_reciprocal(function_space):
+def test_reciprocal(mesh):
+    function_space = FunctionSpace(mesh, "DG", 0)
     # test reciprocal of vector built from diagonal
     # note: reciprocal does not commute with addition so one can only test DG
     u = TrialFunction(function_space)
