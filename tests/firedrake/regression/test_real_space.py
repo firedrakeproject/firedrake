@@ -50,7 +50,7 @@ def test_real_nonsquare_two_form_assembly():
     v = TestFunction(rfs)
     m2 = assemble(2 * inner(u, v) * dx)
 
-    assert np.allclose(base_case.dat.data_ro, m1.M.values)
+    assert np.allclose(base_case.dat.data_ro, m1.M.values.flatten())
     assert np.allclose(base_case.dat.data_ro, m2.M.values.flatten())
 
 
