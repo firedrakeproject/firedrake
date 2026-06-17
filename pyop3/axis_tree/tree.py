@@ -2330,14 +2330,7 @@ class AxisForest(AbstractAxisTreeLike):
 
     @cached_property
     def unindexed(self) -> AbstractAxisTreeLike | None:
-        unindexeds = utils.unique((t.unindexed for t in self.trees))
-        if len(unindexeds) == 1:
-            return utils.just_one(unindexeds)
-        else:
-            # TODO: when AxisForest(singleton) -> singleton then this logic can die
-            if utils.some_but_not_all((t is None for t in unindexeds)):
-                raise ValueError
-            return AxisForest(unindexeds)
+        type(self)((t.unindexed for t in self.trees))
 
     @property
     def owned(self) -> AxisForest:

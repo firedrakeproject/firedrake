@@ -1386,13 +1386,13 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
 
     if mat_type is None:
         if has_real_subspace:
-            if len(test_space) > 1 or len(trial_space) > 1:
+            if is_mixed(test_space) or is_mixed(trial_space):
                 mat_type = "nest"
             else:
                 if _is_real_space(test_space):
-                    mat_type = "cvec"
-                else:
                     mat_type = "rvec"
+                else:
+                    mat_type = "cvec"
         else:
             mat_type = parameters.parameters["default_matrix_type"]
 
@@ -1417,9 +1417,11 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 block_shape = ((), ())
 
                 if _is_real_space(test_subspace):
+                    # The test space is the row space, so a Real test space means we have a single row
                     sub_mat_type_ = "rvec"
                 else:
                     if _is_real_space(trial_subspace):
+                        # The trial space is the column space, so a Real trial space means we have a single column
                         sub_mat_type_ = "cvec"
                     else:
                         sub_mat_type_ = sub_mat_type

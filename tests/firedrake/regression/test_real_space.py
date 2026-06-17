@@ -94,18 +94,20 @@ def test_real_mixed_two_form_assembly():
     vv = TestFunction(cgfs)
     uu = TrialFunction(cgfs)
 
+    label0, label1 = mfs._labels
+
     m00 = assemble(inner(uu, vv) * dx)
     assert np.allclose(m00.M.values,
-                       m.M[0, 0].values)
+                       m.M[label0, label0].values)
 
     m01 = assemble(uu * qq * dx)
     assert np.allclose(m01.M.values.T,
-                       m.M[0, 1].values)
+                       m.M[label0, label1].values)
     assert np.allclose(m01.M.values,
-                       m.M[1, 0].values)
+                       m.M[label1, label0].values)
 
     assert np.allclose(np.array([[1.]]),
-                       m.M[1, 1].values)
+                       m.M[label1, label1].values)
 
 
 @pytest.mark.skipcomplex

@@ -920,10 +920,12 @@ class PetscMatBuffer(ConcreteBuffer):
 
             if mat_type == "rvec":
                 mode = "row"
-                size = row_axes.buffer_size(include_ghosts=False)
+                # a row vec (horizontal) has #columns entries
+                size = column_axes.buffer_size(include_ghosts=False)
             else:
                 mode = "column"
-                size = column_axes.buffer_size(include_ghosts=False)
+                # a column vec (vertical) has #rows entries
+                size = row_axes.buffer_size(include_ghosts=False)
             mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:

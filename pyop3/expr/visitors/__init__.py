@@ -476,16 +476,16 @@ def _(mat: pyop3.expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr
         if buffer.mat.type == PETSc.Mat.Type.PYTHON:
             context = buffer.mat.getPythonContext()
             if context.mode == "row":
-                if column_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit columns")
-                row_layouts = row_axes.leaf_subst_layouts
-                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
-            else:
-                assert context.mode == "column"
                 if row_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit rows")
+                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
                 row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
                 column_layouts = column_axes.leaf_subst_layouts
+            else:
+                assert context.mode == "column"
+                if column_axes.size != 1:
+                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
+                row_layouts = row_axes.leaf_subst_layouts
+                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
             mat_expr = pyop3.expr.MatArrayBufferExpression(context.buffer, row_layouts, column_layouts)
         else:
             mat_expr = pyop3.expr.MatPetscMatBufferExpression.from_axis_trees(buffer, row_axes, column_axes)
