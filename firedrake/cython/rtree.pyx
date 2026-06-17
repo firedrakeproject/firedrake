@@ -187,9 +187,7 @@ def discover_ranks(
         int64_t *ids_out = NULL
         size_t *offsets_out = NULL
         size_t n_points = points.shape[0]
-        size_t noffsets = n_points + 1
         size_t i, j
-        Py_ssize_t comm_size = comm.size
         Py_ssize_t nto = 0
         Py_ssize_t rank, index
         RTreeError err, ids_free_err, offsets_free_err
@@ -220,12 +218,12 @@ def discover_ranks(
         raise RuntimeError("rtree_locate_all_at_points failed")
 
     try:
-        seen = np.full(comm_size, -1, dtype=np.intp)
+        seen = np.full(comm.size, -1, dtype=np.intp)
         # index_of_rank[rank] = index of rank in `toranks` if rank is a candidate, else -1.
         # We build this array on the fly to avoid having to search `toranks` for each candidate rank.
-        index_of_rank = np.full(comm_size, -1, dtype=np.intp)
-        toranks = np.empty(comm_size, dtype=np.int32)
-        send_counts = np.zeros(comm_size, dtype=np.int32)
+        index_of_rank = np.full(comm.size, -1, dtype=np.intp)
+        toranks = np.empty(comm.size, dtype=np.int32)
+        send_counts = np.zeros(comm.size, dtype=np.int32)
 
         # Count how many unique points we will send to each rank.
         # A point may lie in multiple bounding boxes for the same rank,
@@ -270,7 +268,7 @@ def discover_ranks(
                 write_idx[index] += 1
     finally:
         ids_free_err = rtree_free_ids(ids_out, offsets_out[n_points])
-        offsets_free_err = rtree_free_offsets(offsets_out, noffsets)
+        offsets_free_err = rtree_free_offsets(offsets_out, n_points + 1)
 
     if ids_free_err != Success:
         raise RuntimeError("rtree_free_ids failed")
