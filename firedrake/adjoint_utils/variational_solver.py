@@ -1,5 +1,6 @@
 import copy
 from functools import wraps
+import warnings
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from firedrake.ufl_expr import derivative, adjoint
@@ -73,6 +74,17 @@ class NonlinearVariationalSolverMixin:
                 tape = get_working_tape()
                 problem = self._ad_problem
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
+                if (
+                    "adj_kwargs" in self._ad_kwargs
+                    and "adj_kwargs" in sb_kwargs
+                ):
+                    raise TypeError("Cannot pass adj_kwargs to both "
+                                    "solver constructor and solve().")
+                if "adj_kwargs" in sb_kwargs:
+                    warnings.warn(
+                        "Passing adj_kwargs to the solve method has been"
+                        " deprecated, pass it to the"
+                        " NonlinearVariationalProblem instead.", FutureWarning)
                 sb_kwargs.update(kwargs)
 
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
