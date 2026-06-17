@@ -2714,7 +2714,7 @@ values from f.)"""
         regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
 
         # Set the owning rank as the leaf id so queries return rank numbers.
-        ids = np.repeat(np.arange(comm.size, dtype=np.uintp), counts)
+        ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
 
         self._distributed_rtree = rtree.build_from_aabb(regions_lo, regions_hi, ids)
         return self._distributed_rtree
