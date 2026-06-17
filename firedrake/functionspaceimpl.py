@@ -1857,7 +1857,8 @@ class MixedFunctionSpace(AbstractFunctionSpace):
                 leaf_path, subaxes.materialize()
             )
 
-            if mode == "plex":
+            # if mode == "plex":
+            if True:
                 # Target a full slice of the 'field' component
                 targets[leaf_path] = [[
                     op3.AxisTarget(
@@ -1872,7 +1873,8 @@ class MixedFunctionSpace(AbstractFunctionSpace):
                     else:
                         assert subaxis_targets == ((),)
 
-        if mode == "plex":
+        # if mode == "plex":
+        if True:
             targets = utils.freeze(targets)
             return op3.IndexedAxisTree(
                 axis_tree, unindexed=self.layout_axes, targets=targets,

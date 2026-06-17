@@ -920,10 +920,10 @@ class PetscMatBuffer(ConcreteBuffer):
 
             if mat_type == "rvec":
                 mode = "row"
-                size = column_axes.buffer_size(include_ghosts=False)
+                size = row_axes.buffer_size(include_ghosts=False)
             else:
                 mode = "column"
-                size = row_axes.buffer_size(include_ghosts=False)
+                size = column_axes.buffer_size(include_ghosts=False)
             mat_context = DensePythonMatContext.empty(mode, size, comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
@@ -1155,11 +1155,8 @@ class DensePythonMatContext:
         #                 z.array[...]
 
     @property
-    def shape(self) -> tuple[int, int]:
-        breakpoint()
-
     def data_ro(self) -> np.ndarray:
-        return self.buffer.data_ro.reshape(self.shape)
+        return self.buffer.data_ro
 
     def set_diagonal(self, value: numbers.Number) -> None:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively

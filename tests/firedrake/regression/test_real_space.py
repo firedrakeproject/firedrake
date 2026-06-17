@@ -50,10 +50,8 @@ def test_real_nonsquare_two_form_assembly():
     v = TestFunction(rfs)
     m2 = assemble(2 * inner(u, v) * dx)
 
-    np.testing.assert_almost_equal(base_case.dat.data_ro,
-                                   m1.M.values)
-    np.testing.assert_almost_equal(base_case.dat.data_ro,
-                                   m2.M.values)
+    assert np.allclose(base_case.dat.data_ro, m1.M.values)
+    assert np.allclose(base_case.dat.data_ro, m2.M.values.flatten())
 
 
 @pytest.mark.skipcomplex
@@ -77,7 +75,7 @@ def test_real_mixed_one_form_assembly(coefficient):
     qq = TestFunction(rfs)
     AA = assemble(qq * dx)
 
-    assert np.allclose(A.dat[1].data, AA.dat.data)
+    assert np.allclose(A.dat[mfs._labels[1]].data_ro, AA.dat.data_ro)
 
 
 @pytest.mark.skipcomplex
