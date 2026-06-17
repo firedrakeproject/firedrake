@@ -31,7 +31,7 @@ int locate_cell(struct Function *f,
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
-    size_t *ids = NULL;
+    int64_t *ids = NULL;
     size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
     if (err != Success) {
