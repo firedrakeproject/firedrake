@@ -2330,7 +2330,7 @@ class AxisForest(AbstractAxisTreeLike):
 
     @cached_property
     def unindexed(self) -> AbstractAxisTreeLike | None:
-        type(self)((t.unindexed for t in self.trees))
+        return type(self)((t.unindexed for t in self.trees))
 
     @property
     def owned(self) -> AxisForest:
