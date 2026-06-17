@@ -91,9 +91,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 bcs = J.bcs
         if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
             restrict = False
-        self.restrict = restrict and bcs
+        self.restrict = restrict and bool(bcs)
 
-        if restrict and bcs:
+        if self.restrict:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)

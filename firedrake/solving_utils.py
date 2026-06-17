@@ -246,7 +246,7 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if next(problem.dirichlet_bcs(), None) is not None:
+        if not problem.restrict and next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear and hasattr(problem, "L"):
@@ -265,7 +265,7 @@ class _SNESContext(object):
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=False,
+                                                zero_bc_nodes=self._problem.restrict,
                                                 ).assemble
 
         self._jacobian_assembled = False
@@ -468,9 +468,10 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        # Compute DirichletBC residual
-        for bc in ctx._problem.dirichlet_bcs():
-            bc.apply(ctx._bc_residual, u=ctx._x)
+        if not ctx._problem.restrict:
+            # Compute DirichletBC residual
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._bc_residual, u=ctx._x)
 
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
