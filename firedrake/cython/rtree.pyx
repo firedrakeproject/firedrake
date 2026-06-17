@@ -36,11 +36,21 @@ cdef extern from "rtree-capi.h":
 
     RTreeError rtree_free_ids(int64_t *ids, size_t n)
 
+    RTreeError rtree_free_offsets(size_t *offsets, size_t n)
+
     RTreeError rtree_locate_all_at_point(
         const RTreeH *tree,
         const double *point,
         int64_t **ids_out,
         size_t *nids_out
+    )
+
+    RTreeError rtree_locate_all_at_points(
+        const RTreeH *tree,
+        const double *points,
+        size_t n_points,
+        int64_t **ids_out,
+        size_t **offsets_out
     )
 
     RTreeError rtree_depth(const RTreeH *tree, size_t *depth_out)
@@ -175,67 +185,99 @@ def discover_ranks(
     """
     cdef:
         int64_t *ids_out = NULL
-        size_t nids_out = 0
-        RTreeError err
-        size_t i, j
+        size_t *offsets_out = NULL
         size_t n_points = points.shape[0]
+        size_t noffsets = n_points + 1
+        size_t i, j
+        Py_ssize_t comm_size = comm.size
+        Py_ssize_t nto = 0
+        Py_ssize_t rank, index
+        RTreeError err, ids_free_err, offsets_free_err
         MPI.MPI_Comm mpi_comm = comm.ob_mpi
-        PetscMPIInt nto
-        PetscMPIInt nfrom = 0
+        PetscMPIInt k, nfrom
         PetscMPIInt *fromranks = NULL
         void *fromdata = NULL
+        np.ndarray[np.intp_t, ndim=1, mode="c"] seen
+        np.ndarray[np.intp_t, ndim=1, mode="c"] index_of_rank
         np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
         np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
         np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
+        np.ndarray[np.int32_t, ndim=1, mode="c"] write_idx
         np.ndarray[np.int32_t, ndim=1, mode="c"] fromranks_out
         np.ndarray[np.int32_t, ndim=1, mode="c"] recv_counts_out
-        PetscMPIInt k
-        dict[int, list[int]] rank_to_indices
-        set[int] seen_ranks
-        list[int] all_indices
 
-    rank_to_indices = {}
-    # map dest_rank -> list of point indices to send there
-    for i in range(n_points):
-        err = rtree_locate_all_at_point(
-            rtree.tree,
-            <const double *>&points[i, 0],
-            &ids_out,
-            &nids_out,
-        )
-        if err != Success:
-            if ids_out != NULL:
-                rtree_free_ids(ids_out, nids_out)
-            raise RuntimeError("rtree_locate_all_at_point failed")
+    # the candidate ranks for point `i` are
+    # `ids_out[offsets_out[i]:offsets_out[i + 1]]`.
+    err = rtree_locate_all_at_points(
+        rtree.tree,
+        <const double *>points.data,
+        n_points,
+        &ids_out,
+        &offsets_out,
+    )
+    if err != Success:
+        raise RuntimeError("rtree_locate_all_at_points failed")
 
-        # Points may lie in multiple bounding boxes owned by the same rank
-        seen_ranks = set()
-        for j in range(nids_out):
-            seen_ranks.add(<int>ids_out[j])
-        err = rtree_free_ids(ids_out, nids_out)
-        if err != Success:
-            raise RuntimeError("rtree_free_ids failed")
-        ids_out = NULL
+    try:
+        seen = np.full(comm_size, -1, dtype=np.intp)
+        # index_of_rank[rank] = index of rank in `toranks` if rank is a candidate, else -1.
+        # We build this array on the fly to avoid having to search `toranks` for each candidate rank.
+        index_of_rank = np.full(comm_size, -1, dtype=np.intp)
+        toranks = np.empty(comm_size, dtype=np.int32)
+        send_counts = np.zeros(comm_size, dtype=np.int32)
 
-        for dest_rank in seen_ranks:
-            if dest_rank in rank_to_indices:
-                rank_to_indices[dest_rank].append(i)
-            else:
-                rank_to_indices[dest_rank] = [i]
+        # Count how many unique points we will send to each rank.
+        # A point may lie in multiple bounding boxes for the same rank,
+        # so we need to deduplicate the candidate ranks for each point.
+        for i in range(n_points):
+            for j in range(offsets_out[i], offsets_out[i + 1]):
+                # Loop over candidate ranks for point `i`.
+                rank = <Py_ssize_t>ids_out[j]
+                if seen[rank] == <np.intp_t>i:
+                    # This rank has already been seen for this point, so skip it.
+                    continue
+                seen[rank] = i
+                index = index_of_rank[rank]
+                if index == -1:
+                    # This rank has not been seen before by any point so add it to `toranks`
+                    index = nto
+                    index_of_rank[rank] = index
+                    toranks[index] = <np.int32_t>rank
+                    nto += 1
+                send_counts[index] += 1
 
-    all_indices = []
-    nto = len(rank_to_indices)  # number of ranks we're sending points to
-    toranks = np.empty(nto, dtype=np.int32)  # the ranks we're sending each point to
-    send_counts = np.empty(nto, dtype=np.int32)  # number of points we're sending to each rank
-    send_offsets = np.empty(nto + 1, dtype=np.int32)  # offsets into point_indices for each rank 
-    send_offsets[0] = 0
-    for i, (rank, idx_list) in enumerate(rank_to_indices.items()):
-        toranks[i] = rank
-        send_counts[i] = len(idx_list)
-        send_offsets[i + 1] = send_offsets[i] + len(idx_list)
-        all_indices.extend(idx_list)
-    point_indices = np.array(all_indices, dtype=np.int32)
+        # Build `send_offsets`. This is the cumulative sum of `send_counts`.
+        send_offsets = np.empty(nto + 1, dtype=np.int32)
+        send_offsets[0] = 0
+        for index in range(nto):
+            send_offsets[index + 1] = send_offsets[index] + send_counts[index]
+
+        # Fill in `point_indices` with the indices of points to send each rank.
+        # The points destined for `toranks[i]` are
+        # `point_indices[send_offsets[i]:send_offsets[i+1]]`.
+        point_indices = np.empty(send_offsets[nto], dtype=np.int32)
+        write_idx = send_offsets[:nto].copy()  # Keep track of where to write the next point 
+        seen[:] = -1  # reset `seen` 
+        for i in range(n_points):
+            for j in range(offsets_out[i], offsets_out[i + 1]):
+                rank = <Py_ssize_t>ids_out[j]
+                if seen[rank] == <np.intp_t>i:
+                    continue
+                seen[rank] = i
+                index = index_of_rank[rank]
+                point_indices[write_idx[index]] = i
+                write_idx[index] += 1
+    finally:
+        ids_free_err = rtree_free_ids(ids_out, offsets_out[n_points])
+        offsets_free_err = rtree_free_offsets(offsets_out, noffsets)
+
+    if ids_free_err != Success:
+        raise RuntimeError("rtree_free_ids failed")
+    if offsets_free_err != Success:
+        raise RuntimeError("rtree_free_offsets failed")
+
+    toranks = toranks[:nto]
 
     # Routine that discovers communicating ranks given one-sided information
     CHKERR(PetscCommBuildTwoSided(
@@ -280,7 +322,7 @@ def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
             boxes[i, 0, j] = mins[i * dim + j]
             boxes[i, 1, j] = maxs[i * dim + j]
 
-    rtree_free_bounding_boxes(mins, maxs, n_boxes, <size_t>dim)
+    rtree_free_bounding_boxes(mins, maxs, n_boxes, dim)
 
     return boxes
 
