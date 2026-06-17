@@ -2636,36 +2636,6 @@ values from f.)"""
         return self._rtree
 
     @PETSc.Log.EventDecorator()
-    def bounding_boxes(self, max_level: int):
-        """Breadth-first traversal of the rtree, collecting node bounding boxes.
-
-        Parameters
-        ----------
-        max_level : int
-            Depth at which to stop (0 = root only, 1 = root's children, ...).
-
-        Returns
-        -------
-        numpy.ndarray
-            Array of shape ``(n_nodes, 2, gdim)`` containing the bounding
-            boxes of all nodes at ``max_level``.
-        """
-        mesh_rtree = self.rtree
-        gdim = self.geometric_dimension
-        current_level = [rtree.root_node(mesh_rtree)]
-        for _ in range(max_level):
-            next_level = []
-            for node in current_level:
-                next_level.extend(rtree.node_children(node))
-            if not next_level:
-                break
-            current_level = next_level
-        envelopes = np.empty((len(current_level), 2, gdim), dtype=utils.RealType)
-        for i, node in enumerate(current_level):
-            envelopes[i] = rtree.node_envelope(node, gdim)
-        return envelopes
-
-    @PETSc.Log.EventDecorator()
     def bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
         side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
         return np.prod(side_lengths, axis=1).sum()

@@ -10,11 +10,6 @@ from libc.stdint cimport uintptr_t, uint32_t
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
 from petsc4py.PETSc cimport CHKERR
-from firedrake.exceptions import EmptyNodeEnvelopeError
-
-cimport mpi4py.MPI as MPI
-from mpi4py.libmpi cimport MPI_INT
-from petsc4py.PETSc cimport CHKERR
 
 include "petschdr.pxi"
 
@@ -26,9 +21,6 @@ cdef extern from "rtree-capi.h":
         EmptyNodeEnvelope
 
     ctypedef struct RTreeH:
-        pass
-
-    ctypedef struct RTreeNodeH:
         pass
 
     RTreeError rtree_bulk_load(
@@ -52,27 +44,6 @@ cdef extern from "rtree-capi.h":
     )
 
     RTreeError rtree_depth(const RTreeH *tree, size_t *depth_out)
-
-    RTreeError rtree_root_node(
-        const RTreeH *tree,
-        RTreeNodeH **node
-    )
-
-    RTreeError rtree_node_children(
-        const RTreeNodeH *node,
-        RTreeNodeH ***children_out,
-        size_t *nchildren_out
-    )
-
-    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
-
-    RTreeError rtree_node_free(RTreeNodeH *node)
-
-    RTreeError rtree_node_envelope(
-        const RTreeNodeH *node,
-        double *mins_out,
-        double *maxs_out
-    )
 
     RTreeError rtree_collect_bounding_boxes(
         const RTreeH *tree,
@@ -323,117 +294,3 @@ def tree_depth(RTree rtree):
     if err != Success:
         raise RuntimeError("rtree_depth failed")
     return depth
-
-
-cdef class RTreeNodeChildren(object):
-    """Python class for holding the array of child node handles
-    returned by ``rtree_node_children``.
-    """
-
-    cdef RTreeNodeH** children
-    cdef size_t nchildren
-    cdef object __weakref__
-
-    def __cinit__(self, uintptr_t children_handle, size_t nchildren):
-        self.children = <RTreeNodeH**>children_handle
-        self.nchildren = nchildren
-
-    def __dealloc__(self):
-        if self.children != <RTreeNodeH**>0:
-            rtree_node_children_free(self.children, self.nchildren)
-            self.children = <RTreeNodeH**>0
-            self.nchildren = 0
-
-cdef class RTreeNode(object):
-    """Python class for holding an rtree node."""
-
-    cdef RTreeNodeH* node_handle
-    cdef bint is_root
-    cdef object owning_tree
-    cdef object children
-    cdef object __weakref__
-
-    def __cinit__(self, uintptr_t node_handle, bint is_root=False,
-                  owning_tree=None, children_owner_ref=None):
-        self.is_root = is_root
-        # Create a reference to the owning tree to avoid cleaning up the rtree
-        # while the node is still alive.
-        self.owning_tree = owning_tree
-        # We create a reference to the object owning the children since we need
-        # to free all the children at the same time with `rtree_node_children_free`.
-        self.children = children_owner_ref
-        if node_handle == 0:
-            raise RuntimeError("invalid node handle")
-        self.node_handle = <RTreeNodeH*>node_handle
-    
-    def get_tree_ref(self):
-        return self.owning_tree
-    
-    def get_is_root(self):
-        return self.is_root
-    
-    def get_children_ref(self):
-        return self.children
-
-    def __dealloc__(self):
-        if self.node_handle != <RTreeNodeH*>0 and self.is_root:
-            # We can only free a node if it is the root. Child nodes
-            # must be freed all at once by `rtree_node_children_free`.
-            # The RTreeNodeChildren class facilitates this.
-            rtree_node_free(self.node_handle)
-            self.node_handle = <RTreeNodeH*>0
-
-def root_node(RTree rtree):
-    """Return the root node of an Rtree."""
-    cdef:
-        RTreeNodeH* node
-        RTreeError err
-    err = rtree_root_node(rtree.tree, &node)
-    if err != Success:
-        raise RuntimeError("rtree_root_node failed")
-    return RTreeNode(<uintptr_t>node, is_root=True, owning_tree=rtree)
-
-
-def node_children(RTreeNode node):
-    """Return the children of an Rtree node as a list of RTreeNodes."""
-    cdef:
-        RTreeNodeH** children
-        size_t nchildren
-        RTreeError err
-        RTreeNodeChildren child_nodes
-        list result
-    err = rtree_node_children(node.node_handle, &children, &nchildren)
-    if err != Success:
-        raise RuntimeError("rtree_node_children failed")
-
-    # The children array must be freed with rtree_node_children_free.
-    # Nodes in the array cannot be freed individually or else 
-    # we get double frees when calling rtree_node_children_free.
-    # We create an RTreeNodeChildren object to own the children array
-    # and each child node holds a reference to this to 
-    # ensure they are not freed by the garbage collector.
-    child_nodes = RTreeNodeChildren(<uintptr_t>children, nchildren)
-
-    result = [
-        RTreeNode(
-            <uintptr_t>children[i],
-            owning_tree=node.owning_tree,
-            children_owner_ref=child_nodes,
-        ) for i in range(nchildren)
-    ]
-
-    return result
-
-def node_envelope(RTreeNode node, size_t dim):
-    """Return the (mins, maxs) bounding envelope of an rtree node."""
-    cdef:
-        np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
-        np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
-        RTreeError err
-    err = rtree_node_envelope(node.node_handle, <double*>mins.data, <double*>maxs.data)
-    if err == EmptyNodeEnvelope:
-        # This only happens if the node is a root of an empty tree.
-        raise EmptyNodeEnvelopeError("Node has no envelope (empty node)")
-    elif err != Success:
-        raise RuntimeError("rtree_node_envelope failed")
-    return mins, maxs
