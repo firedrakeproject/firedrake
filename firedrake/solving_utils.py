@@ -248,24 +248,20 @@ class _SNESContext(object):
         self._bc_residual = None
         if next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
-            g = Function(self._x.function_space())
-            self._bc_residual = g
-            if problem.is_linear:
-                # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                L = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+            self._bc_residual = Function(self._x.function_space())
+            if problem.is_linear and hasattr(problem, "L"):
                 # So far, F = L - action(J, u), but we need F = L - action(J, u - g).
                 # We could simply subtract action(J, g) as we do for the nonlinear case,
                 # but this doubles the number of integrals to be compiled.
-                # We cannot replace u -> u - g at this point because J might depend on u.
+                # We cannot replace u -> u - g at this point because J or L might depend on u.
                 # The most efficient solution is to reconstruct the lifted residual from scratch.
                 # However, compute_bc_lifting(J, u - g, L) will complain about action not taking
                 # a pure Coefficient/Argument, so we supply a TrialFunction and replace it with u-g afterwards.
                 test, trial = self.J.arguments()
-                Ftrial = problem.compute_bc_lifting(self.J, trial, L=L)
-                self.F = ufl.replace(Ftrial, {trial: self._x - g})
+                Ftrial = problem.compute_bc_lifting(self.J, trial, L=problem.L)
+                self.F = ufl.replace(Ftrial, {trial: self._x - self._bc_residual})
             else:
-                self.F -= problem.compute_bc_lifting(self.J, g)
+                self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,

@@ -297,7 +297,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          options_prefix=self.options_prefix)
         if pre_apply_bcs:
             warn("Setting pre_apply_bcs=True is deprecated.", DeprecationWarning, stacklevel=2)
-        self.pre_apply_bcs = pre_apply_bcs or problem.restrict
+        self.pre_apply_bcs = pre_apply_bcs
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
@@ -379,7 +379,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
 
-        if self.pre_apply_bcs:
+        if self.pre_apply_bcs or problem.restrict:
             for bc in problem.dirichlet_bcs():
                 bc.apply(problem.u_restrict)
 
@@ -443,6 +443,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         elif L != 0:
             raise TypeError(f"Provided RHS is a '{type(L).__name__}', not a Form or Slate Tensor")
         F = self.compute_bc_lifting(a, u, L=L)
+        self.L = L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
