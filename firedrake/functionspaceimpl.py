@@ -1426,7 +1426,9 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        is_ = PETSc.IS().createStride(self.axes.free.buffer_size(include_ghosts=False), comm=MPI.COMM_SELF)
+        if self.parent:
+            raise NotImplementedError
+        is_ = PETSc.IS().createStride(self.axes.buffer_size(include_ghosts=True), comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
 
@@ -2032,14 +2034,35 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers.
 
         """
-        ises = []
+        if self.boundary_set:
+            raise NotImplementedError
+
+        # Currently a bit hacky but the idea is that we need to store the
+        # indices of both owned and ghost DoFs which in parallel are kept
+        # apart.
+        subspace_indices = [{"owned": None, "ghost": None} for _ in self]
         start = 0
-        for subspace in self:
-            size = subspace.axes.free.buffer_size(include_ghosts=False)
-            is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
-            is_.setBlockSize(subspace.block_size)
+        for partition in ["owned", "ghost"]:
+            for i, subspace in enumerate(self):
+                # inelegant
+                num_owned = subspace.axes.buffer_size(include_ghosts=False)
+                if partition == "owned":
+                    size = num_owned
+                else:
+                    size = subspace.axes.buffer_size(include_ghosts=True) - num_owned
+
+                subspace_indices[i][partition] = numpy.arange(start, start+size, dtype=IntType)
+                start += size
+
+        ises = []
+        for idxss in subspace_indices:
+            # merge owned+ghost
+            is_ = PETSc.IS().createGeneral(
+                numpy.concatenate(list(idxss.values()), axis=None), comm=MPI.COMM_SELF
+            )
+            # TODO: Is this safe now that things are interleaved?
+            # is_.setBlockSize(subspace.block_size)
             ises.append(is_)
-            start += size
         return tuple(ises)
 
     # NOTE: This function is exactly the same as make_dat for a non-mixed space

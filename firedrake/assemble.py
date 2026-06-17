@@ -1659,7 +1659,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # we're setting something we know to be zero
                 mat.assemble()
 
-                rows = bc.nodes
+                # NOTE: This is only OK in parallel with mixed spaces because we
+                # apply the BC to local submat, where DoF interleaving is not
+                # applicable.
+                rows = bc._nodes
                 rows = numpy.asarray(rows, dtype=utils.IntType)
                 rbs = V.block_size
                 if rbs > 1:
@@ -1669,12 +1672,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
 
                 rows = numpy.asarray(rows, dtype=utils.IntType)
+
                 # reshape needed for some reason
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
 
-                with local_submat(mat.buffer.mat, V, V) as submat:
-                    breakpoint()
+                myspace = space if V.index is None else space[V.index]
+                with local_submat(mat.buffer.mat, myspace, myspace) as submat:
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )

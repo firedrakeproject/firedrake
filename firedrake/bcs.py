@@ -20,13 +20,14 @@ from pyop3.pyop2_utils import as_tuple
 from pyop3.mpi import temp_internal_comm
 
 import firedrake
-from firedrake import ufl_expr, slate, solving
+from firedrake import ufl_expr, slate, solving, utils
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.functionspaceimpl import is_mixed
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -121,14 +122,30 @@ class BCBase:
         return tuple(reversed(indices))
 
     @cached_property
-    def nodes(self):
-        '''The list of nodes at which this boundary condition applies.
+    def nodes(self) -> np.ndarray:
+        """The unique nodes at which this boundary condition applies.
 
-        These must be unique.
+        Notes
+        -----
+        For mixed spaces in parallel (and potentially other more funky layouts)
+        we interleave the DoFs for performance reasons. This means that one
+        cannot compute offsets as ``node*block_size``. If you truly want the
+        node numbers in that case you should use ``bc._nodes`` instead.
 
-        '''
-        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        """
         V = self._function_space
+        if V.comm.size > 1 and (is_mixed(V) or V.parent):
+            raise TypeError(
+                "For mixed spaces in parallel we interleave the DoFs so the nodes "
+                "cannot be used to compute offsets. Use 'node_offsets' instead."
+            )
+        return self._nodes
+
+    @cached_property
+    def _nodes(self) -> np.ndarray:
+        V = self._function_space
+
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
@@ -194,10 +211,28 @@ class BCBase:
         return bcnodes
 
     @cached_property
+    def node_offsets(self) -> np.ndarray:
+        """The offset of each node addressed by this boundary condition."""
+        return self.node_offsets_dat.data_ro
+
+    @cached_property
+    def node_offsets_dat(self) -> np.ndarray:
+        node_axes = self._function_space._nodes_axis[self.node_set]
+        node_offsets = op3.Dat.empty(node_axes.materialize(), dtype=op3.dtypes.IntType)
+
+        # now build the loop
+        n = node_axes.iter()
+        offset_expr = self._function_space.nodal_axes[n].layouts[idict({"nodes": None})]
+        raise NotImplementedError("TODO, not using at the moment AIUI")
+        op3.loop(n, node_offsets[n].assign(offset_expr), eager=True)
+        breakpoint()
+        return node_offsets
+
+    @cached_property
     def node_set(self) -> op3.Slice:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
-        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
+        subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
         subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
