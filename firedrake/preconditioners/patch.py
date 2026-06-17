@@ -316,19 +316,35 @@ for (int32_t k=0; k<{size}; k++) {{
                 if isinstance(map_, numbers.Integral):
                     local_kernel_args.append(f"&({dat_name}[{map_}*j])")
                 else:
+                    # TODO: handle Real+interior facets here
                     arity, cdim = map_.arity, map_.cdim
 
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
                     temps.append((temp_name, (arity, cdim)))
 
-                    local_kernel_args.append(temp_name)
-
                     pack_insn = f"""\
 for (int32_t k=0; k<{arity}; k++)
   for (int32_t l=0; l<{cdim}; l++)
     {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
                     pack_insns.append(pack_insn)
+
+#                 else:
+#                     # Real case, single value but need to duplicate it for interior facets
+#                     assert isinstance(dat, op2.Global)
+#                     if self.kinfo.integral_type.startswith("interior_facet"):
+#                         temp_name = f"t_{next(temp_counter)}"
+#                         temps.append((temp_name, (2, cdim)))
+#                         local_kernel_args.append(temp_name)
+#
+#                         pack_insn = f"""\
+# for (int32_t l=0; l<{cdim}; l++) {{
+#   {temp_name}[l] = {dat_name}[l];
+#   {temp_name}[{cdim}+l] = {dat_name}[l];
+# }}"""
+#                         pack_insns.append(pack_insn)
+                    else:
+                        local_kernel_args.append(self._names[dat])
 
             else:
                 assert isinstance(arg, op3.Scalar)
