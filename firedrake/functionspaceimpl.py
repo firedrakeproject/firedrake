@@ -1614,7 +1614,7 @@ class FunctionSpace(AbstractFunctionSpace):
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
-        return PETSc.LGMap().create(indices.data_ro.copy(), bsize=self.block_size, comm=self.comm)
+        return PETSc.LGMap().create(indices.data_ro_with_halos.copy(), bsize=self.block_size, comm=self.comm)
 
     # NOTE: superseded by .lgmap()?
     @cached_property

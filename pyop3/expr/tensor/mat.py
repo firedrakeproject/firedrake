@@ -299,7 +299,6 @@ class Mat(Tensor):
     def values(self):
         return self.as_array("ro")
 
-
     def as_array(self, mode, *, regions=frozenset({"owned"})):
         assert mode == "ro"
         if self.comm.size > 1:
