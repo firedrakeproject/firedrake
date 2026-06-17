@@ -2700,11 +2700,12 @@ values from f.)"""
         if tree_depth == 0:
             # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
             return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
-        prev_bboxes = self.bounding_boxes(0)
+        gdim = self.geometric_dimension
+        prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
         for level in range(1, tree_depth):
-            prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
+            prev_vol = rtree.bounding_boxes_at_level(self.rtree, prev_bboxes, gdim)
             next_bboxes = self.bounding_boxes(level)
-            next_vol = self.bounding_boxes_total_volume(next_bboxes)
+            next_vol = rtree.bounding_boxes_at_level(self.rtree, next_bboxes, gdim)
             prev_bboxes = next_bboxes
             if next_vol >= prev_vol:
                 break

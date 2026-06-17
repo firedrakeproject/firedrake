@@ -290,7 +290,7 @@ def discover_ranks(
 
     return toranks, send_offsets, point_indices, fromranks_out, recv_counts_out
 
-def bounding_boxes_at_level(RTree rtree, size_t level, size_t dim):
+def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
     cdef:
         double *mins = NULL
         double *maxs = NULL
@@ -309,7 +309,7 @@ def bounding_boxes_at_level(RTree rtree, size_t level, size_t dim):
             boxes[i, 0, j] = mins[i * dim + j]
             boxes[i, 1, j] = maxs[i * dim + j]
 
-    rtree_free_bounding_boxes(mins, maxs, n_boxes, dim)
+    rtree_free_bounding_boxes(mins, maxs, n_boxes, <size_t>dim)
 
     return boxes
 
