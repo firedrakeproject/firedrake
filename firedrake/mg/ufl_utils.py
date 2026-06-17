@@ -199,10 +199,6 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                     manager.restrict(c, cmapping[c])
                 else:
                     manager.inject(c, cmapping[c])
-            # Apply bcs
-            if cctx.pre_apply_bcs:
-                for bc in cctx._problem.dirichlet_bcs():
-                    bc.apply(cctx._x)
             # When the solution is in the real space
             # PETSc fails to call this hook on coarse levels.
             # As a workaround, we inject into all levels.
