@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -412,14 +413,21 @@ def test_outside_boundary_behaviour(parentmesh):
     if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
         # except here!
         edge_point = negative_coord_furthest_from_origin(parentmesh)
-    inputcoord = np.full((1, parentmesh.geometric_dimension), edge_point-1e-15)
+    # fp32: the fp64 offset/tolerances (1e-15..1e-13) are far below single
+    # precision resolution (eps ~1e-7), so the offset is lost and the tolerances
+    # are meaningless. Scale them up by ~1e9 to probe the same "small tol misses,
+    # large tol catches" logic at an fp32-resolvable scale. fp64 is unchanged.
+    offset = 1e-6 if single_mode else 1e-15
+    tol_small = 1e-7 if single_mode else 1e-16
+    tol_large = 1e-4 if single_mode else 1e-13
+    inputcoord = np.full((1, parentmesh.geometric_dimension), edge_point-offset)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour="ignore")
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=tol_small, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
     # Tolerance is large enough to pick up point - note that we need to go up
     # by 2 orders of magnitude for this to work consistently
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour="ignore")
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=tol_large, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 1
 
 

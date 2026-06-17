@@ -468,8 +468,7 @@ def _test_adjoint_constant(J, c):
     tape = Tape()
     set_working_tape(tape)
 
-    # fp32 second-order residuals are near machine epsilon floor with h=1;
-    # scale h and include h_val in the directional-derivative correction
+    # fp32: scale h above the round-off floor (h_val also corrects the residual below)
     h_val = 100.0 if single_mode else 1.0
     h = Constant(h_val)
 
@@ -500,8 +499,7 @@ def _test_adjoint(J, f, rg):
 
     V = f.function_space()
     h = rg.uniform(V)
-    # fp32 second-order Taylor residuals are near fp32 floor with h~O(1);
-    # scale up so residuals are well above machine epsilon throughout the sequence
+    # fp32: scale h above the round-off floor for a clean Taylor rate
     if single_mode:
         h *= 100.0
 

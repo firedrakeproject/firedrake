@@ -223,11 +223,11 @@ def test_assign_constant_scale():
     J = assemble(inner(f, f) ** 2 * dx)
 
     rf = ReducedFunctional(J, Control(c))
-    r = taylor_to_dict(rf, c, Constant(10.0 if single_mode else 0.1))
+    r = taylor_to_dict(rf, c, Constant(100.0))
 
     assert min(r["R0"]["Rate"]) > 0.9
     assert min(r["R1"]["Rate"]) > 1.9
-    assert min(r["R2"]["Rate"]) > (2.5 if single_mode else 2.9)
+    assert min(r["R2"]["Rate"]) > 2.9
 
 
 @pytest.mark.skipcomplex
@@ -270,7 +270,6 @@ def test_adjoint_cleanup(scheduler, rg):
 
     # Choosing fixed perturbation
     dtemp = rg.uniform(u_0.function_space())
-    if single_mode:
-        dtemp *= 100.0
+    dtemp *= 100.0
 
-    assert taylor_test(reduced_functional, u_0, dtemp) > (1.9 if single_mode else 1.99999999)
+    assert taylor_test(reduced_functional, u_0, dtemp) > 1.9

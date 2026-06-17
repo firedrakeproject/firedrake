@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 import pytest
 
@@ -186,7 +187,7 @@ def test_netgen_csg_3d_integral():
     V = FunctionSpace(msh, "CG", 3)
     x, y, z = SpatialCoordinate(msh)
     f = assemble(interpolate(2 * x + 3 * y * y + 4 * z * z * z, V))
-    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
+    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < (1e-5 if single_mode else 1.e-10)
 
 
 @pytest.mark.skipnetgen

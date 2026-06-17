@@ -352,6 +352,11 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
+    if single_mode:
+        # fp32: keep the Richardson rtol clear of the single-precision floor so the
+        # two algebraically-identical patch PCs converge in the same iteration count.
+        vanka_params["ksp_rtol"] = 1e-4
+        comp_params["ksp_rtol"] = 1e-4
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
     filter_warnings(star_solver.solve)
@@ -362,13 +367,7 @@ def test_vanka_equivalence(problem_type):
     filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
-    if single_mode:
-        # fp32: the two algebraically-identical patch PCs accumulate round-off in
-        # a different order, which can shift the Richardson iteration count by one
-        # near the convergence threshold.
-        assert abs(star_its - comp_its) <= 1
-    else:
-        assert star_its == comp_its
+    assert star_its == comp_its
 
 
 @pytest.fixture(params=["interval", "square"])
@@ -482,7 +481,6 @@ def test_star_coloring(extruded):
     assert its[True] == its[False]
 
 
-@pytest.mark.skipsingle  # fp32: colored vs uncolored Vanka accumulate in different orders, shifting the CG iteration count by one near convergence so the exact its[True]==its[False] check fails (MG transfer crash itself is fixed)
 def test_vanka_coloring():
     nx = 4
     refine = 1
@@ -511,6 +509,9 @@ def test_vanka_coloring():
 
     params = lambda color: {
         "ksp_type": "gmres",
+        # fp32: keep the gmres rtol clear of the single-precision floor so the
+        # colored and uncolored Vanka PCs converge in the same iteration count.
+        "ksp_rtol": 1e-4 if single_mode else 1e-5,
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",

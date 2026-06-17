@@ -56,5 +56,5 @@ def test_matrix_free_hybridization():
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < (1e-6 if single_mode else 1e-8)
-    assert u_err < (1e-6 if single_mode else 1e-8)
+    assert sigma_err < (5e-7 if single_mode else 1e-8)
+    assert u_err < (5e-7 if single_mode else 1e-8)

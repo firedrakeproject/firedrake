@@ -85,7 +85,7 @@ def test_mixed_derivatives(rg):
     # Direction to take a step for convergence test
     h = rg.uniform(V)
     if single_mode:
-        h *= 100.0
+        h *= 1000.0
 
     # Evaluate TLM
     control_f.tlm_value = h
@@ -103,7 +103,7 @@ def test_mixed_derivatives(rg):
     dJdm = J.block_variable.tlm_value
     Hm = control_f.hessian_value.dat.inner(h.dat) + control_g.hessian_value.dat.inner(h.dat)
 
-    assert taylor_test(Jhat, [f, g], [h, h], dJdm, Hm) > (2.7 if single_mode else 2.9)
+    assert taylor_test(Jhat, [f, g], [h, h], dJdm, Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
@@ -296,7 +296,7 @@ def test_burgers(solve_type, rg):
     Jhat = ReducedFunctional(J, Control(ic))
     h = rg.uniform(V)
     if single_mode:
-        h *= 10.0
+        h *= 100.0
     g = ic.copy(deepcopy=True)
     J.block_variable.adj_value = 1.0
     ic.block_variable.tlm_value = h
@@ -308,4 +308,4 @@ def test_burgers(solve_type, rg):
 
     dJdm = J.block_variable.tlm_value
     Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
-    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > (1.9 if single_mode else 2.9)
+    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9

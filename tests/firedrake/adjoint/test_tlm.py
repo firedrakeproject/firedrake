@@ -119,8 +119,7 @@ def test_time_dependent(solve_type, rg):
     bc = [bc_left, bc_right]
 
     # Some variables
-    # fp32: reduce to 1 step to avoid accumulated rounding noise that prevents
-    # Taylor residuals from converging cleanly; fp64 keeps the full 5 steps.
+    # fp32: shorter timeseries limits accumulated round-off in the Taylor test
     T, dt = (0.2, 0.1) if single_mode else (0.5, 0.1)
     f = Function(V).assign(1.)
 
@@ -149,7 +148,7 @@ def test_time_dependent(solve_type, rg):
     h = rg.uniform(V)
     if single_mode:
         h *= 100.0
-    assert (taylor_test(Jhat, control.tape_value(), h, dJdm=Jhat.tlm(h)) > (1.7 if single_mode else 1.9))
+    assert (taylor_test(Jhat, control.tape_value(), h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.skipcomplex

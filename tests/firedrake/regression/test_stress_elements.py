@@ -1,7 +1,5 @@
 from firedrake import *
 from firedrake.utils import single_mode
-
-# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 import pytest
 import numpy as np
 

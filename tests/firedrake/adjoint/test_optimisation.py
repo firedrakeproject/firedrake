@@ -8,8 +8,7 @@ from firedrake import *
 from firedrake.adjoint import *
 from firedrake.utils import single_mode
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
-from pyadjoint.optimization.tao_solver import PETScVecInterface, TAOConvergenceError
-from pyadjoint.enlisting import Enlist
+from pyadjoint.optimization.tao_solver import PETScVecInterface
 import petsctools
 from petsc4py import PETSc
 
@@ -58,24 +57,6 @@ def test_petsc_roundtrip_multiple():
     assert (u_2.dat.data_ro == u_2_test.dat.data_ro).all()
 
 
-def _tao_solve_best(solver):
-    """Solve and return best iterate even if DIVERGED_LS_FAILURE in fp32."""
-    try:
-        return solver.solve()
-    except (TAOConvergenceError, PETSc.Error):
-        if not single_mode:
-            raise
-        # In fp32, LMVM/TAO may hit DIVERGED_LS_FAILURE near the minimum due to
-        # accumulated rounding in the Riesz map PDE solve, but the iterate after
-        # many steps is still accurate. Mirror TAOSolver.solve() to extract it.
-        controls = solver.tao_objective.reduced_functional.controls
-        m = tuple(c.tape_value()._ad_copy() for c in controls)
-        solver._vec_interface.from_petsc(solver.x, m)
-        if isinstance(controls, Enlist):
-            return controls.delist(m)
-        return m
-
-
 def minimize_tao_lmvm(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "lmvm",
@@ -83,7 +64,7 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0 if single_mode else 1.0e-7})
+                                 "tao_gttol": 1.0e-5 if single_mode else 1.0e-7})
     return solver.solve()
 
 
@@ -245,36 +226,11 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
 
         if y.norm(PETSc.NormType.NORM_INFINITY) == 0:
             x.zeroEntries()
-        elif not single_mode:
+        else:
             with petsctools.inserted_options(mfn):
                 mfn.solve(y, x)
             if mfn.getConvergedReason() <= 0:
                 raise RuntimeError("Convergence failure")
-        else:
-            mfn_failed = False
-            try:
-                with petsctools.inserted_options(mfn):
-                    mfn.solve(y, x)
-                if mfn.getConvergedReason() <= 0:
-                    mfn_failed = True
-            except Exception:
-                mfn_failed = True
-            if mfn_failed:
-                # fp32 fallback: build dense matrix and use scipy.linalg.sqrtm
-                import scipy.linalg
-                y_arr = y.array_r.astype(np.float64)
-                n_local = len(y_arr)
-                M_dense = np.zeros((n_local, n_local), dtype=np.float64)
-                e_vec = y.copy()
-                r_vec = y.copy()
-                for i in range(n_local):
-                    e_vec.zeroEntries()
-                    e_vec.setValue(i, 1.0)
-                    e_vec.assemble()
-                    M_mat.mult(e_vec, r_vec)
-                    M_dense[:, i] = r_vec.array_r.astype(np.float64)
-                M_sqrt = scipy.linalg.sqrtm(M_dense)
-                x.array[:] = (M_sqrt.real @ y_arr).astype(float)
 
         if is_primal(v):
             u = Function(space)
@@ -317,11 +273,9 @@ def test_simple_inversion_riesz_representation(tao_type):
 
     riesz_representation = "L2"
     mfn_parameters = {"mfn_type": "krylov",
-                      "mfn_tol": 1e-4 if single_mode else 1.0e-12}
-    if single_mode:
-        # fp32: enlarge the Krylov subspace and use modified Gram-Schmidt for stability
-        mfn_parameters["mfn_ncv"] = 200
-        mfn_parameters["mfn_bv_orthog_type"] = "mgs"
+                      "mfn_tol": 1e-4 if single_mode else 1.0e-12,
+                      "mfn_ncv": 200,
+                      "mfn_bv_orthog_type": "mgs"}
     tao_parameters = {"tao_type": tao_type,
                       "tao_monitor": None,
                       "tao_converged_reason": None,
@@ -380,6 +334,11 @@ def test_simple_inversion_riesz_representation(tao_type):
 
         if not single_mode:
             assert solver.tao.getIterationNumber() <= solver_transform.tao.getIterationNumber()
+        else:
+            # fp32: rounding perturbs the iteration path, so the transformed vs
+            # untransformed ordering need not hold; just check neither solve stalled
+            assert solver.tao.getIterationNumber() <= 1000
+            assert solver_transform.tao.getIterationNumber() <= 1000
 
 
 @pytest.mark.skipcomplex

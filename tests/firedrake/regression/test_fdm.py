@@ -228,7 +228,6 @@ def fs(request, mesh):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.skipsingle  # ksp_rtol=1e-8 and solution norm checks are below fp32 eps
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
@@ -321,7 +320,7 @@ def test_ipdg_direct_solver(fs):
         "mat_type": "matfree",
         "ksp_type": "cg",
         "ksp_atol": 0.0E0,
-        "ksp_rtol": 1.0E-8,
+        "ksp_rtol": 1.0E-5 if single_mode else 1.0E-8,
         "ksp_max_it": 3,
         "ksp_monitor": None,
         "ksp_norm_type": "unpreconditioned",
@@ -336,9 +335,9 @@ def test_ipdg_direct_solver(fs):
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
         with uh.dat.vec_ro as uvec:
-            assert uvec.norm() < 1E-8
+            assert uvec.norm() < (1E-5 if single_mode else 1E-8)
     else:
-        assert norm(u_exact-uh, "H1") < 1.0E-8
+        assert norm(u_exact-uh, "H1") < (1.0E-5 if single_mode else 1.0E-8)
 
 
 @pytest.mark.parallel(nprocs=2)

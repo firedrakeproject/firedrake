@@ -102,5 +102,5 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < (5e-4 if single_mode else 1e-11)
-    assert u_err < (5e-4 if single_mode else 1e-11)
+    assert sigma_err < (2e-4 if single_mode else 1e-11)
+    assert u_err < (2e-4 if single_mode else 1e-11)
