@@ -343,8 +343,8 @@ for (int32_t k=0; k<{arity}; k++)
 #   {temp_name}[{cdim}+l] = {dat_name}[l];
 # }}"""
 #                         pack_insns.append(pack_insn)
-                    else:
-                        local_kernel_args.append(self._names[dat])
+                    # else:
+                    #     local_kernel_args.append(self._names[dat])
 
             else:
                 assert isinstance(arg, op3.Scalar)
