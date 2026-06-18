@@ -112,17 +112,6 @@ jobs:
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.base_ref }}
           deps: ci
-    
-      - uses: actions/checkout@v5
-        with:
-          repository: firedrakeproject/fiat
-          path: fiat-repo
-          ref: refs/heads/indiamai/integrate_fuse
-        
-      - name: Install checked out FIAT
-        run: |
-          . venv/bin/activate
-          python3 -m pip install --break-system-packages -e './fiat-repo'
 
     #   - name: Run TSFC tests
     #     # Run even if earlier tests failed

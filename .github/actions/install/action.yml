@@ -152,6 +152,19 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
+    - uses: actions/checkout@v5
+      with:
+        repository: firedrakeproject/fiat
+        path: fiat-repo
+        ref: refs/heads/indiamai/integrate_fuse
+      
+    - name: Install checked out FIAT
+      run: |
+        python3 -m pip install --break-system-packages -e './fiat-repo'
+  
+    - name: Install Firedrake
+      shell: bash
+      run: |
         firedrake-clean
         pip list
 
