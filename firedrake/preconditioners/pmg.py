@@ -144,6 +144,7 @@ class PMGBase(PCSNESBase):
         if self.is_snes:
             pdm.setSNESFunction(_SNESContext.form_function)
             pdm.setSNESJacobian(_SNESContext.form_jacobian)
+            pdm.setKSPCreateOperators(_SNESContext.create_operators)
             pdm.setKSPComputeOperators(_SNESContext.compute_operators)
 
         set_function_space(pdm, get_function_space(odm))
@@ -267,6 +268,7 @@ class PMGBase(PCSNESBase):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
 
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
+        cdm.setKSPCreateOperators(_SNESContext.create_operators)
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)

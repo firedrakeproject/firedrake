@@ -525,6 +525,14 @@ class _SNESContext(object):
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
     @staticmethod
+    def create_operators(ksp):
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        A = ctx._jac.petscmat
+        P = A if ctx.Jp is None else ctx._pjac.petscmat
+        return A, P
+
+    @staticmethod
     def compute_operators(ksp, J, P):
         r"""Form the Jacobian for this problem
 
@@ -535,13 +543,20 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-        assert J.handle == ctx._jac.petscmat.handle
+
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
         ctx._jacobian_assembled = True
 
+        if ctx.Jp is not None and (J.handle == ctx._pjac.petscmat.handle):
+            # Assemble the preconditioner only
+            assert P.handle == ctx._pjac.petscmat.handle
+            ctx._assemble_pjac(ctx._pjac)
+            return
+
+        assert J.handle == ctx._jac.petscmat.handle
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
