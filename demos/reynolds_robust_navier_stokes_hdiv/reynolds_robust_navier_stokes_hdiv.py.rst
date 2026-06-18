@@ -394,7 +394,7 @@ precision. ::
   problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
   solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
-  for Re_ in [1, 100, 500] + list(range(1000, 5001, 500)):
+  for Re_ in [1, 100, 500] + list(range(1000, 5001, 1000)):
       Re.assign(Re_)
 
       # Solve
