@@ -2854,7 +2854,7 @@ values from f.)"""
             src += dedent(f"""
                 int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
                 {{
-                    size_t *candidate_ids = NULL;
+                    int64_t *candidate_ids = NULL;
                     size_t *candidate_offsets = NULL;
                     RTreeError rtree_err = rtree_locate_all_at_points(
                         (const struct RTreeH *)f->rtree, x, npoints, &candidate_ids, &candidate_offsets);
@@ -2872,7 +2872,7 @@ values from f.)"""
                         struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
                         size_t nids_i = candidate_offsets[i + 1] - candidate_offsets[i];
-                        size_t *ids_i = candidate_ids + candidate_offsets[i];
+                        int64_t *ids_i = candidate_ids + candidate_offsets[i];
 
                         /* to_reference_coords and to_reference_coords_xtr are defined in
                         pointquery_utils.py. If they contain python calls, this loop will
