@@ -4,7 +4,7 @@ Reynolds-robust solvers for the stationary Navier-Stokes equations using H(div)�
 .. rst-class:: emphasis
 
     This demo shows a discretisation using H(div)-L² elements and preconditioner for the stationary incompressible
-    Navier-Stokes equations that exhibit Reynolds-robustness. For the discretisation,
+    Navier-Stokes equations that exhibits Reynolds-robustness. For the discretisation,
     this means that its error estimates do not depend explicitly on the Reynolds number;
     for the preconditioner, this means that the number of Krylov iterations per Newton
     step barely changes as the Reynolds number is varied.
@@ -51,8 +51,8 @@ is the symmetric velocity gradient.  We impose no-slip conditions
 :math:`u = 0` on the left, right, and bottom walls (:math:`\Gamma_1, \Gamma_2, \Gamma_3`) and a lid velocity
 :math:`u = (16 x^2(1-x)^2,\, 0)` on the top wall (:math:`\Gamma_4`).
 
-After discretisation this system becomes a saddle-point linear algebra
-problem for the update at each Newton step:
+After discretisation this yields a saddle-point linear system for the
+Newton update:
 
 .. math::
 
@@ -92,27 +92,66 @@ velocity block is
    + \gamma \int_\Omega (\nabla \cdot \varphi_j)(\nabla \cdot \varphi_i)\,\mathrm{d}x,
 
 and the pressure Schur complement approximation becomes :math:`S_\gamma \approx
--(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`.  For Stokes, this is helpful but
-not essential, since the pressure Schur complement is already controlled; but for
-Navier-Stokes (with the advection terms), it is extremely useful, since
-for large :math:`\gamma` the pressure Schur complement becomes perfectly
-controlled by something that is straightforward to solve. The tradeoff
-is that large :math:`\gamma` makes :math:`A_\gamma` harder to solve, so
-the specialised multigrid strategy described below is critical.
+-(2\,\mathrm{Re}^{-1} + \gamma)^{-1} Q`.  For Stokes the Schur complement is
+already well-controlled, so the augmentation is useful but not critical; for
+Navier-Stokes it is essential, since for large :math:`\gamma` the Schur
+complement is driven to a scalar multiple of :math:`Q`, which is trivially
+invertible.  The tradeoff is that large :math:`\gamma` makes :math:`A_\gamma`
+increasingly ill-conditioned, so the specialised multigrid strategy described
+below becomes necessary.
 
-An even more efficient alternative block preconditioner can be derived from
-a nearby problem with pertubation :math:`-\gamma^{-1}(p, q)`. The
-preconditioner will feature a nonzero pressure block, which enables us
-to do elimation in the reverse ordering by choosing the pressure as the first pivot.
+Block Gaussian elimination on the saddle-point system can be carried out in
+two distinct orderings.  Eliminating the velocity block first gives the
+*standard* block LDLT factorisation
 
 .. math::
 
-   P = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}
+   \begin{pmatrix} A & B^\top \\ B & -C \end{pmatrix}^{-1}
+   = \begin{pmatrix} I & -A^{-1}B^\top \\ 0 & I \end{pmatrix}
+     \begin{pmatrix} A^{-1} & 0 \\ 0 & -S^{-1} \end{pmatrix}
+     \begin{pmatrix} I & 0 \\ -BA^{-1} & I \end{pmatrix},
 
-The corresponding `velocity Schur complement` is exactly :math:`A + \gamma B^\top Q^{-1} B = A_\gamma`.
-Direct block Gaussian elimination then requires a
-single application of :math:`A_\gamma^{-1}`, and two applications of
-:math:`Q^{-1}`.
+where :math:`S = C + BA^{-1}B^\top` is the pressure Schur complement. (For our inf-sup stable discretisation, :math:`C = 0`.) This
+requires one application of :math:`S^{-1}` and two applications of
+:math:`A^{-1}` per Krylov iteration.  Since each application of :math:`A^{-1}`
+corresponds to a full multigrid cycle, paying for it twice per iteration is
+significant.
+
+An even more efficient alternative arises by eliminating the pressure block
+*first*—the *reverse* block LDLT factorisation.  Adding the perturbation
+:math:`-\gamma^{-1}(p, q)` to the bilinear form makes the :math:`(2,2)` block
+invertible, giving the preconditioner matrix
+
+.. math::
+
+   P_{\mathrm{prec}} = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}.
+
+Setting :math:`C = \gamma^{-1}Q`, the exact inverse of this matrix admits the
+factorisation
+
+.. math::
+
+   \begin{pmatrix} A & B^\top \\ B & -C \end{pmatrix}^{-1}
+   = \begin{pmatrix} I & 0 \\ C^{-1}B & I \end{pmatrix}
+     \begin{pmatrix} P^{-1} & 0 \\ 0 & -C^{-1} \end{pmatrix}
+     \begin{pmatrix} I & B^\top C^{-1} \\ 0 & I \end{pmatrix},
+
+where the velocity Schur complement is
+
+.. math::
+
+   P = A + B^\top C^{-1} B = A + \gamma\, B^\top Q^{-1} B = A_\gamma,
+
+exactly the augmented Lagrangian velocity block.  This factorisation requires
+only a *single* application of :math:`A_\gamma^{-1}` per Krylov iteration,
+together with two applications of :math:`C^{-1} = \gamma Q^{-1}`.  Because with
+the right choice of degrees of freedom :math:`Q` is diagonal, inverting it is
+essentially free, so the reverse ordering halves the number of expensive
+multigrid solves compared with the standard block LDLT.
+
+Note that the reverse factorisation requires :math:`C` to be invertible, which
+fails in the pure Stokes limit (:math:`\gamma \to \infty`).  Here, however,
+:math:`\gamma` is a parameter chosen by us for our convenience, so this is never an obstacle.
 
 To solve :math:`A_\gamma` in a :math:`\gamma`-robust way, the multigrid
 smoother must capture the kernel of the divergence operator in a certain
@@ -121,14 +160,13 @@ sense.  The theoretical foundation is due to Schöberl
 relaxation captures the kernel and its prolongation maps coarse kernel
 functions to (nearly) fine kernel functions.  It is not known how to
 devise multigrid components that satisfy these requirements for arbitrary
-discretisations; the :math:`\mathrm{Re}`-robust solver we present here can (at present)
-be applied to Scott-Vogelius discretisations
-:cite:`Farrell:2021,Farrell:2021b`, high-order Taylor-Hood
-discretisations, H(div)-L2 discretisations (as coded in this demo), the Mardal-Tai-Winther
-discretisation :cite:`Mardal:2002`, and
-a modification of the Bernardi-Raugel discretisation
-:cite:`Farrell:2019`. Its application to other discretisations is a matter of ongoing
-research. In particular, it is not known how to apply these ideas to
+discretisations.  The :math:`\mathrm{Re}`-robust solver we present here can (at present)
+be applied to Scott-Vogelius discretisations :cite:`Farrell:2021,Farrell:2021b`,
+high-order Taylor-Hood discretisations, and H(div)-L² discretisations as coded
+in this demo.  It also applies to the Mardal-Tai-Winther discretisation
+:cite:`Mardal:2002` and a modification of the Bernardi-Raugel discretisation
+:cite:`Farrell:2019`; its extension to further discretisations is a matter of
+ongoing research. In particular, it is not known how to apply these ideas to
 the popular low-order Taylor--Hood, MINI, or stabilised equal-order discretisations.
 In any case these latter discretisations do not give exactly incompressible
 velocity approximations, and their error estimates therefore depend
@@ -370,7 +408,9 @@ precision. ::
       print(f"  ||div u||: {norm(div(u_), 'L2'):.2e}")
       pvd.write(u_, p_)
 
-The average number of Krylov iterations per Newton step varies from 4--7 over the whole range of Reynolds numbers considered.
+Across the whole range from :math:`\mathrm{Re} = 1` to :math:`\mathrm{Re} = 5000`,
+the average Krylov iterations per Newton step remain in the range 4--7,
+confirming the Reynolds-robustness of the preconditioner.
 
 A python script version of this demo can be found :demo:`here
 <reynolds_robust_navier_stokes_hdiv.py>`.
