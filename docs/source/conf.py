@@ -162,6 +162,12 @@ nitpick_ignore_regex = [
     ("py:obj", r"typing\.Literal\[.*"),
 ]
 
+# sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
+# not as unresolved references handled by nitpick_ignore_regex.
+suppress_warnings = [
+    "bibtex.duplicate_citation",
+]
+
 # Dodgy links
 linkcheck_ignore = [
     r'https://zenodo.org/.*',
