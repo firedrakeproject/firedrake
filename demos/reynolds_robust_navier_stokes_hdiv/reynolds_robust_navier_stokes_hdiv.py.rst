@@ -394,7 +394,7 @@ precision. ::
   problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
   solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
-  for Re_ in [1, 100, 500] + list(range(1000, 5001, 1000)):
+  for Re_ in [1, 500]  + list(range(1000, 5001, 1000)):
       Re.assign(Re_)
 
       # Solve
@@ -409,7 +409,7 @@ precision. ::
       pvd.write(u_, p_)
 
 Across the whole range from :math:`\mathrm{Re} = 1` to :math:`\mathrm{Re} = 5000`,
-the average Krylov iterations per Newton step remain in the range 4--7,
+the average Krylov iterations per Newton step remain in the range 4.4--6.5,
 confirming the Reynolds-robustness of the preconditioner.
 
 A python script version of this demo can be found :demo:`here
