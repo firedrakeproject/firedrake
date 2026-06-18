@@ -2854,6 +2854,15 @@ values from f.)"""
             src += dedent(f"""
                 int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
                 {{
+                    size_t *candidate_ids = NULL;
+                    size_t *candidate_offsets = NULL;
+                    RTreeError rtree_err = rtree_locate_all_at_points(
+                        (const struct RTreeH *)f->rtree, x, npoints, &candidate_ids, &candidate_offsets);
+                    if (rtree_err != Success) {{
+                        fputs("ERROR: rtree_locate_all_at_points failed.\\n", stderr);
+                        return -1;
+                    }}
+
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
@@ -2862,18 +2871,23 @@ values from f.)"""
                         statics in pointquery_utils.py */
                         struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
+                        size_t nids_i = candidate_offsets[i + 1] - candidate_offsets[i];
+                        size_t *ids_i = candidate_ids + candidate_offsets[i];
+
                         /* to_reference_coords and to_reference_coords_xtr are defined in
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         int *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
+                        cells[i] = locate_cell_from_candidates(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], nids_i, ids_i, ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
                             j++;
                         }}
                     }}
+                    rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
+                    rtree_free_ids(candidate_offsets, npoints + 1);
                     return 0;
                 }}
             """)
