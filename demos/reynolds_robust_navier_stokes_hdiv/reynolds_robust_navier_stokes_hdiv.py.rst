@@ -68,8 +68,8 @@ equivalent to a scaled pressure mass matrix :math:`Q`
 :cite:`Fortin:1983,Silvester:1994,Elman:2014`, but this equivalence
 quickly degrades once the convection term is introduced.
 
-The augmented Lagrangian
-------------------------
+The augmented Lagrangian and block preconditioning
+--------------------------------------------------
 
 In the context of the Stokes equations, the augmented Lagrangian method
 :cite:`Fortin:1983` adds a penalty term to the Lagrangian for the
@@ -102,7 +102,7 @@ below becomes necessary.
 
 Block Gaussian elimination on the saddle-point system can be carried out in
 two distinct orderings.  Eliminating the velocity block first gives the
-*standard* block LDLT factorisation
+*standard* block LDU factorisation
 
 .. math::
 
@@ -118,13 +118,13 @@ corresponds to a full multigrid cycle, paying for it twice per iteration is
 significant.
 
 An even more efficient alternative arises by eliminating the pressure block
-*first*—the *reverse* block LDLT factorisation. We cannot choose the pressure block as our pivot for the original matrix because :math:`C = 0`, but
+*first*—the block UDL factorisation. We cannot choose the pressure block as our pivot for the original matrix because :math:`C = 0`, but
 we can construct a preconditioner by adding the shift
 :math:`-\gamma^{-1}Q`. This gives a preconditioner
 
 .. math::
 
-   P_{\mathrm{prec}} = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}.
+   P_{\gamma} = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}.
 
 with an invertible :math:`(2,2)` block.
 The exact inverse of this matrix admits the
@@ -132,7 +132,7 @@ factorisation
 
 .. math::
 
-   P_{\mathrm{prec}}^{-1} =
+   P_{\gamma}^{-1} =
    \begin{pmatrix} A & B^\top \\ B & -C \end{pmatrix}^{-1}
    = \begin{pmatrix} I & 0 \\ C^{-1}B & I \end{pmatrix}
      \begin{pmatrix} A_\gamma^{-1} & 0 \\ 0 & -C^{-1} \end{pmatrix}
@@ -149,7 +149,7 @@ only a *single* application of :math:`A_\gamma^{-1}` per Krylov iteration,
 together with two applications of :math:`C^{-1} = \gamma Q^{-1}`.  With
 the right choice of degrees of freedom for the pressure space (passing ``variant="integral"`` to the function space construction), :math:`Q` is diagonal, so inverting it is
 essentially free. Using this reverse ordering halves the number of expensive
-multigrid solves compared with the standard block LDLT.
+multigrid solves compared with the standard block LDU.
 
 Note that the reverse factorisation requires :math:`C` to be invertible, which
 fails in the limit :math:`\gamma \to \infty`.  Here, however,
