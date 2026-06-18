@@ -446,10 +446,10 @@ class NonlinearVariationalSolverMixin:
             else:
                 dm = TrialFunction(m.function_space())
                 # XXX should we try inverting this back to the way it was before?
-                dFdm = derivative(-F, m, dm)
+                dFdm = derivative(F, m, dm)
 
-                dFdm_adj = expand_derivatives(action(adjoint(dFdm), adj_sol))
-                dFdm_adj2 = action(adjoint(dFdm), adj2_sol)
+                dFdm_adj = -expand_derivatives(action(adjoint(dFdm), adj_sol))
+                dFdm_adj2 = -action(adjoint(dFdm), adj2_sol)
 
             dFdm_adj2_forms.append(dFdm_adj2)
 
