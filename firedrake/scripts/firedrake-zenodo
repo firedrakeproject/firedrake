@@ -27,6 +27,7 @@ DESCRIPTIONS = {
     "ufl": "UFL: the Unified Form Language",
     "fiat": "FIAT: the Finite Element Automated Tabulator",
     "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
+    "irksome": "Irksome: Solvers for Implicit Runge Kutta methods",
 }
 
 PYPI_PACKAGE_NAMES = {
@@ -34,9 +35,12 @@ PYPI_PACKAGE_NAMES = {
     "ufl": "fenics-ufl",
     "fiat": "firedrake-fiat",
     "petsc": "petsc4py",
+    "irksome": "IRKsome",
 }
 
-components = list(DESCRIPTIONS.keys())
+MANDATORY_PACKAGES = ["firedrake", "ufl", "fiat", "petsc"]
+OPTIONAL_PACKAGES = [pkg for pkg in DESCRIPTIONS.keys() if pkg not in MANDATORY_PACKAGES]
+
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -108,15 +112,22 @@ parser.add_argument("--ignore-existing-records", action="store_true",
 parser.add_argument("--skip-missing", action="store_true",
                     help="When creating Zenodo meta-record, skip missing components?")
 
-for component in components:
-    parser.add_argument("--%s" % component, action="store", nargs=1,
-                        help="Use this git hash for %s instead of that in the file or the checked out version."
-                        % component)
+for pkg in OPTIONAL_PACKAGES:
+    parser.add_argument(
+        f"--{pkg}",
+        action="store_true",
+        help=f"Store version information for optional package {pkg}."
+    )
 
 parser.add_argument("--log", action='store_true',
                     help="Produce a verbose log of the release process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
 
 args = parser.parse_args()
+
+components = list(MANDATORY_PACKAGES)
+for pkg in OPTIONAL_PACKAGES:
+    if getattr(args, pkg):
+        components.append(pkg)
 
 if args.new_version_of:
     doi, = args.new_version_of
@@ -721,12 +732,6 @@ if args.new_version_of:
 if args.additional_dois:
     shas["additional_dois"] = check_dois_resolve(*args.additional_dois)
 
-
-# Override hashes with any read from the command line.
-for component in components:
-    new_sha = getattr(args, component)
-    if new_sha:
-        shas[component] = {"commit_id": new_sha[0]}
 
 if not (args.release or args.input_file):
     # Dump json and exit.
