@@ -1042,9 +1042,7 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        # TODO: What do we do with variable layers?
-        num_layers = 1 if mesh.layers is None else mesh.layers - 1
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
@@ -1070,8 +1068,6 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.layers:
-            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
 
         # Match the indices of the einsum

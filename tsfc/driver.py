@@ -1,7 +1,6 @@
 import collections
 import time
 import sys
-import numpy
 from itertools import chain
 from finat.physically_mapped import NeedsCoordinateMappingElement
 
@@ -76,6 +75,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     """
     cpu_time = time.time()
+
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"
@@ -363,21 +363,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         def predicate(index):
             return index.extent <= max_extent
         evaluation, = gem.optimise.unroll_indexsum([evaluation], predicate=predicate)
-
-    # Compute the action against the dual argument
-    if dual_arg in coefficients:
-        name = f"w_{coefficients.index(dual_arg)}"
-        shape = tuple(i.extent for i in basis_indices)
-        size = numpy.prod(shape, dtype=int)
-        gem_dual = gem.reshape(gem.Variable(name, shape=(size,)), shape)
-        if complex_mode:
-            evaluation = gem.MathFunction('conj', evaluation)
-        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
-        basis_indices = ()
-    else:
-        argument_multiindices[dual_arg.number()] = basis_indices
-
-    argument_multiindices = dict(sorted(argument_multiindices.items()))
 
     # Build kernel body
     return_indices = tuple(chain.from_iterable(argument_multiindices.values()))

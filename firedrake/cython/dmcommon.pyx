@@ -1406,8 +1406,8 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
         dim = 2
-        return _reorder_plex_cone(dm, p, cone, plex_cone)
-        #return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
+        _reorder_plex_cone(dm, p, cone, plex_cone)
+        return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron    <- PETSc.DM.PolytopeType.HEXAHEDRON
         dim = 3
@@ -1871,7 +1871,6 @@ def get_cell_nodes(mesh,
                     perm_offset += ceil_ndofs[i] * num_orientations_c[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
-                    
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
                             cell_nodes[cell, flat_index[k]] = off + j % offset[flat_index[k]]

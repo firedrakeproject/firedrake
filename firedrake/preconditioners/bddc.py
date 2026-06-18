@@ -61,8 +61,6 @@ class BDDCPC(PCBase):
 
         dm = pc.getDM()
         V = get_function_space(dm)
-        variant = V.ufl_element().variant()
-        sobolev_space = V.ufl_element().sobolev_space
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)

@@ -35,11 +35,6 @@ from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
-from ._buffer_cy import set_petsc_mat_diagonal
-
-
-MatTypeT = str | np.ndarray["MatTypeT"]
-
 
 class IncompatibleStarForestException(Exception):
     pass
@@ -244,9 +239,8 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         pass
 
     # NOTE: This is similar in nature to Buffer.data etc
-    @property
     @abc.abstractmethod
-    def handle(self) -> Any:
+    def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
         """The underlying data structure."""
 
 
@@ -406,15 +400,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def handle(self) -> np.ndarray | cp.ndarray:
         return self.get_array()
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm if self.sf is not None else MPI.COMM_SELF
-
-    def zero(self) -> None:
-        self.data_wo[...] = 0
-
-    is_nested: ClassVar[bool] = False
 
     @property
     def comm(self) -> MPI.Comm:
@@ -810,13 +795,6 @@ class PetscMatBuffer(ConcreteBuffer):
         self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
-        # destroyed too early and subsequently some non-data attributes end up crashing.
-        # The Right Thing is just to not destroy them - we have a GC after all.
-        self._mat_type = self.mat.type
 
     # }}}
 
@@ -895,12 +873,7 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def mat_type(self) -> str:
-        return self._mat_type
-
-    # I think that this is a better attribute name, 'mat' is overloaded
-    @property
-    def petscmat(self):
-        return self.mat
+        return self.mat.type
 
     def assemble(self) -> None:
         self.mat.assemble()

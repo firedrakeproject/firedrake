@@ -147,33 +147,6 @@ class MatrixBase(ufl.Matrix):
         self.petscmat.zeroEntries()
         return self
 
-    def __add__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat + other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
-    def __sub__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat - other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
-    def assign(self, val):
-        """Set matrix entries."""
-        if isinstance(val, MatrixBase):
-            val.petscmat.copy(self.petscmat)
-        else:
-            raise TypeError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
-        return self
-
-    def zero(self):
-        """Set all matrix entries to zero."""
-        self.petscmat.zeroEntries()
-        return self
-
 
 class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.

@@ -400,12 +400,12 @@ class Interpolation(object):
         self.manager = manager
 
     def mult(self, mat, x, y, inc=False):
-        with self.cprimal.vec_wo as v:
+        with self.cprimal.dat.vec_wo as v:
             x.copy(v)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
             bc.zero(self.fprimal)
-        with self.fprimal.vec_ro as v:
+        with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -419,12 +419,12 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
     def multTranspose(self, mat, x, y, inc=False):
-        with self.fdual.vec_wo as v:
+        with self.fdual.dat.vec_wo as v:
             x.copy(v)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
             bc.zero(self.cdual)
-        with self.cdual.vec_ro as v:
+        with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -451,7 +451,7 @@ class Injection(object):
         self.manager.inject(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
-        with self.cfn.vec_ro as v:
+        with self.cfn.dat.vec_ro as v:
             v.copy(y)
 
 

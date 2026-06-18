@@ -33,11 +33,6 @@ def Rvector():
     return VectorFunctionSpace(mesh, "R", 0, dim=4)
 
 
-def reshape_function(function):
-    """Reshape function data to conform to the function space shape."""
-    return function.dat.data_ro.reshape((-1, *function.function_space().shape))
-
-
 def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Constant(1))
@@ -57,34 +52,34 @@ def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
     f.interpolate(as_tensor(vals))
-    assert np.allclose(reshape(f) , vals)
+    assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
-    assert np.allclose(reshape(g), vals)
+    assert np.allclose(g.dat.data_ro, vals)
 
     # Check that g is indeed a deep copy
     fvals = np.array([5.0, 6.0, 7.0, 8.0]).reshape(2, 2)
     f.interpolate(as_tensor(fvals))
 
-    assert np.allclose(reshape(f), fvals)
-    assert np.allclose(reshape(g), vals)
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
 
 
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
     vals = np.arange(1.0, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
     f.interpolate(as_tensor(vals))
-    assert np.allclose(reshape(f), vals)
+    assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
-    assert np.allclose(reshape(g), vals)
+    assert np.allclose(g.dat.data_ro, vals)
 
     # Check that g is indeed a deep copy
     fvals = vals + 10
     f.interpolate(as_tensor(fvals))
 
-    assert np.allclose(reshape(f), fvals)
-    assert np.allclose(reshape(g), vals)
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
 
 
 def test_mismatching_rank_interpolation(V):
@@ -223,7 +218,7 @@ def test_component_function_zero(W):
 
     for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
-        assert np.allclose(reshape(f)[..., i, j], expected)
+        assert np.allclose(f.dat.data_ro[..., i, j], expected)
 
 
 def test_component_function_zero_with_subset(W):

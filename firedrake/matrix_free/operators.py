@@ -201,7 +201,7 @@ class ImplicitMatrixContext:
         for bc in self.bcs:
             # Operator is identity on boundary nodes
             bc.set(self._diagonal, 1)
-        with self._diagonal.vec_ro as v:
+        with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 
     def missingDiagonal(self, mat):
@@ -209,7 +209,7 @@ class ImplicitMatrixContext:
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
-        with self._x.vec_wo as v:
+        with self._x.dat.vec_wo as v:
             X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
@@ -230,7 +230,7 @@ class ImplicitMatrixContext:
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._xbc.vec_wo as v:
+                with self._xbc.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._ystar, self._xbc)
@@ -238,7 +238,7 @@ class ImplicitMatrixContext:
             for bc in self.row_bcs:
                 bc.zero(self._ystar)
 
-        with self._ystar.vec_ro as v:
+        with self._ystar.dat.vec_ro as v:
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
@@ -308,7 +308,7 @@ class ImplicitMatrixContext:
                        ( 0  )
 
         """
-        with self._y.vec_wo as v:
+        with self._y.dat.vec_wo as v:
             Y.copy(v)
 
         if len(self.bcs) > 0:
@@ -331,7 +331,7 @@ class ImplicitMatrixContext:
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._ybc.vec_wo as v:
+                with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
                     bc.set(self._xstar, self._ybc)
@@ -339,7 +339,7 @@ class ImplicitMatrixContext:
             for bc in self.col_bcs:
                 bc.zero(self._xstar)
 
-        with self._xstar.vec_ro as v:
+        with self._xstar.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):

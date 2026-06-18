@@ -69,12 +69,59 @@ def _get_refcounts(lifetime_objs):
     return [sys.getrefcount(obj) for obj in lifetime_objs]
 
 
+# @gc_disabled()
+def _checked_get_key(cache_type, get_key, lifetime_objs=None):
+    # I think that this is fine. Refcycles aren't really an issue.
+    return get_key()
+
+
+    if not lifetime_objs or issubclass(cache_type, weakref.WeakKeyDictionary):
+        return get_key()
+
+    # Check that we are not putting anything in the cache that would
+    # create a reference cycle
+    orig_refcounts = _get_refcounts(lifetime_objs)
+    key = get_key()
+    if _get_refcounts(lifetime_objs) != orig_refcounts:
+        raise CacheException(
+            "Cache key contains a reference to the object that "
+            "is used to define the cache lifetime. This means "
+            "that the cache will never be cleared."
+        )
+    return key
+
+
+@gc_disabled()
+def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
+    # I think that this is fine. Refcycles aren't really an issue.
+    return get_value()
+
+    if not lifetime_objs or issubclass(cache_type, weakref.WeakValueDictionary):
+        return get_value()
+
+    # Check that we are not putting anything in the cache that would
+    # create a reference cycle
+    orig_refcounts = _get_refcounts(lifetime_objs)
+    value = get_value()
+    if _get_refcounts(lifetime_objs) != orig_refcounts:
+        raise CacheException(
+            "Cache value contains a reference to the object that "
+            "is used to define the cache lifetime. This means "
+            "that the cache will never be cleared."
+        )
+    return value
+
+
 # TODO: remove the unsafe refcounts bit
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, unsafe_refcounts: bool = False, multi: bool = False):
     """
     Parameters
     ----------
-    TODO
+    unsafe_refcounts
+        Flag to disable refcount checking for cache accesses when debug checks are
+        enabled. This is important to bypass cases where the wrapped function may
+        inadvertently create additional references to ``obj``, for instance by
+        populating extra cached properties.
     """
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -568,7 +615,10 @@ def parallel_cache(
                         caches = (cache,)
                         cache_type = type(cache)
 
-                key = hashkey(*args, **kwargs)
+                if pyop3.config.debug_checks and heavy:
+                    key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
+                else:
+                    key = hashkey(*args, **kwargs)
 
                 for cache in caches:
                     try:
@@ -622,7 +672,10 @@ def parallel_cache(
                         value = func(*args, **kwargs) if comm.rank == 0 else None
                         value = comm.bcast(value, root=0)
                     else:
-                        value = func(*args, **kwargs)
+                        if pyop3.config.debug_checks and heavy:
+                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches))
+                        else:
+                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))
 
                 for cache in caches:
                     cache[key] = value

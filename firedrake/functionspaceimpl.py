@@ -457,7 +457,7 @@ class WithGeometryBase:
             lgmap = self._lgmap
         return mask_lgmap(self, self.axes, lgmap, bcs, self.block_shape)
 
-    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key)
+    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, unsafe_refcounts=True)
     def get_facet_closure_nodes(self, mesh, key):
         """Function space nodes in the closure of facets with a given
         marker.
@@ -1760,10 +1760,6 @@ class RestrictedFunctionSpace(FunctionSpace):
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
-    @cached_property
-    def nodal_axes(self) -> op3.IndexedAxisTree:
-        scalar_axis_tree = self.axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.size
 
 class MixedFunctionSpace(AbstractFunctionSpace):
     r"""A function space on a mixed finite element.

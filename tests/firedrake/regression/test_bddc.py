@@ -54,7 +54,6 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
             "facet_fdm_fieldsplit_1": sp_bddc,
         }
     else:
-        assert variant == "fdm"
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",

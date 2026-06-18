@@ -258,7 +258,7 @@ def vectorfunctionspace_tests(vm):
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g)
-    assert np.allclose(h2.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)

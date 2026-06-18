@@ -117,7 +117,7 @@ def test_assemble(V, f):
     assert isinstance(tlm_value, Function)
 
     tlm_exact = Function(V)
-    with delta_u.vec_ro as x, tlm_exact.vec_ro as y:
+    with delta_u.dat.vec_ro as x, tlm_exact.dat.vec_ro as y:
         jac_exact.petscmat.mult(x, y)
     assert np.allclose(tlm_value.dat.data, tlm_exact.dat.data)
 

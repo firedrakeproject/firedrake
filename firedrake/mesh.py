@@ -2543,7 +2543,6 @@ class MeshTopology(AbstractMeshTopology):
         return map_, integral_type
 
 
-# NOTE: I don't think that we need an extra class here. The public API is exactly the same as 'MeshTopology'.
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 

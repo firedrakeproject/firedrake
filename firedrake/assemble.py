@@ -516,7 +516,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
                 if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                     # Return scalar value
-                    with lhs.vec_ro as x, rhs.vec_ro as y:
+                    with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
                 elif isinstance(rhs, MatrixBase):
@@ -1081,10 +1081,6 @@ class ParloopFormAssembler(FormAssembler):
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-            # TODO: move this elsewhere, or avoid entirely?
-            if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                subtensor = subtensor.buffer.mat.getPythonContext().dat
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):

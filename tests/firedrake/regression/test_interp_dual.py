@@ -113,7 +113,7 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     assert a.petscmat.getSize() == (V1.dim(), V2.dim())
 
     res = Cofunction(V1.dual())
-    with c2.vec_ro as x, res.vec_ro as y:
+    with c2.dat.vec_ro as x, res.dat.vec_ro as y:
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 

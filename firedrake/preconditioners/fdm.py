@@ -287,7 +287,7 @@ class FDMPC(PCBase):
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
-                    with gamma.vec_ro as diag:
+                    with gamma.dat.vec_ro as diag:
                         diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
@@ -424,7 +424,6 @@ class FDMPC(PCBase):
             x = Function(Vsub)
             y = Function(Vsub)
             sizes = (Vsub.template_vec.getSizes(),) * 2
-            raise NotImplementedError
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
                                   op3.OpaqueTerminal(op3.PetscMatBuffer(K.result)),
                                   *args_acc,
@@ -1480,12 +1479,12 @@ class PythonMatrixContext:
             self.col_bcs = tuple(bc for bc in bcs if bc.function_space() == Vcol)
 
     def _op(self, action, X, Y, W=None):
-        with self._y.vec_wo as v:
+        with self._y.dat.vec_wo as v:
             if W is None:
                 v.zeroEntries()
             else:
                 Y.copy(v)
-        with self._x.vec_wo as v:
+        with self._x.dat.vec_wo as v:
             X.copy(v)
         for bc in self.col_bcs:
             bc.zero(self._x)
@@ -1493,14 +1492,14 @@ class PythonMatrixContext:
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._x.vec_wo as v:
+                with self._x.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._x)
         else:
             for bc in self.row_bcs:
                 bc.zero(self._y)
-        with self._y.vec_ro as v:
+        with self._y.dat.vec_ro as v:
             v.copy(Y if W is None else W)
 
     @PETSc.Log.EventDecorator()

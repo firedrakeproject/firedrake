@@ -216,7 +216,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
                                form_compiler_parameters=self.form_compiler_parameters)
         if self.use_slate_for_inverse:
             def solve(x, b):
-                with x.vec_wo as x_, b.vec_ro as b_:
+                with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
             return solve(target, rhs)
         else:
@@ -292,7 +292,7 @@ class SupermeshProjector(ProjectorBase):
 
     @property
     def rhs(self):
-        with self.source.vec_ro as u, self.residual.vec_wo as v:
+        with self.source.dat.vec_ro as u, self.residual.dat.vec_wo as v:
             self.mixed_mass.mult(u, v)
         return self.residual
 

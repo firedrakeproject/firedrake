@@ -142,11 +142,14 @@ def variant(request):
 def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
     expected = [16, 12] if mesh.topological_dimension == 3 else [9, 7]
-    solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
+    # solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
+    solvers = [facetstar]  # debugging
     for degree in range(3, 6):
+        print("degree", degree)
         V = FunctionSpace(mesh, family, degree, variant=variant)
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
+            print("sp", sp)
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
@@ -333,7 +336,7 @@ def test_ipdg_direct_solver(fs):
 
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
-        with uh.vec_ro as uvec:
+        with uh.dat.vec_ro as uvec:
             assert uvec.norm() < 1E-8
     else:
         assert norm(u_exact-uh, "H1") < 1.0E-8

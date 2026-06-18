@@ -45,7 +45,6 @@ def ngmesh(request):
     return ngmesh
 
 
-@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
 @pytest.mark.parallel([1, 2])
