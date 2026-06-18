@@ -244,8 +244,9 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         pass
 
     # NOTE: This is similar in nature to Buffer.data etc
+    @property
     @abc.abstractmethod
-    def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
+    def handle(self) -> Any:
         """The underlying data structure."""
 
 
@@ -414,10 +415,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.data_wo[...] = 0
 
     is_nested: ClassVar[bool] = False
-
-    def handle(self, *, nest_indices: tuple[tuple[int], ...] = ()) -> np.ndarray:
-        assert not nest_indices
-        return self._data
 
     @property
     def comm(self) -> MPI.Comm:
