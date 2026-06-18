@@ -312,6 +312,7 @@ class Interpolator(abc.ABC):
         """
         pass
 
+    @PETSc.Log.EventDecorator("InterpolatorAssemble")
     def assemble(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
@@ -423,6 +424,7 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
     @no_annotations
+    @PETSc.Log.EventDecorator("CrossMeshInterpInit")
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
         if self.access and self.access != op2.WRITE:
@@ -452,6 +454,7 @@ class CrossMeshInterpolator(Interpolator):
         self.into_quadrature_space = into_quadrature_space
 
     @cached_property
+    @PETSc.Log.EventDecorator("CrossMeshTargetElem")
     def _target_space_element(self) -> FiniteElementBase:
         """The element of `self.target_space`. If `self.target_space` is tensor/vector valued,
         the base scalar element.
@@ -473,6 +476,7 @@ class CrossMeshInterpolator(Interpolator):
             return dest_element
 
     @cached_property
+    @PETSc.Log.EventDecorator("CrossMeshTargetSpace")
     def _target_space_type(self) -> Callable[..., WithGeometry]:
         """Returns a callable which returns a function space matching the type of `self.target_space`.
 
@@ -492,6 +496,7 @@ class CrossMeshInterpolator(Interpolator):
             return partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
     @cached_property
+    @PETSc.Log.EventDecorator("CrossMeshSymbols")
     def _symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
         """The symbolic ``Interpolate`` expressions for point evaluation of `self.target_space`s
         dofs in the source mesh, and the corresponding input-ordering interpolation.
@@ -516,17 +521,19 @@ class CrossMeshInterpolator(Interpolator):
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         # If `self.into_quadrature_space` is true, then the point evaluation dofs
         # are the quadrature points of the original target space.
-        target_mesh = self.target_space.mesh().unique()
-        target_space_vec = VectorFunctionSpace(target_mesh, self._target_space_element)
-        f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, target_mesh.geometric_dimension)
+        with PETSc.Log.Event("CrossMeshNodeCoords"):
+            target_mesh = self.target_space.mesh().unique()
+            target_space_vec = VectorFunctionSpace(target_mesh, self._target_space_element)
+            f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
+            dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, target_mesh.geometric_dimension)
         try:
-            vom = VertexOnlyMesh(
-                self.source_mesh.unique(),
-                dest_node_coords,
-                redundant=False,
-                missing_points_behaviour=self.missing_points_behaviour,
-            )
+            with PETSc.Log.Event("CrossMeshVOMCreate"):
+                vom = VertexOnlyMesh(
+                    self.source_mesh.unique(),
+                    dest_node_coords,
+                    redundant=False,
+                    missing_points_behaviour=self.missing_points_behaviour,
+                )
         except VertexOnlyMeshMissingPointsError:
             raise DofNotDefinedError(f"The given target function space on domain {target_mesh} "
                                      "contains degrees of freedom which cannot cannot be defined in the "
@@ -535,17 +542,21 @@ class CrossMeshInterpolator(Interpolator):
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
 
         # Expression for point evaluation at the dest_node_coords
-        P0DG_vom = self._target_space_type(vom, "DG", 0)
-        point_eval = interpolate(self.operand, P0DG_vom)
+        with PETSc.Log.Event("CrossMeshPointExpr"):
+            P0DG_vom = self._target_space_type(vom, "DG", 0)
+            point_eval = interpolate(self.operand, P0DG_vom)
 
         # Expression for interpolating into the input-ordering VOM
-        P0DG_vom_input_ordering = self._target_space_type(vom.input_ordering, "DG", 0)
-        arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
-        point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
+        with PETSc.Log.Event("CrossMeshInputExpr"):
+            vom_input_ordering = vom.input_ordering
+            P0DG_vom_input_ordering = self._target_space_type(vom_input_ordering, "DG", 0)
+            arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
+            point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
 
         return point_eval, point_eval_input_ordering
 
     @cached_property
+    @PETSc.Log.EventDecorator("CrossMeshQuadExpr")
     def _interpolate_from_quadrature(self) -> Interpolate:
         """Returns symbolic expression for interpolation from the intermediate quadrature
         space into the user-provided target space. Only relevant if `self.into_quadrature_space` is True.
@@ -563,19 +574,22 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
+    @PETSc.Log.EventDecorator("CrossMeshGetCallable")
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
-        if self.into_quadrature_space:
-            f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
-        else:
-            f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
+        with PETSc.Log.Event("CrossMeshTensor"):
+            if self.into_quadrature_space:
+                f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
+            else:
+                f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
 
-        point_eval, point_eval_input_ordering = self._symbolic_expressions
-        P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
+        with PETSc.Log.Event("CrossMeshGetSymbols"):
+            point_eval, point_eval_input_ordering = self._symbolic_expressions
+            P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
 
         if self.rank == 2:
             assert mat_type == "aij"
@@ -588,82 +602,95 @@ class CrossMeshInterpolator(Interpolator):
             if self.ufl_interpolate.is_adjoint:
                 interp_expr = action(point_eval, point_eval_input_ordering)
 
+            @PETSc.Log.EventDecorator("CrossMeshMatrixApply")
             def callable() -> PETSc.Mat:
                 if self.ufl_interpolate.is_adjoint:
                     res = assemble(interp_expr, mat_type=mat_type).petscmat
                 else:
                     res = self._permuted_point_eval(mat_type)
                 if self.into_quadrature_space:
-                    source_space = self.operand.function_space()
-                    if self.ufl_interpolate.is_adjoint:
-                        I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
-                    else:
-                        I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                    with PETSc.Log.Event("CrossMeshMatrixQuad"):
+                        source_space = self.operand.function_space()
+                        if self.ufl_interpolate.is_adjoint:
+                            I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
+                            return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        else:
+                            I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
+                            return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
 
+            @PETSc.Log.EventDecorator("CrossMeshAdjointApply")
             def callable() -> Cofunction:
-                if self.into_quadrature_space:
-                    cofunc = assemble(self._interpolate_from_quadrature)
-                    f_target = Cofunction(point_eval.function_space())
-                else:
-                    cofunc = self.dual_arg
-                    f_target = f
+                with PETSc.Log.Event("CrossMeshAdjointPrep"):
+                    if self.into_quadrature_space:
+                        cofunc = assemble(self._interpolate_from_quadrature)
+                        f_target = Cofunction(point_eval.function_space())
+                    else:
+                        cofunc = self.dual_arg
+                        f_target = f
 
                 assert isinstance(cofunc, Cofunction)
 
                 # Our first adjoint operation is to assign the dat values to a
                 # P0DG cofunction on our input ordering VOM.
-                f_input_ordering = Cofunction(P0DG_vom_input_ordering.dual())
-                f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
+                with PETSc.Log.Event("CrossMeshAdjointCopy"):
+                    f_input_ordering = Cofunction(P0DG_vom_input_ordering.dual())
+                    f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
 
                 # The rest of the adjoint interpolation is the composition
                 # of the adjoint interpolators in the reverse direction.
                 # We don't worry about skipping over missing points here
                 # because we're going from the input ordering VOM to the original VOM
                 # and all points from the input ordering VOM are in the original.
-                f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
-                assemble(action(point_eval, f_src_at_src_node_coords), tensor=f_target)
+                with PETSc.Log.Event("CrossMeshAdjointVOM"):
+                    f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
+                with PETSc.Log.Event("CrossMeshAdjointPoint"):
+                    assemble(action(point_eval, f_src_at_src_node_coords), tensor=f_target)
                 return f_target
         else:
             assert self.rank in {0, 1}
 
+            @PETSc.Log.EventDecorator("CrossMeshForwardApply")
             def callable() -> Function | Number:
                 # We create the input-ordering Function before interpolating so we can
                 # set default missing values if required.
-                f_point_eval_input_ordering = Function(P0DG_vom_input_ordering)
-                if self.default_missing_val is not None:
-                    f_point_eval_input_ordering.assign(self.default_missing_val)
-                elif self.allow_missing_dofs:
-                    # If we allow missing points there may be points in the target
-                    # mesh that are not in the source mesh. If we don't specify a
-                    # default missing value we set these to NaN so we can identify
-                    # them later.
-                    f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
+                with PETSc.Log.Event("CrossMeshForwardPrep"):
+                    f_point_eval_input_ordering = Function(P0DG_vom_input_ordering)
+                    if self.default_missing_val is not None:
+                        f_point_eval_input_ordering.assign(self.default_missing_val)
+                    elif self.allow_missing_dofs:
+                        # If we allow missing points there may be points in the target
+                        # mesh that are not in the source mesh. If we don't specify a
+                        # default missing value we set these to NaN so we can identify
+                        # them later.
+                        f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
-                assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
+                with PETSc.Log.Event("CrossMeshForwardPoint"):
+                    assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
-                if self.allow_missing_dofs and self.default_missing_val is None:
-                    indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
-                    f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
-                else:
-                    f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
+                with PETSc.Log.Event("CrossMeshForwardCopy"):
+                    if self.allow_missing_dofs and self.default_missing_val is None:
+                        indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
+                        f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
+                    else:
+                        f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
 
                 if self.into_quadrature_space:
-                    f_target = Function(self.original_target_space)
-                    assemble(interpolate(f, self.original_target_space), tensor=f_target)
+                    with PETSc.Log.Event("CrossMeshForwardQuad"):
+                        f_target = Function(self.original_target_space)
+                        assemble(interpolate(f, self.original_target_space), tensor=f_target)
                 else:
                     f_target = f
 
                 if self.rank == 0:
                     # We take the action of the dual_arg on the interpolated function
                     assert isinstance(self.dual_arg, Cofunction)
-                    return assemble(action(self.dual_arg, f_target))
+                    with PETSc.Log.Event("CrossMeshForwardAction"):
+                        return assemble(action(self.dual_arg, f_target))
                 else:
                     return f_target
         return callable
@@ -720,6 +747,7 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
+    @PETSc.Log.EventDecorator("SameMeshInterpInit")
     def __init__(self, expr):
         super().__init__(expr)
         subset = self.subset
@@ -751,6 +779,7 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
+    @PETSc.Log.EventDecorator("SameMeshGetTensor")
     def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op2.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
@@ -784,6 +813,7 @@ class SameMeshInterpolator(Interpolator):
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
 
+    @PETSc.Log.EventDecorator("SameMeshSparsity")
     def _get_monolithic_sparsity(self, mat_type: Literal["aij", "baij"]) -> op2.Sparsity:
         """Returns op2.Sparsity for the interpolation matrix. Only mat_type 'aij' and 'baij'
         are currently supported.
@@ -812,6 +842,7 @@ class SameMeshInterpolator(Interpolator):
                                 block_sparse=(mat_type == "baij"))
         return sparsity
 
+    @PETSc.Log.EventDecorator("SameMeshGetCallable")
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
@@ -857,6 +888,7 @@ class SameMeshInterpolator(Interpolator):
 
         loops.extend(copyout)
 
+        @PETSc.Log.EventDecorator("SameMeshApply")
         def callable() -> Function | Cofunction | PETSc.Mat | Number:
             for l in loops:
                 l()
@@ -876,6 +908,7 @@ class SameMeshInterpolator(Interpolator):
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
+    @PETSc.Log.EventDecorator("VOMToVOMInit")
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
         if self.source_mesh.input_ordering is self.target_mesh:
@@ -891,6 +924,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 "The target vom and source vom must be linked by input ordering!"
             )
 
+    @PETSc.Log.EventDecorator("VOMToVOMGetCallable")
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
@@ -903,19 +937,25 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
 
+                @PETSc.Log.EventDecorator("VOMToVOMAdjointApply")
                 def callable() -> Cofunction:
                     with self.dual_arg.dat.vec_ro as source_vec:
-                        coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh, source_vec)
+                        with PETSc.Log.Event("VOMToVOMExprCoeff"):
+                            coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh, source_vec)
                         with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                            self.mat.multHermitian(coeff_vec, target_vec)
+                            with PETSc.Log.Event("VOMToVOMMatMultH"):
+                                self.mat.multHermitian(coeff_vec, target_vec)
                     return f
             else:
                 assert isinstance(f, Function)
 
+                @PETSc.Log.EventDecorator("VOMToVOMForwardApply")
                 def callable() -> Function:
-                    coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh)
+                    with PETSc.Log.Event("VOMToVOMExprCoeff"):
+                        coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh)
                     with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                        self.mat.mult(coeff_vec, target_vec)
+                        with PETSc.Log.Event("VOMToVOMMatMult"):
+                            self.mat.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
             if mat_type == "matfree":
@@ -925,11 +965,13 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             else:
                 self.mat = self._create_permutation_mat(mat_type)
 
+            @PETSc.Log.EventDecorator("VOMToVOMMatrixApply")
             def callable() -> PETSc.Mat:
                 return self.mat
 
         return callable
 
+    @PETSc.Log.EventDecorator("VOMToVOMPythonMat")
     def _build_python_mat(self, mpi_type) -> PETSc.Mat:
         # In this case mat_type="matfree", so we use the SF wrapped as a PETSc Mat
         # to perform the permutation.
@@ -1029,6 +1071,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         mat.assemble()
         return mat
 
+    @PETSc.Log.EventDecorator("VOMToVOMGetMatSizes")
     def _get_mat_sizes(self):
         nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
         nleaves = len(leaves)
@@ -1043,6 +1086,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return {"aij", "baij", "matfree", None}
 
 
+@PETSc.Log.EventDecorator("BuildInterpCallables")
 @known_pyop2_safe
 def _build_interpolation_callables(
     expr: Interpolate | ZeroBaseForm,
@@ -1298,6 +1342,7 @@ def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
 
 
+@PETSc.Log.EventDecorator("ComposeMapAndCache")
 def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
     """
     Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
@@ -1321,6 +1366,7 @@ def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMa
     return cmap
 
 
+@PETSc.Log.EventDecorator("VOMExtrudedNodeMap")
 def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_cell_node_map: op2.Map) -> op2.Map:
     """Build a map from the cells of a vertex only mesh to the nodes of the
     nodes on the source mesh where the source mesh is extruded.
@@ -1440,6 +1486,7 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_c
 
 
 @no_annotations
+@PETSc.Log.EventDecorator("ExprAsCoeff")
 def expr_as_coeff(
         target_space: WithGeometry,
         operand: Expr,
@@ -1555,6 +1602,7 @@ class VomOntoVomMatContext:
     def mpi_type(self, val):
         self._mpi_type = val
 
+    @PETSc.Log.EventDecorator("VOMMatCtxReduce")
     def reduce(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Reduce data in source_vec using the PETSc SF.
 
@@ -1580,6 +1628,7 @@ class VomOntoVomMatContext:
             MPI.REPLACE,
         )
 
+    @PETSc.Log.EventDecorator("VOMMatCtxBroadcast")
     def broadcast(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Broadcast data in source_vec using the PETSc SF, storing the
         result in target_vec.
@@ -1606,6 +1655,7 @@ class VomOntoVomMatContext:
             MPI.REPLACE,
         )
 
+    @PETSc.Log.EventDecorator("VOMMatCtxMult")
     def mult(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Apply the interpolation operator to source_vec, storing the
         result in target_vec.
@@ -1621,13 +1671,15 @@ class VomOntoVomMatContext:
         """
         # Need to convert the expression into a coefficient
         # so that we can broadcast/reduce it
-        coeff = expr_as_coeff(self.target_space, self.operand, self.is_adjoint, self.source_vom, source_vec)
+        with PETSc.Log.Event("VOMMatCtxExprCoeff"):
+            coeff = expr_as_coeff(self.target_space, self.operand, self.is_adjoint, self.source_vom, source_vec)
         with coeff.dat.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
             else:
                 self.broadcast(coeff_vec, target_vec)
 
+    @PETSc.Log.EventDecorator("VOMMatCtxMultHerm")
     def multHermitian(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Apply the adjoint of the interpolation operator to source_vec, storing the
         result in target_vec. Since ``VomOntoVomMat`` represents a permutation, it is
@@ -1644,6 +1696,7 @@ class VomOntoVomMatContext:
         """
         self.multTranspose(mat, source_vec, target_vec)
 
+    @PETSc.Log.EventDecorator("VOMMatCtxMultTrans")
     def multTranspose(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Apply the tranpose of the interpolation operator to source_vec, storing the
         result in target_vec. Called by `self.multHermitian`.

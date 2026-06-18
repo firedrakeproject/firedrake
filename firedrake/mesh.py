@@ -2174,11 +2174,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return self.num_vertices()
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMCellSet")
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentCellList")
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -2188,6 +2190,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentCellMap")
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
@@ -2196,6 +2199,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                        self.cell_parent_cell_list, "cell_parent_cell")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentBaseList")
     def cell_parent_base_cell_list(self):
         """Return a list of parent mesh base cells numbers in vertex only
         mesh cell order.
@@ -2207,6 +2211,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentBaseMap")
     def cell_parent_base_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
@@ -2217,6 +2222,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                        self.cell_parent_base_cell_list, "cell_parent_base_cell")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentHeightList")
     def cell_parent_extrusion_height_list(self):
         """Return a list of parent mesh extrusion heights in vertex only
         mesh cell order.
@@ -2228,6 +2234,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMParentHeightMap")
     def cell_parent_extrusion_height_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
@@ -2241,6 +2248,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMGlobalIndex")
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
         cell_global_index = np.copy(self.topology_dm.getField("globalindex").ravel())
@@ -2248,6 +2256,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_global_index
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMInputOrdering")
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -2274,6 +2283,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             )
 
     @staticmethod
+    @PETSc.Log.EventDecorator("VOMInputOrderingSFBuild")
     def _make_input_ordering_sf(swarm, nroots, ilocal):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
@@ -2294,6 +2304,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return sf
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMInputOrderingSF")
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2311,6 +2322,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator("VOMInputNoHaloSF")
     def input_ordering_without_halos_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2696,27 +2708,33 @@ values from f.)"""
         gdim = self.geometric_dimension
         comm = self.comm
 
-        local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
-        n_local = local_bboxes.shape[0]
+        with PETSc.Log.Event("dist_rtree_local_boxes"):
+            local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
+            n_local = local_bboxes.shape[0]
 
         # Allgather per-rank box counts
-        counts = np.empty(comm.size, dtype=IntType)
-        comm.Allgather(np.array([n_local], dtype=IntType), counts)
-        n_total = int(counts.sum())
+        with PETSc.Log.Event("dist_rtree_allgather_counts"):
+            counts = np.empty(comm.size, dtype=IntType)
+            comm.Allgather(np.array([n_local], dtype=IntType), counts)
+            n_total = int(counts.sum())
 
         # Allgatherv the bbox data
-        all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
-        comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
+        with PETSc.Log.Event("dist_rtree_allgather_data"):
+            all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
+            comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
 
         # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
-        all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
-        regions_lo = np.ascontiguousarray(all_bboxes[:, 0, :])  # (n_total, gdim)
-        regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
+        with PETSc.Log.Event("dist_rtree_unpack"):
+            all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
+            regions_lo = np.ascontiguousarray(all_bboxes[:, 0, :])  # (n_total, gdim)
+            regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
 
         # Set the owning rank as the leaf id so queries return rank numbers.
-        ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
+        with PETSc.Log.Event("dist_rtree_ids"):
+            ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
 
-        self._distributed_rtree = rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        with PETSc.Log.Event("dist_rtree_build"):
+            self._distributed_rtree = rtree.build_from_aabb(regions_lo, regions_hi, ids)
         return self._distributed_rtree
 
 
@@ -3801,33 +3819,36 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     # implemented. Whether one or both of these is needed is unclear.
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
-    swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
-        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
-    )
+    with PETSc.Log.Event("VOMPicSwarmInMesh"):
+        swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
+            mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
+        )
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
-        n_missing_points_global = mesh.comm.allreduce(n_missing_points, op=MPI.SUM)
-        if n_missing_points_global:
-            error = VertexOnlyMeshMissingPointsError(n_missing_points_global)
-            if missing_points_behaviour == MissingPointsBehaviour.ERROR:
-                raise error
-            elif missing_points_behaviour == MissingPointsBehaviour.WARN:
-                from warnings import warn
-                warn(str(error))
-            else:
-                raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
-    name = name if name is not None else mesh.name + "_immersed_vom"
-    swarm.setName(_generate_default_mesh_topology_name(name))
-    input_ordering_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
-    topology = VertexOnlyMeshTopology(
-        swarm,
-        mesh.topology,
-        name=swarm.getName(),
-        reorder=reorder,
-        input_ordering_swarm=input_ordering_swarm,
-    )
-    vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
-    vmesh_out._parent_mesh = mesh
+        with PETSc.Log.Event("VOMCheckMissingPoints"):
+            n_missing_points_global = mesh.comm.allreduce(n_missing_points, op=MPI.SUM)
+            if n_missing_points_global:
+                error = VertexOnlyMeshMissingPointsError(n_missing_points_global)
+                if missing_points_behaviour == MissingPointsBehaviour.ERROR:
+                    raise error
+                elif missing_points_behaviour == MissingPointsBehaviour.WARN:
+                    from warnings import warn
+                    warn(str(error))
+                else:
+                    raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
+    with PETSc.Log.Event("VOMTopologyCreate"):
+        name = name if name is not None else mesh.name + "_immersed_vom"
+        swarm.setName(_generate_default_mesh_topology_name(name))
+        input_ordering_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
+        topology = VertexOnlyMeshTopology(
+            swarm,
+            mesh.topology,
+            name=swarm.getName(),
+            reorder=reorder,
+            input_ordering_swarm=input_ordering_swarm,
+        )
+        vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
+        vmesh_out._parent_mesh = mesh
     return vmesh_out
 
 
@@ -3997,164 +4018,173 @@ def _pic_swarm_in_mesh(
 
     """
 
-    if tolerance is None:
-        tolerance = parent_mesh.tolerance
-    else:
-        parent_mesh.tolerance = tolerance
+    with PETSc.Log.Event("pic_swarm_prepare"):
+        if tolerance is None:
+            tolerance = parent_mesh.tolerance
+        else:
+            parent_mesh.tolerance = tolerance
 
-    coords = np.asarray(coords, dtype=RealType)
-    int_unit = MPI._typedict[np.dtype(IntType).char]
+        coords = np.asarray(coords, dtype=RealType)
+        int_unit = MPI._typedict[np.dtype(IntType).char]
 
-    (
-        embedded_sf,
-        winner_cells,
-        winner_ref_coords,
-        winner_ranks,
-        global_idxs,
-        n_missing_points,
-        parent_cell_nums_leaves,
-        reference_coords_leaves,
-        leaf_is_winner,
-        is_min_candidate,
-        winner_ranks_on_leaves,
-        input_ranks_on_leaves,
-        input_idxs_on_leaves,
-        global_idxs_on_leaves,
-        coords_recv,
-    ) = _parent_mesh_embedding(
-        parent_mesh,
-        coords,
-        tolerance,
-        redundant,
-        exclude_halos=exclude_halos,
-        remove_missing_points=False,
-    )
+    with PETSc.Log.Event("pic_swarm_parent_embed"):
+        (
+            embedded_sf,
+            winner_cells,
+            winner_ref_coords,
+            winner_ranks,
+            global_idxs,
+            n_missing_points,
+            parent_cell_nums_leaves,
+            reference_coords_leaves,
+            leaf_is_winner,
+            is_min_candidate,
+            winner_ranks_on_leaves,
+            input_ranks_on_leaves,
+            input_idxs_on_leaves,
+            global_idxs_on_leaves,
+            coords_recv,
+        ) = _parent_mesh_embedding(
+            parent_mesh,
+            coords,
+            tolerance,
+            redundant,
+            exclude_halos=exclude_halos,
+            remove_missing_points=False,
+        )
 
-    nroots = len(winner_cells)
-    n_recv_total = len(parent_cell_nums_leaves)
+    with PETSc.Log.Event("pic_swarm_indices"):
+        nroots = len(winner_cells)
+        n_recv_total = len(parent_cell_nums_leaves)
 
-    owned_indices = np.flatnonzero(leaf_is_winner)
-    if exclude_halos:
-        halo_indices = np.empty(0, dtype=IntType)
-    else:
-        halo_indices = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
-    n_owned = len(owned_indices)
-    n_halo = len(halo_indices)
-    # Owned first, then halo
-    all_indices = np.concatenate([owned_indices, halo_indices])
+        owned_indices = np.flatnonzero(leaf_is_winner)
+        if exclude_halos:
+            halo_indices = np.empty(0, dtype=IntType)
+        else:
+            halo_indices = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
+        n_owned = len(owned_indices)
+        n_halo = len(halo_indices)
+        # Owned first, then halo
+        all_indices = np.concatenate([owned_indices, halo_indices])
 
     # Build DMSwarm
-    swarm_parent_cell_nums = parent_cell_nums_leaves[all_indices]
-    swarm_reference_coords = reference_coords_leaves[all_indices]
-    swarm_global_idxs = global_idxs_on_leaves[all_indices]
-    swarm_owner_ranks = winner_ranks_on_leaves[all_indices]
-    swarm_input_ranks = input_ranks_on_leaves[all_indices]
-    swarm_input_idxs = input_idxs_on_leaves[all_indices]
-    swarm_physical_coords = coords_recv[all_indices]
+    with PETSc.Log.Event("pic_swarm_data"):
+        swarm_parent_cell_nums = parent_cell_nums_leaves[all_indices]
+        swarm_reference_coords = reference_coords_leaves[all_indices]
+        swarm_global_idxs = global_idxs_on_leaves[all_indices]
+        swarm_owner_ranks = winner_ranks_on_leaves[all_indices]
+        swarm_input_ranks = input_ranks_on_leaves[all_indices]
+        swarm_input_idxs = input_idxs_on_leaves[all_indices]
+        swarm_physical_coords = coords_recv[all_indices]
 
-    visible_idxs = swarm_parent_cell_nums != -1
-    if parent_mesh.extruded:
-        if parent_mesh.variable_layers:
-            raise NotImplementedError(
-                "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
+        visible_idxs = swarm_parent_cell_nums != -1
+        if parent_mesh.extruded:
+            if parent_mesh.variable_layers:
+                raise NotImplementedError(
+                    "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
+                )
+            swarm_base_cells, swarm_extrusion_heights = _parent_extrusion_numbering(
+                swarm_parent_cell_nums, parent_mesh.layers
             )
-        swarm_base_cells, swarm_extrusion_heights = _parent_extrusion_numbering(
-            swarm_parent_cell_nums, parent_mesh.layers
-        )
-        # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_swarm_parent_cell_nums = np.full_like(swarm_base_cells, -1)
-        plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            swarm_base_cells[visible_idxs], -1
-        ]
-        swarm_base_cells_visible = swarm_base_cells[visible_idxs]
-        swarm_extrusion_heights_visible = swarm_extrusion_heights[visible_idxs]
-    else:
-        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_swarm_parent_cell_nums = np.full_like(swarm_parent_cell_nums, -1)
-        plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            swarm_parent_cell_nums[visible_idxs], -1
-        ]
-        swarm_base_cells_visible = None
-        swarm_extrusion_heights_visible = None
+            # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
+            # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+            plex_swarm_parent_cell_nums = np.full_like(swarm_base_cells, -1)
+            plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+                swarm_base_cells[visible_idxs], -1
+            ]
+            swarm_base_cells_visible = swarm_base_cells[visible_idxs]
+            swarm_extrusion_heights_visible = swarm_extrusion_heights[visible_idxs]
+        else:
+            # Index only visible rows: -1 sentinels crash on empty-rank arrays.
+            plex_swarm_parent_cell_nums = np.full_like(swarm_parent_cell_nums, -1)
+            plex_swarm_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+                swarm_parent_cell_nums[visible_idxs], -1
+            ]
+            swarm_base_cells_visible = None
+            swarm_extrusion_heights_visible = None
 
-    swarm = _dmswarm_create(
-        fields,
-        parent_mesh.comm,
-        parent_mesh.topology.topology_dm,
-        swarm_physical_coords,
-        plex_swarm_parent_cell_nums,
-        swarm_global_idxs,
-        swarm_reference_coords,
-        swarm_parent_cell_nums,
-        swarm_owner_ranks,
-        swarm_input_ranks,
-        swarm_input_idxs,
-        swarm_base_cells_visible,
-        swarm_extrusion_heights_visible,
-        parent_mesh.extruded,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-    )
+    with PETSc.Log.Event("pic_swarm_create"):
+        swarm = _dmswarm_create(
+            fields,
+            parent_mesh.comm,
+            parent_mesh.topology.topology_dm,
+            swarm_physical_coords,
+            plex_swarm_parent_cell_nums,
+            swarm_global_idxs,
+            swarm_reference_coords,
+            swarm_parent_cell_nums,
+            swarm_owner_ranks,
+            swarm_input_ranks,
+            swarm_input_idxs,
+            swarm_base_cells_visible,
+            swarm_extrusion_heights_visible,
+            parent_mesh.extruded,
+            parent_mesh.topological_dimension,
+            parent_mesh.geometric_dimension,
+        )
 
     # Build swarm point SF
-    owner_swarm_idx_buf = np.full(n_recv_total, -1, dtype=IntType)
-    owner_swarm_idx_buf[owned_indices] = np.arange(n_owned, dtype=IntType)
+    with PETSc.Log.Event("pic_swarm_point_sf"):
+        owner_swarm_idx_buf = np.full(n_recv_total, -1, dtype=IntType)
+        owner_swarm_idx_buf[owned_indices] = np.arange(n_owned, dtype=IntType)
 
-    owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
-    embedded_sf.reduceBegin(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
-    embedded_sf.reduceEnd(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
+        owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
+        embedded_sf.reduceBegin(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
+        embedded_sf.reduceEnd(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
 
-    owner_swarm_idx_on_leaves = np.full(n_recv_total, -1, dtype=IntType)
-    embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
-    embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
+        owner_swarm_idx_on_leaves = np.full(n_recv_total, -1, dtype=IntType)
+        embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
+        embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
 
-    n_total = n_owned + n_halo
-    sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
-    swarm_remote = np.empty(2 * n_halo, dtype=IntType)
-    swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices]
-    swarm_remote[1::2] = owner_swarm_idx_on_leaves[halo_indices]
-    swarm_point_sf = swarm.getPointSF()
-    swarm_point_sf.setGraph(n_total, sf_halo_local, swarm_remote)
-    swarm.setPointSF(swarm_point_sf)
+        n_total = n_owned + n_halo
+        sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
+        swarm_remote = np.empty(2 * n_halo, dtype=IntType)
+        swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices]
+        swarm_remote[1::2] = owner_swarm_idx_on_leaves[halo_indices]
+        swarm_point_sf = swarm.getPointSF()
+        swarm_point_sf.setGraph(n_total, sf_halo_local, swarm_remote)
+        swarm.setPointSF(swarm_point_sf)
 
     # Build original ordering swarm
-    if redundant and parent_mesh.comm.rank != 0:
-        original_ordering_coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
-    else:
-        original_ordering_coords = coords
+    with PETSc.Log.Event("pic_input_ordering_data"):
+        if redundant and parent_mesh.comm.rank != 0:
+            original_ordering_coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
+        else:
+            original_ordering_coords = coords
 
-    if parent_mesh.extruded:
-        original_ordering_base_cells, original_ordering_extrusion_heights = _parent_extrusion_numbering(
-            winner_cells, parent_mesh.layers
+        if parent_mesh.extruded:
+            original_ordering_base_cells, original_ordering_extrusion_heights = _parent_extrusion_numbering(
+                winner_cells, parent_mesh.layers
+            )
+        else:
+            original_ordering_base_cells = None
+            original_ordering_extrusion_heights = None
+
+    with PETSc.Log.Event("pic_input_ordering_create"):
+        original_ordering_swarm = _dmswarm_create(
+            [],
+            parent_mesh.comm,
+            swarm,
+            original_ordering_coords,
+            owner_swarm_idx_roots.astype(IntType),
+            global_idxs,
+            winner_ref_coords,
+            winner_cells,
+            winner_ranks,
+            np.full(nroots, parent_mesh.comm.rank, dtype=IntType),  # input rank
+            np.arange(nroots, dtype=IntType),  # input index
+            original_ordering_base_cells,
+            original_ordering_extrusion_heights,
+            parent_mesh.extruded,
+            parent_mesh.topological_dimension,
+            parent_mesh.geometric_dimension,
         )
-    else:
-        original_ordering_base_cells = None
-        original_ordering_extrusion_heights = None
-
-    original_ordering_swarm = _dmswarm_create(
-        [],
-        parent_mesh.comm,
-        swarm,
-        original_ordering_coords,
-        owner_swarm_idx_roots.astype(IntType),
-        global_idxs,
-        winner_ref_coords,
-        winner_cells,
-        winner_ranks,
-        np.full(nroots, parent_mesh.comm.rank, dtype=IntType),  # input rank
-        np.arange(nroots, dtype=IntType),  # input index
-        original_ordering_base_cells,
-        original_ordering_extrusion_heights,
-        parent_mesh.extruded,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-    )
 
     # No halos in original_ordering_swarm: each point is unique to its input rank
-    original_ordering_point_sf = original_ordering_swarm.getPointSF()
-    original_ordering_point_sf.setGraph(nroots, None, [])
-    original_ordering_swarm.setPointSF(original_ordering_point_sf)
+    with PETSc.Log.Event("pic_input_ordering_sf"):
+        original_ordering_point_sf = original_ordering_swarm.getPointSF()
+        original_ordering_point_sf.setGraph(nroots, None, [])
+        original_ordering_swarm.setPointSF(original_ordering_point_sf)
 
     return swarm, original_ordering_swarm, n_missing_points
 
@@ -4418,30 +4448,33 @@ def _embedding_star_forest(
     # and the leaves are the candidate points on the ranks which may
     # contain the parent cell of the root points.
     n_recv_total = recv_counts.sum()
-    recv_buffer = np.empty(n_recv_total, dtype=IntType)
+    with PETSc.Log.Event("embed_sf_comm"):
+        recv_buffer = np.empty(n_recv_total, dtype=IntType)
 
-    # Sparse communication of point indices
-    requests = []
-    recv_offset = 0
-    for source_rank, count in zip(fromranks, recv_counts):
-        buf = recv_buffer[recv_offset:recv_offset + count]
-        requests.append(comm.Irecv(buf, source=source_rank, tag=source_rank))
-        recv_offset += count
+        # Sparse communication of point indices
+        requests = []
+        recv_offset = 0
+        for source_rank, count in zip(fromranks, recv_counts):
+            buf = recv_buffer[recv_offset:recv_offset + count]
+            requests.append(comm.Irecv(buf, source=source_rank, tag=source_rank))
+            recv_offset += count
 
-    for i, dest_rank in enumerate(toranks):
-        idx_slice = point_indices[send_offsets[i]:send_offsets[i + 1]]
-        send_buf = np.ascontiguousarray(idx_slice, dtype=IntType)
-        requests.append(comm.Isend(send_buf, dest=dest_rank, tag=comm.rank))
+        for i, dest_rank in enumerate(toranks):
+            idx_slice = point_indices[send_offsets[i]:send_offsets[i + 1]]
+            send_buf = np.ascontiguousarray(idx_slice, dtype=IntType)
+            requests.append(comm.Isend(send_buf, dest=dest_rank, tag=comm.rank))
 
-    MPI.Request.Waitall(requests)
+        MPI.Request.Waitall(requests)
 
-    input_ranks_on_leaves = np.repeat(fromranks, recv_counts)
-    remote = np.empty((n_recv_total, 2), dtype=IntType)
-    remote[:, 0] = input_ranks_on_leaves
-    remote[:, 1] = recv_buffer
+    with PETSc.Log.Event("embed_sf_remote"):
+        input_ranks_on_leaves = np.repeat(fromranks, recv_counts)
+        remote = np.empty((n_recv_total, 2), dtype=IntType)
+        remote[:, 0] = input_ranks_on_leaves
+        remote[:, 1] = recv_buffer
 
-    sf = PETSc.SF().create(comm=comm)
-    sf.setGraph(nroots, None, remote)
+    with PETSc.Log.Event("embed_sf_create"):
+        sf = PETSc.SF().create(comm=comm)
+        sf.setGraph(nroots, None, remote)
     return sf, remote
 
 
@@ -4551,188 +4584,205 @@ def _parent_mesh_embedding(
             owner_ranks[visible] = visible_ranks[lookup_cells]
         return owner_ranks
 
-    gdim = parent_mesh.geometric_dimension
-    comm = parent_mesh.comm
-    int_unit = MPI._typedict[np.dtype(IntType).char]
-    real_unit = MPI._typedict[np.dtype(RealType).char]
+    with PETSc.Log.Event("parent_embed_prepare"):
+        gdim = parent_mesh.geometric_dimension
+        comm = parent_mesh.comm
+        int_unit = MPI._typedict[np.dtype(IntType).char]
+        real_unit = MPI._typedict[np.dtype(RealType).char]
 
-    if gdim == 1:
-        real_type = real_unit
-        needs_free = False
-    else:
-        real_type = real_unit.Create_contiguous(gdim)
-        real_type.Commit()
-        needs_free = True
+        if gdim == 1:
+            real_type = real_unit
+            needs_free = False
+        else:
+            real_type = real_unit.Create_contiguous(gdim)
+            real_type.Commit()
+            needs_free = True
 
-    # If redundant then only rank 0's coordinates are embedded.
-    if redundant and comm.rank != 0:
-        coords = np.empty((0, gdim), dtype=RealType)
-    
-    # The roots of the embedding SF are the input coordinates
-    nroots = coords.shape[0]
+        # If redundant then only rank 0's coordinates are embedded.
+        if redundant and comm.rank != 0:
+            coords = np.empty((0, gdim), dtype=RealType)
+
+        # The roots of the embedding SF are the input coordinates
+        nroots = coords.shape[0]
 
     # Query distributed Rtree to find candidate ranks for each point.
-    distributed_rtree = parent_mesh.distributed_rtree
-    toranks, send_offsets, point_indices, fromranks, recv_counts = (
-        rtree.discover_ranks(distributed_rtree, coords, comm)
-    )
+    with PETSc.Log.Event("discover_ranks"):
+        distributed_rtree = parent_mesh.distributed_rtree
+        toranks, send_offsets, point_indices, fromranks, recv_counts = (
+            rtree.discover_ranks(distributed_rtree, coords, comm)
+        )
 
     # total number of candidate points sent to this rank
     # This will be the total number of leaves in the SF on this rank
     nleaves = recv_counts.sum()
 
-    sf, remote = _embedding_star_forest(
-        toranks, send_offsets, point_indices, nroots, fromranks, recv_counts, comm
-    )
-    remote = remote.reshape(-1, 2)
-    input_ranks_on_leaves = remote[:, 0].astype(IntType)
-    input_idxs_on_leaves = remote[:, 1].astype(IntType)
+    with PETSc.Log.Event("embedding_sf"):
+        sf, remote = _embedding_star_forest(
+            toranks, send_offsets, point_indices, nroots, fromranks, recv_counts, comm
+        )
+        remote = remote.reshape(-1, 2)
+        input_ranks_on_leaves = remote[:, 0].astype(IntType)
+        input_idxs_on_leaves = remote[:, 1].astype(IntType)
 
     # Assign global indices to each leaf
-    start_idx = comm.exscan(nroots) or 0
-    global_idxs = start_idx + np.arange(nroots, dtype=IntType)
-    global_idxs_on_leaves = np.empty(nleaves, dtype=IntType)
-    sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
+    with PETSc.Log.Event("assign_global_indices"):
+        start_idx = comm.exscan(nroots) or 0
+        global_idxs = start_idx + np.arange(nroots, dtype=IntType)
+        global_idxs_on_leaves = np.empty(nleaves, dtype=IntType)
+        sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
+        sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
 
     # Broadcast point coordinates to candidate leaves
-    coords_flat = coords.ravel()
-    coords_recv_flat = np.empty(nleaves * gdim, dtype=RealType)
-    sf.bcastBegin(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
-    sf.bcastEnd(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
-    coords_recv = coords_recv_flat.reshape(nleaves, gdim)
+    with PETSc.Log.Event("broadcast_coordinates"):
+        coords_flat = coords.ravel()
+        coords_recv_flat = np.empty(nleaves * gdim, dtype=RealType)
+        sf.bcastBegin(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
+        sf.bcastEnd(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
+        coords_recv = coords_recv_flat.reshape(nleaves, gdim)
 
     # Locate parent cells for each received candidate on this rank
-    parent_cell_nums, reference_coords, ref_cell_dists_l1 = _locate_cells(coords_recv)
+    with PETSc.Log.Event("locate_candidate_cells"):
+        parent_cell_nums, reference_coords, ref_cell_dists_l1 = _locate_cells(coords_recv)
 
     # The point is visible on this rank if it was found in a cell (parent_cell_num != -1)
     locally_visible = parent_cell_nums != -1
 
     # Reduce minimum distance over candidate leaves back to roots
     # Non-visible candidates are set to np.inf so they won't affect the minimum
-    ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
-    ref_cell_dists_min = np.full(nroots, np.inf, dtype=RealType)
-    sf.reduceBegin(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
-    sf.reduceEnd(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
+    with PETSc.Log.Event("reduce_minimum_distance"):
+        ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
+        ref_cell_dists_min = np.full(nroots, np.inf, dtype=RealType)
+        sf.reduceBegin(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
+        sf.reduceEnd(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
 
     # Send each root's min distance back to its leaves.
-    ref_cell_dists_min_on_leaves = np.empty(nleaves, dtype=RealType)
-    sf.bcastBegin(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
+    with PETSc.Log.Event("broadcast_minimum_distance"):
+        ref_cell_dists_min_on_leaves = np.empty(nleaves, dtype=RealType)
+        sf.bcastBegin(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
+        sf.bcastEnd(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
 
     # Candidate leaves are those that are visible and have the minimum L1 distance.
     is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
     # Determine the owning rank for each candidate leaf. First we need to determine which ranks are currently visible.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-    )
-    owning_ranks = _owning_ranks(parent_cell_nums, visible_ranks)
+    with PETSc.Log.Event("determine_owning_ranks"):
+        visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+        visible_ranks[:parent_mesh.cell_set.size] = comm.rank
+        visible_ranks[parent_mesh.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+        )
+        owning_ranks = _owning_ranks(parent_cell_nums, visible_ranks)
 
     # Tie-break among candidates by highest owner rank.
-    rank_candidates = np.full(nleaves, -1, dtype=IntType)
-    rank_candidates[is_min_candidate] = owning_ranks[is_min_candidate]
-    winner_ranks = np.full(nroots, -1, dtype=IntType)
-    sf.reduceBegin(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
-    sf.reduceEnd(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
+    with PETSc.Log.Event("reduce_winner_ranks"):
+        rank_candidates = np.full(nleaves, -1, dtype=IntType)
+        rank_candidates[is_min_candidate] = owning_ranks[is_min_candidate]
+        winner_ranks = np.full(nroots, -1, dtype=IntType)
+        sf.reduceBegin(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
+        sf.reduceEnd(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
 
     # Broadcast winner rank back to leaves.
-    winner_ranks_on_leaves = np.empty(nleaves, dtype=IntType)
-    sf.bcastBegin(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
+    with PETSc.Log.Event("broadcast_winner_ranks"):
+        winner_ranks_on_leaves = np.empty(nleaves, dtype=IntType)
+        sf.bcastBegin(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
+        sf.bcastEnd(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
 
     # If a leaf selected a minimum-distance cell whose owner rank does not
     # match the elected winner rank for that root, retry location while
     # excluding previously selected cells until we either find a matching
     # owner cell without increasing the minimum distance, or we run out of candidates.
-    retry_leaf_indices = np.flatnonzero(
-        is_min_candidate
-        & (winner_ranks_on_leaves != -1)
-        & (owning_ranks != winner_ranks_on_leaves)
-    ).astype(IntType)
-    if len(retry_leaf_indices):
-        # We exclude previously selected cells from _locate_cells
-        retry_cells_ignore = parent_cell_nums[retry_leaf_indices].reshape(-1, 1)
+    with PETSc.Log.Event("tie_break_retries"):
+        retry_leaf_indices = np.flatnonzero(
+            is_min_candidate
+            & (winner_ranks_on_leaves != -1)
+            & (owning_ranks != winner_ranks_on_leaves)
+        ).astype(IntType)
+        if len(retry_leaf_indices):
+            # We exclude previously selected cells from _locate_cells
+            retry_cells_ignore = parent_cell_nums[retry_leaf_indices].reshape(-1, 1)
 
-        while len(retry_leaf_indices):
-            retry_cells, retry_reference_coords, retry_ref_cell_dists_l1 = _locate_cells(
-                coords_recv[retry_leaf_indices], cells_ignore=retry_cells_ignore
-            )
-            # Assign new values for the retrying leaves.
-            parent_cell_nums[retry_leaf_indices] = retry_cells
-            reference_coords[retry_leaf_indices, :] = retry_reference_coords
-            ref_cell_dists_l1[retry_leaf_indices] = retry_ref_cell_dists_l1
-            locally_visible[retry_leaf_indices] = retry_cells != -1
+            while len(retry_leaf_indices):
+                retry_cells, retry_reference_coords, retry_ref_cell_dists_l1 = _locate_cells(
+                    coords_recv[retry_leaf_indices], cells_ignore=retry_cells_ignore
+                )
+                # Assign new values for the retrying leaves.
+                parent_cell_nums[retry_leaf_indices] = retry_cells
+                reference_coords[retry_leaf_indices, :] = retry_reference_coords
+                ref_cell_dists_l1[retry_leaf_indices] = retry_ref_cell_dists_l1
+                locally_visible[retry_leaf_indices] = retry_cells != -1
 
-            # Get new owner ranks for the retrying leaves and update owning_ranks.
-            new_owner_ranks = _owning_ranks(retry_cells, visible_ranks)
-            owning_ranks[retry_leaf_indices] = new_owner_ranks
+                # Get new owner ranks for the retrying leaves and update owning_ranks.
+                new_owner_ranks = _owning_ranks(retry_cells, visible_ranks)
+                owning_ranks[retry_leaf_indices] = new_owner_ranks
 
-            winners_local = winner_ranks_on_leaves[retry_leaf_indices]
-            has_different_owner = new_owner_ranks != winners_local
-            # Discard the new candidate if it's not visible or further than the previous candidate.
-            keep_candidate = (retry_cells != -1) & (retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[retry_leaf_indices])
+                winners_local = winner_ranks_on_leaves[retry_leaf_indices]
+                has_different_owner = new_owner_ranks != winners_local
+                # Discard the new candidate if it's not visible or further than the previous candidate.
+                keep_candidate = (retry_cells != -1) & (retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[retry_leaf_indices])
 
-            # We stop retrying if all leaves have either: found a cell which is owned by the winner rank,
-            # or have no more candidates to try (not visible or further than the previous candidate).
-            keep_retry = keep_candidate & has_different_owner
-            if not np.any(keep_retry):
-                break
-            
-            # Update the list of retrying leaves and the cells to ignore for the next iteration.
-            retry_cells_ignore = np.hstack(
-                (retry_cells_ignore[keep_retry], retry_cells[keep_retry].reshape((-1, 1)))
-            )
-            retry_leaf_indices = retry_leaf_indices[keep_retry]
+                # We stop retrying if all leaves have either: found a cell which is owned by the winner rank,
+                # or have no more candidates to try (not visible or further than the previous candidate).
+                keep_retry = keep_candidate & has_different_owner
+                if not np.any(keep_retry):
+                    break
 
-        # Recompute candidates after retries.
-        ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
-        is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
+                # Update the list of retrying leaves and the cells to ignore for the next iteration.
+                retry_cells_ignore = np.hstack(
+                    (retry_cells_ignore[keep_retry], retry_cells[keep_retry].reshape((-1, 1)))
+                )
+                retry_leaf_indices = retry_leaf_indices[keep_retry]
+
+            # Recompute candidates after retries.
+            ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
+            is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
     # Winner leaves are those that achieve the minimum distance and live on the winning rank for their root.
     leaf_is_winner = is_min_candidate & (winner_ranks_on_leaves == comm.rank)
 
     # Halo leaves are minimum distance candidates that are not winners on this rank.
     # If exclude_halos is True, we exclude these from the embedded SF.
-    leaf_is_embedded = is_min_candidate.copy()
-    if exclude_halos:
-        leaf_is_embedded &= leaf_is_winner
+    with PETSc.Log.Event("exclude_halo_leaves"):
+        leaf_is_embedded = is_min_candidate.copy()
+        if exclude_halos:
+            leaf_is_embedded &= leaf_is_winner
 
     # Missing roots are those that have no winning candidate leaves.
-    missing_roots = winner_ranks == -1
-    if not remove_missing_points:
-        # Set winning ranks for missing roots to a value larger than 
-        # any valid rank so they can be identified on leaves
-        winner_ranks[missing_roots] = comm.size + 1
-        # pick leaves for missing roots that belong to the input rank
-        missing_local_leaves = (winner_ranks_on_leaves == -1) & (input_ranks_on_leaves == comm.rank)
-        if np.any(missing_local_leaves):
-            # add these leaves to the embedded SF, but mark them with parent_cell_num=-1 and reference_coords=nan
-            leaf_is_embedded |= missing_local_leaves
-            parent_cell_nums[missing_local_leaves] = -1
-            reference_coords[missing_local_leaves, :] = np.nan
+    with PETSc.Log.Event("remove_missing_points"):
+        missing_roots = winner_ranks == -1
+        if not remove_missing_points:
+            # Set winning ranks for missing roots to a value larger than
+            # any valid rank so they can be identified on leaves
+            winner_ranks[missing_roots] = comm.size + 1
+            # pick leaves for missing roots that belong to the input rank
+            missing_local_leaves = (winner_ranks_on_leaves == -1) & (input_ranks_on_leaves == comm.rank)
+            if np.any(missing_local_leaves):
+                # add these leaves to the embedded SF, but mark them with parent_cell_num=-1 and reference_coords=nan
+                leaf_is_embedded |= missing_local_leaves
+                parent_cell_nums[missing_local_leaves] = -1
+                reference_coords[missing_local_leaves, :] = np.nan
 
     # Remove losing candidates from the SF
-    selected_leaf_indices = np.flatnonzero(leaf_is_embedded).astype(IntType)
-    embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
+    with PETSc.Log.Event("create_embedded_sf"):
+        selected_leaf_indices = np.flatnonzero(leaf_is_embedded).astype(IntType)
+        embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
     # Reduce winner cell and reference coords back to roots.
     # We are okay to use the embedded_sf since we reduce arrays 
     # that are masked by leaf_is_winner.
-    ref_dim = reference_coords.shape[1]
-    winner_cells_leaves = np.where(leaf_is_winner, parent_cell_nums, -1)
-    winner_cells = np.full(nroots, -1, dtype=IntType)
-    embedded_sf.reduceBegin(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
-    embedded_sf.reduceEnd(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
+    with PETSc.Log.Event("reduce_winner_cells"):
+        ref_dim = reference_coords.shape[1]
+        winner_cells_leaves = np.where(leaf_is_winner, parent_cell_nums, -1)
+        winner_cells = np.full(nroots, -1, dtype=IntType)
+        embedded_sf.reduceBegin(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
+        embedded_sf.reduceEnd(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
 
-    winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
-    ref_coords_leaves = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
-    embedded_sf.reduceBegin(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
-    embedded_sf.reduceEnd(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
+    with PETSc.Log.Event("reduce_winner_ref_coords"):
+        winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
+        ref_coords_leaves = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
+        embedded_sf.reduceBegin(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
+        embedded_sf.reduceEnd(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
 
     # Manually set winner ref coords to nan for missing roots
     # since the reduction will have set them to zero.
@@ -4740,7 +4790,8 @@ def _parent_mesh_embedding(
     n_missing_points = np.sum(missing_roots)
 
     if needs_free:
-        real_type.Free()
+        with PETSc.Log.Event("parent_embed_free_mpi"):
+            real_type.Free()
 
     return (
         embedded_sf,
