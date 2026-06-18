@@ -7,6 +7,7 @@ from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
 from ufl.algorithms import expand_derivatives
+from ufl.domain import extract_domains
 from types import SimpleNamespace
 from collections import namedtuple
 
@@ -16,6 +17,7 @@ ForwardSolveRecomputeCache = namedtuple(
     field_names=[
         "func",
         "bcs",
+        "meshes",
         "solver",
         "replaced_deps",
     ]
@@ -41,6 +43,7 @@ TangentSolveRecomputeCache = namedtuple(
         "dFdm_forms",
         "solver",
         "replaced_tlms",
+        "mesh_tlms",
         "dFdu",
     ]
 )
@@ -177,6 +180,15 @@ class NonlinearVariationalSolverMixin:
         if not isinstance(Jnew, MatrixBase):
             bcs_fwd = bcs_new
 
+        # get all the unique meshes for domains on the form
+        meshes = set()
+        try:
+            for mesh in extract_domains(F):
+                meshes.add(mesh)
+        except AttributeError:
+            pass
+        meshes = list(meshes)
+
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
         nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
@@ -189,11 +201,12 @@ class NonlinearVariationalSolverMixin:
         # dependencies to all solve blocks.
         # The block need handles to the newly created
         # objects to update their values when recomputing.
-        self._ad_dependencies_to_add = (*replace_map.keys(), *bcs)
+        self._ad_dependencies_to_add = (*replace_map.keys(), *meshes, *bcs)
 
         return ForwardSolveRecomputeCache(
             func=self._ad_problem.u,
             bcs=bcs_new,
+            meshes=meshes,
             solver=nlvs,
             replaced_deps=tuple(replace_map.values()),
         )
@@ -203,7 +216,9 @@ class NonlinearVariationalSolverMixin:
     def _ad_tangent_cache(self):
         from firedrake import (
             Function, Cofunction, derivative,
-            LinearVariationalProblem, LinearVariationalSolver)
+            LinearVariationalProblem, LinearVariationalSolver,
+            SpatialCoordinate,
+        )
 
         # If we build the TLM form from the cached
         # forward solve form then we can update exactly
@@ -245,6 +260,15 @@ class NonlinearVariationalSolverMixin:
             dFdm = derivative(-F, m, mtlm)
             dFdm_tlm_forms.append(dFdm)
 
+        mesh_tlms = []
+        for m in self._ad_forward_cache.meshes:
+            mtlm = Function(m._ad_function_space())
+            mesh_tlms.append(mtlm)
+
+            X = SpatialCoordinate(m)
+            dFdm = derivative(-F, X, mtlm)
+            dFdm_tlm_forms.append(dFdm)
+
         tlm_val = Function(V)
 
         return TangentSolveRecomputeCache(
@@ -253,6 +277,7 @@ class NonlinearVariationalSolverMixin:
             dFdm_forms=dFdm_tlm_forms,
             solver=lvs,
             replaced_tlms=replaced_tlms,
+            mesh_tlms=mesh_tlms,
             dFdu=dFdu,
         )
 
@@ -261,7 +286,9 @@ class NonlinearVariationalSolverMixin:
     def _ad_adjoint_cache(self):
         from firedrake import (
             Function, Cofunction, TrialFunction, Argument,
-            LinearVariationalProblem, LinearVariationalSolver)
+            LinearVariationalProblem, LinearVariationalSolver,
+            SpatialCoordinate, TestFunction,
+        )
 
         # If we build the adjoint form from the cached
         # forward solve form then we can update exactly
@@ -327,6 +354,13 @@ class NonlinearVariationalSolverMixin:
 
             dFdm_adj_forms.append(dFdm)
 
+        for m in self._ad_forward_cache.meshes:
+            X = SpatialCoordinate(m)
+            # we can't take the CoordinateDerivative of an Action, so we have
+            # to invert this form compared to the expression above
+            dFdm = derivative(action(-F, adj_sol), X, TestFunction(m._ad_function_space()))
+            dFdm_adj_forms.append(dFdm)
+
         # To calculate the adjoint component of each DirichletBC
         # we'll need the residual of the adjoint equation without
         # any DirichletBC using the solution calculated with
@@ -346,7 +380,9 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_hessian_cache(self):
         from firedrake import (
-            Function, TrialFunction)
+            Function, TrialFunction, TestFunction,
+            SpatialCoordinate, MeshGeometry,
+        )
 
         nlvp = self._ad_forward_cache.solver._problem
         F = nlvp.F
@@ -384,20 +420,39 @@ class NonlinearVariationalSolverMixin:
 
             d2Fdmdu_forms.append(d2Fdmdu)
 
+        for m, dm in zip(self._ad_forward_cache.meshes,
+                         self._ad_tangent_cache.mesh_tlms):
+            X = SpatialCoordinate(m)
+            d2Fdmdu = expand_derivatives(
+                derivative(dFdu_adj, X, dm)
+            )
+
+            d2Fdmdu_forms.append(d2Fdmdu)
+
         # 2. Forms to calculate contribution from each control
         dFdm_adj2_forms = []
         d2Fdm2_adj_forms = []
         d2Fdudm_forms = []
-        for m in self._ad_forward_cache.replaced_deps:
-            dm = TrialFunction(m.function_space())
-            dFdm = derivative(F, m, dm)
+        for m in [*self._ad_forward_cache.replaced_deps, *self._ad_forward_cache.meshes]:
+            if isinstance(m, MeshGeometry):
+                X = SpatialCoordinate(m)
+                dm = TestFunction(m._ad_function_space())
 
-            dFdm_adj2 = action(adjoint(dFdm), adj2_sol)
+                F_adj = action(-F, adj_sol)
+                dFdm_adj = derivative(F_adj, X, dm)
+
+                F_adj2 = action(-F, adj2_sol)
+                dFdm_adj2 = derivative(F_adj2, X, dm)
+            else:
+                dm = TrialFunction(m.function_space())
+                # XXX should we try inverting this back to the way it was before?
+                dFdm = derivative(-F, m, dm)
+
+                dFdm_adj = expand_derivatives(action(adjoint(dFdm), adj_sol))
+                dFdm_adj2 = action(adjoint(dFdm), adj2_sol)
+
             dFdm_adj2_forms.append(dFdm_adj2)
 
-            # we need to expand derivatives before taking
-            # the second derivative
-            dFdm_adj = expand_derivatives(action(adjoint(dFdm), adj_sol))
             d2Fdudm = derivative(dFdm_adj, u, tlm_output)
             d2Fdudm_forms.append(expand_derivatives(d2Fdudm))
 
@@ -406,6 +461,12 @@ class NonlinearVariationalSolverMixin:
                                self._ad_tangent_cache.replaced_tlms):
                 d2Fdm2_adj = expand_derivatives(
                     derivative(dFdm_adj, m2, dm2))
+                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+
+            for m2, dm2 in zip(self._ad_forward_cache.meshes,
+                               self._ad_tangent_cache.mesh_tlms):
+                X = SpatialCoordinate(m2)
+                d2Fdm2_adj = expand_derivatives(derivative(dFdm_adj, X, dm2))
                 d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
 
             d2Fdm2_adj_forms.append(d2Fdm2_adj_forms_k)
