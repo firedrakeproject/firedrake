@@ -118,39 +118,41 @@ corresponds to a full multigrid cycle, paying for it twice per iteration is
 significant.
 
 An even more efficient alternative arises by eliminating the pressure block
-*first*—the *reverse* block LDLT factorisation.  Adding the perturbation
-:math:`-\gamma^{-1}(p, q)` to the bilinear form makes the :math:`(2,2)` block
-invertible, giving the preconditioner matrix
+*first*—the *reverse* block LDLT factorisation. We cannot choose the pressure block as our pivot for the original matrix because :math:`C = 0`, but
+we can construct a preconditioner by adding the shift
+:math:`-\gamma^{-1}Q`. This gives a preconditioner
 
 .. math::
 
    P_{\mathrm{prec}} = \begin{pmatrix} A & B^\top \\ B & -\gamma^{-1}Q \end{pmatrix}.
 
-Setting :math:`C = \gamma^{-1}Q`, the exact inverse of this matrix admits the
+with an invertible :math:`(2,2)` block.
+The exact inverse of this matrix admits the
 factorisation
 
 .. math::
 
+   P_{\mathrm{prec}}^{-1} =
    \begin{pmatrix} A & B^\top \\ B & -C \end{pmatrix}^{-1}
    = \begin{pmatrix} I & 0 \\ C^{-1}B & I \end{pmatrix}
-     \begin{pmatrix} P^{-1} & 0 \\ 0 & -C^{-1} \end{pmatrix}
+     \begin{pmatrix} A_\gamma^{-1} & 0 \\ 0 & -C^{-1} \end{pmatrix}
      \begin{pmatrix} I & B^\top C^{-1} \\ 0 & I \end{pmatrix},
 
 where the velocity Schur complement is
 
 .. math::
 
-   P = A + B^\top C^{-1} B = A + \gamma\, B^\top Q^{-1} B = A_\gamma,
+   A_\gamma = A + B^\top C^{-1} B = A + \gamma\, B^\top Q^{-1} B,
 
 exactly the augmented Lagrangian velocity block.  This factorisation requires
 only a *single* application of :math:`A_\gamma^{-1}` per Krylov iteration,
-together with two applications of :math:`C^{-1} = \gamma Q^{-1}`.  Because with
-the right choice of degrees of freedom :math:`Q` is diagonal, inverting it is
-essentially free, so the reverse ordering halves the number of expensive
+together with two applications of :math:`C^{-1} = \gamma Q^{-1}`.  With
+the right choice of degrees of freedom for the pressure space (passing ``variant="integral"`` to the function space construction), :math:`Q` is diagonal, so inverting it is
+essentially free. Using this reverse ordering halves the number of expensive
 multigrid solves compared with the standard block LDLT.
 
 Note that the reverse factorisation requires :math:`C` to be invertible, which
-fails in the pure Stokes limit (:math:`\gamma \to \infty`).  Here, however,
+fails in the limit :math:`\gamma \to \infty`.  Here, however,
 :math:`\gamma` is a parameter chosen by us for our convenience, so this is never an obstacle.
 
 To solve :math:`A_\gamma` in a :math:`\gamma`-robust way, the multigrid
