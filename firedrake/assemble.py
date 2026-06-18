@@ -400,6 +400,55 @@ class BaseFormAssembler(AbstractFormAssembler):
             assert indices is None
             return tensor
 
+    @staticmethod
+    def _vector_columns_to_dense(functions):
+        if not functions:
+            raise ValueError("Cannot build an LRC factor matrix with no columns")
+
+        first, *_ = functions
+        with first.dat.vec_ro as vec:
+            comm = vec.comm
+            local_size = vec.getLocalSize()
+            global_size = vec.getSize()
+
+        dense = PETSc.Mat().createDense(
+            size=((local_size, global_size), (len(functions), len(functions))), comm=comm
+        )
+        dense.setUp()
+        values = dense.getDenseArray()
+        for i, function in enumerate(functions):
+            with function.dat.vec_ro as vec:
+                if vec.getLocalSize() != local_size or vec.getSize() != global_size:
+                    raise ValueError("LRC factor vectors do not share the same layout")
+                values[:, i] = vec.getArray(readonly=True)
+        dense.assemble()
+        return dense
+
+    def _assemble_form_product_lrc(self, expr, tensor, bcs, assembled_factors):
+        if self._mat_type != "lrc":
+            raise ValueError("FormProduct assembly requires mat_type='lrc'")
+        if tensor is not None:
+            raise NotImplementedError("Assembly of FormProduct into an existing tensor is not supported")
+        if bcs:
+            raise NotImplementedError("Boundary conditions on LRC FormProduct assembly are not supported")
+        if len(expr.factors()) != 2:
+            raise NotImplementedError("LRC FormProduct assembly currently supports exactly two factors")
+        if len(expr.arguments()) != 2:
+            raise ValueError("LRC FormProduct assembly requires aggregate rank 2")
+        if any(len(factor.arguments()) != 1 for factor in expr.factors()):
+            raise ValueError("LRC FormProduct assembly requires rank-1 factors")
+        if len(assembled_factors) != 2:
+            raise TypeError("Not enough operands for FormProduct")
+        if not all(isinstance(factor, (firedrake.Cofunction, firedrake.Function)) for factor in assembled_factors):
+            raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
+
+        U = self._vector_columns_to_dense((assembled_factors[0],))
+        V = self._vector_columns_to_dense((assembled_factors[1],))
+        petscmat = PETSc.Mat().createLRC(None, U, None, V)
+        petscmat.assemble()
+        return Matrix(expr, petscmat, bcs=bcs, options_prefix=self._options_prefix,
+                      fc_params=self._form_compiler_params)
+
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -467,6 +516,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
+        elif isinstance(expr, ufl.FormProduct):
+            return self._assemble_form_product_lrc(expr, tensor, bcs, args)
         elif isinstance(expr, ufl.Adjoint):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
@@ -683,12 +734,19 @@ class BaseFormAssembler(AbstractFormAssembler):
     def reconstruct_node_from_operands(expr, operands):
         if isinstance(expr, (ufl.Adjoint, ufl.Action)):
             return expr._ufl_expr_reconstruct_(*operands)
+        elif isinstance(expr, ufl.FormProduct):
+            return ufl.FormProduct(*operands) if operands else expr
         elif isinstance(expr, ufl.FormSum):
             return ufl.FormSum(*[(op, w) for op, w in zip(operands, expr.weights())])
         return expr
 
     @staticmethod
     def base_form_operands(expr):
+        if isinstance(expr, ufl.FormProduct):
+            if (len(expr.factors()) == 2 and len(expr.arguments()) == 2
+                    and all(len(factor.arguments()) == 1 for factor in expr.factors())):
+                return expr.ufl_operands
+            return []
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
         if isinstance(expr, ufl.Form):

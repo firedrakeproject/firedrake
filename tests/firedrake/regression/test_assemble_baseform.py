@@ -382,3 +382,60 @@ def test_assemble_baseform_return_tensor_if_given():
 
     assert b0 is not b1
     assert b1 is tensor
+
+
+def test_assemble_formproduct_lrc(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    x = SpatialCoordinate(mesh)[0]
+    f = Function(V).interpolate(1 + x)
+    g = Function(V).interpolate(2 - x)
+    probe = Function(V).interpolate(x)
+
+    row_form = inner(f, v) * dx
+    col_form = inner(g, v) * dx
+    product = ufl.FormProduct(row_form, col_form)
+
+    A = assemble(product, mat_type="lrc")
+    assert A.petscmat.getType() == "lrc"
+
+    row = assemble(row_form)
+    col = assemble(col_form)
+    with probe.dat.vec_ro as probe_vec, row.dat.vec_ro as row_vec, col.dat.vec_ro as col_vec:
+        result_vec = row_vec.duplicate()
+        A.petscmat.mult(probe_vec, result_vec)
+        expected = row_vec.getArray(readonly=True) * col_vec.dot(probe_vec)
+        assert np.allclose(result_vec.getArray(readonly=True), expected, rtol=1e-13, atol=1e-13)
+
+
+def test_assemble_formproduct_requires_lrc_mat_type(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    form = v * dx
+    product = ufl.FormProduct(form, form)
+
+    with pytest.raises(ValueError, match="mat_type='lrc'"):
+        assemble(product)
+
+
+def test_assemble_formproduct_lrc_rejects_non_rank_one_factor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    linear = v * dx
+    bilinear = inner(u, v) * dx
+    product = ufl.FormProduct(linear, bilinear)
+
+    with pytest.raises(ValueError, match="aggregate rank 2"):
+        assemble(product, mat_type="lrc")
+
+
+def test_assemble_formproduct_lrc_rejects_bcs(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    form = v * dx
+    product = ufl.FormProduct(form, form)
+    bc = DirichletBC(V, 0, "on_boundary")
+
+    with pytest.raises(NotImplementedError, match="Boundary conditions"):
+        assemble(product, mat_type="lrc", bcs=bc)
