@@ -1499,7 +1499,8 @@ class AbstractMeshTopology(abc.ABC):
         def closure_func(_pt):
             return self.topology_dm.getTransitiveClosure(_pt)[0]
 
-        if self.ufl_cell() == ufl.quadrilateral:
+        is_periodic = bool(self.topology_dm.getCellCoordinatesLocal())
+        if self.ufl_cell() == ufl.quadrilateral and is_periodic:
             # We support 1 element thick quad meshes, where the closure is
             # smaller and needs to be expanded to include repeated points.
             # For a detailed explanation refer to
