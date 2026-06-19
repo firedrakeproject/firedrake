@@ -1392,8 +1392,6 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        if self.parent:
-            raise NotImplementedError
         is_ = PETSc.IS().createStride(self.axes.buffer_size(include_ghosts=True), comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
