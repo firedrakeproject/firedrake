@@ -401,6 +401,24 @@ class BaseFormAssembler(AbstractFormAssembler):
             return tensor
 
     @staticmethod
+    def _as_scalar_value(value):
+        if isinstance(value, ufl.ZeroBaseForm):
+            value = 0.0
+        elif isinstance(value, ufl.constantvalue.Zero):
+            value = 0.0
+        elif isinstance(value, ufl.constantvalue.ScalarValue):
+            value = value.value()
+        elif isinstance(value, (firedrake.Constant, firedrake.Function)):
+            value = value.dat.data_ro
+
+        if isinstance(value, numpy.ndarray):
+            # Assert singleton ndarray
+            value = value.item()
+        if not isinstance(value, numbers.Complex):
+            raise ValueError("Expecting a scalar expression")
+        return value
+
+    @staticmethod
     def _vector_columns_to_dense(functions):
         if not functions:
             raise ValueError("Cannot build an LRC factor matrix with no columns")
@@ -424,7 +442,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         dense.assemble()
         return dense
 
-    def _assemble_form_product_lrc(self, expr, tensor, bcs, assembled_factors):
+    def _assemble_form_product_lrc(self, expr, tensor, bcs, assembled_factors, scale=1):
         if self._mat_type != "lrc":
             raise ValueError("FormProduct assembly requires mat_type='lrc'")
         if tensor is not None:
@@ -443,11 +461,50 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
 
         U = self._vector_columns_to_dense((assembled_factors[0],))
+        U.scale(scale)
         V = self._vector_columns_to_dense((assembled_factors[1],))
         petscmat = PETSc.Mat().createLRC(None, U, None, V)
         petscmat.assemble()
         return Matrix(expr, petscmat, bcs=bcs, options_prefix=self._options_prefix,
                       fc_params=self._form_compiler_params)
+
+    def _assemble_form_product(self, expr, tensor, bcs, assembled_factors):
+        ranks = tuple(len(factor.arguments()) for factor in expr.factors())
+        if len(assembled_factors) != len(expr.factors()):
+            return self._assemble_form_product_lrc(expr, tensor, bcs, assembled_factors)
+        if sum(ranks) > 2 or not any(rank == 0 for rank in ranks):
+            return self._assemble_form_product_lrc(expr, tensor, bcs, assembled_factors)
+
+        scalar_weight = PETSc.ScalarType(1)
+        higher_rank_factors = []
+        assembled_higher_rank_factors = []
+        for factor, rank, assembled_factor in zip(expr.factors(), ranks, assembled_factors):
+            if rank == 0:
+                scalar_weight *= self._as_scalar_value(assembled_factor)
+            else:
+                higher_rank_factors.append(factor)
+                assembled_higher_rank_factors.append(assembled_factor)
+
+        if not higher_rank_factors:
+            return tensor.assign(scalar_weight) if tensor else scalar_weight
+
+        if len(higher_rank_factors) == 1:
+            assembled_higher_rank_form = assembled_higher_rank_factors[0]
+        elif len(higher_rank_factors) == 2 and all(len(factor.arguments()) == 1
+                                                   for factor in higher_rank_factors):
+            higher_rank_form = ufl.FormProduct(*higher_rank_factors)
+            if tensor is not None:
+                return self._assemble_form_product_lrc(
+                    higher_rank_form, tensor, bcs, assembled_higher_rank_factors)
+            assembled_higher_rank_form = self._assemble_form_product_lrc(
+                higher_rank_form, None, bcs, assembled_higher_rank_factors, scale=scalar_weight)
+            return Matrix(expr, assembled_higher_rank_form.petscmat, bcs=bcs,
+                          options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
+        else:
+            raise ValueError("FormProduct preprocessing requires remaining aggregate rank <= 2")
+
+        weighted_form = ufl.FormSum((assembled_higher_rank_form, scalar_weight))
+        return self.base_form_assembly_visitor(weighted_form, tensor, bcs, assembled_higher_rank_form)
 
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
@@ -517,7 +574,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.FormProduct):
-            return self._assemble_form_product_lrc(expr, tensor, bcs, args)
+            return self._assemble_form_product(expr, tensor, bcs, args)
         elif isinstance(expr, ufl.Adjoint):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
@@ -576,19 +633,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Assemble weights
             weights = []
             for w in expr.weights():
-                if isinstance(w, ufl.constantvalue.Zero):
-                    w = 0.0
-                elif isinstance(w, ufl.constantvalue.ScalarValue):
-                    w = w.value()
-                elif isinstance(w, (firedrake.Constant, firedrake.Function)):
-                    w = w.dat.data_ro
-
-                if isinstance(w, numpy.ndarray):
-                    # Assert singleton ndarray
-                    w = w.item()
-                if not isinstance(w, numbers.Complex):
-                    raise ValueError("Expecting a scalar weight expression")
-                weights.append(w)
+                weights.append(self._as_scalar_value(w))
 
             # Scalar FormSum
             if all(isinstance(op, numbers.Complex) for op in args):
@@ -743,8 +788,11 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def base_form_operands(expr):
         if isinstance(expr, ufl.FormProduct):
+            ranks = tuple(len(factor.arguments()) for factor in expr.factors())
             if (len(expr.factors()) == 2 and len(expr.arguments()) == 2
-                    and all(len(factor.arguments()) == 1 for factor in expr.factors())):
+                    and all(rank == 1 for rank in ranks)):
+                return expr.ufl_operands
+            if sum(ranks) <= 2 and any(rank == 0 for rank in ranks):
                 return expr.ufl_operands
             return []
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):

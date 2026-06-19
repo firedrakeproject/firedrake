@@ -408,6 +408,73 @@ def test_assemble_formproduct_lrc(mesh):
         assert np.allclose(result_vec.getArray(readonly=True), expected, rtol=1e-13, atol=1e-13)
 
 
+def test_assemble_formproduct_lrc_with_scalar_factors(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    x = SpatialCoordinate(mesh)[0]
+    f = Function(V).interpolate(1 + x)
+    g = Function(V).interpolate(2 - x)
+    probe = Function(V).interpolate(x)
+
+    scalar_a = Constant(2.0) * dx(domain=mesh)
+    scalar_b = Constant(3.0) * dx(domain=mesh)
+    row_form = inner(f, v) * dx
+    col_form = inner(g, v) * dx
+    product = ufl.FormProduct(scalar_a, row_form, scalar_b, col_form)
+
+    A = assemble(product, mat_type="lrc")
+    assert A.petscmat.getType() == "lrc"
+
+    scale = assemble(scalar_a) * assemble(scalar_b)
+    row = assemble(row_form)
+    col = assemble(col_form)
+    with probe.dat.vec_ro as probe_vec, row.dat.vec_ro as row_vec, col.dat.vec_ro as col_vec:
+        result_vec = row_vec.duplicate()
+        A.petscmat.mult(probe_vec, result_vec)
+        expected = scale * row_vec.getArray(readonly=True) * col_vec.dot(probe_vec)
+        assert np.allclose(result_vec.getArray(readonly=True), expected, rtol=1e-13, atol=1e-13)
+
+
+def test_assemble_formproduct_rank_two_with_scalar_factors(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    scalar_a = Constant(2.0) * dx(domain=mesh)
+    scalar_b = Constant(3.0) * dx(domain=mesh)
+    bilinear = inner(u, v) * dx
+    product = ufl.FormProduct(scalar_a, bilinear, scalar_b)
+
+    A = assemble(product)
+    expected = assemble(assemble(scalar_a) * assemble(scalar_b) * bilinear)
+    assert np.allclose(A.petscmat[:, :], expected.petscmat[:, :], rtol=1e-13, atol=1e-13)
+
+
+def test_assemble_formproduct_rank_one_with_scalar_factors(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    x = SpatialCoordinate(mesh)[0]
+    f = Function(V).interpolate(1 + x)
+    scalar_a = Constant(2.0) * dx(domain=mesh)
+    scalar_b = Constant(3.0) * dx(domain=mesh)
+    linear = inner(f, v) * dx
+    product = ufl.FormProduct(scalar_a, linear, scalar_b)
+
+    b = assemble(product)
+    expected = assemble(assemble(scalar_a) * assemble(scalar_b) * linear)
+    assert np.allclose(b.dat.data_ro, expected.dat.data_ro, rtol=1e-13, atol=1e-13)
+
+
+def test_assemble_formproduct_rank_zero_factors(mesh):
+    scalar_a = Constant(2.0) * dx(domain=mesh)
+    scalar_b = Constant(3.0) * dx(domain=mesh)
+    scalar_c = Constant(4.0) * dx(domain=mesh)
+    product = ufl.FormProduct(scalar_a, scalar_b, scalar_c)
+
+    actual = assemble(product)
+    expected = assemble(scalar_a) * assemble(scalar_b) * assemble(scalar_c)
+    assert np.allclose(actual, expected, rtol=1e-13, atol=1e-13)
+
+
 def test_assemble_formproduct_requires_lrc_mat_type(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
