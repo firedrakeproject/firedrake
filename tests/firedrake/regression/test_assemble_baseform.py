@@ -562,17 +562,29 @@ def test_assemble_formsum_lrc_rejects_tensor(mesh):
         assemble(formsum, mat_type="lrc", tensor=tensor)
 
 
-def test_assemble_formsum_lrc_rejects_bcs(mesh):
+def test_assemble_formsum_lrc_with_bcs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     u = TrialFunction(V)
-    form = inner(u, v) * dx
-    product = ufl.FormProduct(v * dx, v * dx)
-    formsum = ufl.FormSum((form, 1), (product, 1))
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    g = Function(V).interpolate(2 - y)
+    probe = Function(V).interpolate(1 + x + y)
+
+    base_form = inner(u, v) * dx
+    row_form = inner(f, v) * dx
+    col_form = inner(g, v) * dx
+    product = ufl.FormProduct(row_form, col_form)
+    formsum = ufl.FormSum((base_form, 1), (product, 0.5))
     bc = DirichletBC(V, 0, "on_boundary")
 
-    with pytest.raises(NotImplementedError, match="Boundary conditions on LRC FormSum"):
-        assemble(formsum, mat_type="lrc", bcs=bc)
+    A = assemble(formsum, mat_type="lrc", sub_mat_type="aij", bcs=bc)
+    assert A.petscmat.getType() == "lrc"
+    assert not A.has_bcs
+
+    base_matrix = assemble(base_form, mat_type="aij", bcs=bc)
+    terms = ((0.5, assemble(row_form, bcs=bc), assemble(col_form, bcs=bc)),)
+    _assert_lrc_action(A, probe, terms, base_matrix=base_matrix)
 
 
 def test_assemble_formproduct_rank_two_with_scalar_factors(mesh):
@@ -637,12 +649,22 @@ def test_assemble_formproduct_lrc_rejects_non_rank_one_factor(mesh):
         assemble(product, mat_type="lrc")
 
 
-def test_assemble_formproduct_lrc_rejects_bcs(mesh):
+def test_assemble_formproduct_lrc_with_bcs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
-    form = v * dx
-    product = ufl.FormProduct(form, form)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    g = Function(V).interpolate(2 - y)
+    probe = Function(V).interpolate(1 + x + y)
+
+    row_form = inner(f, v) * dx
+    col_form = inner(g, v) * dx
+    product = ufl.FormProduct(row_form, col_form)
     bc = DirichletBC(V, 0, "on_boundary")
 
-    with pytest.raises(NotImplementedError, match="Boundary conditions"):
-        assemble(product, mat_type="lrc", bcs=bc)
+    A = assemble(product, mat_type="lrc", bcs=bc)
+    assert A.petscmat.getType() == "lrc"
+    assert not A.has_bcs
+
+    terms = ((1, assemble(row_form, bcs=bc), assemble(col_form, bcs=bc)),)
+    _assert_lrc_action(A, probe, terms)

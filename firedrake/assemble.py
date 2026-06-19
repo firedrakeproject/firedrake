@@ -459,14 +459,44 @@ class BaseFormAssembler(AbstractFormAssembler):
                 and ranks.count(1) == 2
                 and all(rank in (0, 1) for rank in ranks))
 
-    def _assemble_lrc_matrix(self, expr, base_matrix, row_factors, col_factors, weights, bcs):
+    @staticmethod
+    def _bc_matches_space(bc, function_space):
+        if not isinstance(bc, DirichletBC):
+            return False
+
+        if ufl.duals.is_dual(function_space):
+            function_space = function_space.dual()
+
+        V = bc.function_space()
+        while True:
+            bc_space = V.dual() if ufl.duals.is_dual(V) else V
+            if bc_space == function_space:
+                return True
+            if V.parent is None:
+                return False
+            V = V.parent
+
+    @staticmethod
+    def _check_lrc_bcs(bcs):
+        if any(not isinstance(bc, DirichletBC) for bc in bcs):
+            raise NotImplementedError("Only DirichletBC objects are supported on LRC assembly")
+
+    def _lrc_factor_bcs(self, factor, bcs):
+        if not bcs:
+            return ()
+
+        arg, = factor.arguments()
+        function_space = arg.function_space()
+        return tuple(bc for bc in bcs if self._bc_matches_space(bc, function_space))
+
+    def _assemble_lrc_matrix(self, expr, base_matrix, row_factors, col_factors, weights):
         U = self._vector_columns_to_dense(row_factors)
         V = self._vector_columns_to_dense(col_factors)
         c = self._lrc_weights_to_vec(weights)
         A = base_matrix.petscmat if base_matrix is not None else None
         petscmat = PETSc.Mat().createLRC(A, U, c, V)
         petscmat.assemble()
-        return Matrix(expr, petscmat, bcs=bcs, options_prefix=self._options_prefix,
+        return Matrix(expr, petscmat, bcs=(), options_prefix=self._options_prefix,
                       fc_params=self._form_compiler_params)
 
     def _assemble_form_product_lrc(self, expr, tensor, bcs, assembled_factors, scale=1):
@@ -474,21 +504,25 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise ValueError("FormProduct assembly requires mat_type='lrc'")
         if tensor is not None:
             raise NotImplementedError("Assembly of FormProduct into an existing tensor is not supported")
-        if bcs:
-            raise NotImplementedError("Boundary conditions on LRC FormProduct assembly are not supported")
+        self._check_lrc_bcs(bcs)
         if len(expr.factors()) != 2:
             raise NotImplementedError("LRC FormProduct assembly currently supports exactly two factors")
         if len(expr.arguments()) != 2:
             raise ValueError("LRC FormProduct assembly requires aggregate rank 2")
         if any(len(factor.arguments()) != 1 for factor in expr.factors()):
             raise ValueError("LRC FormProduct assembly requires rank-1 factors")
-        if len(assembled_factors) != 2:
-            raise TypeError("Not enough operands for FormProduct")
-        if not all(isinstance(factor, (firedrake.Cofunction, firedrake.Function)) for factor in assembled_factors):
-            raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
+        if bcs:
+            row_factor = self._assemble_lrc_factor(expr.factors()[0], bcs)
+            col_factor = self._assemble_lrc_factor(expr.factors()[1], bcs)
+        else:
+            if len(assembled_factors) != 2:
+                raise TypeError("Not enough operands for FormProduct")
+            if not all(isinstance(factor, (firedrake.Cofunction, firedrake.Function)) for factor in assembled_factors):
+                raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
+            row_factor, col_factor = assembled_factors
 
         return self._assemble_lrc_matrix(
-            expr, None, (assembled_factors[0],), (assembled_factors[1],), (scale,), bcs
+            expr, None, (row_factor,), (col_factor,), (scale,)
         )
 
     def _normalise_lrc_form_product(self, expr, weight):
@@ -508,9 +542,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise ValueError("LRC FormProduct assembly requires exactly two rank-1 factors")
         return rank_one_factors[0], rank_one_factors[1], scalar_weight
 
-    def _assemble_lrc_factor(self, factor):
+    def _assemble_lrc_factor(self, factor, bcs):
         assembled = firedrake.assemble(
-            factor, form_compiler_parameters=self._form_compiler_params
+            factor,
+            bcs=self._lrc_factor_bcs(factor, bcs),
+            form_compiler_parameters=self._form_compiler_params,
+            is_base_form_preprocessed=True,
         )
         if not isinstance(assembled, (firedrake.Cofunction, firedrake.Function)):
             raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
@@ -533,8 +570,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             return None
         if tensor is not None:
             raise NotImplementedError("Assembly of FormSum with LRC terms into an existing tensor is not supported")
-        if bcs:
-            raise NotImplementedError("Boundary conditions on LRC FormSum assembly are not supported")
+        self._check_lrc_bcs(bcs)
 
         base_matrix = None
         if base_terms:
@@ -557,13 +593,13 @@ class BaseFormAssembler(AbstractFormAssembler):
         row_factors = []
         col_factors = []
         lrc_weights = []
-        for product, weight in lrc_terms:
-            row_factor, col_factor, lrc_weight = self._normalise_lrc_form_product(product, weight)
-            row_factors.append(self._assemble_lrc_factor(row_factor))
-            col_factors.append(self._assemble_lrc_factor(col_factor))
+        for prod, weight in lrc_terms:
+            row_factor, col_factor, lrc_weight = self._normalise_lrc_form_product(prod, weight)
+            row_factors.append(self._assemble_lrc_factor(row_factor, bcs))
+            col_factors.append(self._assemble_lrc_factor(col_factor, bcs))
             lrc_weights.append(lrc_weight)
 
-        return self._assemble_lrc_matrix(expr, base_matrix, row_factors, col_factors, lrc_weights, bcs)
+        return self._assemble_lrc_matrix(expr, base_matrix, row_factors, col_factors, lrc_weights)
 
     def _assemble_form_product(self, expr, tensor, bcs, assembled_factors):
         ranks = tuple(len(factor.arguments()) for factor in expr.factors())
@@ -595,7 +631,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     higher_rank_form, tensor, bcs, assembled_higher_rank_factors)
             assembled_higher_rank_form = self._assemble_form_product_lrc(
                 higher_rank_form, None, bcs, assembled_higher_rank_factors, scale=scalar_weight)
-            return Matrix(expr, assembled_higher_rank_form.petscmat, bcs=bcs,
+            return Matrix(expr, assembled_higher_rank_form.petscmat, bcs=(),
                           options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
             raise ValueError("FormProduct preprocessing requires remaining aggregate rank <= 2")
