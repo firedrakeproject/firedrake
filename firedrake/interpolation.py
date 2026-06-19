@@ -695,6 +695,7 @@ class CrossMeshInterpolator(Interpolator):
                     return f_target
         return callable
 
+    @PETSc.Log.EventDecorator("CrossMeshPermutedPointEval")
     def _permuted_point_eval(self, mat_type: str) -> PETSc.Mat:
         """Assemble the forward (non-adjoint) cross-mesh interpolation matrix by scattering
         the rows of the point-evaluation matrix into the target's input ordering using
@@ -725,12 +726,14 @@ class CrossMeshInterpolator(Interpolator):
         # by reducing the immersed-VOM row indices along the input-ordering star forest).
         permutation = get_interpolator(point_eval_input_ordering)
         immersed_row_start = point_eval_mat.getOwnershipRange()[0] // permutation.target_space.block_size
-        isrow = PETSc.IS().createGeneral(
-            permutation._permutation(reduce=True, start=immersed_row_start), comm=point_eval_mat.comm
-        )
+        with PETSc.Log.Event("CrossMeshPermutedPointEvalIS"):
+            isrow = PETSc.IS().createGeneral(
+                permutation._permutation(reduce=True, start=immersed_row_start), comm=point_eval_mat.comm
+            )
         # Column index set: identity, so the columns (and column layout) are unchanged.
         cstart, cend = point_eval_mat.getOwnershipRangeColumn()
-        iscol = PETSc.IS().createStride(cend - cstart, first=cstart, step=1, comm=point_eval_mat.comm)
+        with PETSc.Log.Event("CrossMeshPermutedPointEvalISCol"):
+            iscol = PETSc.IS().createStride(cend - cstart, first=cstart, step=1, comm=point_eval_mat.comm)
         return point_eval_mat.createSubMatrix(isrow, iscol)
 
     @property
@@ -996,6 +999,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         mat.setUp()
         return mat
 
+    @PETSc.Log.EventDecorator("VOMToVOMPermutation")
     def _permutation(self, reduce: bool, start: int) -> numpy.ndarray:
         """Map each local row of the permutation to the global source dof that feeds it.
 
@@ -1033,12 +1037,14 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         # we need to space out the indices according to the block size.
         return self._block_expand(perm)
 
+    @PETSc.Log.EventDecorator("VOMToVOMBlockExpand")
     def _block_expand(self, indices: numpy.ndarray) -> numpy.ndarray:
         """Space out per-dof ``indices`` into the flattened block layout of the target space."""
         block_size = self.target_space.block_size
         return (block_size * indices[:, None]
                 + numpy.arange(block_size, dtype=IntType)[None, :]).reshape(-1)
 
+    @PETSc.Log.EventDecorator("VOMToVOMCreatePermutationMat")
     def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
         """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh.
