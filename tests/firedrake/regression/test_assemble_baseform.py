@@ -580,7 +580,7 @@ def test_assemble_formsum_lrc_with_bcs(mesh):
 
     A = assemble(formsum, mat_type="lrc", sub_mat_type="aij", bcs=bc)
     assert A.petscmat.getType() == "lrc"
-    assert not A.has_bcs
+    assert A.has_bcs
 
     base_matrix = assemble(base_form, mat_type="aij", bcs=bc)
     terms = ((0.5, assemble(row_form, bcs=bc), assemble(col_form, bcs=bc)),)
@@ -664,7 +664,7 @@ def test_assemble_formproduct_lrc_with_bcs(mesh):
 
     A = assemble(product, mat_type="lrc", bcs=bc)
     assert A.petscmat.getType() == "lrc"
-    assert not A.has_bcs
+    assert A.has_bcs
 
     terms = ((1, assemble(row_form, bcs=bc), assemble(col_form, bcs=bc)),)
     _assert_lrc_action(A, probe, terms)
