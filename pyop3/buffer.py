@@ -843,6 +843,7 @@ class PetscMatBuffer(ConcreteBuffer):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
+    @cached_method()
     def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
         # NOTE: mat_spec isn't a good abstraction, don't like passing along here
         assert self.is_nested
