@@ -40,7 +40,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install dependencies
-        run: pip install nbformat
+        run: pip install nbformat jupytext
 
       - name: Checkout Firedrake
         uses: actions/checkout@v5
@@ -55,8 +55,16 @@ jobs:
           path: notebooks
           token: ${{ secrets.NOTEBOOKS_REPO_TOKEN }}
 
+      - name: Convert notebooks to .ipynb
+        run: jupytext --to ipynb firedrake/docs/notebooks/*.py
+
       - name: Copy notebooks
-        run: cp -r firedrake/docs/notebooks/* notebooks/
+        # Ship the generated notebooks and their data files, but not the
+        # jupytext .py sources or config.
+        run: |
+          cp firedrake/docs/notebooks/*.ipynb notebooks/
+          cp -r firedrake/docs/notebooks/image notebooks/
+          cp firedrake/docs/notebooks/*.geo firedrake/docs/notebooks/*.msh notebooks/
 
       - name: Prepare notebooks for Colab
         working-directory: notebooks

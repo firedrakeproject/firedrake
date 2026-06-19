@@ -42,7 +42,29 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
     'sphinx_copybutton',
+    'nbsphinx',
 ]
+
+# Render the tutorial notebooks. They are generated as .ipynb from the
+# py:percent sources in docs/notebooks and *executed* by the ``copy_notebooks``
+# Makefile target, so nbsphinx only needs to render the stored output. This
+# avoids re-executing the (heavy) notebooks once per Sphinx builder
+# (html/latex/latexpdf/linkcheck all run in the docs CI job).
+nbsphinx_execute = 'never'
+
+# Add a "Run on Colab" banner to the top of every rendered notebook, pointing at
+# the corresponding notebook in the firedrakeproject/notebooks repository.
+nbsphinx_prolog = r"""
+{% set name = env.docname.split('/')|last %}
+
+.. raw:: html
+
+    <div class="admonition note">
+      <p class="admonition-title">Note</p>
+      <p>You can run this notebook on
+      <a href="https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/{{ name }}.ipynb">Google Colab</a>.</p>
+    </div>
+"""
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
 

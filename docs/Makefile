@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish publishpdf serve reset_notebooks
+publish publishpdf serve
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/apt_deps.txt source/homebrew_deps.txt source/petsc_configure_options.txt
+GENERATED_FILES = source/team.rst source/demos source/notebooks source/element_list.csv source/apt_deps.txt source/homebrew_deps.txt source/petsc_configure_options.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
@@ -59,7 +59,7 @@ livehtml:
 serve: html
 	cd $(BUILDDIR)/html; python3 -m SimpleHTTPServer $(PORT)
 
-.PHONY: copy_demos
+.PHONY: copy_demos copy_notebooks
 
 source/demos: copy_demos
 
@@ -68,15 +68,32 @@ copy_demos:
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
 
-reset_notebooks:
-	jupyter-nbconvert --clear-output ./notebooks/*.ipynb
-	env OMP_NUM_THREADS=1 jupyter-nbconvert \
+# Convert the py:percent tutorial notebooks to .ipynb, copy across the data
+# files they reference at runtime, and execute them. nbsphinx then renders the
+# stored output (nbsphinx_execute='never'). This is a real (directory) target
+# depending on the notebook sources, so the notebooks are executed once per
+# build (only when a source changes) rather than once per Sphinx builder.
+# Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
+# tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
+source/notebooks: $(wildcard notebooks/*.py)
+	rm -rf source/notebooks
+	install -d source/notebooks
+	cp -r notebooks/image source/notebooks/
+	cp notebooks/*.geo notebooks/*.msh source/notebooks/
+	for file in notebooks/*.py; do \
+		jupytext --to ipynb --output source/notebooks/`basename $${file%.py}`.ipynb $$file; \
+	done
+	env OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
-		--ClearMetadataPreprocessor.enabled=True \
-		--allow-errors \
 		--to notebook \
 		--inplace \
-		./notebooks/*.ipynb
+		--ExecutePreprocessor.timeout=600 \
+		source/notebooks/*.ipynb
+
+# Convenience target to force regeneration of the executed notebooks.
+copy_notebooks:
+	rm -rf source/notebooks
+	$(MAKE) source/notebooks
 
 source/element_list.csv: source/element_list.py
 	cd source; python3 element_list.py
