@@ -2582,5 +2582,5 @@ def _(V: WithGeometryBase | AbstractFunctionSpace) -> bool:
 
 
 @is_mixed.register
-def _(arg: ufl.Argument, /) -> bool:
+def _(arg: ufl.argument.BaseArgument, /) -> bool:
     return is_mixed(arg.ufl_function_space())
