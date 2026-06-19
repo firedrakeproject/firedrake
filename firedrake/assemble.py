@@ -442,6 +442,33 @@ class BaseFormAssembler(AbstractFormAssembler):
         dense.assemble()
         return dense
 
+    @staticmethod
+    def _lrc_weights_to_vec(weights):
+        c = PETSc.Vec().createSeq(len(weights), comm=PETSc.COMM_SELF)
+        c.setValues(range(len(weights)), weights)
+        c.assemble()
+        return c
+
+    @staticmethod
+    def _is_lrc_form_product(expr):
+        if not isinstance(expr, ufl.FormProduct):
+            return False
+
+        ranks = tuple(len(factor.arguments()) for factor in expr.factors())
+        return (len(expr.arguments()) == 2
+                and ranks.count(1) == 2
+                and all(rank in (0, 1) for rank in ranks))
+
+    def _assemble_lrc_matrix(self, expr, base_matrix, row_factors, col_factors, weights, bcs):
+        U = self._vector_columns_to_dense(row_factors)
+        V = self._vector_columns_to_dense(col_factors)
+        c = self._lrc_weights_to_vec(weights)
+        A = base_matrix.petscmat if base_matrix is not None else None
+        petscmat = PETSc.Mat().createLRC(A, U, c, V)
+        petscmat.assemble()
+        return Matrix(expr, petscmat, bcs=bcs, options_prefix=self._options_prefix,
+                      fc_params=self._form_compiler_params)
+
     def _assemble_form_product_lrc(self, expr, tensor, bcs, assembled_factors, scale=1):
         if self._mat_type != "lrc":
             raise ValueError("FormProduct assembly requires mat_type='lrc'")
@@ -460,13 +487,83 @@ class BaseFormAssembler(AbstractFormAssembler):
         if not all(isinstance(factor, (firedrake.Cofunction, firedrake.Function)) for factor in assembled_factors):
             raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
 
-        U = self._vector_columns_to_dense((assembled_factors[0],))
-        U.scale(scale)
-        V = self._vector_columns_to_dense((assembled_factors[1],))
-        petscmat = PETSc.Mat().createLRC(None, U, None, V)
-        petscmat.assemble()
-        return Matrix(expr, petscmat, bcs=bcs, options_prefix=self._options_prefix,
-                      fc_params=self._form_compiler_params)
+        return self._assemble_lrc_matrix(
+            expr, None, (assembled_factors[0],), (assembled_factors[1],), (scale,), bcs
+        )
+
+    def _normalise_lrc_form_product(self, expr, weight):
+        scalar_weight = PETSc.ScalarType(weight)
+        rank_one_factors = []
+        for factor in expr.factors():
+            rank = len(factor.arguments())
+            if rank == 0:
+                assembled_factor = firedrake.assemble(
+                    factor, form_compiler_parameters=self._form_compiler_params
+                )
+                scalar_weight *= self._as_scalar_value(assembled_factor)
+            else:
+                rank_one_factors.append(factor)
+
+        if len(rank_one_factors) != 2:
+            raise ValueError("LRC FormProduct assembly requires exactly two rank-1 factors")
+        return rank_one_factors[0], rank_one_factors[1], scalar_weight
+
+    def _assemble_lrc_factor(self, factor):
+        assembled = firedrake.assemble(
+            factor, form_compiler_parameters=self._form_compiler_params
+        )
+        if not isinstance(assembled, (firedrake.Cofunction, firedrake.Function)):
+            raise TypeError("LRC FormProduct factors must assemble to Functions or Cofunctions")
+        return assembled
+
+    def _assemble_form_sum_lrc(self, expr, tensor, bcs):
+        if self._mat_type != "lrc" or not isinstance(expr, ufl.FormSum):
+            return None
+
+        weights = [self._as_scalar_value(w) for w in expr.weights()]
+        base_terms = []
+        lrc_terms = []
+        for component, weight in zip(expr.components(), weights):
+            if self._is_lrc_form_product(component):
+                lrc_terms.append((component, weight))
+            else:
+                base_terms.append((component, weight))
+
+        if not lrc_terms:
+            return None
+        if tensor is not None:
+            raise NotImplementedError("Assembly of FormSum with LRC terms into an existing tensor is not supported")
+        if bcs:
+            raise NotImplementedError("Boundary conditions on LRC FormSum assembly are not supported")
+
+        base_matrix = None
+        if base_terms:
+            base_form = ufl.FormSum(*base_terms)
+            base_mat_type = self._sub_mat_type
+            base_matrix = firedrake.assemble(
+                base_form,
+                bcs=bcs,
+                form_compiler_parameters=self._form_compiler_params,
+                mat_type=base_mat_type,
+                sub_mat_type=self._sub_mat_type,
+                options_prefix=self._options_prefix,
+                weight=self._weight,
+                allocation_integral_types=self.allocation_integral_types,
+                is_base_form_preprocessed=True,
+            )
+            if not isinstance(base_matrix, MatrixBase):
+                raise TypeError("LRC base form must assemble to a matrix")
+
+        row_factors = []
+        col_factors = []
+        lrc_weights = []
+        for product, weight in lrc_terms:
+            row_factor, col_factor, lrc_weight = self._normalise_lrc_form_product(product, weight)
+            row_factors.append(self._assemble_lrc_factor(row_factor))
+            col_factors.append(self._assemble_lrc_factor(col_factor))
+            lrc_weights.append(lrc_weight)
+
+        return self._assemble_lrc_matrix(expr, base_matrix, row_factors, col_factors, lrc_weights, bcs)
 
     def _assemble_form_product(self, expr, tensor, bcs, assembled_factors):
         ranks = tuple(len(factor.arguments()) for factor in expr.factors())
@@ -528,6 +625,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
+        if isinstance(self._form, ufl.FormSum) and len(self._form.arguments()) == 2:
+            lrc_result = self._assemble_form_sum_lrc(self._form, tensor, self._bcs)
+            if lrc_result is not None:
+                return lrc_result
+
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor

@@ -435,6 +435,146 @@ def test_assemble_formproduct_lrc_with_scalar_factors(mesh):
         assert np.allclose(result_vec.getArray(readonly=True), expected, rtol=1e-13, atol=1e-13)
 
 
+def _assert_lrc_action(A, probe, terms, base_matrix=None):
+    with probe.dat.vec_ro as probe_vec:
+        actual_vec = probe_vec.duplicate()
+        A.petscmat.mult(probe_vec, actual_vec)
+        expected = np.zeros_like(actual_vec.getArray(readonly=True))
+
+        if base_matrix is not None:
+            base_vec = probe_vec.duplicate()
+            base_matrix.petscmat.mult(probe_vec, base_vec)
+            expected += base_vec.getArray(readonly=True)
+
+        for weight, row, col in terms:
+            with row.dat.vec_ro as row_vec, col.dat.vec_ro as col_vec:
+                expected += weight * row_vec.getArray(readonly=True) * col_vec.dot(probe_vec)
+
+        assert np.allclose(actual_vec.getArray(readonly=True), expected, rtol=1e-13, atol=1e-13)
+
+
+def test_assemble_formsum_lrc_with_base_matrix(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    x, y = SpatialCoordinate(mesh)
+    f1 = Function(V).interpolate(1 + x)
+    g1 = Function(V).interpolate(2 - x)
+    f2 = Function(V).interpolate(1 + y)
+    g2 = Function(V).interpolate(2 - y)
+    probe = Function(V).interpolate(x + y)
+
+    base_form = inner(u, v) * dx
+    row_form1 = inner(f1, v) * dx
+    col_form1 = inner(g1, v) * dx
+    row_form2 = inner(f2, v) * dx
+    col_form2 = inner(g2, v) * dx
+    product1 = ufl.FormProduct(row_form1, col_form1)
+    product2 = ufl.FormProduct(row_form2, col_form2)
+    formsum = ufl.FormSum((base_form, 0.75), (product1, 1.5), (product2, -0.25))
+
+    A = assemble(formsum, mat_type="lrc", sub_mat_type="aij")
+    assert A.petscmat.getType() == "lrc"
+
+    base_matrix = assemble(0.75 * base_form, mat_type="aij")
+    terms = ((1.5, assemble(row_form1), assemble(col_form1)),
+             (-0.25, assemble(row_form2), assemble(col_form2)))
+    _assert_lrc_action(A, probe, terms, base_matrix=base_matrix)
+
+
+def test_assemble_formsum_lrc_base_uses_sub_mat_type(mesh):
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(as_vector((1 + x, 2 + y)))
+    g = Function(V).interpolate(as_vector((2 - x, 1 - y)))
+
+    base_form = inner(u, v) * dx
+    product = ufl.FormProduct(inner(f, v) * dx, inner(g, v) * dx)
+    formsum = ufl.FormSum((base_form, 1), (product, 1))
+
+    A = assemble(formsum, mat_type="lrc", sub_mat_type="baij")
+    base, _, _, _ = A.petscmat.getLRCMats()
+    assert base.getType().endswith("baij")
+
+
+def test_assemble_formsum_lrc_without_base_matrix(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    x, y = SpatialCoordinate(mesh)
+    f1 = Function(V).interpolate(1 + x)
+    g1 = Function(V).interpolate(2 - x)
+    f2 = Function(V).interpolate(1 + y)
+    g2 = Function(V).interpolate(2 - y)
+    probe = Function(V).interpolate(x - y)
+
+    row_form1 = inner(f1, v) * dx
+    col_form1 = inner(g1, v) * dx
+    row_form2 = inner(f2, v) * dx
+    col_form2 = inner(g2, v) * dx
+    product1 = ufl.FormProduct(row_form1, col_form1)
+    product2 = ufl.FormProduct(row_form2, col_form2)
+    formsum = ufl.FormSum((product1, 1.5), (product2, -0.25))
+
+    A = assemble(formsum, mat_type="lrc")
+    assert A.petscmat.getType() == "lrc"
+
+    terms = ((1.5, assemble(row_form1), assemble(col_form1)),
+             (-0.25, assemble(row_form2), assemble(col_form2)))
+    _assert_lrc_action(A, probe, terms)
+
+
+def test_assemble_formsum_lrc_with_scalar_product_factors(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    x = SpatialCoordinate(mesh)[0]
+    f = Function(V).interpolate(1 + x)
+    g = Function(V).interpolate(2 - x)
+    probe = Function(V).interpolate(x)
+
+    base_form = inner(u, v) * dx
+    scalar_a = Constant(2.0) * dx(domain=mesh)
+    scalar_b = Constant(3.0) * dx(domain=mesh)
+    row_form = inner(f, v) * dx
+    col_form = inner(g, v) * dx
+    product = ufl.FormProduct(scalar_a, row_form, scalar_b, col_form)
+    formsum = ufl.FormSum((base_form, 1), (product, 0.5))
+
+    A = assemble(formsum, mat_type="lrc", sub_mat_type="aij")
+    base_matrix = assemble(base_form, mat_type="aij")
+    scale = 0.5 * assemble(scalar_a) * assemble(scalar_b)
+    terms = ((scale, assemble(row_form), assemble(col_form)),)
+    _assert_lrc_action(A, probe, terms, base_matrix=base_matrix)
+
+
+def test_assemble_formsum_lrc_rejects_tensor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    form = inner(u, v) * dx
+    product = ufl.FormProduct(v * dx, v * dx)
+    formsum = ufl.FormSum((form, 1), (product, 1))
+    tensor = assemble(form)
+
+    with pytest.raises(NotImplementedError, match="existing tensor"):
+        assemble(formsum, mat_type="lrc", tensor=tensor)
+
+
+def test_assemble_formsum_lrc_rejects_bcs(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    form = inner(u, v) * dx
+    product = ufl.FormProduct(v * dx, v * dx)
+    formsum = ufl.FormSum((form, 1), (product, 1))
+    bc = DirichletBC(V, 0, "on_boundary")
+
+    with pytest.raises(NotImplementedError, match="Boundary conditions on LRC FormSum"):
+        assemble(formsum, mat_type="lrc", bcs=bc)
+
+
 def test_assemble_formproduct_rank_two_with_scalar_factors(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
