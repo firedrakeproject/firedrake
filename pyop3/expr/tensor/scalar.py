@@ -66,6 +66,8 @@ class Scalar(Tensor):
         self._name = name
         self._buffer = buffer
 
+        self.record_setup()
+
     # }}}
 
     # {{{ interface impls

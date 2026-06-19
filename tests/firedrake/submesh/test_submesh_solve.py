@@ -562,6 +562,8 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
         family = "P"
     else:
         mesh = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"), distribution_parameters=distribution_parameters_noop)
+        # mesh.entity_orientations[...] = 0
+
         xyz = SpatialCoordinate(mesh)
         DG0 = FunctionSpace(mesh, "DQ", 0)
         c1 = Function(DG0).interpolate(conditional(xyz[direction] < interf_at, 1, 0))
@@ -616,22 +618,26 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
     h = 0.1 / 2**nref  # roughly
-    a = (
-        inner(grad(u1), grad(v1)) * dx1 + inner(grad(u2), grad(v2)) * dx2
-        - inner(
+
+    result = assemble(u1*v2*dx12_ds1_ds2).petscmat
+    print(result.norm())
+    # breakpoint()
+
+    a1 = inner(grad(u1), grad(v1)) * dx1 + inner(grad(u2), grad(v2)) * dx2
+    a2 = - inner(
             u12,
             (v1 - v2)
         ) * dx12_ds1_ds2
-        - inner(
+    a3 = - inner(
             (u1 * n1 + u2 * n2),
             (grad(v1) + grad(v2)) / 2
         ) * dx12_ds1_ds2
-        + 100 / h * inner(u1 - u2, v1 - v2) * ds1_ds2(label_interf)  # Can also use dx12_ds1_ds2.
-        + inner(
+    a4 = 100 / h * inner(u1 - u2, v1 - v2) * ds1_ds2(label_interf)  # Can also use dx12_ds1_ds2.
+    a5 = inner(
             (dot(grad(u1), n1) - dot(grad(u2), n2)) / 2 - u12,
             v12
         ) * dx12_ds1_ds2
-    )
+    a = a1+a2+a3+a4+a5
     L = (
         inner(f1, v1) * dx1 + inner(f2, v2) * dx2
     )
@@ -639,6 +645,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     bc1 = DirichletBC(V.sub(0), g1, [i for i in range(1, 7) if i != 2 * direction + 2])
     bc2 = DirichletBC(V.sub(2), g2, [i for i in range(1, 7) if i != 2 * direction + 1])
     solver_parameters = {
+        "ksp_monitor": None,
         "mat_type": "matfree",
         "ksp_type": "preonly",
         "pc_type": "fieldsplit",
@@ -662,12 +669,13 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     return sqrt(L2Error1 + L2Error2), sqrt(H1Error1 + H1Error2)
 
 
-@pytest.mark.parallel(nprocs=6)
+# @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('direction', [0, 1, 2])
 def test_submesh_solve_3d_2d_poisson_sanity(simplex, direction):
     nref = 0
     degree = 4
+    # degree = 1
     L2Error, H1Error = _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree)
     assert L2Error < 6.e-5
     assert H1Error < 5.e-3

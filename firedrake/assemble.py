@@ -1084,9 +1084,9 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
-                    parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                    parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
         # FIXME: This is necessary for test_submesh_solve_simple to pass for the moment
         # This is unsatisfying because in theory this isn't required - we can stash up the
@@ -1113,17 +1113,15 @@ class ParloopFormAssembler(FormAssembler):
 
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_name")
+            assert hasattr(self, "_tensor_id")
         else:
-            tensor_name = {}
+            tensor_id = {}
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-                # if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                #     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
-                tensor_name[local_kernel] = subtensor.name
+                tensor_id[local_kernel] = subtensor.record_id
 
                 parloop_builder = ParloopBuilder(
                     self._form,
@@ -1136,7 +1134,7 @@ class ParloopFormAssembler(FormAssembler):
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
             self._parloops = parloops_
-            self._tensor_name = tensor_name
+            self._tensor_id = tensor_id
 
         return self._parloops
 

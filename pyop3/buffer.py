@@ -102,9 +102,6 @@ class AbstractBuffer(pyop3.obj.Pyop3Object):
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
-    def __post_init__(self) -> None:
-        pass
-
     # {{{ abstract methods
 
     @property
@@ -180,11 +177,10 @@ class NullBuffer(AbstractArrayBuffer):
         self._max_value = max_value
         self._ordered = ordered
 
-        self.__post_init__()
+        self.record_setup()
 
     def __post_init__(self) -> None:
         assert isinstance(self.shape, tuple)
-        super().__post_init__()
 
     # }}}
 
@@ -197,10 +193,13 @@ class NullBuffer(AbstractArrayBuffer):
     # {{{ interface impls
 
     shape: ClassVar[property] = pyop3.record.attr("_shape")
-    name: ClassVar[property] = pyop3.record.attr("_name")
+    # name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
+
+    def name(self) -> str:
+        breakpoint()
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
         if constant is None:
@@ -248,7 +247,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
@@ -273,7 +272,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return (
             type(self),
             self.dtype,
-            visitor.renamer.add(self._name, "ArrayBuffer"),
+            visitor.renamer.add(self, "ArrayBuffer"),
             self._constant,
             self._rank_equal,
             self._ordered,
@@ -286,7 +285,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             return (
                 type(self),
                 self.dtype,
-                visitor.renamer.add(self._name, "ArrayBuffer"),
+                visitor.renamer.add(self, "ArrayBuffer"),
                 self._constant,
                 self._rank_equal,
                 self._ordered,
@@ -326,7 +325,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
         self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
 
-        self.__post_init__()
+        self.record_setup()
 
     def __post_init__(self) -> None:
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
@@ -795,7 +794,7 @@ class PetscMatBuffer(ConcreteBuffer):
         self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
-        self.__post_init__()
+        self.record_setup()
 
     def __post_init__(self) -> None:
         # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully

@@ -84,6 +84,9 @@ class Dat(Tensor):
             visitor(self._transform),
         )
 
+    # Attributes that do not invalidate the object ID
+    non_id_attrs = ("axes", "_transform")
+
     def __init__(
         self,
         axes: AxisTreeT,
@@ -132,7 +135,7 @@ class Dat(Tensor):
         self._buffer = buffer
         self._name = name
         self._transform = transform
-        self.__post_init__()
+        self.record_setup()
 
     def __post_init__(self) -> None:
         # fails for transforms, is that an issue?

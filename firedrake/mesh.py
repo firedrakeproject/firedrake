@@ -1889,6 +1889,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations(self):
+        # return np.zeros_like(self._fiat_cell_closures)
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
 
     @cached_property
@@ -2315,8 +2316,10 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(
             self.cells,
             self.submesh_parent.exterior_facets,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._exterior_facet_plex_indices.indices,
+            self._old_to_new_cell_numbering,
+            self.submesh_parent._old_to_new_exterior_facet_numbering,
             True,
         )
 

@@ -42,6 +42,13 @@ class IncompatibleAxisTargetException(Pyop3Exception):
 
 # }}}
 
+# {{{ indexing
+
+class InvalidMapTargetException(Pyop3Exception):
+    pass
+
+# }}}
+
 # {{{ caching
 
 class CacheException(Pyop3Exception):
