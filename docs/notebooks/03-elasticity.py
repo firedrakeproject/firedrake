@@ -47,13 +47,7 @@
 # We start, as usual, by import Firedrake and defining a mesh
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 4)
 
 # %%
 from firedrake import *

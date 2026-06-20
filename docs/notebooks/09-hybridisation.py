@@ -72,13 +72,7 @@
 # For our domain, let's use a spherical mesh with a radius equal to that of the Earth. We begin by importing Firedrake and defining some relevant constants.
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 6)
 
 # %%
 from firedrake import *

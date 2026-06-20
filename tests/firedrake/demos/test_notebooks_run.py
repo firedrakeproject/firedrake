@@ -37,7 +37,14 @@ def test_notebook_runs(py_file, tmpdir, monkeypatch, skip_dependency):
     if os.path.isdir(image_dir):
         shutil.copytree(image_dir, str(tmpdir.join("image")))
 
+    # Apply the same matplotlib display settings the docs build uses, via an
+    # IPython profile pointed at by IPYTHONDIR (the notebooks carry no preamble).
+    profile = tmpdir.join("ipython", "profile_default")
+    os.makedirs(str(profile), exist_ok=True)
+    shutil.copy(os.path.join(nb_dir, "..", "ipython_kernel_config.py"), str(profile))
+    env = dict(os.environ, IPYTHONDIR=str(tmpdir.join("ipython")))
+
     monkeypatch.chdir(tmpdir)
     ipynb_file = str(tmpdir.join(os.path.splitext(basename)[0] + ".ipynb"))
     subprocess.check_call(["jupytext", "--to", "ipynb", "--output", ipynb_file, py_file])
-    subprocess.check_call([sys.executable, "-m", "pytest", "--nbval-lax", ipynb_file])
+    subprocess.check_call([sys.executable, "-m", "pytest", "--nbval-lax", ipynb_file], env=env)

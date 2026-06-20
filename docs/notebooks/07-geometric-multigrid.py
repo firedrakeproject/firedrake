@@ -24,13 +24,7 @@
 # Geometric multigrid requires a geometric hierarchy of meshes on which the equations will be discretised.  For now, Firedrake supports hierarchies of *regularly refined* meshes, which we create by providing a *coarse mesh* and building a `MeshHierarchy`.  This hierarchy encapsulates the relationship between coarse and fine cells.
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 4)
 
 # %%
 from firedrake import *

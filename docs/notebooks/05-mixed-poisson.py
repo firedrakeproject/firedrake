@@ -63,13 +63,7 @@
 # As should be familiar by now, we start by importing the Firedrake package and setting up the discrete problem domain.
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 6)
 
 # %%
 from firedrake import *

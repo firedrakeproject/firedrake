@@ -14,14 +14,7 @@
 # ---
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# If the following line fails then the user needs to install ipympl.
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 6)
 
 # %% [markdown]
 # # The positive-definite Helmholtz equation

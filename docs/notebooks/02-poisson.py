@@ -45,13 +45,7 @@
 # As usual, we start by setting up the notebook matplotlib interaction, and importing Firedrake.  We then choose a triangulation of our domain and select an appropriate $H^1$-conforming function space.
 
 # %%
-# Code in this cell makes plots appear an appropriate size and resolution in the browser window
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 6)
 
 # %%
 from firedrake import *

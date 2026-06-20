@@ -54,12 +54,7 @@
 # TSFC \[1\], the form compiler of Firedrake, is capable of exploiting this intrinsic structure of the finite element, provided by FInAT \[2\], and apply sum factorisation automatically to generate assembly kernels with optimal algorithmic complexity.
 
 # %%
-# %matplotlib widget
-# %config InlineBackend.figure_format = 'svg'
-
 import matplotlib.pyplot as plt
-
-plt.rcParams['figure.figsize'] = (11, 6)
 
 # %%
 from firedrake import *

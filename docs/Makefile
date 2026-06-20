@@ -75,7 +75,10 @@ copy_demos:
 # build (only when a source changes) rather than once per Sphinx builder.
 # Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
 # tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
-source/notebooks: $(wildcard notebooks/*.py)
+# The matplotlib display settings (inline backend, SVG figures, figure size)
+# come from ipython_kernel_config.py via a throwaway IPython profile under the
+# (gitignored) build directory, so the notebooks need no display preamble.
+source/notebooks: $(wildcard notebooks/*.py) ipython_kernel_config.py
 	rm -rf source/notebooks
 	install -d source/notebooks
 	cp -r notebooks/image source/notebooks/
@@ -83,7 +86,9 @@ source/notebooks: $(wildcard notebooks/*.py)
 	for file in notebooks/*.py; do \
 		jupytext --to ipynb --output source/notebooks/`basename $${file%.py}`.ipynb $$file; \
 	done
-	env OMP_NUM_THREADS=1 jupyter nbconvert \
+	install -d $(BUILDDIR)/ipython/profile_default
+	cp ipython_kernel_config.py $(BUILDDIR)/ipython/profile_default/
+	env IPYTHONDIR=$(CURDIR)/$(BUILDDIR)/ipython OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
 		--to notebook \
 		--inplace \
