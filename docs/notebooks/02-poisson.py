@@ -110,7 +110,7 @@ collection = tripcolor(uh, axes=axes)
 fig.colorbar(collection);
 
 # %% [markdown]
-# # Exercises
+# ## Exercises
 #
 # Most of the time, we don't want to impose the same Dirichlet condition everywhere.  Instead of solving with homogeneous Dirichlet conditions everywhere, solve the following problem.
 #

@@ -318,7 +318,7 @@ parprint("Error   :", errornorm(truth, u_h))
 
 # %% [markdown]
 # ```bash
-# #!/bin/bash
+# !/bin/bash
 # #SBATCH -p standard
 # #SBATCH -A account
 # #SBATCH -J firedrake
@@ -336,11 +336,11 @@ parprint("Error   :", errornorm(truth, u_h))
 #
 # module load epcc-job-env
 #
-# # Activate Firedrake venv (activate once on first node, extract once per node)
+# ## Activate Firedrake venv (activate once on first node, extract once per node)
 # source $LOCAL_BIN/firedrake_activate.sh
 # srun --ntasks-per-node 1 $LOCAL_BIN/firedrake_activate.sh
 #
-# # Run Firedrake script
+# ## Run Firedrake script
 # srun --ntasks-per-node 128 $VIRTUAL_ENV/bin/python ${myScript}
 # ```
 
@@ -372,7 +372,7 @@ parprint("Error   :", errornorm(truth, u_h))
 # Once your job has completed any output will be stored in files named `slurm-123456.out` and `slurm-123456.err`. The job ID `123456` is used as an example here, yours will be different each time you run a job.
 
 # %% [markdown]
-# ## Exercise
+# ### Exercise
 #
 # Perform a convergence study for the Poisson problem above, using degree 2 Lagrange elements. To do this, solve the problem on a range of different mesh sizes. The cell diameter on the finest mesh in a multigrid hierarchy is given by $h = \frac{\sqrt{2}}{N}$, where $N = N_x \times 2^{N_{ref}}$ is the number of cells along one edge of the cube on the finest grid.
 #

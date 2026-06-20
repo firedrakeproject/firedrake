@@ -257,7 +257,7 @@ solver.solve()
 
 
 # %% [markdown]
-# # Exercise
+# ## Exercise
 #
 # In most real-world scenarios, the viscosity $\nu$ will not be constant, but rather variable.  See what happens to the performance of the solver when you replace the constant viscosity $\nu$ with a spatially varying one.  In particular, try:
 #

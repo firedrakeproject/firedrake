@@ -129,7 +129,7 @@ axes.set_aspect("equal");
 
 
 # %% [markdown]
-# # Exercises
+# ## Exercises
 #
 # Modify the problem so that the material density $\rho$ is not constant, but rather varies in space.  For example, you could try setting $\rho(x, y) = 0.01 + xy$.  That is, the material gets denser the futher away from the clamped end you get.
 #
@@ -139,7 +139,7 @@ axes.set_aspect("equal");
 # %%
 
 # %% [markdown]
-# # Solving bigger problems
+# ## Solving bigger problems
 #
 # Up to now, we've only really solved quite small problems, and therefore haven't really had to worry about tuning the solver. As we increase the size of the problem we're solving, the direct solver approach will no longer be good enough.  Firedrake uses [PETSc](http://petsc.org) to provide solvers, and uses PETSc solver parameters to control them.
 #
@@ -245,7 +245,7 @@ uh = solve_elasticity(200, 200, options={"ksp_type": "cg",
                                          "ksp_converged_reason": None})
 
 # %% [markdown]
-# ## Exercise
+# ### Exercise
 #
 # Study what happens to the number of iterations for this last setup as you change the mesh resolution.  Try, perhaps, 10, 50, 100, and 200.
 

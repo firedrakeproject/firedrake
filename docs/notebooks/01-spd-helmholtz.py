@@ -168,17 +168,17 @@ collection = tripcolor(difference, axes=axes, cmap='coolwarm')
 fig.colorbar(collection);
 
 # %% [markdown]
-# # Exercises
+# ## Exercises
 #
-# ## Exercise 1:
+# ### Exercise 1:
 #
-# ### 1a: use a higher approximation degree
+# #### 1a: use a higher approximation degree
 #
 # Solve the same problem, only this time, use a piecewise quadratic approximation space.
 #
 # - Hint: check the help for `FunctionSpace` to see how to specify the degree.
 #
-# ### 1b: use a quadrilateral mesh
+# #### 1b: use a quadrilateral mesh
 #
 # Solve the same problem, but using quadrilateral, rather than triangular, cells.
 #
@@ -187,14 +187,14 @@ fig.colorbar(collection);
 #
 
 # %% [markdown]
-# ## Exercise 2: convergence of the method
+# ### Exercise 2: convergence of the method
 # For solutions with sufficient smoothness (like the choice we have here), this method with a piecewise linear approximation space should converge in the $L_2$ error with rate $\mathcal{O}(h^{-2})$, where $h$ is the typical mesh spacing.  Confirm this for the example in question by computing the $L_2$ error in the solution for a sequence of finer and finer meshes.
 #
 # - Hint 1: You can compute errors using [errornorm](http://firedrakeproject.org/firedrake.html#firedrake.norms.errornorm)
 # - Hint 2: If the error is $\mathcal{O}(h^{-2})$ then $\log_2 (e_H/e_h) \approx 2$.
 #   The Python module `math` contains an implementation of `log`.
 #   
-# ### What works better?  Mesh refinement, or increasing the approximation degree?
+# #### What works better?  Mesh refinement, or increasing the approximation degree?
 #
 # Instead of (or as well as!) refining the mesh, we can increase the degree of the approximating polynomial space.
 #
@@ -218,7 +218,7 @@ u_exact = cos(2*pi*x)*cos(2*pi*y)
 # %%
 
 # %% [markdown]
-# # Part II: inhomogeneous Neuman conditions
+# ## Part II: inhomogeneous Neuman conditions
 #
 # Let us recall again the statement of our problem.  We seek $u \in V$ satisfying
 #
