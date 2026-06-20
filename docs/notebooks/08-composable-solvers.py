@@ -177,7 +177,7 @@ convergence(solver)
 # %% [markdown]
 # ### Block preconditioning
 #
-# Firedrake hooks up all the necessary machinery to access PETSc's [`PCFIELDSPLIT`](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) preconditioner. This provides mechanisms for building preconditioners based on block factorisations. The Stokes problem 
+# Firedrake hooks up all the necessary machinery to access PETSc's [PCFIELDSPLIT](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) preconditioner. This provides mechanisms for building preconditioners based on block factorisations. The Stokes problem 
 # $$
 # \begin{align}
 #   \nu\int_\Omega \color{#800020}{\nabla u : \nabla v}\,\mathrm{d}x - \int_\Omega
@@ -292,7 +292,7 @@ convergence(solver)
 # Firedrake offers a facilities to build Python preconditioning objects, utilising petsc4py.
 #
 # In this case, we can subclass the 
-# [`AuxiliaryOperatorPC`](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
+# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
 
 # %%
 class MassMatrix(AuxiliaryOperatorPC):
@@ -341,7 +341,7 @@ convergence(solver)
 #
 # So far, we've only used direct solvers for the blocks. We can also use iterative methods. Here we'll use geometric multigrid to solve
 #
-# In the same way that Firedrake hooks up solvers such that [`PCFIELDSPLIT`](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) is enabled, if a problem was defined on a mesh from a `MeshHierarchy`, [`PCMG`](https://petsc.org/release/manualpages/PC/PCMG/) and [`SNESFAS`](https://petsc.org/release/manualpages/SNESFAS/SNESFAS/) are also available.
+# In the same way that Firedrake hooks up solvers such that [PCFIELDSPLIT](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) is enabled, if a problem was defined on a mesh from a `MeshHierarchy`, [PCMG](https://petsc.org/release/manualpages/PC/PCMG/) and [SNESFAS](https://petsc.org/release/manualpages/SNESFAS/SNESFAS/) are also available.
 
 # %%
 fieldsplit_mg_parameters = {

@@ -104,7 +104,7 @@ get_working_tape().progress_bar = ProgressBar
 
 
 # %% [markdown]
-# We select the initial conditions of the simulation as the control. The way we achieve this in code is by defining a [`ReducedFunctional`](https://www.firedrakeproject.org/adjoint.html#reduced-functionals) with the initial conditions as the [`Control`](https://pyadjoint.org/documentation/pyadjoint_api.html#pyadjoint.Control):
+# We select the initial conditions of the simulation as the control. The way we achieve this in code is by defining a [ReducedFunctional](https://www.firedrakeproject.org/adjoint.html#reduced-functionals) with the initial conditions as the [Control](https://pyadjoint.org/documentation/pyadjoint_api.html#pyadjoint.Control):
 
 # %%
 Jhat = ReducedFunctional(J, Control(u_init))
