@@ -27,7 +27,7 @@ DESCRIPTIONS = {
     "ufl": "UFL: the Unified Form Language",
     "fiat": "FIAT: the Finite Element Automated Tabulator",
     "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
-    "irksome": "Irksome: Solvers for Implicit Runge Kutta methods",
+    "Irksome": "Irksome: Solvers for Implicit Runge Kutta methods",
 }
 
 PYPI_PACKAGE_NAMES = {
