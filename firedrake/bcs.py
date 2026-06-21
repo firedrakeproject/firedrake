@@ -225,7 +225,6 @@ class BCBase:
         offset_expr = self._function_space.nodal_axes[n].layouts[idict({"nodes": None})]
         raise NotImplementedError("TODO, not using at the moment AIUI")
         op3.loop(n, node_offsets[n].assign(offset_expr), eager=True)
-        breakpoint()
         return node_offsets
 
     @cached_property

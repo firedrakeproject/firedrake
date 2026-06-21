@@ -199,7 +199,7 @@ class NullBuffer(AbstractArrayBuffer):
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     def name(self) -> str:
-        breakpoint()
+        assert False, "not using buffer.name any more"
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
         if constant is None:

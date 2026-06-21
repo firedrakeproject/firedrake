@@ -503,10 +503,7 @@ class CompiledCodeExecutor:
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
             for buffer_key, replacement_buffer in kwargs.items():
-                try:
-                    index = self._buffer_ref_indices[buffer_key]
-                except:
-                    breakpoint()
+                index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
                 exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
 
