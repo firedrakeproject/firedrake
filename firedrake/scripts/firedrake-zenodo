@@ -720,6 +720,13 @@ else:
     infile = open(os.path.abspath(args.input_file[0]), "r")
     shas = json.loads(infile.read())
 
+    # Detect the components to release from the input file
+    components = [
+        pkg
+        for pkg in [*MANDATORY_PACKAGES, *OPTIONAL_PACKAGES]
+        if pkg in shas
+    ]
+
 if args.title:
     shas["title"] = args.title[0]
 
@@ -790,6 +797,11 @@ def check_ref_exists(component):
     if "version" in shas[component]:
         # component is versioned, a GitHub release should already exist
         version = shas[component]["version"]
+
+        # PETSc prepend a 'v' to their releases
+        if component == "petsc":
+            version = "v" + version
+
         if not release_already_exists(component, version):
             msg = textwrap.dedent(
                 f"""\
@@ -925,10 +937,6 @@ def release_already_exists(component: str, release_name: str) -> bool:
 
 
 def get_matching_release(component: str, release_name: str) -> github3.Release:
-    # PETSc prepend a 'v' to their releases
-    if component == "petsc":
-        release_name = "v" + release_name
-
     for release in get_component_repository(component).releases():
         if release.tag_name == release_name:
             return release
