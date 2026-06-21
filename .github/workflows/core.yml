@@ -135,7 +135,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake --timeout-method signal
         # UNDO ME
         timeout-minutes: 180
 
