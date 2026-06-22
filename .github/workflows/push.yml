@@ -59,12 +59,11 @@ jobs:
         run: jupytext --to ipynb firedrake/docs/notebooks/*.py
 
       - name: Copy notebooks
-        # Ship the generated notebooks and their data files, but not the
+        # Ship the generated notebooks and all their data files, but not the
         # jupytext .py sources or config.
         run: |
-          cp firedrake/docs/notebooks/*.ipynb notebooks/
-          cp -r firedrake/docs/notebooks/image notebooks/
-          cp firedrake/docs/notebooks/*.geo firedrake/docs/notebooks/*.msh notebooks/
+          rsync -a --exclude='*.py' --exclude='jupytext.toml' \
+            firedrake/docs/notebooks/ notebooks/
 
       - name: Prepare notebooks for Colab
         working-directory: notebooks
