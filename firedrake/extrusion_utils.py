@@ -69,7 +69,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op3.Dat.from_array(layer_height)
+    # NOTE: Not sure about this in parallel, needs an SF?
+    layer_height = op3.Dat.from_array(layer_height, comm=extruded_topology.comm)
 
     if kernel is not None:
         raise NotImplementedError

@@ -4626,8 +4626,8 @@ def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     cdef:
         PETSc.IS filtered_is
 
-    # empty ISes remain empty
-    if not is_ or is_.size == 0:
+    # cast null ISes to empty ones
+    if not is_:
         return PETSc.IS().createGeneral(np.empty(0, dtype=IntType))
 
     filtered_is = is_.duplicate()

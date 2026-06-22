@@ -1268,7 +1268,7 @@ class AbstractMeshTopology(abc.ABC):
             [
                 op3.Subset(
                     facet_support_dat.axes.root.component.label,
-                    op3.Dat.from_array(selected_facets),
+                    op3.Dat.from_array(selected_facets, comm=self.comm),
                     label=facet_axis.component.label,
                 )
             ],
@@ -1961,7 +1961,7 @@ class MeshTopology(AbstractMeshTopology):
     # Maybe doesn't have to be a method either
     def _facet_subset(self, plex_indices_is: PETSc.IS, component_renumbering: PETSc.Section, component_label) -> op3.Slice:
         subset_indices = dmcommon.section_offsets(component_renumbering, plex_indices_is, sort=True)
-        subset_dat = op3.Dat.from_array(subset_indices.indices)
+        subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
         return op3.Slice(self.name, [op3.Subset(component_label, subset_dat)])
 
     @cached_property

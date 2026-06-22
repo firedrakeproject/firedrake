@@ -83,6 +83,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePat
                 raise NotImplementedError("This will be very inefficient")
 
             # FIXME: Only need to call the inner bit once and repeatedly add?
+            # FIXME: This is not parallel safe
             for point in range(component.local_size):
                 sfs.extend(
                     _collect_sf_graphs_rec(axis_tree, path_, indices | {axis.label: point})

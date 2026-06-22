@@ -16,6 +16,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.arrayref
+import pyop3.axis_tree
 import pyop3.device
 import pyop3.record
 from pyop3 import utils
@@ -240,8 +241,23 @@ class Dat(Tensor):
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+    def from_array(
+        cls,
+        array: np.ndarray,
+        *,
+        sf: StarForest | None = None,
+        comm: MPI.Comm = MPI.COMM_SELF,
+        buffer_kwargs=None,
+        **kwargs,
+    ) -> Dat:
         from pyop3 import Scalar
+
+        if sf and sf.comm != comm:
+            raise pyop3.exceptions.CommMismatchException
+
+        # If no SF is provided then we assume no overlap
+        if sf is None:
+            sf = pyop3.sf.local_sf(array.size, comm=comm)
 
         buffer_kwargs = buffer_kwargs or {}
 
@@ -252,9 +268,9 @@ class Dat(Tensor):
         if "name" not in buffer_kwargs:
             buffer_kwargs["name"] = f"{name}_buffer"
 
-        # NOTE: Should this size *always* be a Scalar?
-        axes = Axis(Scalar(array.size))
-        buffer = ArrayBuffer(array, **buffer_kwargs)
+        # NOTE: Should this size *always* be a Scalar? maybe not if rank_constant is True...
+        axes = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(Scalar(array.size), sf=sf))
+        buffer = ArrayBuffer(array, sf=sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
