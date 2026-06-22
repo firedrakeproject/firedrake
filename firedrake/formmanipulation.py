@@ -3,7 +3,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Zero, FixedIndex, FormSum, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -90,6 +90,11 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        # FIXME slate is getting wrapped in FormSum((TensorBase, 1))
+        if isinstance(form, FormSum) and len(form.components()) == 1:
+            if form.weights()[0] == 1:
+                form = form.components()[0]
 
         if isinstance(form, slate.slate.TensorBase):
             return slate.slate.Block(form, argument_indices)
