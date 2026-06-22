@@ -161,12 +161,13 @@ runs:
     - name: Install checked out FIAT
       shell: bash
       run: |
+        . venv/bin/activate
         python3 -m pip install --break-system-packages -e './fiat-repo'
 
-    - name: Run firedrake-check
+    - name: Run firedrake-clean and firedrake-check
       shell: bash
       run: |
         . venv/bin/activate
-        firedrake-clean
         pip list
+        firedrake-clean
         firedrake-check
