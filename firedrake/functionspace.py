@@ -6,6 +6,7 @@ backwards-compatibility, argument checking, and dispatch.
 """
 import itertools
 import ufl
+from ufl.cell import as_cell
 import finat.ufl
 
 from pyop3.pyop2_utils import flatten

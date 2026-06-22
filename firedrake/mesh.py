@@ -63,6 +63,7 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+from finat.ufl import as_cell
 
 
 if typing.TYPE_CHECKING:
@@ -1090,6 +1091,9 @@ class AbstractMeshTopology(abc.ABC):
     def _reorder_closure_fiat_simplex(self, closure_data):
         return dmcommon.closure_ordering(self, closure_data)
 
+    def _reorder_closure_fuse_tet(self, closure_data):
+        return dmcommon.create_cell_closure_fuse_tet(closure_data)
+
     def _reorder_closure_fiat_quad(self, closure_data):
         petsctools.cite("Homolya2016")
         petsctools.cite("McRae2016")
@@ -1452,11 +1456,13 @@ class AbstractMeshTopology(abc.ABC):
                 self.submesh_parent._fiat_cell_closures,
                 entity_per_cell,
             )
-
+        elif hasattr(self.ufl_cell(), "to_fiat") and self.ufl_cell().cellname == "tetrahedron":
+            # TODO better way to identify fuse use - use env var 
+            return self._reorder_closure_fuse_tet(plex_closures)
         elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
 
-        elif self.ufl_cell() == ufl.quadrilateral:
+        elif self.ufl_cell().cellname == "quadrilateral":
             return self._reorder_closure_fiat_quad(plex_closures)
 
         else:
@@ -1852,7 +1858,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        return ufl.Cell(_cells[tdim][nfacets])
+        return as_cell(_cells[tdim][nfacets])
 
     @cached_property
     def _ufl_mesh(self):
@@ -1887,10 +1893,33 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension+1)
         )
 
+    # old attribute, keeping around for now, use entity_orientations_renum usually
     @cached_property
     def entity_orientations(self):
         # return np.zeros_like(self._fiat_cell_closures)
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
+
+    @cached_property
+    def entity_orientations_dat_fuse(self):
+        # Needed in this order for FUSE orientations
+        cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
+        entity_orientations_original = dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        entity_orientations = [[] for i in range(len(cell_numbering))]
+        for row,i in zip(entity_orientations_original, cell_numbering):
+            entity_orientations[i] = row
+        entity_orientations = np.array(entity_orientations)
+
+        # FIXME: the following does not work because the labels change
+        cell_axis = self.cells.root
+        # # so instead we do
+        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+
+        # TODO: This is quite a funky way of getting this. We should be able to get
+        # it without calling the map.
+        closure_axis = self.closure(self.cells.iter()).axes.root
+        axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
+        assert axis_tree.local_size == entity_orientations.size
+        return op3.Dat(axis_tree, data=entity_orientations.flatten(), prefix="orientations")
 
     @cached_property
     def entity_orientations_dat(self):
@@ -1898,6 +1927,8 @@ class MeshTopology(AbstractMeshTopology):
         cell_axis = self.cells.root
         # # so instead we do
         # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+        if bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
+            return self.entity_orientations_dat_fuse
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
@@ -2623,7 +2654,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _ufl_cell(self):
-        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
+        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval"))
 
     @cached_property
     def _ufl_mesh(self):
@@ -3454,7 +3485,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property
     def _ufl_cell(self):
-        return ufl.Cell(_cells[0][0])
+        return as_cell(_cells[0][0])
 
     @cached_property
     def _ufl_mesh(self):
@@ -3508,6 +3539,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         import FIAT
         topology = FIAT.ufc_cell(cell).get_topology()
+        warnings.warn("FUSE may not like this- using UFC cell")
         entity_per_cell = np.zeros(len(topology), dtype=IntType)
         for d, ents in topology.items():
             entity_per_cell[d] = len(ents)
@@ -4958,9 +4990,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval"), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval"), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:

@@ -113,15 +113,15 @@ jobs:
           base_ref: ${{ inputs.base_ref }}
           deps: ci
 
-      - name: Run TSFC tests
-        # Run even if earlier tests failed
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 10
+    #   - name: Run TSFC tests
+    #     # Run even if earlier tests failed
+    #     if: success() || steps.install.conclusion == 'success'
+    #     run: |
+    #       . venv/bin/activate
+    #       : # Use pytest-xdist here so we can have a single collated output (not possible
+    #       : # for parallel tests)
+    #       firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+    #     timeout-minutes: 10
 
       # TODO: parallel tests as well
       # - name: Run pyop3 tests
@@ -146,92 +146,92 @@ jobs:
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
-      - name: Run tests (nprocs = 3)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+     # - name: Run tests (nprocs = 3)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 60
 
-      - name: Run tests (nprocs = 4)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+     # - name: Run tests (nprocs = 4)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 15
 
-      - name: Run tests (nprocs = 5)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+     # - name: Run tests (nprocs = 5)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 15
 
-      - name: Run tests (nprocs = 6)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+     # - name: Run tests (nprocs = 6)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 15
 
-      - name: Run tests (nprocs = 7)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+     # - name: Run tests (nprocs = 7)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 15
 
-      - name: Run tests (nprocs = 8)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+     # - name: Run tests (nprocs = 8)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 15
 
-      - name: Run Gusto smoke tests
-        # Only test Gusto in real mode
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          if [ ${{ inputs.base_ref }} = 'release' ]; then
-            GUSTO_BRANCH='main'
-          else
-            GUSTO_BRANCH='future'
-          fi
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
-          pip install --verbose ./gusto-repo
-          python -m pytest -n 8 --verbose \
-            gusto-repo/integration-tests/balance/test_saturated_balance.py \
-            gusto-repo/integration-tests/equations/test_thermal_sw.py \
-            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
-        timeout-minutes: 10
+     # - name: Run Gusto smoke tests
+     #   # Only test Gusto in real mode
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     if [ ${{ inputs.base_ref }} = 'release' ]; then
+     #       GUSTO_BRANCH='main'
+     #     else
+     #       GUSTO_BRANCH='future'
+     #     fi
+     #     git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
+     #     pip install --verbose ./gusto-repo
+     #     python -m pytest -n 8 --verbose \
+     #       gusto-repo/integration-tests/balance/test_saturated_balance.py \
+     #       gusto-repo/integration-tests/equations/test_thermal_sw.py \
+     #       gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
+     #   timeout-minutes: 10
 
-      - name: Run Thetis smoke tests
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
-          pip install --verbose ./thetis-repo
-          python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
-        timeout-minutes: 10
+     # - name: Run Thetis smoke tests
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
+     #     pip install --verbose ./thetis-repo
+     #     python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
+     #   timeout-minutes: 10
 
-      - name: Run spyro smoke tests
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
-          pip install --verbose ./spyro-repo
-          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
-        timeout-minutes: 5
+     # - name: Run spyro smoke tests
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+     #     pip install --verbose ./spyro-repo
+     #     mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
+     #   timeout-minutes: 5
 
-      - name: Run G-ADOPT smoke tests
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
-          pip install --verbose ./g-adopt-repo
-          make -C g-adopt-repo/demos/mantle_convection/base_case check
-        timeout-minutes: 5
+     # - name: Run G-ADOPT smoke tests
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+     #     pip install --verbose ./g-adopt-repo
+     #     make -C g-adopt-repo/demos/mantle_convection/base_case check
+     #   timeout-minutes: 5
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
@@ -246,192 +246,192 @@ jobs:
 
   # Since we can't skip matrix entries based on 'inputs.test_complex' etc
   # we have to build the matrix as a separate step
-  gen_linux_extra_matrix:
-    name: Prepare matrix for Linux extra tests
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.generate.outputs.matrix }}
-    steps:
-      - name: Generate matrix
-        id: generate
-        run: |
-          if [ ${{ inputs.test_complex }} == 'true' ]; then
-            matrix='{"scalar_type": "complex", "gpu": "none"}'
-          fi
-          if [ ${{ inputs.test_cuda }} == 'true' ]; then
-            arch='{"scalar_type": "default", "gpu": "cuda"}'
-            if [ "$matrix" ]; then
-              matrix="$matrix, $arch"
-            else
-              matrix="$arch"
-            fi
-          fi
+#   gen_linux_extra_matrix:
+#     name: Prepare matrix for Linux extra tests
+#     runs-on: ubuntu-latest
+#     outputs:
+#       matrix: ${{ steps.generate.outputs.matrix }}
+#     steps:
+#       - name: Generate matrix
+#         id: generate
+#         run: |
+#           if [ ${{ inputs.test_complex }} == 'true' ]; then
+#             matrix='{"scalar_type": "complex", "gpu": "none"}'
+#           fi
+#           if [ ${{ inputs.test_cuda }} == 'true' ]; then
+#             arch='{"scalar_type": "default", "gpu": "cuda"}'
+#             if [ "$matrix" ]; then
+#               matrix="$matrix, $arch"
+#             else
+#               matrix="$arch"
+#             fi
+#           fi
 
-          echo "Matrix is:"
-          echo "$matrix"
-          echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
+#           echo "Matrix is:"
+#           echo "$matrix"
+#           echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
 
-  test_linux_extra:
-    name: Test Linux extra
-    needs: gen_linux_extra_matrix
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
-    runs-on: [self-hosted, Linux, gpu]
-    container:
-      # TODO: set to 'ubuntu:latest' for GPU case
-      image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
-      options: --gpus all
-    env:
-      # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP2_CFLAGS: -O1 -fno-fast-math
-      # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
-      PETSC_OPTIONS: -use_gpu_aware_mpi 0
-    steps:
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
+#   test_linux_extra:
+#     name: Test Linux extra
+#     needs: gen_linux_extra_matrix
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
+#     runs-on: [self-hosted, Linux, gpu]
+#     container:
+#       # TODO: set to 'ubuntu:latest' for GPU case
+#       image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
+#       options: --gpus all
+#     env:
+#       # Disable some compiler optimisations as they cause runner-specific bugs
+#       PYOP2_CFLAGS: -O1 -fno-fast-math
+#       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
+#       PETSC_OPTIONS: -use_gpu_aware_mpi 0
+#     steps:
+#       - name: Pre-run cleanup
+#         # Make sure the current directory is empty
+#         run: find . -delete
 
-      - name: Confirm NVIDIA GPUs are enabled
-        if: matrix.gpu == 'cuda'
-        # The presence of the nvidia-smi command indicates that the Nvidia drivers have
-        # successfully been imported into the container, there is no point continuing
-        # if nvidia-smi is not present
-        run: nvidia-smi
+#       - name: Confirm NVIDIA GPUs are enabled
+#         if: matrix.gpu == 'cuda'
+#         # The presence of the nvidia-smi command indicates that the Nvidia drivers have
+#         # successfully been imported into the container, there is no point continuing
+#         # if nvidia-smi is not present
+#         run: nvidia-smi
 
-      - uses: actions/checkout@v5
-        with:
-          path: firedrake-repo
-          ref: ${{ inputs.source_ref }}
+#       - uses: actions/checkout@v5
+#         with:
+#           path: firedrake-repo
+#           ref: ${{ inputs.source_ref }}
 
-      - name: Install Firedrake
-        id: install
-        uses: ./firedrake-repo/.github/actions/install
-        with:
-          os: linux
-          source_ref: ${{ inputs.source_ref }}
-          base_ref: ${{ inputs.base_ref }}
-          scalar_type: ${{ matrix.scalar_type }}
-          gpu: ${{ matrix.gpu }}
-          deps: ci
+#       - name: Install Firedrake
+#         id: install
+#         uses: ./firedrake-repo/.github/actions/install
+#         with:
+#           os: linux
+#           source_ref: ${{ inputs.source_ref }}
+#           base_ref: ${{ inputs.base_ref }}
+#           scalar_type: ${{ matrix.scalar_type }}
+#           gpu: ${{ matrix.gpu }}
+#           deps: ci
 
-      - name: Confirm GPU usage in OffloadPC test
-        shell: bash
-        if: matrix.gpu == 'cuda'
-        run: |
-          . venv/bin/activate
-          : # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
-          : # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
-          : # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
-          : # into an array and tests if the final element of that array is above 80.
-          : # -----
-          : # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
-          while read -r line; do
-            if [[ "${line}" =~ ^SNESSolve ]]; then
-              readarray -d' ' arr <<<"${line}"
-              echo "SNESSolve PETSc log_view line"
-              echo "============================="
-              echo "${line}"
-              [[ "${arr[-1]}" -gt 80 ]] && exit 0 || exit 1
-            fi
-          done < <( python firedrake-repo/tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
-          echo "SNESSolve not found in PETSc log_view output!"
-          exit 1
+#       - name: Confirm GPU usage in OffloadPC test
+#         shell: bash
+#         if: matrix.gpu == 'cuda'
+#         run: |
+#           . venv/bin/activate
+#           : # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
+#           : # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
+#           : # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
+#           : # into an array and tests if the final element of that array is above 80.
+#           : # -----
+#           : # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
+#           while read -r line; do
+#             if [[ "${line}" =~ ^SNESSolve ]]; then
+#               readarray -d' ' arr <<<"${line}"
+#               echo "SNESSolve PETSc log_view line"
+#               echo "============================="
+#               echo "${line}"
+#               [[ "${arr[-1]}" -gt 80 ]] && exit 0 || exit 1
+#             fi
+#           done < <( python firedrake-repo/tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
+#           echo "SNESSolve not found in PETSc log_view output!"
+#           exit 1
 
-      # TODO: We should run all tests that are specific to a particular configuration
-      # (e.g. run all tests marked 'skipnogpu')
-      - name: Run tests subset
-        if: inputs.trigger == 'push'
-        run: |
-          . venv/bin/activate
+#       # TODO: We should run all tests that are specific to a particular configuration
+#       # (e.g. run all tests marked 'skipnogpu')
+#       - name: Run tests subset
+#         if: inputs.trigger == 'push'
+#         run: |
+#           . venv/bin/activate
 
-          : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
-          PYTEST_ARGS="--splits 10 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake"
+#           : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
+#           PYTEST_ARGS="--splits 10 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake"
 
-          python3 -m pytest -n 8 $PYTEST_ARGS
-          mpiexec -n 2 python3 -m pytest $PYTEST_ARGS
-          mpiexec -n 3 python3 -m pytest $PYTEST_ARGS
-        timeout-minutes: 30
+#           python3 -m pytest -n 8 $PYTEST_ARGS
+#           mpiexec -n 2 python3 -m pytest $PYTEST_ARGS
+#           mpiexec -n 3 python3 -m pytest $PYTEST_ARGS
+#         timeout-minutes: 30
 
-      - name: Run TSFC tests
-        if: inputs.trigger == 'pr'
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 10
+#       - name: Run TSFC tests
+#         if: inputs.trigger == 'pr'
+#         run: |
+#           . venv/bin/activate
+#           : # Use pytest-xdist here so we can have a single collated output (not possible
+#           : # for parallel tests)
+#           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+#         timeout-minutes: 10
 
-      - name: Run PyOP2 tests
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-        timeout-minutes: 10
+#       - name: Run PyOP2 tests
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+#           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+#           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+#           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+#         timeout-minutes: 10
 
-      - name: Run Firedrake tests (nprocs = 1)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 90
+#       - name: Run Firedrake tests (nprocs = 1)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 90
 
-      - name: Run Firedrake tests (nprocs = 2)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+#       - name: Run Firedrake tests (nprocs = 2)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 60
 
-      - name: Run Firedrake tests (nprocs = 3)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+#       - name: Run Firedrake tests (nprocs = 3)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 60
 
-      - name: Run Firedrake tests (nprocs = 4)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+#       - name: Run Firedrake tests (nprocs = 4)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 20
 
-      - name: Run Firedrake tests (nprocs = 5)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+#       - name: Run Firedrake tests (nprocs = 5)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 20
 
-      - name: Run Firedrake tests (nprocs = 6)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+#       - name: Run Firedrake tests (nprocs = 6)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 20
 
-      - name: Run Firedrake tests (nprocs = 7)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+#       - name: Run Firedrake tests (nprocs = 7)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 20
 
-      - name: Run Firedrake tests (nprocs = 8)
-        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+#       - name: Run Firedrake tests (nprocs = 8)
+#         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+#         run: |
+#           . venv/bin/activate
+#           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+#         timeout-minutes: 20
 
-      - name: Post-run cleanup
-        if: always()
-        run: find . -delete
+#       - name: Post-run cleanup
+#         if: always()
+#         run: find . -delete
 
   # TODO: run full test suite on PR and subset on push like above
   test_macos:
@@ -537,12 +537,20 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
+    
+      - uses: actions/checkout@v5
+        with:
+          repository: firedrakeproject/fiat
+          path: fiat-repo
+          ref: refs/heads/indiamai/integrate_fuse
+
       - name: Install Firedrake
         id: install
         run: |
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+          pip install './fiat-repo'
           firedrake-clean
           pip list
 

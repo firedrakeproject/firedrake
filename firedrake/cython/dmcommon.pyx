@@ -459,6 +459,21 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---1---+
+        # FUSE                    +---1---+
+        #                         |       |
+        #                         0       2
+        #                         |       |
+        #                         +---3---+
+        #if "fuse" in dm.name:
+        # FUSE rules
+        print("FUSE")
+        #plex_cone_new[0] = plex_cone_old[0]
+        #plex_cone_new[1] = plex_cone_old[3]
+        #plex_cone_new[2] = plex_cone_old[2]
+        #plex_cone_new[3] = plex_cone_old[1]
+        #else:
+        # UFC rules
+        #print("UFC")
         plex_cone_new[0] = plex_cone_old[0]
         plex_cone_new[1] = plex_cone_old[2]
         plex_cone_new[2] = plex_cone_old[1]
@@ -555,7 +570,41 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                               8   9
         #                                \ /
         #                                14
+        # fuse tet
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        print("REORDER TET CLOSURE")
+        fiat_closure[0] = plex_closure[2 * 13]
+        fiat_closure[1] = plex_closure[2 * 11]
+        fiat_closure[2] = plex_closure[2 * 14]
+        fiat_closure[3] = plex_closure[2 * 12]
+        fiat_closure[4] = plex_closure[2 * 7]
+        fiat_closure[5] = plex_closure[2 * 8]
+        fiat_closure[6] = plex_closure[2 * 10]
+        fiat_closure[7] = plex_closure[2 * 6]
+        fiat_closure[8] = plex_closure[2 * 5]
+        fiat_closure[9] = plex_closure[2 * 9]
+        fiat_closure[10] = plex_closure[2 * 4]
+        fiat_closure[11] = plex_closure[2 * 1]
+        fiat_closure[12] = plex_closure[2 * 3]
+        fiat_closure[13] = plex_closure[2 * 2]
+        fiat_closure[14] = plex_closure[2 * 0]
+        # ufc tet fuse
+        #fiat_closure[0] = plex_closure[2 * 14]
+        #fiat_closure[1] = plex_closure[2 * 13]
+        #fiat_closure[2] = plex_closure[2 * 12]
+        #fiat_closure[3] = plex_closure[2 * 11]
+        #fiat_closure[4] = plex_closure[2 * 5]
+        #fiat_closure[5] = plex_closure[2 * 7]
+        #fiat_closure[6] = plex_closure[2 * 6]
+        #fiat_closure[7] = plex_closure[2 * 8]
+        #fiat_closure[8] = plex_closure[2 * 9]
+        #fiat_closure[9] = plex_closure[2 * 10]
+        #fiat_closure[10] = plex_closure[2 * 2]
+        #fiat_closure[11] = plex_closure[2 * 4]
+        #fiat_closure[12] = plex_closure[2 * 1]
+        #fiat_closure[13] = plex_closure[2 * 3]
+        #fiat_closure[14] = plex_closure[2 * 0]
+        # raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral:       1---7---3
         #                         |       |
@@ -568,7 +617,22 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         1   0   3
         #                         |       |
         #                         6---2---7
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        #
+        # FUSE                    1---5---3
+        #                         |       |
+        #                         4   8   6
+        #                         |       |
+        #                         0---7---2
+        fiat_closure[0] = plex_closure[2 * 6]
+        fiat_closure[1] = plex_closure[2 * 5]
+        fiat_closure[2] = plex_closure[2 * 7]
+        fiat_closure[3] = plex_closure[2 * 8]
+        fiat_closure[4] = plex_closure[2 * 1]
+        fiat_closure[5] = plex_closure[2 * 4]
+        fiat_closure[6] = plex_closure[2 * 3]
+        fiat_closure[7] = plex_closure[2 * 2]
+        fiat_closure[8] = plex_closure[2 * 0]
+        # raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # FInAT (tensor-product) hex numbering:
         #
@@ -661,6 +725,64 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         fiat_closure[26] = plex_closure[2 * 0]
     else:
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def create_cell_closure_fuse_tet(plex_closures):
+    """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
+
+    :arg dm: The DM object encapsulating the mesh topology
+    :arg _closureSize: Number of entities in the cell
+    """
+    # UFCTetrahedron:         0---9---1---9---0
+    #                          \ 12  / \ 13  /
+    # cell = 14                 7   5   6   8
+    #                            \ / 10  \ /
+    #                             3---4---2
+    #                              \ 11  /
+    #                               7   8
+    #                                \ /
+    #                                 0
+    #
+    # PETSc.DM.PolytopeType. 14--10--13--10---14
+    # TETRAHEDRON:             \  3  / \  4  /
+    #                           8   7   6   9
+    # cell = 0                   \ /  1  \ /
+    #                            11---5---12
+    #                              \  2  /
+    #                               8   9
+    #                                \ /
+    #                                14
+    # fuse tet
+    cdef:
+        PetscInt c, cStart, cEnd, cell, i, ncells
+        PetscInt closureSize
+        PetscInt *plex_closure = NULL
+        PetscInt *fiat_closure = NULL
+        np.ndarray cell_closure
+
+    ncells, closureSize = plex_closures.shape
+    cell_closure = np.empty_like(plex_closures)
+    # CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    for c in range(ncells):
+        # plex_closure = plex_closures[c]
+        cell_closure[c, 0] = plex_closures[c, 13]
+        cell_closure[c, 1] = plex_closures[c, 11]
+        cell_closure[c, 2] = plex_closures[c, 14]
+        cell_closure[c, 3] = plex_closures[c, 12]
+        cell_closure[c, 4] = plex_closures[c, 7]
+        cell_closure[c, 5] = plex_closures[c, 8]
+        cell_closure[c, 6] = plex_closures[c, 10]
+        cell_closure[c, 7] = plex_closures[c, 6]
+        cell_closure[c, 8] = plex_closures[c, 5]
+        cell_closure[c, 9] = plex_closures[c, 9]
+        cell_closure[c, 10] = plex_closures[c, 4]
+        cell_closure[c, 11] = plex_closures[c, 1]
+        cell_closure[c, 12] = plex_closures[c, 3]
+        cell_closure[c, 13] = plex_closures[c, 2]
+        cell_closure[c, 14] = plex_closures[c, 0]
+    # PETSc.CHKERR(PetscFree(fiat_closure))
+    return cell_closure
 
 
 @cython.boundscheck(False)
@@ -1148,11 +1270,15 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
 
     CHKERR(PetscMalloc1(coneSize, &cone1))
     CHKERR(PetscMalloc1(coneSize, &inds))
+    #print("plex")
     for k in range(coneSize1):
         cone1[k] = plex_cone[k]
+        #print(plex_cone[k])
     n = 0
+    #print("fiat")
     for e in range(coneSize):
         q = fiat_cone[e]
+        #print(q)
         for k in range(coneSize1):
             if q == cone1[k]:
                 inds[n] = k
@@ -1269,11 +1395,13 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     for i in range(coneSize):
         fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
     if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
+       dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
         # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
         # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
+       return _compute_orientation_simplex(fiat_cone, cone, coneSize)
+    elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
+        #return _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_simplex(fiat_cone, cone, coneSize)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
@@ -1345,7 +1473,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         entity_cone_map[i] = entity_cone_list[i]
     for i in range(len(entity_cone_list_offset)):
         entity_cone_map_offset[i] = entity_cone_list_offset[i]
-    #
+
     dm = mesh.topology_dm
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]

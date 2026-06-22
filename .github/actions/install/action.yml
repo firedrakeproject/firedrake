@@ -152,11 +152,22 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
-        firedrake-clean
-        pip list
-
-    - name: Run firedrake-check
+    - uses: actions/checkout@v5
+      with:
+        repository: firedrakeproject/fiat
+        path: fiat-repo
+        ref: refs/heads/indiamai/integrate_fuse
+      
+    - name: Install checked out FIAT
       shell: bash
       run: |
         . venv/bin/activate
+        pip install './fiat-repo'
+
+    - name: Run firedrake-clean and firedrake-check
+      shell: bash
+      run: |
+        . venv/bin/activate
+        pip list
+        firedrake-clean
         firedrake-check

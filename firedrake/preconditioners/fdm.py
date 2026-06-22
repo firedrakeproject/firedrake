@@ -424,7 +424,6 @@ class FDMPC(PCBase):
             x = Function(Vsub)
             y = Function(Vsub)
             sizes = (Vsub.template_vec.getSizes(),) * 2
-            raise NotImplementedError
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
                                   op3.OpaqueTerminal(op3.PetscMatBuffer(K.result)),
                                   *args_acc,

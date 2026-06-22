@@ -22,18 +22,18 @@ endif
 .PHONY: srclint
 srclint:
 	@echo "    Linting firedrake"
-	@python -m flake8 $(FLAKE8_FORMAT) firedrake
+	@python3 -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
-	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 	@echo "    Linting firedrake tests"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
+	@python3 -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting PyOP2"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2
+	@python3 -m flake8 $(FLAKE8_FORMAT) pyop2
 	@echo "    Linting PyOP2 scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
-	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+	@python3 -m flake8 $(FLAKE8_FORMAT) tsfc
 
 .PHONY: actionlint
 actionlint:
