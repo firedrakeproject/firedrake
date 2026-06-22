@@ -1765,7 +1765,7 @@ class MeshTopology(AbstractMeshTopology):
             return composed_map, integral_type
 
     @cached_property
-    def visible_ranks(self):
+    def _visible_ranks(self):
         # Get parent mesh rank ownership information.
         visible_ranks = np.empty(self.cell_set.total_size, dtype=IntType)
         visible_ranks[:self.cell_set.size] = self.comm.rank
@@ -4424,7 +4424,7 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    visible_ranks = parent_mesh.visible_ranks
+    visible_ranks = parent_mesh._visible_ranks
     locally_visible = parent_cell_nums != -1
 
     if parent_mesh.extruded:
