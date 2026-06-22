@@ -19,10 +19,10 @@ Firedrake virtualenv.
 These notebooks are maintained in the Firedrake repository as
 `jupytext <https://jupytext.readthedocs.io>`__ ``py:percent`` scripts, so all
 the material is available in your Firedrake installation source directory.  If
-you installed in ``Documents/firedrake``, then the notebooks are in the
-directory ``Documents/firedrake/src/firedrake/docs/notebooks``.  Jupyter (with
-the jupytext extension installed) can open the ``.py`` files directly as
-notebooks, or you can convert one to ``.ipynb`` with, for example::
+you cloned Firedrake in ``Documents/firedrake``, then the notebooks are in the
+directory ``Documents/firedrake/docs/notebooks``.  Jupyter (with the jupytext
+extension installed) can open the ``.py`` files directly as notebooks, or you
+can convert one to ``.ipynb`` with, for example::
 
     jupytext --to ipynb 01-spd-helmholtz.py
 
