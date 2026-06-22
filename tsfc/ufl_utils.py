@@ -25,7 +25,7 @@ from ufl.classes import (Abs, Argument, CellOrientation,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_domains, extract_unique_domain
 
 from gem.node import MemoizerArg
 
@@ -56,7 +56,7 @@ def compute_form_data(form,
     # breakpoint()
     # Multidomain problems require further index simplifications to ensure
     # that unwanted quantities do not appear inside single-domain integrals.
-    do_remove_component_tensors = len(form.ufl_domains()) > 1
+    do_remove_component_tensors = len(extract_domains(form)) > 1
     fd = ufl_compute_form_data(
         form,
         do_apply_function_pullbacks=do_apply_function_pullbacks,
