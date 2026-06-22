@@ -634,9 +634,9 @@ Instructions for how to do this can be found here_.
 
 .. _HDF5: https://www.hdfgroup.org/HDF5/
 
-.. _PETSc: http://www.mcs.anl.gov/petsc/
+.. _PETSc: https://petsc.org/
 
-.. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Viewer/index.html
+.. _Viewer: https://petsc.org/release/manualpages/Viewer/
 .. _h5py: http://www.h5py.org
 
 .. _here: https://docs.h5py.org/en/latest/build.html#custom-installation

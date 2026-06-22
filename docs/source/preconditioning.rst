@@ -69,6 +69,19 @@ multiplicatively within an MPI rank and additively between ranks.
    entities into lines or planes (useful for advection-dominated
    problems).
 
+.. note::
+   The additive Schwarz preconditioners listed here construct patches around
+   mesh entities.  Crucially, the mesh must have an overlapping parallel domain
+   decomposition that supports the patches. This is set via the
+   `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
+   instance, vertex-star patches require ::
+
+      distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
+
+   while Vanka patches require ::
+
+      distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
+
 Multigrid methods
 =================
 
@@ -138,7 +151,7 @@ operator instead.
    implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
-   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022`.
+   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
 :class:`~.PCDPC`
@@ -164,6 +177,145 @@ assembled tensors. These are described in detail in :cite:`Gibson2018`.
 :class:`.SCPC`
    A preconditioner that performs element-wise static condensation
    onto a single field.
+
+Nonlinear preconditioning
+=========================
+
+It is also possible to precondition at the nonlinear level.
+To demonstrate this, following the review article :cite:`brune2015composing`,
+we start with the preconditioned linear Richardson iteration for solving
+:math:`Ax - b = 0` preconditioned by :math:`P` (also called the
+preconditioned fixed point iteration):
+
+.. math::
+
+   Px_{k+1} = Px_{k} - (Ax_{k} - b)
+
+The idea being that :math:`A` is too difficult to solve on it's own, so
+instead we solve some :math:`P` that is similar to :math:`A` but easier
+to solve.  Clearly the solution :math:`x_{*}` of :math:`Ax_{*}-b=0` is
+a fixed point of the iteration, and if :math:`P` is similar enough to
+:math:`A` then the iteration will converge, i.e. :math:`x_{k}\to x_{*}`.
+
+Now imagine we want to solve the nonlinear problem :math:`F(x)=0`, but
+for whatever reason it is too hard to solve directly (maybe we don't
+have a good initial guess so Newton stagnates or diverges). Instead
+we could choose an operator :math:`G(x)` that is similar to `F(x)` but
+easier to solve, and use it to form a preconditioned *nonlinear*
+Richardson iteration:
+
+.. math::
+
+   G(x_{k+1}) = G(x_{k}) - F(x_{k})
+
+Clearly once again the solution :math:`x_{*}` of :math:`F(x_{*})` is a
+fixed point of the iteration, and if :math:`G` is similar enough to
+:math:`F` then the iteration will converge to :math:`x_{k}\to x_{*}`.
+
+In practice, many nonlinear preconditioning strategies will actually
+parameterise :math:`G` with the solution at the previous iteration,
+i.e. :math:`G=G(x;x_{k})`, so the full iteration can be written as:
+
+.. math::
+
+   G(x_{k+1}; x_{k}) = G(x_{k}; x_{k}) - F(x_{k})
+
+We can think about two cases, one where :math:`G(x; x_{k})=F(x)`,
+and the other where :math:`G(x; x_{k})\neq F(x)`.
+
+An example of the first case is the classical Picard iterations for
+the Navier-Stokes equations, where the nonlinear advection term
+:math:`u\cdot\nabla u` in :math:`F` is replaced in :math:`G` by
+:math:`u_{k}\cdot\nabla u`, i.e. we freeze the advecting velocity
+to the value at the previous iteration.
+In this case where :math:`G(x;x_{k})=F(x)` the forcing terms on
+the right hand side of the preconditioned Richardson iteration
+cancel and the equation reduces to:
+
+.. math::
+
+   G(x_{k+1}; x_{k}) = 0
+
+which is how it will often be formulated in the literature.
+However, it is completely valid for :math:`G(x;x_{k})\neq F(x)`,
+for example if we add some diffusion term to :math:`G` to stabilise
+the inner solve at each Richardson iteration. In this case the
+forcing term will not disappear.
+
+The preconditioned nonlinear Richardson solver is implemented in Firedrake
+using the :class:`.AuxiliaryOperatorSNES` class, which is analogous to the
+:class:`.AuxiliaryOperatorPC` class for linear preconditioning. The
+:class:`.AuxiliaryOperatorSNES` class will define the auxiliary form for
+:math:`G`.
+
+:class:`.AuxiliaryOperatorSNES`
+   Abstract base class for nonlinear preconditioners built from an
+   auxiliary form. This form can be nonlinear. One should subclass this
+   preconditioner and override the :meth:`.AuxiliaryOperatorSNES.form`
+   method. This class can be used to provide more tractable approximations
+   to the original problem for iterative methods such as Anderson
+   acceleration or NGMRES. For example, you can use an auxiliary SNES to
+   implement the Picard method. Then you can speed up the Picard method
+   with Anderson acceleration.
+
+Assuming that you have defined a class ``UserAuxiliarySNES`` which
+inherits from :class:`~.AuxiliaryOperatorSNES` and implements the
+:meth:`~.AuxiliaryOperatorSNES.form` method, the following solver
+parameters will specify the preconditioned Richardson iteration,
+where :math:`F` is the form passed to the
+:class:`.NonlinearVariationalSolver`, and :math:`G` is the form
+returned by :meth:`.AuxiliaryOperatorSNES.form`.
+In this example, the inner solve uses a Newton method with a
+relative tolerance of 1e-4.
+
+.. code-block:: python3
+
+    solver_parameters = {
+        "snes_rtol": 1e-8,
+        "snes_type": "python",
+        "snes_python_type": f"{__name__}.UserAuxiliarySNES",
+        "aux": {
+            "snes_rtol": 1e-4,
+            "snes_type": "newtonls",
+            ...
+        }
+    }
+
+The following parameters describe the same Richardson iteration
+as the parameters above, but explicitly specifying the auxiliary
+form as a nonlinear preconditioner using the ``npc_`` prefix.
+
+.. code-block:: python3
+
+    solver_parameters = {
+        "snes_rtol": 1e-8,
+        "snes_type": "nrichardson",
+        "npc_snes_max_it": 1,
+        "npc_snes_linesearch_type": "basic",
+        "npc_snes_type": "python",
+        "npc_snes_python_type": f"{__name__}.UserAuxiliarySNES",
+        "npc_aux": {
+            "snes_rtol": 1e-4,
+            "snes_type": "newtonls",
+            ...
+        }
+    }
+
+Although using ``"npc_"`` to specify the parameters is more verbose
+than the original, it allows for a wider variety of methods. For
+example, by changing the outer ``"snes_type"`` to ``"anderson"``,
+we can use preconditioned Anderson acceleration
+(`<https://petsc.org/release/manualpages/SNES/SNESANDERSON/>`_)
+
+It's important to note that, by default, PETSc will switching on
+linesearch for all SNES objects. However, Firedrake's
+``NonlinearVariationalSolver`` solver overrides this and defaults
+to not using a linesearch unless you explicitly request one in the
+solver parameters.
+This means that to get the "usual" Firedrake behaviour we have to
+explicitly switch off the line search in the ``npc_`` parameters
+with ``"npc_snes_linesearch_type": "basic"`` (although you may well
+want to experiment with using a linesearch for your application).
 
 .. bibliography:: _static/references.bib _static/firedrake-apps.bib
    :filter: docname in docnames

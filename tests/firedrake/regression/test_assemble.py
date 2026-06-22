@@ -41,41 +41,13 @@ def fs(request, mesh):
 
 @pytest.fixture
 def f(fs):
-    f = Function(fs, name="f")
-    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in f_split:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(as_vector((x,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x for i in range(fs_i.mesh().geometric_dimension())]
-                                      for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(x)
-    return f
+    return Function(fs, name="f").interpolate(as_tensor(np.full(fs.value_shape, x)))
 
 
 @pytest.fixture
 def one(fs):
-    one = Function(fs, name="one")
-    ones = one.subfunctions
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in ones:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(Constant((1.0,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
-                                     for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(Constant(1.0))
-    return one
+    return Function(fs, name="one").interpolate(Constant(np.ones(fs.value_shape)))
 
 
 @pytest.fixture
@@ -141,6 +113,76 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     A2 = assembler.assemble(tensor=A1)
 
     assert A2.M is A1.M
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
+@pytest.mark.parametrize("dirichlet_bcs", [False, True])
+def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
+    if shape == "scalar":
+        V = FunctionSpace(mesh, "CG", 1)
+    elif shape == "vector":
+        V = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+    elif shape == "mixed":
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        Q = FunctionSpace(mesh, "CG", 1)
+        V = V * Q
+    else:
+        raise ValueError(f"Unrecognized shape {shape}.")
+
+    if V.value_size == 1:
+        A = 1
+    else:
+        A = as_matrix([[2, -1, 0], [-1, 2, -1], [0, -1, 2]])
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(A * grad(u), grad(v))*dx
+    if dirichlet_bcs:
+        subspaces = [V] if len(V) == 1 else [V.sub(i) for i in range(len(V))]
+        components = []
+        for i, Vi in enumerate(subspaces):
+            if Vi.block_size == 1:
+                components.append(Vi)
+            else:
+                components.extend(Vi.sub(j) for j in range(Vi.block_size))
+
+        assert len(components) == V.value_size
+        bcs = [DirichletBC(components[i], 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(components))]
+    else:
+        bcs = None
+
+    aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
+    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
+
+    aij = PETSc.Mat()
+    if ais.type == "nest":
+        blocks = []
+        for i in range(len(V)):
+            row = []
+            for j in range(len(V)):
+                bis = ais.getNestSubMatrix(i, j)
+                if i == j:
+                    assert bis.type == "is"
+                    bij = PETSc.Mat()
+                    bis.convert("aij", bij)
+                else:
+                    bij = bis
+                row.append(bij)
+            blocks.append(row)
+        anest = PETSc.Mat()
+        anest.createNest(blocks,
+                         isrows=V.dof_dset.field_ises,
+                         iscols=V.dof_dset.field_ises,
+                         comm=ais.comm)
+        anest.convert("aij", aij)
+    else:
+        assert ais.type == "is"
+        ais.convert("aij", aij)
+
+    aij_ref.axpy(-1, aij)
+    ind, iptr, values = aij_ref.getValuesCSR()
+    assert np.allclose(values, 0)
 
 
 def test_assemble_diagonal(mesh):
@@ -362,3 +404,52 @@ def test_split_subdomain_ids():
     assert (a.dat[0].data == b.dat[0].data).all()
     assert b.dat[1].data[0] == 0.0
     assert b.dat[1].data[1] == a.dat[1].data[1]
+
+
+def test_assemble_tensor_empty_shape(mesh):
+    W = TensorFunctionSpace(mesh, "CG", 1, shape=())
+    w = Function(W).assign(1)
+    result = assemble(inner(w, w)*dx)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = Function(V).assign(1)
+    expected = assemble(inner(v, v)*dx)
+    assert np.allclose(result, expected)
+
+
+@pytest.mark.parametrize("coefficient", [False, True], ids=["Expr", "Function"])
+def test_cell_avg(coefficient):
+    mesh = UnitSquareMesh(3, 3)
+    x = SpatialCoordinate(mesh)
+    expr = dot(x, x) ** 2
+    if coefficient:
+        V = FunctionSpace(mesh, "CG", 4)
+        expr = Function(V).interpolate(expr)
+
+    result = assemble(inner(cell_avg(expr), expr) * dx)
+
+    Q = FunctionSpace(mesh, "DG", 0)
+    p = Function(Q)
+    p.project(expr)
+    expect = assemble(inner(p, expr) * dx)
+    assert np.isclose(result, expect)
+
+
+def test_cell_avg_mfs():
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = MixedFunctionSpace([V, Q])
+    z = Function(Z)
+    usub, psub = z.subfunctions
+    usub.interpolate(SpatialCoordinate(mesh))
+    psub.interpolate(Constant(1))
+
+    expect = 6
+    result1 = assemble(inner(cell_avg(div(usub)), psub + div(usub))*dx)
+    assert np.isclose(result1, expect)
+
+    # This fails if do_replace_functions=True in entity_avg in tscf/ufl_utils.py
+    u, p = split(z)
+    result2 = assemble(inner(cell_avg(div(u)), p + div(u))*dx)
+    assert np.isclose(result2, expect)

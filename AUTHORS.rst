@@ -64,6 +64,8 @@ Cyrus Cheng
 
 Teodoro Fields Collin
 
+Leo Collins
+
 Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
@@ -72,7 +74,7 @@ Daiane I. Dolci...............<https://www.imperial.ac.uk/people/d.dolci>
 
 Patrick E. Farrell............<https://pefarrell.org>
 
-Simon W. Funke................<http://www.simonfunke.com>
+Simon W. Funke
 
 Melina Giagiozis
 
@@ -104,9 +106,9 @@ Robert C. Kirby...............<https://www.baylor.edu/math/index.php?id=90540>
 
 Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
-Tuomas Kärnä..................<https://www.tuomaskarna.com>
+Tuomas Kärnä
 
-Michael Lange.................<https://www.linkedin.com/in/michael-lange-56675994/>
+Michael Lange
 
 Nicolas Loriant
 
@@ -122,7 +124,7 @@ Geordie McBain
 
 Andrew T. T. McRae
 
-Oliver Meister................<https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>
+Oliver Meister
 
 Lawrence Mitchell.............<https://www.wence.uk/>
 
@@ -158,7 +160,7 @@ Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/danie
 
 Jemma Shipton
 
-Tianjiao Sun..................<https://www.doc.ic.ac.uk/~ts2914/>
+Tianjiao Sun
 
 Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbecke18>
 

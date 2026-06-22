@@ -95,7 +95,7 @@ Co-location with PETSc '18 users meeting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This year, Imperial College is also hosting the `PETSc users
-<https://www.mcs.anl.gov/petsc/meetings/2018/>`_ meeting, which will
+<https://petsc.gitlab.io/annual-meetings/2018/index.html>`_ meeting, which will
 be held in the first half of the week: 4-6 June 2018.  if you are
 interested in more general aspects of high-performance computational
 science, and the intricacies of composable solvers, we would encourage

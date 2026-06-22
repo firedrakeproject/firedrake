@@ -5,28 +5,9 @@ import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
-
+from finat.element_factory import create_element
 
 __all__ = ("TransferManager", )
-
-
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
-                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
-non_native_variants = frozenset(["integral", "fdm", "alfeld"])
-
-
-def get_embedding_element(element, value_shape):
-    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
-    dg_element = get_embedding_dg_element(element, value_shape, broken_cg=broken_cg)
-    variant = element.variant() or "default"
-    family = element.family()
-    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
-    # This yields supermesh projection
-    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
-        dg_element = dg_element.reconstruct(variant="powell-sabin")
-    return dg_element
 
 
 class Op(IntEnum):
@@ -67,28 +48,49 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
-    def is_native(self, element, op):
-        if element in self.native_transfers.keys():
+    def is_native(self, element, gdim, op):
+        if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
-        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return all(self.is_native(e, op) for e in element.sub_elements)
-        return (element.family() in native_families) and not (element.variant() in non_native_variants)
+        if isinstance(element.cell, ufl.TensorProductCell):
+            if isinstance(element, finat.ufl.TensorProductElement):
+                return all(self.is_native(e, gdim, op) for e in element.factor_elements)
+            elif isinstance(element, finat.ufl.MixedElement):
+                return all(self.is_native(e, gdim, op) for e in element.sub_elements)
 
-    def _native_transfer(self, element, op):
+        # Can we interpolate into this element?
+        # Piola-mapped elements on manifolds
+        # have degrees of freedom evaluating to
+        # different values on either side of a facet
+        tdim = element.cell.topological_dimension
+        if tdim != gdim and element.mapping() != "identity":
+            return False
+
+        finat_element = create_element(element)
+        try:
+            finat_element.dual_basis
+        except NotImplementedError:
+            return False
+        else:
+            return True
+
+    def _native_transfer(self, element, gdim, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if self.is_native(element, op):
+            if self.is_native(element, gdim, op):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
     def cache(self, V):
-        key = (V.ufl_element(), V.value_shape)
+        key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
             return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(*key))
+            return self.caches.setdefault(key, TransferManager.Cache(*key[:2]))
+
+    def cache_key(self, V):
+        return (V.dim(),)
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -97,7 +99,7 @@ class TransferManager(object):
         :returns: A PETSc Vec.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_dof_weights[key]
         except KeyError:
@@ -122,7 +124,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_DG_mass[key]
         except KeyError:
@@ -153,7 +155,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
@@ -171,13 +173,13 @@ class TransferManager(object):
         :returns: A PETSc KSP for inverting (V, V).
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V._comm)
+            ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")
@@ -193,7 +195,7 @@ class TransferManager(object):
         """
         needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V)
-        key = (V.dim(), needs_dual)
+        key = self.cache_key(V) + (needs_dual,)
         try:
             return cache._DG_work[key]
         except KeyError:
@@ -210,7 +212,7 @@ class TransferManager(object):
         :returns: A PETSc Vec for V.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._work_vec[key]
         except KeyError:
@@ -244,15 +246,22 @@ class TransferManager(object):
         Vt = target.function_space()
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if not self.requires_transfer(Vs, transfer_op, source, target):
-            return
 
-        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
-            self._native_transfer(source_element, transfer_op)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
+            return
+
+        if not self.requires_transfer(Vs, transfer_op, source, target):
+            return
+
+        gdim = Vt.mesh().geometric_dimension
+        if self.is_native(target_element, gdim, transfer_op):
+            self._native_transfer(target_element, gdim, transfer_op)(source, target)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -309,15 +318,22 @@ class TransferManager(object):
         Vt_star = target.function_space()
         source_element = Vs_star.ufl_element()
         target_element = Vt_star.ufl_element()
-        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
-            return
 
-        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
-            self._native_transfer(source_element, Op.RESTRICT)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
+            return
+
+        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
+            return
+
+        gdim = Vs_star.mesh().geometric_dimension
+        if self.is_native(source_element, gdim, Op.RESTRICT):
+            self._native_transfer(source_element, gdim, Op.RESTRICT)(source, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()

@@ -116,3 +116,76 @@ def test_local_solve(decomp):
     x = assemble(A.solve(b, decomposition=decomp))
 
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+
+
+@pytest.mark.parametrize("mat_type, rhs_type", [
+    ("slate", "slate"), ("slate", "form"), ("slate", "cofunction"),
+    ("aij", "cofunction"), ("aij", "form"),
+    ("matfree", "cofunction"), ("matfree", "form")])
+def test_inverse_action(mat_type, rhs_type):
+    """Test combined UFL/SLATE expressions
+    """
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = Tensor(inner(u, v)*dx)
+    if mat_type == "slate":
+        Ainv = A.inv
+    else:
+        Ainv = assemble(A.inv, mat_type=mat_type)
+
+    f = Function(V).assign(1.0)
+    L = inner(f, v)*dx
+    if rhs_type == "form":
+        b = L
+    elif rhs_type == "cofunction":
+        b = assemble(L)
+    elif rhs_type == "slate":
+        b = Tensor(L)
+    else:
+        raise ValueError("Invalid rhs type")
+
+    x = Function(V)
+    assemble(action(Ainv, b), tensor=x)
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+
+
+@pytest.mark.parametrize("mat_type, rhs_type", [
+    ("slate", "slate"), ("slate", "form"), ("slate", "cofunction"),
+    ("aij", "cofunction"), ("aij", "form"),
+    ("matfree", "cofunction"), ("matfree", "form")])
+def test_solve_interface(mat_type, rhs_type):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "HDivT", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    f = Function(V).assign(1.0)
+    bcs = DirichletBC(V, f, "on_boundary")
+
+    a = avg(inner(u, v))*dS + inner(u, v)*ds
+    A = Tensor(a)
+    if mat_type != "slate":
+        A = assemble(A, bcs=bcs, mat_type=mat_type)
+        bcs = None
+
+    L = action(a, f)
+    if rhs_type == "form":
+        b = L
+    elif rhs_type == "cofunction":
+        b = assemble(L)
+    elif rhs_type == "slate":
+        b = Tensor(L)
+    else:
+        raise ValueError("Invalid rhs type")
+
+    sp = None
+    if mat_type == "matfree":
+        sp = {"pc_type": "none"}
+
+    x = Function(V)
+    problem = LinearVariationalProblem(A, b, x, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=sp)
+    solver.solve()
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)

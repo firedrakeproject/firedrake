@@ -20,10 +20,13 @@ def evals(n, degree=1, mesh=None, restrict=False):
     bc = DirichletBC(V, 0.0, "on_boundary")
     eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-6666., restrict=restrict)
 
-    # Create corresponding eigensolver, looking for n eigenvalues
-    eigensolver = LinearEigensolver(
-        eigenprob, n, solver_parameters={"eps_largest_real": None}
-    )
+    # Create corresponding eigensolver, looking for n eigenvalues close to 0
+    # We use shift-and-invert as spectral transform (SLEPc's default is shift)
+    solver_parameters = {
+        "eps_target": 0,
+        "st_type": "sinvert",
+    }
+    eigensolver = LinearEigensolver(eigenprob, n, solver_parameters=solver_parameters)
     ncov = eigensolver.solve()
 
     # boffi solns
@@ -67,8 +70,12 @@ def poisson_eigenvalue_2d(i):
     ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
                             bcs=bc, bc_shift=666.0)
 
-    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None,
-                                                     "eps_largest_real": None})
+    solver_parameters = {
+        "eps_gen_hermitian": None,
+        "eps_target": 0,
+        "st_type": "sinvert",
+    }
+    es = LinearEigensolver(ep, 1, solver_parameters=solver_parameters)
 
     es.solve()
     return es.eigenvalue(0)-2.0
@@ -77,7 +84,7 @@ def poisson_eigenvalue_2d(i):
 @pytest.mark.skipslepc
 def test_evals_2d():
     """2D Eigenvalue convergence test. As with Boffi, we observe that the
-    convergence rate convergest to 2 from above."""
+    convergence rate converges to 2 from above."""
     errors = np.array([poisson_eigenvalue_2d(i) for i in range(5)])
 
     convergence = np.log(errors[:-1]/errors[1:])/np.log(2.0)

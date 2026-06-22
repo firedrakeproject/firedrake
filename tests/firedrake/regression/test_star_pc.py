@@ -1,7 +1,7 @@
 import pytest
 import warnings
 from firedrake import *
-from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
@@ -95,7 +95,7 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_pc_type": "lu",
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
-        comp_params = {"mat_type": "aij",
+        comp_params = {"mat_type": "matfree",
                        "snes_type": "ksponly",
                        "ksp_type": "cg",
                        "pc_type": "mg",
@@ -112,10 +112,9 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
                        "mg_levels_patch_sub_ksp_type": "preonly",
                        "mg_levels_patch_sub_pc_type": "lu",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+                       "mg_coarse_mat_type": "aij",
+                       "mg_coarse_pc_type": "lu",
+                       "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
@@ -150,7 +149,7 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_pc_star_construct_dim": 0,
                        "mg_coarse_pc_type": "lu"}
 
-        comp_params = {"mat_type": "aij",
+        comp_params = {"mat_type": "matfree",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
@@ -167,9 +166,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
                        "mg_levels_patch_sub_ksp_type": "preonly",
                        "mg_levels_patch_sub_pc_type": "lu",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu"}
+                       "mg_coarse_mat_type": "aij",
+                       "mg_coarse_pc_type": "lu"}
 
     star_params["mg_levels_pc_star_backend"] = backend
     star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
@@ -218,7 +216,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_coarse_pc_type": "lu",
                         "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
-        comp_params = {"mat_type": "aij",
+        comp_params = {"mat_type": "matfree",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
@@ -235,10 +233,9 @@ def test_vanka_equivalence(problem_type):
                        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
                        "mg_levels_patch_sub_ksp_type": "preonly",
                        "mg_levels_patch_sub_pc_type": "lu",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+                       "mg_coarse_mat_type": "aij",
+                       "mg_coarse_pc_type": "lu",
+                       "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "vector":
         base = UnitSquareMesh(2, 2, distribution_parameters=distribution_parameters)
@@ -269,7 +266,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_coarse_pc_type": "lu",
                         "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
-        comp_params = {"mat_type": "aij",
+        comp_params = {"mat_type": "matfree",
                        "snes_type": "ksponly",
                        "ksp_type": "cg",
                        "pc_type": "mg",
@@ -285,10 +282,9 @@ def test_vanka_equivalence(problem_type):
                        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
                        "mg_levels_patch_sub_ksp_type": "preonly",
                        "mg_levels_patch_sub_pc_type": "lu",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+                       "mg_coarse_mat_type": "aij",
+                       "mg_coarse_pc_type": "lu",
+                       "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
@@ -326,7 +322,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_coarse_pc_type": "cholesky",
                         "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
-        comp_params = {"mat_type": "aij",
+        comp_params = {"mat_type": "matfree",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
@@ -344,10 +340,9 @@ def test_vanka_equivalence(problem_type):
                        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
                        "mg_levels_patch_sub_ksp_type": "preonly",
                        "mg_levels_patch_sub_pc_type": "lu",
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+                       "mg_coarse_mat_type": "aij",
+                       "mg_coarse_pc_type": "lu",
+                       "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
@@ -361,3 +356,182 @@ def test_vanka_equivalence(problem_type):
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
+
+
+@pytest.fixture(params=["interval", "square"])
+def base(request):
+    dp = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    if request.param == "interval":
+        return UnitIntervalMesh(5, distribution_parameters=dp)
+    elif request.param == "square":
+        return UnitSquareMesh(5, 5, quadrilateral=True, distribution_parameters=dp)
+
+
+@pytest.mark.parametrize("family,degree", [("Q", 3), ("NCF", 3)])
+@pytest.mark.parametrize("periodic", (False, True), ids=("extruded", "extruded-periodic"))
+def test_asm_extruded_star(base, periodic, family, degree):
+    mesh = ExtrudedMesh(base, 5, periodic=periodic)
+    if mesh.topological_dimension == 2:
+        family = family.replace("N", "RT")
+    V = FunctionSpace(mesh, family, degree)
+    space = V.ufl_element().sobolev_space
+    d = {H1: grad, HCurl: curl, HDiv: div}[space]
+
+    x = SpatialCoordinate(mesh)
+    uexact = x[0]*(1-x[0])
+    if V.value_shape != uexact.ufl_shape:
+        uexact = grad(uexact)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(d(u), d(v)) * dx + inner(u, v)*dx
+    L = a(v, uexact)
+
+    patch_dim = 1 if family == "NCF" else 0
+    params = {
+        "ksp_type": "cg",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse_ksp_type": "preonly",
+        "pmg_mg_coarse_pc_type": "lu",
+        "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "pmg_mg_levels_ksp_type": "chebyshev",
+        "pmg_mg_levels_pc_type": "python",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pmg_mg_levels_pc_star_construct_dim": patch_dim,
+    }
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    expected = 7
+    assert solver.snes.getLinearSolveIterations() <= expected
+    assert errornorm(uexact, uh) < 1E-7
+
+
+@pytest.mark.parametrize("extruded", [False, True], ids=["quad", "hex"])
+def test_star_coloring(extruded):
+    nx = 4
+    mesh = UnitSquareMesh(nx, nx, quadrilateral=True)
+    if extruded:
+        mesh = ExtrudedMesh(mesh, nx)
+
+    x = SpatialCoordinate(mesh)
+    uexact = x[0]*(1-x[0]) * x[1]*(1-x[1])
+
+    V = FunctionSpace(mesh, "Lagrange", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = a(v, uexact)
+    bcs = DirichletBC(V, uexact, "on_boundary")
+
+    params = lambda color: {
+        "ksp_type": "cg",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse_ksp_type": "preonly",
+        "pmg_mg_coarse_pc_type": "lu",
+        "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "pmg_mg_levels_ksp_type": "chebyshev",
+        "pmg_mg_levels_pc_type": "python",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pmg_mg_levels_pc_star_construct_dim": 0,
+        "pmg_mg_levels_pc_star_use_coloring": color,
+    }
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+
+    its = {}
+    for color in (True, False):
+        uh.zero()
+        solver = LinearVariationalSolver(problem, solver_parameters=params(color))
+        solver.solve()
+
+        pmg = solver.snes.ksp.pc.getPythonContext().ppc
+        npatches = len(pmg.getMGSmoother(1).pc.getPythonContext().asmpc.getASMSubKSP())
+        its[color] = solver.snes.getLinearSolveIterations()
+
+        if color:
+            colors = mesh.topology_dm.createColoring(depth=0, distance=1)
+            expected = len(colors)
+            if extruded:
+                expected *= 2
+        else:
+            CG1 = FunctionSpace(mesh, "Lagrange", 1)
+            pstart, pend = CG1.dof_dset.layout_vec.getOwnershipRange()
+            expected = pend - pstart
+        assert npatches == expected
+
+    assert its[True] == its[False]
+
+
+def test_vanka_coloring():
+    nx = 4
+    refine = 1
+    base = UnitSquareMesh(nx, nx, quadrilateral=False)
+    mh = MeshHierarchy(base, refine)
+    mesh = mh[-1]
+
+    x = SpatialCoordinate(mesh)
+    psi = x[0]*(1-x[0]) * x[1]*(1-x[1])
+    uexact = curl(psi)
+    pexact = x[0]
+
+    V = VectorFunctionSpace(mesh, "Lagrange", 2)
+    Q = FunctionSpace(mesh, "Lagrange", 1)
+    Z = V * Q
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+
+    a = (inner(grad(u), grad(v)) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx)
+
+    test, trial = a.arguments()
+    L = a(test, as_vector([uexact[0], uexact[1], pexact]))
+    bcs = DirichletBC(Z.sub(0), uexact, "on_boundary")
+
+    params = lambda color: {
+        "ksp_type": "gmres",
+        "pc_type": "mg",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        "mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "mg_levels_ksp_type": "chebyshev",
+        "mg_levels_ksp_max_it": 2,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
+        "mg_levels_pc_vanka_exclude_subspaces": "1",
+        "mg_levels_pc_vanka_construct_dim": 0,
+        "mg_levels_pc_vanka_use_coloring": color,
+    }
+
+    zh = Function(Z)
+    problem = LinearVariationalProblem(a, L, zh, bcs=bcs)
+    nsp = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
+
+    its = {}
+    for color in (True, False):
+        zh.zero()
+        solver = LinearVariationalSolver(problem, solver_parameters=params(color),
+                                         nullspace=nsp, transpose_nullspace=nsp)
+        solver.solve()
+        gmg = solver.snes.ksp.pc
+        npatches = len(gmg.getMGSmoother(refine).pc.getPythonContext().asmpc.getASMSubKSP())
+        its[color] = solver.snes.getLinearSolveIterations()
+
+        if color:
+            plex = mesh.topology_dm
+            PETSc.Options().setValue("mat_coloring_type", "power")
+            colors = plex.createColoring(depth=0, distance=3)
+            expected = len(colors)
+        else:
+            pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()
+            expected = pend - pstart
+        assert npatches == expected
+
+    assert its[True] == its[False]

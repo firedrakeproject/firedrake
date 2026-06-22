@@ -18,8 +18,9 @@ except ImportError:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 
-from functools import partial
+from functools import partial, cached_property
 
+import petsctools
 from firedrake.external_operators import MLOperator
 from firedrake import utils
 from firedrake.ml.pytorch import to_torch, from_torch
@@ -81,7 +82,7 @@ class PytorchOperator(MLOperator):
     def model_output(self, output):
         self.operator_data['model_output'] = output
 
-    @utils.cached_property
+    @cached_property
     def torch_grad_enabled(self):
         # Default: set PyTorch annotation on, unless otherwise specified.
         return self.operator_data.get('torch_grad_enabled', True)
@@ -202,9 +203,8 @@ def ml_operator(model, function_space, inputs_format=0):
     collections.abc.Callable
         The partially initialised :class:`~.PytorchOperator` class.
     """
-    from firedrake_citations import Citations
-    Citations().register("Bouziani2021")
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2021")
+    petsctools.cite("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

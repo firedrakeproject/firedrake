@@ -3,6 +3,11 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.fixture(autouse=True)
+def autouse_clear_pyplot_figures(clear_pyplot_figures):
+    pass
+
+
 @pytest.mark.skipplot
 def test_1d_constant():
     mesh = UnitIntervalMesh(1)

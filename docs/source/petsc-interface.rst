@@ -85,7 +85,7 @@ SciPy in the following way:
     import scipy.sparse as sp
 
     indptr, indices, data = petsc_mat.getValuesCSR()
-    scipy_mat = sp.csr_matrix((data, indices, indptr), shape=petsc_mat.getSize())
+    scipy_mat = sp.csr_array((data, indices, indptr), shape=petsc_mat.getSize())
 
 The sparsity pattern may then be straightforwardly plotted
 using matplotlib:
@@ -375,8 +375,8 @@ Accordingly, set
 
 .. code-block:: python3
 
-    dim = mesh.topological_dimension()
-    gdim = mesh.geometrical_dimension()
+    dim = mesh.topological_dimension
+    gdim = mesh.geometric_dimension
     entity_dofs = np.zeros(dim+1, dtype=np.int32)
     entity_dofs[0] = gdim
     entity_dofs[1] = gdim*(p-1)

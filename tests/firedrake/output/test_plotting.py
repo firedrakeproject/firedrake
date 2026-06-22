@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 
 try:
     from firedrake.pyplot import *
@@ -11,6 +10,11 @@ try:
     from mpl_toolkits.mplot3d import Axes3D
 except ImportError:
     # Matplotlib is not installed, tests should be skipped
+    pass
+
+
+@pytest.fixture(autouse=True)
+def autouse_clear_pyplot_figures(clear_pyplot_figures):
     pass
 
 
@@ -101,16 +105,19 @@ def test_tripcolor_shading():
     f0.project(x[0] + x[1])
     f1.project(x[0] + x[1])
 
-    fig, axes = plt.subplots(ncols=3, sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=4, sharex=True, sharey=True)
 
     collection = tripcolor(f0, num_sample_points=1, axes=axes[0])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
     collection = tripcolor(f1, num_sample_points=1, axes=axes[1])
-    assert collection.get_array().shape == f1.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
-    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[2])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    collection = tripcolor(f0, num_sample_points=1, shading="flat", axes=axes[2])
+    assert collection.get_array().shape[0] == mesh.num_cells()
+
+    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[3])
+    assert collection.get_array().shape[0] == mesh.num_cells()
 
 
 @pytest.mark.skipplot
@@ -166,9 +173,33 @@ def test_tricontour_extruded_mesh():
 
 
 @pytest.mark.skipplot
+def test_fn_plotter_extruded_mesh_multiple_layers():
+    nx, nz = 8, 4
+    interval = UnitIntervalMesh(nx)
+    rectangle = ExtrudedMesh(interval, nz)
+    fn_plotter = FunctionPlotter(rectangle, num_sample_points=1)
+    assert fn_plotter.triangulation.triangles.shape[0] == 2 * nx * nz
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(as_vector((-x[1], x[0])))
+
+    fig, axes = plt.subplots()
+    arrows = quiver(f, axes=axes)
+    assert arrows is not None
+    fig.colorbar(arrows)
+
+
+@pytest.mark.skipplot
+def test_quiver_plot_vom():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+    V = VectorFunctionSpace(vom, "DG", 0)
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate(as_vector((-x[1], x[0])))
@@ -344,7 +375,7 @@ def test_tripcolor_movie():
     def animate(time):
         t.assign(time)
         q.interpolate(expr)
-        colors.set_array(fn_plotter(q))
+        colors.set_array(fn_plotter(q).real)
 
     duration = 6
     fps = 24
@@ -352,3 +383,44 @@ def test_tripcolor_movie():
     interval = 1e3 / fps
     movie = FuncAnimation(fig, animate, frames=frames, interval=interval)
     assert movie is not None
+
+    # Use a method of the animation to prevent warning about it being unused
+    movie.to_jshtml()
+
+
+@pytest.mark.skipplot
+def test_scatter():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+
+    fig, axes = plt.subplots()
+    sc = scatter(vom, axes=axes)
+
+    assert sc is not None
+    assert len(sc.get_offsets()) == vom.num_vertices()
+
+
+@pytest.mark.skipplot
+def test_scatter_3d():
+    mesh = UnitCubeMesh(5, 5, 5)
+    coords_3d = np.random.rand(20, 3)
+    vom = VertexOnlyMesh(mesh, coords_3d)
+
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    sc = scatter(vom, axes=axes)
+    assert sc is not None
+    assert len(sc.get_offsets()) == vom.num_vertices()
+
+
+@pytest.mark.skipplot
+def test_scatter_scalar_field():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+    V = FunctionSpace(vom, "DG", 0)
+    f = Function(V)
+    f.dat.data[:] = [1.0, 2.0, 3.0]
+
+    fig, axes = plt.subplots()
+    sc = scatter(f, axes=axes)
+    assert np.allclose(sc.get_array(), f.dat.data_ro)

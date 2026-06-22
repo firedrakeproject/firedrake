@@ -18,16 +18,16 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
-from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
+from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry
+                       SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
 
 __all__ = [
-    "plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
+    "plot", "triplot", "scatter", "tricontourf", "tricontour", "trisurf", "tripcolor",
     "quiver", "streamplot", "FunctionPlotter"
 ]
 
@@ -84,6 +84,72 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
+def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
+    r"""Plot a 2D or 3D :func:`.VertexOnlyMesh` as a scatter plot.
+
+    Parameters
+    ----------
+    vom_or_function
+        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
+        If a :class:`~.Function` is provided, its values are used to colour the points.
+    axes
+        The axes on which to plot. If not provided, the current active axes are used.
+    **kwargs
+        Additional keyword arguments passed to :meth:`matplotlib.axes.Axes.scatter`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The scatter plot artist.
+    """
+    is_vom = isinstance(vom_or_function, MeshGeometry) and isinstance(vom_or_function.topology, VertexOnlyMeshTopology)
+    is_function_on_vom = isinstance(vom_or_function, Function) and isinstance(vom_or_function.function_space().mesh().topology, VertexOnlyMeshTopology)
+
+    if not (is_vom or is_function_on_vom):
+        raise TypeError("Expected a VertexOnlyMesh or a Function defined on one.")
+
+    if isinstance(vom_or_function, Function):
+        if len(vom_or_function.ufl_shape) == 0:
+            # scalar field: colour points by value
+            kwargs["c"] = vom_or_function.dat.data_ro
+        elif len(vom_or_function.ufl_shape) == 1:
+            # vector field: use quiver instead
+            raise ValueError("Expected a scalar-valued Function. Use quiver to plot vector-valued Functions.")
+        else:
+            raise ValueError(
+                f"Cannot plot a rank-{len(vom_or_function.ufl_shape)} tensor field; "
+                "only scalar-valued Functions are supported by this method. "
+                "For vector-valued Functions, use quiver.")
+        vom = vom_or_function.function_space().mesh()
+    else:
+        vom = vom_or_function
+
+    if vom.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    gdim = vom.geometric_dimension
+    coords = toreal(vom.coordinates.dat.data_ro_with_halos, "real")
+
+    if axes is None:
+        fig = plt.figure()
+        if gdim == 3:
+            axes = fig.add_subplot(111, projection="3d")
+        elif gdim == 2:
+            axes = fig.add_subplot(111)
+        else:
+            raise ValueError("Scatter is only supported for 2D and 3D meshes.")
+
+    kwargs.setdefault("zorder", 5)  # this makes sure that points are drawn on top of the parent mesh lines
+    kwargs.setdefault("s", 10)  # controls scatter dot size
+    kwargs.setdefault("c", "red")  # default colour if no function provided
+
+    collection = axes.scatter(*(coords.T), **kwargs)
+
+    _autoscale_view(axes, coords)
+    return collection
+
+
+@PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
@@ -100,10 +166,16 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
     :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
-    gdim = mesh.geometric_dimension()
-    tdim = mesh.topological_dimension()
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    gdim = mesh.geometric_dimension
+    tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname() == "quadrilateral"
+    quad = mesh.ufl_cell().cellname == "quadrilateral"
+
+    if mesh.extruded:
+        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
 
     if axes is None:
         figure = plt.figure()
@@ -117,7 +189,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if element.degree() != 1:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
-        coordinates = assemble(Interpolate(coordinates, V))
+        coordinates = assemble(interpolate(coordinates, V))
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     result = []
@@ -177,6 +249,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
+
     for marker, color in zip(markers, colors):
         vertices = []
         for typ in ["interior", "exterior"]:
@@ -209,10 +282,14 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
     Q = function.function_space()
     mesh = Q.mesh()
+
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
+        function = assemble(interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -268,9 +345,7 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    element = function.ufl_element()
-    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
-    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
+    kwargs["shading"] = kwargs.get("shading", "gouraud")
     return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
@@ -318,14 +393,18 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
     Q = function.function_space()
     mesh = Q.mesh()
-    if mesh.geometric_dimension() == 3:
+
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    if mesh.geometric_dimension == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
     _kwargs.update({"shade": False})
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
+        function = assemble(interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -335,14 +414,23 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 
 @PETSc.Log.EventDecorator()
-def quiver(function, *, complex_component="real", **kwargs):
-    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
+def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`.
 
-    :arg function: the vector field to plot
-    :kwarg complex_component: If plotting complex data, which
-        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
-    :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
-    :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
+    Parameters
+    ----------
+    function
+        The 2D vector field to plot.
+    complex_component
+        Which component to plot if the data is complex. Either ``'real'``
+        or ``'imag'``. Defaults to ``'real'``.
+    **kwargs
+        Additional keyword arguments passed to :func:`matplotlib.pyplot.quiver`.
+
+    Returns
+    -------
+    matplotlib.quiver.Quiver
+        The quiver plot artist.
     """
     if function.ufl_shape != (2,):
         raise ValueError("Quiver plots only defined for 2D vector fields!")
@@ -352,10 +440,18 @@ def quiver(function, *, complex_component="real", **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = toreal(extract_unique_domain(function).coordinates.dat.data_ro, "real")
-    V = extract_unique_domain(function).coordinates.function_space()
-    function_interp = assemble(Interpolate(function, V))
-    vals = toreal(function_interp.dat.data_ro, complex_component)
+    mesh = function.function_space().mesh()
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+    coords = toreal(mesh.coordinates.dat.data_ro, "real")
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        vals = toreal(function.dat.data_ro, complex_component)
+    else:
+        V = mesh.coordinates.function_space()
+        function_interp = assemble(interpolate(function, V))
+        vals = toreal(function_interp.dat.data_ro, complex_component)
+
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
@@ -387,11 +483,14 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
-    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
+    v1 = toreal(direction * function._at(x, tolerance=loc_tolerance), complex_component)
+    r = toreal(cell_sizes._at(x, tolerance=loc_tolerance), "real")
     v1norm = np.sqrt(np.sum(v1**2))
     if np.isclose(v1norm, 0.0):
         # Bail early for zero fields.
@@ -401,12 +500,12 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
 
     while True:
         try:
-            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+            v2 = toreal(direction * function._at(x + dt * v1, tolerance=loc_tolerance),
                         complex_component)
         except PointNotInDomainError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+            v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                         complex_component)
             yield y, v1, ds
             break
@@ -418,14 +517,14 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                vy = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
-                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
+                r = toreal(cell_sizes._at(y, tolerance=loc_tolerance), "real")
             except PointNotInDomainError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
                 yield y, v1, ds
                 break
@@ -470,7 +569,7 @@ class Streamplotter(object):
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
-        self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
+        self._r = self.resolution / np.sqrt(mesh.geometric_dimension)
         shape = tuple(((xmax - self._xmin) / self._r).astype(int) + 2)
         self._grid = np.full(shape, 4 * self.resolution)
 
@@ -611,12 +710,15 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     if function.ufl_shape != (2,):
         raise ValueError("Streamplot only defined for 2D vector fields!")
 
+    mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    mesh = extract_unique_domain(function)
     if resolution is None:
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
@@ -653,7 +755,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+        velocity = toreal(np.array(function._at(streamline, tolerance=loc_tolerance)),
                           complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])
@@ -737,6 +839,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     :arg kwargs: same as for matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
+
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -751,7 +854,10 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
 
-        if extract_unique_domain(line).geometric_dimension() > 1:
+        if extract_unique_domain(line).comm.size > 1:
+            raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
+        if extract_unique_domain(line).geometric_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                              "see tricontourf, tripcolor, quiver, trisurf")
 
@@ -815,7 +921,7 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        interp = assemble(Interpolate(function, V))
+        interp = assemble(interpolate(function, V))
         return _bezier_plot(interp, axes, complex_component=complex_component,
                             **kwargs)
     y_vals = _bezier_calculate_points(function)
@@ -904,7 +1010,7 @@ class FunctionPlotter:
         # num_sample_points must be of the form 3k + 1 for cubic Bezier plotting
         if num_sample_points % 3 != 1:
             num_sample_points = (num_sample_points // 3) * 3 + 1
-        if mesh.topological_dimension() == 1:
+        if mesh.topological_dimension == 1:
             self._setup_1d(mesh, num_sample_points)
         else:
             self._setup_nd(mesh, num_sample_points)
@@ -913,7 +1019,7 @@ class FunctionPlotter:
         self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, mesh, num_sample_points):
-        cell_name = mesh.ufl_cell().cellname()
+        cell_name = mesh.ufl_cell().cellname
         if cell_name == "triangle":
             x = np.array([0, 0, 1])
             y = np.array([0, 1, 0])
@@ -935,18 +1041,20 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
+        # TODO: What do we do with variable layers?
+        num_layers = 1 if mesh.layers is None else mesh.layers - 1
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
         coordinate_values = self(mesh.coordinates)
-        X = coordinate_values.reshape(-1, mesh.geometric_dimension())
+        X = coordinate_values.reshape(-1, mesh.geometric_dimension)
         coords = toreal(X, "real")
 
-        if mesh.geometric_dimension() == 2:
+        if mesh.geometric_dimension == 2:
             x, y = coords[:, 0], coords[:, 1]
             self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
-        elif mesh.geometric_dimension() == 3:
+        elif mesh.geometric_dimension == 3:
             self.coordinates = coords
             self.triangles = all_triangles
 
@@ -954,12 +1062,15 @@ class FunctionPlotter:
         # TODO: Make this more efficient on repeated calls -- for example reuse `elem`
         # if the function space is the same as the last one
         Q = function.function_space()
-        dimension = Q.mesh().topological_dimension()
+        mesh = Q.mesh()
+        dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
+        if mesh.layers:
+            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1

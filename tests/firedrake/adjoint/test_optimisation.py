@@ -3,27 +3,17 @@ import pytest
 from enum import Enum, auto
 from numpy.testing import assert_allclose
 import numpy as np
+from ufl.duals import is_primal
 from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
-from pyadjoint.optimization.tao_solver import OptionsManager, PETScVecInterface
+from pyadjoint.optimization.tao_solver import PETScVecInterface
+import petsctools
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -65,23 +55,27 @@ def test_petsc_roundtrip_multiple():
     assert (u_2.dat.data_ro == u_2_test.dat.data_ro).all()
 
 
-def minimize_tao_lmvm(rf, *, convert_options=None):
+def minimize_tao_lmvm(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "lmvm",
-                                 "tao_gatol": 1.0e-7,
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0},
-                       convert_options=convert_options)
+                                 "tao_gttol": 1.0e-7,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
-def minimize_tao_nls(rf, *, convert_options=None):
+def minimize_tao_nls(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "nls",
-                                 "tao_gatol": 1.0e-7,
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0},
-                       convert_options=convert_options)
+                                 "tao_gttol": 1.0e-7,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
@@ -116,8 +110,13 @@ def _simple_helmholz_model(V, source):
     return u
 
 
+@pytest.mark.parametrize(
+    "riesz_representation",
+    [None,
+     "l2",
+     pytest.param("H1", marks=pytest.mark.xfail(reason="H1 is the wrong norm for this problem"))])
 @pytest.mark.skipcomplex
-def test_simple_inversion():
+def test_simple_inversion(riesz_representation):
     """Test inversion of source term in helmholze eqn."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -131,7 +130,7 @@ def test_simple_inversion():
 
     # now rerun annotated model with zero source
     source = Function(V)
-    c = Control(source)
+    c = Control(source, riesz_map=riesz_representation)
     u = _simple_helmholz_model(V, source)
 
     J = assemble(1e6 * (u - u_ref)**2*dx)
@@ -139,13 +138,6 @@ def test_simple_inversion():
 
     x = minimize(rf)
     assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
-    rf(source)
-    x = minimize(rf, derivative_options={"riesz_representation": "l2"})
-    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
-    rf(source)
-    x = minimize(rf, derivative_options={"riesz_representation": "H1"})
-    # Assert that the optimisation does not converge for H1 representation
-    assert not np.allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
 
 @pytest.mark.parametrize("minimize", [minimize_tao_lmvm,
@@ -153,7 +145,7 @@ def test_simple_inversion():
 @pytest.mark.parametrize("riesz_representation", [None, "l2", "L2", "H1"])
 @pytest.mark.skipcomplex
 def test_tao_simple_inversion(minimize, riesz_representation):
-    """Test inversion of source term in helmholze eqn using TAO."""
+    """Test inversion of source term in helmholtz eqn using TAO."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
     source_ref = Function(V)
@@ -166,14 +158,13 @@ def test_tao_simple_inversion(minimize, riesz_representation):
 
     # now rerun annotated model with zero source
     source = Function(V)
-    c = Control(source)
+    c = Control(source, riesz_map=riesz_representation)
     u = _simple_helmholz_model(V, source)
 
     J = assemble(1e6 * (u - u_ref)**2*dx)
     rf = ReducedFunctional(J, c)
 
-    x = minimize(rf, convert_options=(None if riesz_representation is None
-                                      else {"riesz_representation": riesz_representation}))
+    x = minimize(rf)
     assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
 
@@ -190,9 +181,9 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         mfn_parameters = dict(mfn_parameters)
 
         space = v.function_space()
-        if not ufl.duals.is_primal(space):
+        if not is_primal(space):
             space = space.dual()
-        if not ufl.duals.is_primal(space):
+        if not is_primal(space):
             raise NotImplementedError("Mixed primal/dual space case not implemented")
         comm = v.comm
 
@@ -218,11 +209,13 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         M_mat.setUp()
 
         mfn = SLEPc.MFN().create(comm=comm)
-        options = OptionsManager(mfn_parameters, None)
-        options.set_default_parameter("fn_type", "sqrt")
+        petsctools.attach_options(
+            mfn, parameters=mfn_parameters,
+            options_prefix=None)
+        petsctools.set_default_parameter(mfn, "fn_type", "sqrt")
         mfn.setOperator(M_mat)
 
-        options.set_from_options(mfn)
+        petsctools.set_from_options(mfn)
         mfn.setUp()
         if mfn.getFN().getType() != SLEPc.FN.Type.SQRT:
             raise ValueError("Invalid FN type")
@@ -234,11 +227,12 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         if y.norm(PETSc.NormType.NORM_INFINITY) == 0:
             x.zeroEntries()
         else:
-            mfn.solve(y, x)
+            with petsctools.inserted_options(mfn):
+                mfn.solve(y, x)
             if mfn.getConvergedReason() <= 0:
                 raise RuntimeError("Convergence failure")
 
-        if ufl.duals.is_primal(v):
+        if is_primal(v):
             u = Function(space)
         else:
             u = Cofunction(space.dual())
@@ -281,10 +275,11 @@ def test_simple_inversion_riesz_representation(tao_type):
     mfn_parameters = {"mfn_type": "krylov",
                       "mfn_tol": 1.0e-12}
     tao_parameters = {"tao_type": tao_type,
+                      "tao_monitor": None,
+                      "tao_converged_reason": None,
                       "tao_gatol": 1.0e-5,
                       "tao_grtol": 0.0,
-                      "tao_gttol": 0.0,
-                      "tao_monitor": None}
+                      "tao_gttol": 0.0}
 
     with stop_annotating():
         mesh = UnitIntervalMesh(10)
@@ -295,7 +290,7 @@ def test_simple_inversion_riesz_representation(tao_type):
         u_ref = _simple_helmholz_model(V, source_ref)
 
     def forward(source):
-        c = Control(source)
+        c = Control(source, riesz_map=riesz_representation)
         u = _simple_helmholz_model(V, source)
 
         J = assemble(1e6 * (u - u_ref)**2*dx)
@@ -306,9 +301,7 @@ def test_simple_inversion_riesz_representation(tao_type):
     source = Function(V)
     rf = forward(source)
     with stop_annotating():
-        solver = TAOSolver(
-            MinimizationProblem(rf), tao_parameters,
-            convert_options={"riesz_representation": riesz_representation})
+        solver = TAOSolver(MinimizationProblem(rf), tao_parameters)
         x = solver.solve()
         assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
@@ -318,7 +311,7 @@ def test_simple_inversion_riesz_representation(tao_type):
                                      mfn_parameters=mfn_parameters)
 
     def forward_transform(source):
-        c = Control(source)
+        c = Control(source, riesz_map="l2")
         source = transform(source, TransformType.PRIMAL,
                            riesz_representation,
                            mfn_parameters=mfn_parameters)
@@ -331,8 +324,7 @@ def test_simple_inversion_riesz_representation(tao_type):
 
     with stop_annotating():
         solver_transform = TAOSolver(
-            MinimizationProblem(rf_transform), tao_parameters,
-            convert_options={"riesz_representation": "l2"})
+            MinimizationProblem(rf_transform), tao_parameters)
         x_transform = transform(solver_transform.solve(), TransformType.PRIMAL,
                                 riesz_representation,
                                 mfn_parameters=mfn_parameters)
@@ -355,6 +347,8 @@ def test_tao_bounds():
     lb = 0.5 - 7.0 / 11.0
     problem = MinimizationProblem(rf, bounds=(lb, None))
     solver = TAOSolver(problem, {"tao_type": "bnls",
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-7,
                                  "tao_grtol": 0.0,
                                  "tao_gttol": 0.0})

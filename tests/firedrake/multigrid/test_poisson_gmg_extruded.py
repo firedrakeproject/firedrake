@@ -29,7 +29,7 @@ def run_poisson(typ):
         parameters = {"snes_type": "newtonls",
                       "ksp_type": "preonly",
                       "pc_type": "none",
-                      "snes_linesearch_type": "l2",
+                      "snes_linesearch_type": "secant",
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip",
                       "npc_snes_type": "fas",

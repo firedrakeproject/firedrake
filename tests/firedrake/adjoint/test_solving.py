@@ -6,30 +6,22 @@ from numpy.testing import assert_approx_equal
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.mark.skipcomplex
-def test_linear_problem():
+def test_linear_problem(rg):
     assert len(get_working_tape()._blocks) == 0
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1.)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -47,17 +39,16 @@ def test_linear_problem():
     rf = ReducedFunctional(J0, Control(f))
     assert_approx_equal(rf(f), J0)
     assert rf.tape.recompute_count == 1
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_singular_linear_problem():
+def test_singular_linear_problem(rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1.)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -72,17 +63,17 @@ def test_singular_linear_problem():
               solver_parameters=solver_parameters)
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_nonlinear_problem():
+@pytest.mark.parametrize("pre_apply_bcs", (True, False))
+def test_nonlinear_problem(pre_apply_bcs, rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -91,14 +82,14 @@ def test_nonlinear_problem():
     def J(f):
         a = f*inner(grad(u), grad(v))*dx + u**2*v*dx - f*v*dx
         L = 0
-        solve(a == L, u, bc)
+        solve(a == L, u, bc, pre_apply_bcs=pre_apply_bcs)
         return assemble(u**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_mixed_boundary():
+def test_mixed_boundary(rg):
     mesh = UnitSquareMesh(10, 10)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -113,8 +104,7 @@ def test_mixed_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10.)
 
     def J(f):
         a = f*inner(grad(u), grad(v))*dx
@@ -124,7 +114,7 @@ def test_mixed_boundary():
 
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 def xtest_wrt_constant_dirichlet_boundary():
@@ -163,8 +153,7 @@ def xtest_wrt_function_dirichlet_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10.)
 
     def J(bc):
         a = inner(grad(u), grad(v))*dx
@@ -194,8 +183,7 @@ def test_wrt_function_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10.)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -247,8 +235,7 @@ def test_wrt_constant_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10.)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -284,8 +271,7 @@ def test_time_dependent():
     f = Function(R, val=1)
 
     def J(f):
-        u_1 = Function(V)
-        u_1.vector()[:] = 1
+        u_1 = Function(V).assign(1.)
 
         a = u_1*u*v*dx + dt*f*inner(grad(u), grad(v))*dx
         L = u_1*v*dx
@@ -328,6 +314,82 @@ def test_two_nonlinear_solves():
     assert rf.tape.recompute_count == 5
 
 
+@pytest.mark.skipcomplex
+def test_multiple_meshes(rg):
+    mesh1 = UnitSquareMesh(4, 4)
+    mesh2 = RectangleMesh(nx=4, ny=4, Lx=3, Ly=1, originX=2, originY=0)
+
+    V1 = FunctionSpace(mesh1, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 1)
+    V = V1*V2
+
+    u = Function(V)
+    u1, u2 = split(u)
+    v1, v2 = TestFunctions(V)
+
+    f = Function(V).assign(10.)
+    f1, f2 = split(f)
+
+    a = inner(grad(u1), grad(v1))*dx(mesh1) + inner(grad(u2), grad(v2))*dx(mesh2)
+    L = inner(f1, v1)*dx(mesh1) + inner(f2, v2)*dx(mesh2)
+
+    bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
+    bc2 = DirichletBC(V.sub(1), 0, "on_boundary")
+    bcs = [bc1, bc2]
+
+    solve(a - L == 0, u, bcs)
+
+    J = assemble(u1**4*dx(mesh1) + u2**4*dx(mesh2))
+    rf = ReducedFunctional(J, Control(f))
+    df = rg.uniform(V)
+
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
+@pytest.mark.skipcomplex
+def test_submesh(rg):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    DG = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG).interpolate(conditional(y > 0.5, 1, 0))
+    relabeled_mesh = RelabeledMesh(mesh, [ind], [10])
+    submesh = Submesh(relabeled_mesh, 2, 10)
+    dx_sub = Measure("dx", domain=submesh, intersect_measures=(Measure("dx", relabeled_mesh),))
+
+    V1 = FunctionSpace(relabeled_mesh, "CG", 1)
+    V2 = FunctionSpace(submesh, "CG", 1)
+    V = V1*V2
+
+    u = Function(V)
+    u1, u2 = split(u)
+    v1, v2 = TestFunctions(V)
+
+    f = Function(V1).assign(10.)
+
+    a = inner(grad(u1), grad(v1))*dx(relabeled_mesh)
+    a += inner(u1 - u2, v2)*dx_sub
+    L = inner(f, v1)*dx(relabeled_mesh)
+
+    bcs = [DirichletBC(V.sub(0), 0, "on_boundary")]
+
+    solve(a - L == 0, u, bcs)
+
+    J = assemble(u2**4*dx_sub)
+    rf = ReducedFunctional(J, Control(f))
+    df = rg.uniform(V1)
+
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
 def convergence_rates(E_values, eps_values):
     from numpy import log
     r = []
@@ -342,14 +404,12 @@ def _test_adjoint_function_boundary(J, bc, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1.)
     g = Function(V)
     eps_ = [0.4/2.0**i for i in range(4)]
     residuals = []
     for eps in eps_:
-        # f = bc.value()
-        g.vector()[:] = f.vector()[:] + eps*h.vector()[:]
+        g.assign(f + eps*h)
         bc.set_value(g)
         Jp = J(bc)
         tape.clear_tape()
@@ -360,11 +420,10 @@ def _test_adjoint_function_boundary(J, bc, f):
 
         dJdbc = bc.block_variable.adj_value
 
-        residual = abs(Jp - Jm - eps*dJdbc.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdbc.inner(h))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -394,7 +453,6 @@ def _test_adjoint_constant_boundary(J, bc):
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -416,27 +474,23 @@ def _test_adjoint_constant(J, c):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdc = c.block_variable.adj_value.vector()[0]
-        print(dJdc)
+        dJdc = c.block_variable.adj_value.dat.data_ro[0]
 
         residual = abs(Jp - Jm - eps*dJdc)
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
 
 
-def _test_adjoint(J, f):
-    import numpy.random
+def _test_adjoint(J, f, rg):
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = numpy.random.rand(V.dim())
+    h = rg.uniform(V)
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []
@@ -448,14 +502,12 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.vector()
+        dJdf = f.block_variable.adj_value.dat
 
-        residual = abs(Jp - Jm - eps*dJdf.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdf.inner(h.dat))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
-    print(residuals)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)

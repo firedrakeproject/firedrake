@@ -45,7 +45,7 @@ def f(function_space):
         if fs_i.rank == 1:
             fi.interpolate(as_vector((x[0]*x[1],) * fs_i.value_size))
         elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension())]
+            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             fi.interpolate(x[0]*x[1])
@@ -66,7 +66,7 @@ def g(function_space):
         if fs_i.rank == 1:
             gi.interpolate(as_vector((x[0]*sin(x[1]),) * fs_i.value_size))
         elif fs_i.rank == 2:
-            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension())]
+            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             gi.interpolate(x[0]*sin(x[1]))
@@ -128,24 +128,6 @@ def test_assemble_vector(rank_one_tensor):
 def test_assemble_matrix(rank_two_tensor):
     M = assemble(rank_two_tensor)
     assert np.allclose(M.M.values, assemble(rank_two_tensor.form).M.values, rtol=1e-14)
-
-
-def test_assemble_solve(mesh):
-    V = FunctionSpace(mesh, "DG", 0)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    M = inner(u, v)*dx
-    f = Cofunction(V.dual())
-    f.dat.data[...] = 1
-
-    u1 = Function(V)
-    u2 = Function(V)
-    # Assemble a SLATE tensor into u1
-    assemble(Inverse(Tensor(M)) * AssembledVector(f), tensor=u1)
-    # Solve in the usual way
-    solve(M == f, u2)
-    assert np.allclose(u1.dat.data, u2.dat.data, rtol=1e-14)
 
 
 def test_assemble_vector_into_tensor(mesh):
@@ -324,26 +306,23 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     ref = assemble(mass, diagonal=True).dat.data
     ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # vectorspace
     ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # tensorspace
-    for r, d in zip(ref, np.diag(res)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref, np.diag(res), rtol=1e-14)
 
     # test matrix built from diagonal for non mass matrix
     res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
     ref2 = np.concatenate(assemble(matrix_mixed_nofacet, diagonal=True).dat.data)
-    for r, d in zip(res2, np.diag(ref2)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref2, np.diag(res2), rtol=1e-14)
 
     # test matrix built from diagonal
     # for a Slate expression on a non mass matrix
     A = Tensor(matrix_mixed_nofacet)
     res3 = assemble(DiagonalTensor(A+A)).M.values
     ref3 = np.concatenate(assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data)
-    for r, d in zip(res3, np.diag(ref3)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref3, np.diag(res3), rtol=1e-14)
 
 
-@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
-def test_reciprocal(function_space):
+def test_reciprocal(mesh):
+    function_space = FunctionSpace(mesh, "DG", 0)
     # test reciprocal of vector built from diagonal
     # note: reciprocal does not commute with addition so one can only test DG
     u = TrialFunction(function_space)

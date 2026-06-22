@@ -68,8 +68,8 @@ presenters.
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 26 September at `ASK
-Italian <https://www.askitalian.co.uk/restaurant/durham/>`_ on
+There will be a workshop dinner in the evening of 26 September at ASK
+Italian on
 Durham's Millenium Square (easily accessible by foot from the
 conference location and town centre).
 

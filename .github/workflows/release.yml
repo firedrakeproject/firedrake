@@ -1,22 +1,132 @@
 name: Publish release
 
 on:
-  release:
-    types: [released]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: The branch to release from
+        type: string
+        required: true
+      version:
+        description: The version number to release
+        type: string
+        required: true
+      prev_version:
+        description: The previously most up-to-date version number
+        type: string
+        required: true
 
 jobs:
-  deploy:
-    uses: ./.github/workflows/core.yml
-    with:
-      source_ref: release
-      target_branch: release
-      run_tests: false
-      upload_pypi: true
-    secrets: inherit
+  check:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.branch }}
+
+      - name: Check no 'TODO RELEASE' comments remain
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
+            exit 0
+          else
+            exit 1
+          fi
+
+      - name: Check version number matches
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( grep 'version = \"${{ inputs.version }}\"' pyproject.toml )" ]; then
+            exit 1
+          else
+            exit 0
+          fi
+
+  sdist:
+    name: Create sdist
+    needs: check
+    runs-on: [self-hosted, Linux]
+    container:
+      image: ubuntu:latest
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      # We don't need compiler optimisations here that might crash, we just need
+      # firedrake-check to pass
+      PYOP2_CFLAGS: -O0
+    steps:
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.branch }}
+
+      - name: Install Firedrake
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.branch }}
+          base_ref: release
+
+      - name: Create sdist
+        run: |
+          . venv/bin/activate
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --show-env)
+          env
+          pip install build
+          python -m build ./firedrake-repo --sdist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
+
+  pypi:
+    name: Upload sdist to PyPI
+    needs: sdist
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Push to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # TODO: Use trusted publishing
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  github_release:
+    name: Create GitHub release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create --title ${{ inputs.version }} --target ${{ inputs.branch }} --generate-notes ${{ inputs.version }} --notes-start-tag ${{ inputs.prev_version }}
 
   docker:
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
+    needs: pypi
     with:
-      tag: ${{ github.ref_name }}
+      tag: ${{ inputs.version }}
+      branch: ${{ inputs.branch }}
     secrets: inherit

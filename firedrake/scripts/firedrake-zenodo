@@ -12,6 +12,7 @@ import os
 import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import json
+import textwrap
 import time
 import requests
 import base64
@@ -26,14 +27,12 @@ DESCRIPTIONS = {
     "ufl": "UFL: the Unified Form Language",
     "fiat": "FIAT: the Finite Element Automated Tabulator",
     "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
-    "loopy": "loopy: Transformation-Based Generation of High-Performance CPU/GPU Code",
 }
 
 PYPI_PACKAGE_NAMES = {
     "firedrake": "firedrake",
     "ufl": "fenics-ufl",
     "fiat": "firedrake-fiat",
-    "loopy": "loopy",
     "petsc": "petsc4py",
 }
 
@@ -176,13 +175,12 @@ def get_component_version(component: str) -> ComponentVersion:
 
     if direct_url_json:
         direct_url = json.loads(direct_url_json)
-        is_editable = direct_url.get("dir_info", {}).get("editable", False)
-        if is_editable:
+        try:
+            commit_id = direct_url["vcs_info"]["commit_id"]
+        except KeyError:
             # sniff the commit info from the repository
             repo = direct_url["url"].removeprefix("file://")
             commit_id = get_git_commit_info(repo)
-        else:
-            commit_id = direct_url["vcs_info"]["commit_id"]
         return VCSComponentVersion(commit_id)
     else:
         # 'direct_url_json' is 'None' if the package is installed via PyPI
@@ -268,7 +266,7 @@ def resolve_tag(tag, components):
     token = os.getenv("FIREDRAKE_GITHUB_TOKEN")
     if token:
         check_github_token_scope(token)
-        github3.login(token=token)
+        gh = github3.login(token=token)
     else:
         log.error("""Need to provide FIREDRAKE_GITHUB_TOKEN for github to resolve tags.
 
@@ -277,7 +275,7 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
-        repo = get_component_repository(component)
+        repo = gh.repository("firedrakeproject", component)
         try:
             found, = [t for t in repo.tags() if t.name == tag]
         except ValueError:
@@ -289,35 +287,27 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
 
 
 def zenodo_records():
-    """Grab all zenodo records of tagged Firedrake component releases.
+    """Grab the 100 most recent zenodo records of tagged Firedrake component releases.
 
     :returns: An iterable of zenodo records.
-    :raises LookupError: if we were not able find any records."""
-    result = None
-    i = 1
-    while True:
-        if i > 20:
-            raise RuntimeError("More than 8000 uploads on zenodo?")
+    :raises LookupError: if we were not able find any records.
+
+    We only load the 100 most recent tags to avoid running into rate-limiter issues
+    from Zenodo.
+
+    """
+    result = []
+    for i in range(1, 5):
         response = requests.get(f"{ZENODO_URL}/records", params={"q": 'owners:19586 OR owners:19587',
                                                                  "all_versions": True,
-                                                                 "size": 400,
+                                                                 "size": 25,
                                                                  "sort": "mostrecent",
                                                                  "page": i})
         if response.status_code == 200:
-            if result is None:
-                result = response.json()
-            else:
-                tmp = response.json()
-                result["hits"]["hits"].extend(tmp["hits"]["hits"])
-            n = len(result["hits"]["hits"])
-            expect = result["hits"]["total"]
-            if expect == n:
-                return result["hits"]["hits"]
-            elif expect < n:
-                raise LookupError("Have more hits than Zenodo reports in total")
-            i += 1
+            result.extend(response.json()["hits"]["hits"])
         else:
             raise LookupError("Unable to get zenodo records: %s" % response.json())
+    return result
 
 
 def zenodo_metarecords():
@@ -588,7 +578,7 @@ with deposit:write scope.""")
     return publish
 
 
-def format_bibtex(record):
+def format_bibtex(record, tag):
     metadata = record["metadata"]
     template = """@misc{{{key},
  key   = {{{key}}},
@@ -635,7 +625,7 @@ If the release has only just been created, then the information may not yet have
         sys.exit(1)
     if result["hits"]["total"] > 1:
         log.error("More than one release for this tag found, please check bibtex carefully.")
-    return "\n".join(map(format_bibtex, result["hits"]["hits"]))
+    return "\n".join((format_bibtex(record, tag=tag) for record in result["hits"]["hits"]))
 
 
 if args.release_tag:
@@ -694,9 +684,9 @@ def create_zenodo_meta_release(meta_release: str) -> None:
     record = record.json()
     log.info("Created Zenodo meta-release.")
     log.info(f"Tag is `{tag}`")
-    log.info(f"DOI is {record[doi]}")
+    log.info(f"DOI is {record['doi']}")
     log.info(f"Zenodo URL is {record['links']['record_html']}")
-    log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record)}\n```")
+    log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record, tag)}\n```")
 
 
 if args.meta_release:
@@ -794,8 +784,25 @@ def generate_unique_release_tag() -> str:
 def check_ref_exists(component):
     if "version" in shas[component]:
         # component is versioned, a GitHub release should already exist
-        if not release_already_exists(component, shas[component]["version"]):
-            log.error(f"A release of {component} is referenced but no corresponding release on GitHub can be found, aborting")
+        version = shas[component]["version"]
+        if not release_already_exists(component, version):
+            msg = textwrap.dedent(
+                f"""\
+                Release {shas[component]['version']} of {component} is
+                referenced but no corresponding release on GitHub can be
+                found. To fix this you have to update the fork and create the
+                release. Assuming that you have added the upstream repository
+                as a remote called 'upstream' the steps you have to follow are:
+
+                1. git fetch upstream
+                2. git push --tags
+                3. gh release create {version} --latest=false --prerelease --title {version} --repo firedrakeproject/{component}
+
+                Where 'gh' is the GitHub CLI tool.
+
+                """
+            )
+            log.error(msg)
             sys.exit(1)
     else:
         repo = get_component_repository(component)
@@ -809,12 +816,18 @@ def make_github_release_or_tag_existing(component: str) -> None:
         # component is versioned, a GitHub release should already exist
         release = get_matching_release(component, shas[component]["version"])
         tag_existing_release = True
-        commit_id = release.target_commitish
+
+        commit_id = None
+        for tag in repo.tags():
+            if tag.name == release.tag_name:
+                commit_id = tag.commit.sha
+                break
+        assert commit_id is not None
     else:
         # referencing a specific commit, may need to make a new release
 
         # make sure that 'commit_id' is not truncated
-        commit_id = repo.commit(shas[component]["commit_id"])
+        commit_id = repo.commit(shas[component]["commit_id"]).sha
 
         if commit_already_exists_in_release(component, commit_id):
             tag_existing_release = True
@@ -824,7 +837,7 @@ def make_github_release_or_tag_existing(component: str) -> None:
     if tag_existing_release:
         log.info(f"Commit '{commit_id}' found in a pre-existing release for "
                  f"'{component}', adding tag '{release_tag}' to it")
-        date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+        date = datetime.datetime.now(datetime.UTC).replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
         tagger = {"name": "firedrake-zenodo",
                   "email": "firedrake@imperial.ac.uk",
                   "date": date}
@@ -842,13 +855,38 @@ def make_github_release_or_tag_existing(component: str) -> None:
             "or any of its dependencies. Instead, refer to "
             "https://www.firedrakeproject.org/citing.html"
         )
-        repo.create_release(
-            tag_name=release_tag,
-            target_commitish=commit_id,
-            name=DESCRIPTIONS[component],
-            body=body,
-            draft=False,
-            prerelease=True)
+        try:
+            repo.create_release(
+                tag_name=release_tag,
+                target_commitish=commit_id,
+                name=DESCRIPTIONS[component],
+                body=body,
+                draft=False,
+                prerelease=True)
+        except github3.exceptions.NotFoundError:
+            # The GitHub API is buggy and this will occasionally fail
+            msg = textwrap.dedent(f"""\
+                Failed to create a release for {component}, this will have to
+                be done manually:
+
+                1. Tag the relevant commit:
+
+                    a. git clone git@github.com:firedrakeproject/{component}.git
+                    b. cd {component}
+                    c. git tag {release_tag} {commit_id}
+                    d. git push --tags
+
+                2. Make a prerelease on GitHub using this tag. The release name
+                   should be:
+
+                     '{DESCRIPTIONS[component]}'
+
+                   and the text should be:
+
+                   {body}
+
+                """)
+            log.error(msg)
 
 
 def make_releases() -> None:
@@ -882,6 +920,10 @@ def release_already_exists(component: str, release_name: str) -> bool:
 
 
 def get_matching_release(component: str, release_name: str) -> github3.Release:
+    # PETSc prepend a 'v' to their releases
+    if component == "petsc":
+        release_name = "v" + release_name
+
     for release in get_component_repository(component).releases():
         if release.tag_name == release_name:
             return release

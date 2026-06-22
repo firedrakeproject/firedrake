@@ -16,6 +16,11 @@ extruded_mesh_name = "m_extruded"
 func_name = "f"
 
 
+@pytest.fixture(autouse=True)
+def autouse_garbage_cleanup(garbage_cleanup):
+    pass
+
+
 def _initialise_function(f, _f, method):
     if method == "project":
         getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1.e-16})
@@ -67,7 +72,7 @@ def _get_mesh(cell_type, comm):
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
@@ -148,7 +153,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
         afile.save_function(fB)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize('cell_family_degree', [
     ("triangle_small", "P", 1),
     ("triangle_small", "P", 6),

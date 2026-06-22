@@ -101,9 +101,9 @@ Support
 -------
 
 The conference has been kindly supported by `EPSRC grant EP/W026163/1
-<https://gow.epsrc.ukri.org/NGBOViewGrant.aspx?GrantRef=EP/W026163/1>`__ and
+<https://gtr.ukri.org/projects?ref=EP/W026163/1>`__ and
 `EPSRC grant EP/W026066/1
-<https://gow.epsrc.ukri.org/NGBOViewGrant.aspx?GrantRef=EP/W026066/1>`__.
+<https://gtr.ukri.org/projects?ref=EP%2FW026066%2F1>`__.
 
 ..
     Talk videos

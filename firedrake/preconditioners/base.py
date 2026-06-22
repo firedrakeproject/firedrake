@@ -1,26 +1,34 @@
 import abc
 
-from firedrake_citations import Citations
+import petsctools
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_appctx
+from firedrake.bcs import BCBase
+import ufl
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
 
 class PCSNESBase(object, metaclass=abc.ABCMeta):
+    """Create a PC or SNES python context suitable for PETSc.
+
+    Both Python PC and SNES classes should inherit from this class and implement:
+
+    - :meth:`~.PCSNESBase.initialize`
+    - :meth:`~.PCSNESBase.update`
+
+    Python PC classes should additionally implement:
+
+    - :meth:`~.PCBase.apply`
+    - :meth:`~.PCBase.applyTranspose`
+
+    Python SNES classes should additionally implement one of the following:
+
+    - ``SNESBase.step``
+    - ``SNESBase.solve``
+    """
     def __init__(self):
-        """Create a PC context suitable for PETSc.
-
-        Matrix free preconditioners should inherit from this class and
-        implement:
-
-        - :meth:`~.PCSNESBase.initialize`
-        - :meth:`~.PCSNESBase.update`
-        - :meth:`~.PCBase.apply`
-        - :meth:`~.PCBase.applyTranspose`
-
-        """
-        Citations().register("Kirby2017")
+        petsctools.cite("Kirby2017")
         self.initialized = False
         super(PCSNESBase, self).__init__()
 
@@ -105,28 +113,34 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         return a, bcs
 
     @staticmethod
-    def get_appctx(pc):
-        return get_appctx(pc.getDM()).appctx
+    def get_appctx(obj):
+        return get_appctx(obj.getDM()).appctx
 
     @staticmethod
-    def new_snes_ctx(pc, op, bcs, mat_type, fcp=None, options_prefix=None, pre_apply_bcs=True):
+    def new_snes_ctx(
+            pc: PETSc.PC,
+            Jp: ufl.BaseForm,
+            bcs: [BCBase],
+            mat_type: str,
+            fcp: dict | None = None,
+            **kwargs):
         """Create a new `_SNESContext` for nested (linear) preconditioning
 
         Parameters
         ----------
-        pc : PETSc.PC
-             The PC object.
-        op : ufl.BaseForm
-             A bilinear form.
-        bcs : DirichletBC[]
-             The boundary conditions.
-        mat_type : str
-             The matrix type for the assembly of ``op``.
-        options_prefix : str
-             The PETSc options prefix for the new `_SNESContext`.
-        pre_apply_bcs : bool
-             If ``True``, the ``bcs`` are pre applied on the solution before the solve,
-             otherwise the residual of the ``bcs`` is included in the linear system.
+        pc
+            The PC object.
+        Jp
+            A bilinear form for preconditioning.
+        bcs
+            The boundary conditions.
+        mat_type
+            The matrix type for the assembly of ``Jp``.
+        fcp
+            The form compiler parameters.
+        kwargs
+            Any extra kwargs are passed on to the new _SNESContext.
+            For details see `firedrake.solving_utils._SNESContext`.
 
         Returns
         -------
@@ -134,19 +148,28 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         """
         from firedrake.variational_solver import LinearVariationalProblem
         from firedrake.function import Function
-        from firedrake.solving_utils import _SNESContext
 
-        dm = pc.getDM()
-        old_appctx = get_appctx(dm).appctx
-        u = Function(op.arguments()[-1].function_space())
+        u = Function(Jp.arguments()[-1].function_space())
         L = 0
         if bcs:
             bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=True) for bc in bcs)
-        nprob = LinearVariationalProblem(op, L, u, bcs=bcs, form_compiler_parameters=fcp)
-        return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix, pre_apply_bcs=pre_apply_bcs)
+
+        nprob = LinearVariationalProblem(Jp, L, u, bcs=bcs, form_compiler_parameters=fcp)
+        octx = get_appctx(pc.getDM())
+        return octx.reconstruct(problem=nprob, mat_type=mat_type, pmat_type=mat_type, **kwargs)
 
 
 class PCBase(PCSNESBase):
+    """Create a PC python context suitable for PETSc.
+
+    Matrix free preconditioners should inherit from this class and
+    implement:
+
+    - :meth:`~.PCSNESBase.initialize`
+    - :meth:`~.PCSNESBase.update`
+    - :meth:`~.PCBase.apply`
+    - :meth:`~.PCBase.applyTranspose`
+    """
 
     _asciiname = "preconditioner"
     _objectname = "pc"
@@ -192,6 +215,44 @@ class PCBase(PCSNESBase):
 
 
 class SNESBase(PCSNESBase):
+    """Create SNES python context suitable for PETSc.
+
+    Python SNES classes should inherit from this class and implement:
+
+    - :meth:`~.PCSNESBase.initialize`
+    - :meth:`~.PCSNESBase.update`
+
+    Inheriting classes should additionally implement *either*:
+
+    - ``SNESBase.step``
+    - ``SNESBase.solve``
+
+    The required function signatures for each method are shown below:
+
+    .. code-block:: python3
+
+        def solve(self, snes, b, x):
+            '''Solve the nonlinear problem using the Vec x as the initial guess and
+            putting the solution back into x. The Vec b is constant forcing term which
+            may be None.
+            '''
+            pass
+
+        def step(self, snes, X, F, Y):
+            '''Apply one iteration of the SNES to the current iterate X,
+            using the function residual F, and putting the update in Y.
+
+            X, F and Y are PETSc Vecs, Y is not guaranteed to be zero on entry.
+            '''
+            pass
+
+    Notes
+    -----
+    The function signatures for the ``solve`` and ``step`` methods are shown in
+    the docstring rather than being implemented as abstract methods because
+    petsc4py will test whether the SNES python context has either a ``step``
+    or ``solve`` method to decide what to do when ``snes.solve()`` is called.
+    """
 
     _asciiname = "nonlinear solver"
     _objectname = "snes"

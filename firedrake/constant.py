@@ -1,6 +1,7 @@
+import numbers
+from collections.abc import Sequence
 import numpy as np
 import ufl
-import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
@@ -15,6 +16,7 @@ from ufl.formatting.ufl2unicode import (
     Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
     colorama,
 )
+from functools import cached_property
 from ufl.utils.counted import Counted
 
 
@@ -40,67 +42,37 @@ def _create_dat(op2type, value, comm):
 
 
 class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin, Counted):
-    """A "constant" coefficient
+    """A parameter.
 
-    A :class:`Constant` takes one value over the whole
-    :func:`~.Mesh`. The advantage of using a :class:`Constant` in a
-    form rather than a literal value is that the constant will be
-    passed as an argument to the generated kernel which avoids the
-    need to recompile the kernel if the form is assembled for a
-    different value of the constant.
+    The advantage of using a `Constant` in a form rather than a literal value
+    is that the constant will be passed as an argument to the generated kernel
+    which avoids the need to recompile the kernel if the form is assembled for
+    a different value of the constant.
 
-    :arg value: the value of the constant.  May either be a scalar, an
-         iterable of values (for a vector-valued constant), or an iterable
-         of iterables (or numpy array with 2-dimensional shape) for a
-         tensor-valued constant.
+    Arguments
+    ---------
+    value :
+        The value of the constant.  May either be a scalar, an
+        iterable of values (for a vector-valued constant), or an iterable
+        of iterables (or numpy array with 2-dimensional shape) for a
+        tensor-valued constant.
+    name :
+        Optional name for the constant.
+    count :
+        Internal identifier.
 
-    :arg domain: an optional :func:`~.Mesh` on which the constant is defined.
-
-    .. note::
-
-       If you intend to use this :class:`Constant` in a
-       :class:`~ufl.form.Form` on its own you need to pass a
-       :func:`~.Mesh` as the domain argument.
     """
     _ufl_typecode_ = UFLType._ufl_num_typecodes_
     _ufl_handler_name_ = "firedrake_constant"
 
-    def __new__(cls, value, domain=None, name=None, count=None):
-        if domain:
-            # Avoid circular import
-            from firedrake.function import Function
-            from firedrake.functionspace import FunctionSpace
-            import warnings
-            warnings.warn(
-                "Giving Constants a domain is no longer supported. Instead please "
-                "create a Function in the Real space.", FutureWarning
-            )
-
-            dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
-
-            if not isinstance(domain, ufl.AbstractDomain):
-                cell = ufl.as_cell(domain)
-                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension())
-                domain = ufl.Mesh(coordinate_element)
-
-            cell = domain.ufl_cell()
-            if rank == 0:
-                element = finat.ufl.FiniteElement("R", cell, 0)
-            elif rank == 1:
-                element = finat.ufl.VectorElement("R", cell, 0, shape[0])
-            else:
-                element = finat.ufl.TensorElement("R", cell, 0, shape=shape)
-
-            R = FunctionSpace(domain, element, name="firedrake.Constant")
-            return Function(R, val=dat).assign(value)
-        else:
-            return object.__new__(cls)
-
     @collective
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None, name=None, count=None):
-        """"""
-
+    def __init__(
+        self,
+        value: numbers.Number | Sequence,
+        name: str | None = None,
+        count: int | None = None,
+    ) -> None:
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
@@ -153,7 +125,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """Return a null function space."""
         return None
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         return (self,)
 

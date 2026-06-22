@@ -1,5 +1,6 @@
 import numpy
 import ufl
+from ufl.domain import extract_domains, extract_unique_domain
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
@@ -8,7 +9,6 @@ from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
 
 
 def extract_subfunction(u, V):
@@ -74,8 +74,17 @@ class GenericSolveBlock(Block):
         for bc in self.bcs:
             self.add_dependency(bc, no_duplicates=True)
 
-        mesh = self.lhs.ufl_domain()
-        self.add_dependency(mesh)
+        try:  # add all meshes as dependency
+            for mesh in extract_domains(self.lhs):
+                self.add_dependency(mesh, no_duplicates=True)
+        except AttributeError:
+            pass
+
+        if isinstance(self.rhs, ufl.BaseForm):
+            # add all meshes as dependency
+            for mesh in extract_domains(self.rhs):
+                self.add_dependency(mesh, no_duplicates=True)
+
         self._init_solver_parameters(args, kwargs)
 
     def _init_solver_parameters(self, args, kwargs):
@@ -86,8 +95,15 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        try:
+            lhs_string = ufl2unicode(self.lhs)
+        except AttributeError:
+            lhs_string = str(self.lhs)
+        try:
+            rhs_string = ufl2unicode(self.rhs)
+        except AttributeError:
+            rhs_string = str(self.rhs)
+        return "solve({} = {})".format(lhs_string, rhs_string)
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
@@ -156,6 +172,13 @@ class GenericSolveBlock(Block):
     def adj_sol(self):
         return self.adj_state
 
+    @adj_sol.setter
+    def adj_sol(self, value):
+        if self.adj_state is None:
+            self.adj_state = value.copy(deepcopy=True)
+        else:
+            self.adj_state.assign(value)
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
@@ -180,7 +203,7 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -228,12 +251,7 @@ class GenericSolveBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isconstant(c):
-            mesh = F_form.ufl_domain()
-            trial_function = firedrake.TrialFunction(
-                c._ad_function_space(mesh)
-            )
-        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = c.reconstruct(
@@ -401,7 +419,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_state
+        adj_sol = self.adj_sol
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -440,10 +458,7 @@ class GenericSolveBlock(Block):
             )
             return [tmp_bc]
 
-        if isconstant(c_rep):
-            mesh = F_form.ufl_domain()
-            W = c._ad_function_space(mesh)
-        elif isinstance(c, firedrake.MeshGeometry):
+        if isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
         else:
@@ -719,7 +734,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -742,10 +757,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            mesh = F_form.ufl_domain()
+            try:
+                mesh = extract_unique_domain(F_form)
+            except ValueError:
+                raise ValueError("Expecting a single mesh")
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )
@@ -779,7 +797,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanently upstream in UFL.
+            #  See: https://github.com/FEniCS/ufl/issues/395
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm

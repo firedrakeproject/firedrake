@@ -61,7 +61,7 @@ def asm(k):
         "ksp_type": "preonly",
         "pc_type": "python",
         "pc_python_type": "firedrake.ASMExtrudedStarPC",
-        "pc_star_patch_construct_dim": k,
+        "pc_star_construct_dim": k,
     }
 
 
@@ -136,7 +136,7 @@ def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
-    if mesh.ufl_cell().is_simplex():
+    if mesh.ufl_cell().is_simplex:
         family = "N1curl"
         max_it = 14
     else:
@@ -150,7 +150,7 @@ def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_gmg_hiptmair_hdiv(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
-    if mesh.ufl_cell().is_simplex():
+    if mesh.ufl_cell().is_simplex:
         family = "N1div"
         max_it = 14
     else:
@@ -166,5 +166,5 @@ def test_pmg_hiptmair_hcurl():
     family = "NCE"
     mat_type = "aij"
     V = FunctionSpace(mesh, family, degree=3)
-    max_it = 10
+    max_it = 12
     assert run_riesz_map(V, mat_type, max_it, solver_type="pmg") < 1E-6

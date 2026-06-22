@@ -1,0 +1,166 @@
+:orphan: true
+
+.. title:: PETSc annual user meeting and Firedrake '26
+
+.. image:: images/hawkwell_house.jpg
+   :width: 45%
+   :alt: Hawkwell House
+   :align: right
+
+
+PETSc annual user meeting and Firedrake '26
+-------------------------------------------
+
+The eleventh Firedrake user and developer workshop will be held jointly
+with the `PETSc annual user meeting <https://petsc.org/release/community/meetings/meeting/#upcoming-meetings>`__
+in Oxford between 1-5 June 2026.
+
+The meetings will be an opportunity for users and developers of each project to
+discuss the latest developments, anticipated future developments, and present
+novel applications and theoretical developments. The event will provide
+Firedrake users with the opportunity to interact directly with developers and
+with other users.
+
+The PETSc meeting will run from 1-3 June, and the Firedrake meeting from 3-5
+June, with overlapping sessions of common interest on Wednesday 3 June.
+Participants may register for either part of the week, but we hope that many
+will take the opportunity to learn more about these two related projects by
+staying for the whole week.
+
+Programme
+---------
+
+`The programme is now available
+<https://easychair.org/smart-program/PETScFiredrake26/>`__.
+
+Firedrake Tutorials
+-------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   Introduction to Firedrake and PETSc solvers<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/00-firedrake-petsc-hello-world.ipynb>
+   Solver Composition<https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/08-composable-solvers.ipynb>
+   Using Irksome for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/01-irksome-heat-equation.ipynb>
+   Composable solvers for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/02-preconditioning-heat-eq.ipynb>
+   Exploring the TimeStepper options<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/03-stagetype-heat-eq.ipynb>
+   Using Irksome for the Navier Stokes equations<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/04-Navier-Stokes.ipynb>
+   Implicit-explicit steppers for the monodomain equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/05-IMEX-Monodomain.ipynb>
+   Variational data assimilation in Firedrake <https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/06-Data-assimilation-inverse-problem.ipynb>
+
+Venue & registration
+--------------------
+
+The meetings will be held at `the Hawkwell House Hotel
+<https://mercureoxfordhawkwellhouse.com>`__ 2 miles (3 km) south of Oxford.
+Participants can register for either the PETSc or the Firedrake part of the
+meeting, or (highly recommended!) for both.
+
+Registration is all-inclusive: workshop, accommodation (Monday and Tuesday
+night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day
+(excluding breakfast/dinner for the day that you arrive/leave) and
+coffee breaks. There are also options without the room and breakfast component
+for those who live locally.
+
+=================   =================================== ======  ======= ======================= ==========================
+Event               Dates                               Full    Student Full (no accommodation) Student (no accommodation)
+=================   =================================== ======  ======= ======================= ==========================
+PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170
+PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100
+Firedrake only	    3 June (lunchtime) - 5 June (16:50) £550    £220    £250                    £100
+=================   =================================== ======  ======= ======================= ==========================
+
+International attendees will likely need to book a hotel for the night before
+the conference. We recommend either booking an extra night at the `conference
+venue <https://mercureoxfordhawkwellhouse.com>`__ or booking a hotel by
+London Paddington, as it is a convenient midpoint between London Heathrow and
+Oxford.
+
+
+Travel
+------
+
+The venue is:
+
+|    Mercure Oxford Hawkwell House
+|    Church Way
+|    Iffley Village
+|    Oxford OX4 4DZ
+|    United Kingdom
+
+From Oxford
+~~~~~~~~~~~
+
+The venue is on the number 3 and 3A bus routes from Oxford Station. Buses are
+frequent and contactless credit card payments are accepted on the bus.
+
+By air
+~~~~~~
+
+Oxford lies between London and Birmingham. The closest London airport is London
+Heathrow.
+
+From Heathrow, a `regular coach service
+<https://www.theairline.co.uk/oxford-to-heathrow-bus/>`__ runs to Oxford. There
+is no need to pre-book.
+
+From Birmingham International Airport there are hourly direct trains.
+`Prepurchased tickets <https://buy.crosscountrytrains.co.uk>`__ can be
+significantly cheaper, but are only valid on the booked train.
+
+To travel from other London airports, first travel in to central London and
+then take the train from Paddington station. Again, `prepurchased tickets
+<https://www.gwr.com/>`__ can be cheaper but are only valid on the booked
+train.
+
+Organising committee
+--------------------
+
+* `David Ham <https://www.imperial.ac.uk/people/david.ham>`__, Imperial College London
+* `Connor Ward <https://www.imperial.ac.uk/people/c.ward20>`__, Imperial College London
+* Matthew Knepley, University at Buffalo
+* Jemma Shipton, University of Exeter
+* Hussam Al Daas, STFC
+* Pablo Brubeck, University of Oxford
+
+Support
+-------
+
+These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
+`CoSeC <https://www.cosec.ac.uk/communities/>`__ and `STFC
+<https://www.ukri.org/councils/stfc/>`__
+
+.. |STFC| image:: /images/stfc.*
+  :height: 60px
+  :target: https://www.ukri.org/councils/stfc/
+
+.. |CoSeC| image:: /images/cosec.*
+  :height: 60px
+  :target: https://www.cosec.ac.uk/communities/
+
+
+.. only:: html
+
+  +--------+---------+
+  | |STFC| | |CoSeC| |
+  +--------+---------+
+
+
+The poster session and drinks reception is sponsored by
+`Devito Codes <https://www.devitocodes.com>`__.
+
+.. |DevitoLogo| image:: /images/devito.svg
+  :height: 60px
+  :target: https://www.devitocodes.com
+
+.. only:: html
+
+  +--------------+
+  | |DevitoLogo| |
+  +--------------+
+
+
+Further details
+---------------
+
+For any queries, please contact `Connor Ward <mailto:c.ward20@imperial.ac.uk>`_.

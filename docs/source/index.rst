@@ -2,7 +2,7 @@
 
 .. only:: html
 
-   .. sidebar:: Latest commits to the Firedrake master branch on Github
+   .. sidebar:: Latest commits to the Firedrake main branch on Github
 
       .. raw:: html
 
@@ -21,7 +21,7 @@ Features:
 * Expressive specification of any PDE using the Unified Form Language
   from `the FEniCS Project <http://fenicsproject.org>`_.
 * Sophisticated, programmable solvers through seamless coupling with `PETSc
-  <http://www.mcs.anl.gov/petsc/>`_.
+  <https://petsc.org/>`_.
 * Triangular, quadrilateral, and tetrahedral unstructured meshes.
 * Layered meshes of triangular wedges or hexahedra.
 * Vast range of finite element spaces.

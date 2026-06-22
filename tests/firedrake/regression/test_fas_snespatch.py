@@ -56,14 +56,12 @@ def solver_params(request):
                "fas_coarse_snes_max_it": 100,
                "fas_coarse_snes_atol": 1.0e-14,
                "fas_coarse_snes_rtol": 1.0e-14,
-               "fas_coarse_snes_linesearch_type": "l2",
+               "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     elif request.param == 1:
@@ -103,14 +101,12 @@ def solver_params(request):
                "fas_coarse_snes_max_it": 100,
                "fas_coarse_snes_atol": 1.0e-14,
                "fas_coarse_snes_rtol": 1.0e-14,
-               "fas_coarse_snes_linesearch_type": "l2",
+               "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     else:
@@ -151,14 +147,12 @@ def solver_params(request):
                "fas_coarse_snes_max_it": 100,
                "fas_coarse_snes_atol": 1.0e-14,
                "fas_coarse_snes_rtol": 1.0e-14,
-               "fas_coarse_snes_linesearch_type": "l2",
+               "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         }
 
 
@@ -167,7 +161,7 @@ def test_snespatch(mesh, CG1, solver_params):
     u = Function(CG1)
     v = TestFunction(CG1)
 
-    f = Constant(1, domain=mesh)
+    f = Constant(1)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx + inner(u**3 - u, v)*dx
 
     bcs = DirichletBC(CG1, 0, "on_boundary")
