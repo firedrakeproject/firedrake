@@ -542,11 +542,17 @@ def parallel_cache(
                     comm_caches = get_comm_caches(comm)
                     if heavy:
                         if cache_id not in comm_caches:
-                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+                            # comm_caches[cache_id] = weakref.WeakKeyDictionary()
+                            comm_caches[cache_id] = {}
 
                         caches = []
                         cache_type = None
                         for lifetime_obj in _heavy_caches:
+                            assert lifetime_obj.comm.size >= comm.size
+                            if pyop3.config.spmd_strict:
+                                # cache access must be collective over lifetime objects
+                                lifetime_obj.comm.barrier()
+
                             try:
                                 cache = comm_caches[cache_id][lifetime_obj]
                             except KeyError:
@@ -657,7 +663,9 @@ def memory_and_disk_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     return decorator
 
 
-_heavy_caches = weakref.WeakSet()
+# NOTE: It is safe to reference the object because it is only accessible
+# via a context manager that pops the reference after use.
+_heavy_caches = pyop3.collections.OrderedSet()
 
 
 class heavy_caches:
@@ -675,7 +683,7 @@ class heavy_caches:
         self._objs = objs
         # keep track of the objects we inserted ourselves, if they were already
         # there then we don't want to remove them!
-        self._added_objs = set()
+        self._added_objs = pyop3.collections.OrderedSet()
 
     def __enter__(self) -> None:
         for obj in self._objs:
@@ -694,11 +702,12 @@ def with_heavy_caches(get_obj: Callable) -> Callable:
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
+            assert pyop3.collections.is_ordered_sequence(obj)
             with heavy_caches(obj):
                 return func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: {self})
+with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: (self,))
 """Method decorator that sets ``self`` as a heavy cache."""

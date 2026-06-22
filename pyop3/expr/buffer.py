@@ -13,7 +13,6 @@ from pyop3.node import NodeVisitor
 from pyop3.labeled_tree import is_subpath
 from pyop3.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
-from pyop3.sf import DistributedObject
 from pyop3.collections import OrderedFrozenSet
 
 from .base import Expression, as_str
@@ -21,7 +20,7 @@ from .tensor import Scalar, Dat, CompositeDat
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
+class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     # {{{ abstract methods
 

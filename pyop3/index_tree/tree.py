@@ -401,6 +401,10 @@ class LoopIndex(Index):
             visitor.renamer.add(self.id, "LoopIndex"),
         )
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.get_comm(self.iterset)
+
     def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=utils.PYOP3_DECIDE):
         id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
 

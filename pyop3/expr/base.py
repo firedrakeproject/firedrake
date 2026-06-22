@@ -171,6 +171,14 @@ class Operator(Expression, metaclass=abc.ABCMeta):
 
     # }}}
 
+    # {{{ interface impls
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self.operands)
+
+    # }}}
+
 
 @pyop3.record.frozenrecord()
 class UnaryOperator(Operator, metaclass=abc.ABCMeta):
@@ -535,6 +543,10 @@ class AxisVar(TerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.axis.comm
+
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
         assert axis.component.sf is None
@@ -577,6 +589,10 @@ class NaN(TerminalExpression):
         return (type(self),)
 
     @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
+
+    @property
     def local_max(self) -> NoReturn:
         raise TypeError
 
@@ -615,6 +631,10 @@ class LoopIndexVar(TerminalExpression):
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(self.loop_index, self.axis)
 
     def __init__(self, loop_index, axis) -> None:
         from pyop3 import LoopIndex

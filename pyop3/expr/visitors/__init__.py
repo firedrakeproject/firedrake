@@ -878,6 +878,7 @@ def _(dat, /) -> OrderedFrozenSet:
 
 
 @memory_cache(heavy=True)
+@pyop3.mpi.collective
 def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.Comm) -> pyop3.expr.LinearDatBufferExpression:
     axes = composite_dat.axis_tree
 

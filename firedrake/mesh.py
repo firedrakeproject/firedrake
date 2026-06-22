@@ -2466,7 +2466,7 @@ class MeshTopology(AbstractMeshTopology):
             # or to a mix of facet types).
             # We don't know a priori what this type is so we instead detect it here.
             target_exterior_facets = dmcommon.intersect_is(
-                PETSc.IS().createGeneral(target_subset_points),
+                PETSc.IS().createGeneral(target_subset_points, comm=MPI.COMM_SELF),
                 target._exterior_facet_plex_indices,
             )
             with temp_internal_comm(self.comm) as icomm:
@@ -2475,7 +2475,7 @@ class MeshTopology(AbstractMeshTopology):
                 )
 
             target_interior_facets = dmcommon.intersect_is(
-                PETSc.IS().createGeneral(target_subset_points),
+                PETSc.IS().createGeneral(target_subset_points, comm=MPI.COMM_SELF),
                 target._interior_facet_plex_indices,
             )
             with temp_internal_comm(self.comm) as icomm:
@@ -6895,13 +6895,13 @@ def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
     # FIXME: This isn't valid for certain inputs (e.g. ZeroBaseForm) but this
     # is a very heavy-handed way to fix that
     try:
-        return frozenset({d.topology for d in extract_domains(expr)})
+        return op3.collections.OrderedFrozenSet([d_.topology for d in extract_domains(expr) for d_ in d])
     except:
-        return frozenset()
+        return ()
 
 
 def extract_mesh_topologies(mesh) -> frozenset[MeshTopology]:
     if isinstance(mesh, MeshSequenceGeometry):
-        return frozenset({m.topology for m in mesh})
+        return op3.collections.OrderedFrozenSet([m.topology for m in mesh])
     else:
-        return frozenset({mesh.topology})
+        return op3.collections.OrderedFrozenSet([mesh.topology])

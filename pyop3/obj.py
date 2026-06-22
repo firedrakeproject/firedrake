@@ -31,3 +31,9 @@ class Pyop3Object(abc.ABC):
             f"'get_disk_cache_key' not implemented for '{type(self).__qualname__}'"
         )
 
+    @property
+    def comm(self) -> MPI.Comm:
+        """The communicator over which this object is collective."""
+        raise NotImplementedError(
+            f"'comm' not implemented for '{type(self).__qualname__}'"
+        )

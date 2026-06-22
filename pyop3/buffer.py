@@ -22,7 +22,7 @@ from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
 from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
+from pyop3.sf import NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
     Device,
@@ -898,7 +898,7 @@ class PetscMatBuffer(ConcreteBuffer):
                 submat = cls._make_petsc_mat(submat_spec, preallocator=preallocator)
                 submats[i, j] = submat
 
-            comm = utils.single_comm(submats.flatten(), "comm")
+            comm = pyop3.visitors.single_comm(*submats.flatten())
             return PETSc.Mat().createNest(submats, comm=comm)
         else:
             assert isinstance(mat_spec, FullPetscMatBufferSpec)
@@ -916,7 +916,7 @@ class PetscMatBuffer(ConcreteBuffer):
             row_axes = row_spec
             column_axes = column_spec
 
-            comm = utils.single_comm([row_axes, column_axes], "comm")
+            comm = pyop3.visitors.single_comm(row_axes, column_axes)
 
             if mat_type == "rvec":
                 mode = "row"
@@ -932,7 +932,7 @@ class PetscMatBuffer(ConcreteBuffer):
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
-            comm = utils.single_comm([row_spec.lgmap, column_spec.lgmap], "comm")
+            comm = pyop3.visitors.single_comm(row_spec.lgmap, column_spec.lgmap)
 
             mat = PETSc.Mat().create(comm)
             mat.setType(mat_type)

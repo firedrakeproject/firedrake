@@ -121,6 +121,17 @@ class OrderedSet(AbstractOrderedSet):
             for item in other:
                 self.add(item)
 
+    def remove(self, value):
+        try:
+            index = self._values.index(value)
+        except ValueError:
+            raise KeyError
+        else:
+            self._values.pop(index)
+
+    def clear(self):
+        self._values.clear()
+
 
 class OrderedFrozenSet(AbstractOrderedSet):
 
