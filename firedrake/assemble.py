@@ -1084,9 +1084,9 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
-                    parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                    parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
         # FIXME: This is necessary for test_submesh_solve_simple to pass for the moment
         # This is unsatisfying because in theory this isn't required - we can stash up the
@@ -1113,17 +1113,15 @@ class ParloopFormAssembler(FormAssembler):
 
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_name")
+            assert hasattr(self, "_tensor_id")
         else:
-            tensor_name = {}
+            tensor_id = {}
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-                # if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                #     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
-                tensor_name[local_kernel] = subtensor.name
+                tensor_id[local_kernel] = subtensor.record_id
 
                 parloop_builder = ParloopBuilder(
                     self._form,
@@ -1136,7 +1134,7 @@ class ParloopFormAssembler(FormAssembler):
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
             self._parloops = parloops_
-            self._tensor_name = tensor_name
+            self._tensor_id = tensor_id
 
         return self._parloops
 
@@ -1386,13 +1384,13 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
 
     if mat_type is None:
         if has_real_subspace:
-            if len(test_space) > 1 or len(trial_space) > 1:
+            if is_mixed(test_space) or is_mixed(trial_space):
                 mat_type = "nest"
             else:
                 if _is_real_space(test_space):
-                    mat_type = "cvec"
-                else:
                     mat_type = "rvec"
+                else:
+                    mat_type = "cvec"
         else:
             mat_type = parameters.parameters["default_matrix_type"]
 
@@ -1417,9 +1415,11 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 block_shape = ((), ())
 
                 if _is_real_space(test_subspace):
+                    # The test space is the row space, so a Real test space means we have a single row
                     sub_mat_type_ = "rvec"
                 else:
                     if _is_real_space(trial_subspace):
+                        # The trial space is the column space, so a Real trial space means we have a single column
                         sub_mat_type_ = "cvec"
                     else:
                         sub_mat_type_ = sub_mat_type
@@ -1659,7 +1659,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # we're setting something we know to be zero
                 mat.assemble()
 
-                rows = bc.nodes
+                # NOTE: This is only OK in parallel with mixed spaces because we
+                # apply the BC to local submat, where DoF interleaving is not
+                # applicable.
+                rows = bc._nodes
                 rows = numpy.asarray(rows, dtype=utils.IntType)
                 rbs = V.block_size
                 if rbs > 1:
@@ -1669,11 +1672,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
 
                 rows = numpy.asarray(rows, dtype=utils.IntType)
+
                 # reshape needed for some reason
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
 
-                with local_submat(mat.buffer.mat, V, V) as submat:
+                myspace = space if V.index is None else space[V.index]
+                with local_submat(mat.buffer.mat, myspace, myspace) as submat:
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )

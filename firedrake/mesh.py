@@ -1497,13 +1497,54 @@ class AbstractMeshTopology(abc.ABC):
         return idict(localized_closures)
 
     def _memoize_closures(self, dim) -> np.ndarray:
-        def closure_func(_pt):
-            return self.topology_dm.getTransitiveClosure(_pt)[0]
-
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         npoints = p_end - p_start
         closure_size = sum(self._closure_sizes[dim].values())
         closure_data = np.empty((npoints, closure_size), dtype=IntType)
+
+        def closure_func(_pt):
+            return self.topology_dm.getTransitiveClosure(_pt)[0]
+
+        is_periodic = bool(self.topology_dm.getCellCoordinatesLocal())
+        if self.ufl_cell() == ufl.quadrilateral and is_periodic:
+            # We support 1 element thick quad meshes, where the closure is
+            # smaller and needs to be expanded to include repeated points.
+            # For a detailed explanation refer to
+            # dmcommon.quadrilateral_closure_ordering
+            (_, horiz_unit_periodic), (_, vert_unit_periodic) = dmcommon._get_periodicity(self.topology_dm)
+
+            if horiz_unit_periodic and vert_unit_periodic:
+                raise NotImplementedError
+            if vert_unit_periodic:
+                closure_tmp = np.empty(closure_size, dtype=IntType)
+
+                def closure_func(_pt):
+                    closure = self.topology_dm.getTransitiveClosure(_pt)[0]
+                    closure_tmp[0] = closure[0]
+                    closure_tmp[1] = closure[1]
+                    closure_tmp[2] = closure[2]
+                    closure_tmp[3] = closure[1]
+                    closure_tmp[4] = closure[3]
+                    closure_tmp[5] = closure[4]
+                    closure_tmp[6] = closure[5]
+                    closure_tmp[7] = closure[5]
+                    closure_tmp[8] = closure[4]
+                    return closure_tmp
+            elif horiz_unit_periodic:
+                closure_tmp = np.empty(closure_size, dtype=IntType)
+
+                def closure_func(_pt):
+                    closure = self.topology_dm.getTransitiveClosure(_pt)[0]
+                    closure_tmp[0] = closure[0]
+                    closure_tmp[1] = closure[1]
+                    closure_tmp[2] = closure[2]
+                    closure_tmp[3] = closure[3]
+                    closure_tmp[4] = closure[2]
+                    closure_tmp[5] = closure[4]
+                    closure_tmp[6] = closure[4]
+                    closure_tmp[7] = closure[5]
+                    closure_tmp[8] = closure[5]
+                    return closure_tmp
 
         for i, pt in enumerate(range(p_start, p_end)):
             closure_data[i] = closure_func(pt)
@@ -1855,6 +1896,7 @@ class MeshTopology(AbstractMeshTopology):
     # old attribute, keeping around for now, use entity_orientations_renum usually
     @cached_property
     def entity_orientations(self):
+        # return np.zeros_like(self._fiat_cell_closures)
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
 
     @cached_property
@@ -2305,8 +2347,10 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(
             self.cells,
             self.submesh_parent.exterior_facets,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._exterior_facet_plex_indices.indices,
+            self._old_to_new_cell_numbering,
+            self.submesh_parent._old_to_new_exterior_facet_numbering,
             True,
         )
 

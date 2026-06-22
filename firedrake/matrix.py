@@ -120,20 +120,6 @@ class MatrixBase(ufl.Matrix):
     def __str__(self):
         return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
 
-    def __add__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat + other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
-    def __sub__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat - other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
     def assign(self, val):
         """Set matrix entries."""
         if isinstance(val, MatrixBase):

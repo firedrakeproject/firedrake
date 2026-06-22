@@ -735,6 +735,21 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         object.__setattr__(self, "index", from_index)
         object.__setattr__(self, "id", id)
         object.__setattr__(self, "_label", label)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        # Each leaf of the index wrapped by this map must have at least one
+        # target that corresponds to a source for this map.
+        for equiv_target_paths in self.index.leaf_target_paths:
+            match_found = False
+            for equiv_target_path in equiv_target_paths:
+                if equiv_target_path in self.map.connectivity:
+                    match_found = True
+                    break
+            if not match_found:
+                raise pyop3.exceptions.InvalidMapTargetException(
+                    "Cannot find a suitable candidate from the targets of the map index"
+                )
 
     label = pyop3.record.attr("_label")
 

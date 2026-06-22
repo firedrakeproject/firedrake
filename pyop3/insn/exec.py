@@ -150,11 +150,11 @@ class InstructionExecutionContext:
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
-        for arg_name, new_arg in kwargs.items():
-            buffer_names = self._argument_name_to_buffer_name_map[arg_name]
+        for arg_id, new_arg in kwargs.items():
+            buffer_ids = self._argument_id_to_buffer_id_map[arg_id]
             buffers = self._extract_buffers(new_arg)
-            for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
-                new_buffers[buffer_name] = buffer
+            for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
+                new_buffers[buffer_id] = buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
@@ -197,7 +197,7 @@ class InstructionExecutionContext:
 
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
-        executor, argument_index_to_buffer_name_map = self._compile()
+        executor, argument_index_to_buffer_id_map = self._compile()
 
         # If the returned executor is cached from a previous invocation then we
         # have to duplicate it with new buffers. For example consider the expressions:
@@ -210,12 +210,12 @@ class InstructionExecutionContext:
         # dat1 -> dat3 and dat2 -> dat4.
         if not self._has_called_compile:
             new_buffer_map = dict(executor.buffer_map)
-            for arg_index, buffer_names in argument_index_to_buffer_name_map.items():
+            for arg_index, buffer_ids in argument_index_to_buffer_id_map.items():
                 arg = self.root_insn.global_arguments[arg_index]
                 buffers = self._extract_buffers(arg)
                 assert len(buffers) > 0
-                for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
-                    buffer_name_in_kernel = executor._buffer_global_name_to_name_in_kernel_map[buffer_name]
+                for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
+                    buffer_name_in_kernel = executor._buffer_global_id_to_name_in_kernel_map[buffer_id]
                     # TODO: ick behaviour with buffer ref...
                     _, intent = executor.buffer_map[buffer_name_in_kernel]
                     new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
@@ -287,7 +287,7 @@ class InstructionExecutionContext:
 
         executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)
 
-        return executor, self._argument_index_to_buffer_name_map
+        return executor, self._argument_index_to_buffer_id_map
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
@@ -312,16 +312,16 @@ class InstructionExecutionContext:
 
 
     @cached_property
-    def _argument_index_to_buffer_name_map(self) -> idict[int, str]:
+    def _argument_index_to_buffer_id_map(self) -> idict[int, str]:
         return idict({
-            i: tuple(buf.name for buf in self._extract_buffers(arg))
+            i: tuple(buf.record_id for buf in self._extract_buffers(arg))
             for i, arg in enumerate(self.root_insn.global_arguments)
         })
 
     @cached_property
-    def _argument_name_to_buffer_name_map(self) -> idict:
+    def _argument_id_to_buffer_id_map(self) -> idict:
         return idict({
-            arg.name: tuple(buf.name for buf in self._extract_buffers(arg))
+            arg.record_id: tuple(buf.record_id for buf in self._extract_buffers(arg))
             for arg in self.root_insn.global_arguments
         })
 
@@ -471,8 +471,8 @@ class CompiledCodeExecutor:
         return tuple(ref for ref, _ in self.buffer_map.values())
 
     @cached_property
-    def _buffer_global_name_to_name_in_kernel_map(self):
-        return {buffer_ref.name: name_in_kernel for name_in_kernel, (buffer_ref, _) in self.buffer_map.items()}
+    def _buffer_global_id_to_name_in_kernel_map(self):
+        return {buffer.record_id: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
 
     @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
@@ -633,8 +633,7 @@ class CompiledCodeExecutor:
     @cached_property
     def _buffer_ref_indices(self) -> idict[str, int]:
         return idict({
-            # (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
-            buffer_ref.name: i for i, buffer_ref in enumerate(self._buffer_refs)
+            buffer.record_id: i for i, buffer in enumerate(self._buffer_refs)
         })
 
     @cached_property

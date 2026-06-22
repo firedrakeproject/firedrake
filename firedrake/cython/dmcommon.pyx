@@ -1521,8 +1521,10 @@ def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool
             marker_pointss = [dm.getStratumIS(FACE_SETS_LABEL, marker)]
 
         for marker_points in marker_pointss:
-            points = points.union(marker_points)
+            if marker_points:
+                points = points.union(marker_points)
     return points
+
 
 def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, boundary_set, extruded: bool) -> PETSc.IS:
     """'Restrict' a renumbering of DM points by moving constrained points to the end."""
@@ -4751,6 +4753,10 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETS
 def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     cdef:
         PETSc.IS filtered_is
+
+    # empty ISes remain empty
+    if not is_ or is_.size == 0:
+        return PETSc.IS().createGeneral(np.empty(0, dtype=IntType))
 
     filtered_is = is_.duplicate()
     PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))

@@ -68,6 +68,9 @@ class Mat(Tensor):
             visitor(self._transform),
         )
 
+    # Attributes that do not invalidate the object ID
+    non_id_attrs = ("row_axes", "column_axes", "_transform")
+
     def __init__(
         self,
         row_axes,
@@ -91,7 +94,7 @@ class Mat(Tensor):
         self._name = name
         self._transform = transform
 
-        self.__post_init__()
+        self.record_setup()
 
     def __post_init__(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
@@ -298,7 +301,6 @@ class Mat(Tensor):
     @property
     def values(self):
         return self.as_array("ro")
-
 
     def as_array(self, mode, *, regions=frozenset({"owned"})):
         assert mode == "ro"

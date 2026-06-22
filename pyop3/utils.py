@@ -57,13 +57,32 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
     if name is not None:
         if prefix is not None:
             raise ValueError("Can only specify one of 'name' and 'prefix'")
+        if name in generator.existing_names:
+            # TODO: log a warning
+            return generator(name)
         else:
+            generator.add_name(name)
             return name
     else:
         if prefix is not None:
             return generator(prefix)
         else:
             return generator(default_prefix)
+
+
+_unique_id_generator = UniqueNameGenerator()
+"""Generator for creating globally unique IDs.
+
+Unlike object names, object IDs are guaranteed to be unique for every object and
+hence are suitable for caching.
+
+"""
+
+
+def unique_id(obj) -> str:
+    return _unique_id_generator(type(obj).__name__)
+
+
 
 # does this live here?
 class Renamer:
@@ -82,7 +101,7 @@ class Renamer:
             label = f"{type(obj).__name__}_{index}"
             return self._store.setdefault(obj, label)
 
-# same as above but takes in strings
+# same as above but takes in strings (except it also takes more now)
 class Renamer2:
     def __init__(self):
         self._store = {}
@@ -92,8 +111,7 @@ class Renamer2:
         assert isinstance(key, str)
         return self._store[key]
 
-    def add(self, obj: str, obj_type: str):
-        assert isinstance(obj, str)
+    def add(self, obj: Hashable, obj_type: str):
         assert isinstance(obj_type, str)
         try:
             return self._store[obj]

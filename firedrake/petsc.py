@@ -177,8 +177,8 @@ def local_submat(mat: PETSc.Mat, row_space: WithGeometry, column_space: WithGeom
     if mat.type == PETSc.Mat.Type.NEST:
         yield mat.getNestSubMatrix(row_space.index or 0, column_space.index or 0)
     else:
-        row_is = row_space.parent.field_ises[row_space.index]
-        column_is = column_space.parent.field_ises[column_space.index]
+        row_is = row_space.parent.local_ises[row_space.index]
+        column_is = column_space.parent.local_ises[column_space.index]
         submat = mat.getLocalSubMatrix(row_is, column_is)
         yield submat
         mat.restoreLocalSubMatrix(row_is, column_is, submat)

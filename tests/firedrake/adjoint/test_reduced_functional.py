@@ -253,7 +253,6 @@ def test_real_space_assign_numpy():
     src = R.template_vec.array_r.copy()
     data = 1 + np.arange(src.shape[0])
     src[:] = data
-    breakpoint()
     dst._ad_assign_numpy(dst, src, offset=0)
     parallel_assert(np.allclose(dst.dat.data_ro, data))
 

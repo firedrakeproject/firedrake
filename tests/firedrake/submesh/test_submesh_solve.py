@@ -616,6 +616,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
     h = 0.1 / 2**nref  # roughly
+
     a = (
         inner(grad(u1), grad(v1)) * dx1 + inner(grad(u2), grad(v2)) * dx2
         - inner(
