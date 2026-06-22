@@ -159,6 +159,7 @@ runs:
         ref: refs/heads/indiamai/integrate_fuse
       
     - name: Install checked out FIAT
+      shell: bash
       run: |
         python3 -m pip install --break-system-packages -e './fiat-repo'
   
