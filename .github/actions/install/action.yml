@@ -162,7 +162,7 @@ runs:
       shell: bash
       run: |
         . venv/bin/activate
-        python3 -m pip install --break-system-packages -e './fiat-repo'
+        pip install './fiat-repo'
 
     - name: Run firedrake-clean and firedrake-check
       shell: bash
