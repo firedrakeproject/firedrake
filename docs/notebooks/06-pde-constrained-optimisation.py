@@ -16,7 +16,7 @@
 # %% [markdown]
 # # Optimisation with firedrake-adjoint
 #
-# *This example is modified from the equivalent [dolfin-adjoint demo](http://www.dolfin-adjoint.org/en/latest/documentation/stokes-bc-control/stokes-bc-control.html)*
+# *This example is modified from the equivalent [dolfin-adjoint demo](http://www.dolfin-adjoint.org/en/stable/documentation/stokes-bc-control/stokes-bc-control.html)*
 #
 #
 # In this example, we will look at how to use `firedrake-adjoint` to optimise for strong (Dirichlet) conditions in a steady problem.  `firedrake-adjoint` is a thin compatibility layer for the [dolfin-adjoint package](http://www.dolfin-adjoint.org/en/latest/), a python package to **automatically derive the discrete adjoint and tangent linear models** of forward problems written using Firedrake.
