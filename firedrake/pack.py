@@ -261,8 +261,8 @@ def transform_packed_cell_closure_mat(
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
         packed_mat = packed_mat.__record_init__(_transform=transform)
     else:
-        Do this before the DoF transformations because this occurs at the level of entities, not nodes
-        FUSE transforms not defined - orient using old Firedrake rules
+        # Do this before the DoF transformations because this occurs at the level of entities, not nodes
+        # FUSE transforms not defined - orient using old Firedrake rules
         packed_mat = _orient_dofs(
             packed_mat,
             row_space,
