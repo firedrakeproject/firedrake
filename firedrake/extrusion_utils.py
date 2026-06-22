@@ -16,7 +16,7 @@ from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
-@with_heavy_caches(lambda extr_top, *a, **kw: {extr_top})
+@with_heavy_caches(lambda extr_top, *a, **kw: [extr_top])
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """

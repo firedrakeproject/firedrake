@@ -1147,7 +1147,7 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
         if self.comm.size == 1:
             return self
         else:
-            return self.with_region_label(OWNED_REGION_LABEL)
+            return self.with_region_label(OWNED_REGION_LABEL, allow_missing=True)
 
     @cached_property
     def unconstrained(self):
