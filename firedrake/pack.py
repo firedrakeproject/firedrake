@@ -170,8 +170,9 @@ def transform_packed_cell_closure_dat(
 
     transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
-    if packed_dat.dtype == utils.IntType:
-        warnings.warn("Int Type dats cannot be transformed using fuse transforms")
+    if transform_in_kernel and transform_out_kernel and packed_dat.dtype == utils.IntType:
+        warnings.warn("Int Type dats cannot be transformed using fuse transforms, using old rules")
+        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
     elif transform_in_kernel and transform_out_kernel:
         orientations = space.mesh().entity_orientations_dat_fuse
 
@@ -229,8 +230,17 @@ def transform_packed_cell_closure_mat(
     column_element = column_space.finat_element
 
     transform_in_kernel, transform_out_kernel = fuse_orientations([row_space, column_space])
-    if packed_mat.dtype == utils.IntType:
-        warnings.warn("Int Type mats cannot be transformed using fuse transforms")
+    if transform_in_kernel and transform_out_kernel and packed_mat.dtype == utils.IntType:
+        warnings.warn("Int Type mats cannot be transformed using fuse transforms, using old rules")
+        packed_mat = _orient_dofs(
+            packed_mat,
+            row_space,
+            column_space,
+            row_cell_index,
+            column_cell_index,
+            row_depth=row_depth,
+            column_depth=column_depth,
+        )
     elif transform_in_kernel and transform_out_kernel:
         orientations = row_space.mesh().entity_orientations_dat_fuse
         orientations_c = column_space.mesh().entity_orientations_dat_fuse
@@ -251,8 +261,8 @@ def transform_packed_cell_closure_mat(
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
         packed_mat = packed_mat.__record_init__(_transform=transform)
     else:
-        # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-        # FUSE transforms not defined - orient using old Firedrake rules
+        Do this before the DoF transformations because this occurs at the level of entities, not nodes
+        FUSE transforms not defined - orient using old Firedrake rules
         packed_mat = _orient_dofs(
             packed_mat,
             row_space,

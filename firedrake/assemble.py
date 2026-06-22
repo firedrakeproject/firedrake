@@ -1967,6 +1967,7 @@ class ParloopBuilder:
         rank = len(self._form.arguments())
         tensor = self._tensor
         Vs = self._indexed_function_spaces
+
         if rank == 0:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:

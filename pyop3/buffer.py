@@ -880,7 +880,7 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def mat_type(self) -> str:
-        return self.mat.type
+        return self._mat_type
 
     def assemble(self) -> None:
         self.mat.assemble()
