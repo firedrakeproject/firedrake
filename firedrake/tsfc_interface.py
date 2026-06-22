@@ -26,6 +26,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
 from firedrake.petsc import PETSc
 from firedrake import utils
+from firedrake.ufl_measure import entity_dimension_from_integral_type
 
 # Set TSFC default scalar type at load time
 tsfc_default_parameters["scalar_type"] = utils.ScalarType
@@ -150,7 +151,30 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
+def _resolve_region_names(form):
+    if not isinstance(form, Form):
+        return form
+
+    integrals = []
+    changed = False
+    for integral in form.integrals():
+        domain = integral.ufl_domain()
+        parse_subdomain_id = getattr(domain, "parse_subdomain_id", None)
+        if parse_subdomain_id is None:
+            integrals.append(integral)
+            continue
+        dim = entity_dimension_from_integral_type(domain, integral.integral_type())
+        subdomain_id = integral.subdomain_id()
+        new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
+        if new_subdomain_id != subdomain_id:
+            integral = integral.reconstruct(subdomain_id=new_subdomain_id)
+            changed = True
+        integrals.append(integral)
+    return Form(integrals) if changed else form
+
+
 def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+    form = _resolve_region_names(form)
     return (
         form.signature(),
         name,
@@ -209,6 +233,8 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     # Check that we get a Form
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
+
+    form = _resolve_region_names(form)
 
     if parameters is None:
         parameters = default_parameters["form_compiler"].copy()

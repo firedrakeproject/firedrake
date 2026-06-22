@@ -163,6 +163,89 @@ def _generate_default_mesh_topology_permutation_name(reorder):
     return "_".join(["firedrake", "default", str(reorder)])
 
 
+def _as_subdomain_id_list(subdomain_id):
+    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, (list, tuple, set, frozenset, np.ndarray)):
+        subdomain_ids = (subdomain_id,)
+    else:
+        subdomain_ids = subdomain_id
+
+    ids = []
+    for sid in subdomain_ids:
+        if not isinstance(sid, numbers.Integral):
+            raise TypeError(f"Expected integer subdomain id, got {sid!r}")
+        ids.append(int(sid))
+    return ids
+
+
+def _parse_gmsh_physical_names(filename):
+    """Parse the ``$PhysicalNames`` block from a Gmsh ``.msh`` file."""
+    region_names = []
+    try:
+        with open(filename, encoding="utf-8", errors="replace") as f:
+            in_physical_names = False
+            for line in f:
+                line = line.strip()
+                if line == "$PhysicalNames":
+                    in_physical_names = True
+                    continue
+                if line == "$EndPhysicalNames":
+                    break
+                if not in_physical_names:
+                    continue
+                parts = line.split(maxsplit=2)
+                if len(parts) < 3:
+                    continue
+                try:
+                    dim = int(parts[0])
+                    tag = int(parts[1])
+                except ValueError:
+                    continue
+                name = parts[2].strip().strip('"')
+                if name:
+                    region_names.append((dim, tag, name))
+    except OSError:
+        pass
+    return region_names
+
+
+def _extract_netgen_region_names(ngmesh, mesh_dim):
+    """Extract region names from Netgen, converting codimension to dimension."""
+    get_names = getattr(ngmesh, "GetRegionNames", None)
+    if get_names is None:
+        get_names = getattr(ngmesh, "getRegionNames", None)
+    if get_names is None:
+        return []
+
+    region_names = []
+    for codim in range(mesh_dim + 1):
+        target_dim = mesh_dim - codim
+        try:
+            names = get_names(codim=codim)
+        except TypeError:
+            try:
+                names = get_names(dim=target_dim)
+            except TypeError:
+                continue
+        except RuntimeError:
+            continue
+        for tag, name in enumerate(names, start=1):
+            if name:
+                region_names.append((target_dim, tag, name))
+    return region_names
+
+
+def _register_region_names(mesh, region_names):
+    all_region_names = mesh.comm.allgather(region_names)
+    seen = set()
+    for rank_region_names in all_region_names:
+        for dim, tag, name in rank_region_names:
+            key = (dim, tag, name)
+            if key in seen:
+                continue
+            seen.add(key)
+            mesh.rename_subdomain(dim, tag, name)
+
+
 class _Facets(object):
     """Wrapper class for facet interation information on a :func:`Mesh`
 
@@ -599,6 +682,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self._shared_data_cache = defaultdict(dict)
         # Cell subsets for integration over subregions
         self._subsets = {}
+        # Human-readable region names, keyed by topological entity dimension.
+        self.region_names = {d: {} for d in range(tdim + 1)}
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -2876,6 +2961,80 @@ values from f.)"""
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topology) + current))
 
+
+    _reserved_subdomain_names = frozenset({"on_boundary", "everywhere", "otherwise", "top", "bottom"})
+
+    def rename_subdomain(self, dim, subdomain_id, subdomain_name):
+        """Bind a string name to one or more integer subdomain ids."""
+        if not isinstance(subdomain_name, str):
+            raise TypeError("subdomain_name must be a string")
+        dim = int(dim)
+        mesh_dim = self.topological_dimension
+        if not 0 <= dim <= mesh_dim:
+            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
+
+        region_names = getattr(self.topology, "region_names", None)
+        if region_names is None:
+            region_names = self.topology.region_names = {d: {} for d in range(mesh_dim + 1)}
+        dim_region_names = region_names.setdefault(dim, {})
+        dim_region_names.setdefault(subdomain_name, []).extend(_as_subdomain_id_list(subdomain_id))
+
+    def parse_subdomain_id(self, dim, subdomain_id):
+        """Resolve string region names to integer subdomain ids for an entity dimension."""
+        dim = int(dim)
+        mesh_dim = self.topological_dimension
+        if not 0 <= dim <= mesh_dim:
+            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
+
+        dim_region_names = getattr(self.topology, "region_names", {}).get(dim, {})
+        collection_types = (list, tuple, set, frozenset, np.ndarray)
+
+        def is_collection(value):
+            return not isinstance(value, str) and isinstance(value, collection_types)
+
+        def resolve_string(value):
+            if value in self._reserved_subdomain_names:
+                return (value,)
+            try:
+                return tuple(dim_region_names[value])
+            except KeyError:
+                available = sorted(dim_region_names)
+                raise ValueError(
+                    f"Subdomain region {value!r} not found in dimension {dim}. "
+                    f"Available names: {available}"
+                )
+
+        def resolve(value, flatten_named):
+            if isinstance(value, str):
+                resolved = resolve_string(value)
+                if flatten_named:
+                    return list(resolved)
+                if len(resolved) == 1:
+                    return resolved[0]
+                return resolved
+            if is_collection(value):
+                resolved = []
+                for entry in value:
+                    if is_collection(entry):
+                        resolved.append(resolve(entry, flatten_named=False))
+                    else:
+                        entry_resolved = resolve(entry, flatten_named=flatten_named)
+                        if flatten_named and isinstance(entry_resolved, list):
+                            resolved.extend(entry_resolved)
+                        else:
+                            resolved.append(entry_resolved)
+                return tuple(resolved)
+            return value
+
+        if isinstance(subdomain_id, str):
+            resolved = resolve_string(subdomain_id)
+            if resolved == (subdomain_id,):
+                return subdomain_id
+            return resolved
+        if is_collection(subdomain_id):
+            return resolve(subdomain_id, flatten_named=True)
+        return subdomain_id
+
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
@@ -3429,6 +3588,13 @@ def Mesh(meshfile, **kwargs):
             temp._distribution_parameters = mesh._distribution_parameters
             temp._did_reordering = mesh._did_reordering
             mesh = temp
+
+    if from_netgen:
+        region_names = _extract_netgen_region_names(meshfile, mesh.topological_dimension)
+        _register_region_names(mesh, region_names)
+    elif isinstance(meshfile, str) and meshfile.lower().endswith(".msh"):
+        region_names = _parse_gmsh_physical_names(meshfile)
+        _register_region_names(mesh, region_names)
 
     mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
@@ -4985,6 +5151,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     dim = plex.getDimension()
     if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+    if subdomain_id is not None:
+        subdomain_id = mesh.parse_subdomain_id(subdim, subdomain_id)
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
