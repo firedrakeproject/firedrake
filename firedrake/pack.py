@@ -641,9 +641,6 @@ def construct_switch_statement(space, mats: dict, n: int, idx: int, args: list, 
 
 def get_utility_kernels(ns: tuple[int]) -> tuple:
     strns = "".join([str(n) for n in ns])
-    print(strns)
-    if "," in strns:
-        breakpoint()
     if len(ns) == 1:
         row_idx = "j"
         col_idx = ""

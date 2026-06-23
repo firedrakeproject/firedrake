@@ -1773,6 +1773,7 @@ def BoxMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a 3D box.
 
@@ -1839,6 +1840,7 @@ def BoxMesh(
             name=name,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
+            use_fuse=use_fuse
         )
 
 
@@ -1901,6 +1903,7 @@ def CubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -1959,6 +1962,7 @@ def UnitCubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse = use_fuse
     )
 
 
@@ -2225,6 +2229,7 @@ def PeriodicUnitCubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2403,6 +2408,7 @@ def UnitIcosahedralSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2619,6 +2625,7 @@ def UnitOctahedralSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2869,6 +2876,7 @@ def UnitCubedSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2885,6 +2893,7 @@ def TorusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a toroidal mesh
 
@@ -2979,6 +2988,7 @@ def AnnulusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate an annulus mesh periodically extruding an interval mesh
 
@@ -3009,7 +3019,8 @@ def AnnulusMesh(
                         comm=comm,
                         name=base_name,
                         distribution_name=distribution_name,
-                        permutation_name=permutation_name)
+                        permutation_name=permutation_name,
+                        use_fuse=use_fuse)
     bar = ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
     x, y = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
@@ -3032,6 +3043,7 @@ def SolidTorusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a solid toroidal mesh (with axis z) periodically extruding a disk mesh
 
@@ -3061,7 +3073,8 @@ def SolidTorusMesh(
                         distribution_parameters=distribution_parameters,
                         comm=comm,
                         distribution_name=distribution_name,
-                        permutation_name=permutation_name)
+                        permutation_name=permutation_name,
+                        use_fuse=use_fuse)
     x, y = ufl.SpatialCoordinate(unit)
     V = unit.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
@@ -3093,6 +3106,7 @@ def CylinderMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generates a cylinder mesh.
 
@@ -3264,6 +3278,7 @@ def PartiallyPeriodicRectangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generate a RectangleMesh that is periodic in the x or y direction.
 
@@ -3321,6 +3336,7 @@ def PartiallyPeriodicRectangleMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
