@@ -1618,6 +1618,7 @@ def TensorBoxMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a 3D box.
 
