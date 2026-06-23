@@ -1,5 +1,6 @@
 import numpy
 import ufl
+from ufl.domain import extract_domains, extract_unique_domain
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
@@ -8,7 +9,6 @@ from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
 
 
 def extract_subfunction(u, V):
@@ -74,8 +74,17 @@ class GenericSolveBlock(Block):
         for bc in self.bcs:
             self.add_dependency(bc, no_duplicates=True)
 
-        mesh = self.lhs.ufl_domain()
-        self.add_dependency(mesh)
+        try:  # add all meshes as dependency
+            for mesh in extract_domains(self.lhs):
+                self.add_dependency(mesh, no_duplicates=True)
+        except AttributeError:
+            pass
+
+        if isinstance(self.rhs, ufl.BaseForm):
+            # add all meshes as dependency
+            for mesh in extract_domains(self.rhs):
+                self.add_dependency(mesh, no_duplicates=True)
+
         self._init_solver_parameters(args, kwargs)
 
     def _init_solver_parameters(self, args, kwargs):
@@ -242,12 +251,7 @@ class GenericSolveBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isconstant(c):
-            mesh = F_form.ufl_domain()
-            trial_function = firedrake.TrialFunction(
-                c._ad_function_space(mesh)
-            )
-        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = c.reconstruct(
@@ -454,10 +458,7 @@ class GenericSolveBlock(Block):
             )
             return [tmp_bc]
 
-        if isconstant(c_rep):
-            mesh = F_form.ufl_domain()
-            W = c._ad_function_space(mesh)
-        elif isinstance(c, firedrake.MeshGeometry):
+        if isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
         else:
@@ -759,7 +760,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            mesh = F_form.ufl_domain()
+            try:
+                mesh = extract_unique_domain(F_form)
+            except ValueError:
+                raise ValueError("Expecting a single mesh")
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )

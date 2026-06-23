@@ -1,6 +1,26 @@
 import pytest
 import numpy as np
 from firedrake import *
+from ufl.duals import is_dual
+
+
+def test_dual_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    Vstar = V.dual()
+    Vstar_res = RestrictedFunctionSpace(Vstar, [2])
+    assert is_dual(Vstar_res)
+
+    V_res = RestrictedFunctionSpace(V, [2])
+    assert Vstar_res == V_res.dual()
+
+
+def test_composite_restricted_function_space():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 2)
+    V1 = RestrictedFunctionSpace(RestrictedFunctionSpace(V, [3]), [1])
+    V2 = RestrictedFunctionSpace(V, [3, 1])
+    assert V1 == V2
 
 
 def compare_function_space_assembly(function_space, restricted_function_space,
@@ -488,18 +508,27 @@ def test_restrict_python_pc():
     assert errornorm(u_exact, u) < 1E-10
 
 
-def test_restrict_multigrid():
+@pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
+def test_restrict_multigrid(degree, relax):
+    if relax == "asm":
+        relax_params = {
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+        }
+    else:
+        relax_params = {"pc_type": relax}
+
     base = UnitSquareMesh(2, 2)
     refine = 2
     mh = MeshHierarchy(base, refine)
     mesh = mh[-1]
 
-    V = FunctionSpace(mesh, "CG", 1)
+    V = VectorFunctionSpace(mesh, "CG", degree)
     u = Function(V)
     test = TestFunction(V)
 
-    x, y = SpatialCoordinate(mesh)
-    u_exact = x + y
+    x = SpatialCoordinate(mesh)
+    u_exact = x
     g = Function(V).interpolate(u_exact)
 
     F = inner(grad(u - u_exact), grad(test)) * dx
@@ -514,7 +543,7 @@ def test_restrict_multigrid():
         "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
+        "mg_levels": relax_params,
         "mg_coarse_pc_type": "lu"})
     solver.solve()
 
