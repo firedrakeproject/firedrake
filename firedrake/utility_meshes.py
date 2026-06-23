@@ -331,6 +331,7 @@ def UnitIntervalMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
