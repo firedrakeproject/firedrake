@@ -334,6 +334,82 @@ def test_real_solve(rg):
     _test_adjoint(J, m, rg)
 
 
+@pytest.mark.skipcomplex
+def test_multiple_meshes(rg):
+    mesh1 = UnitSquareMesh(4, 4)
+    mesh2 = RectangleMesh(nx=4, ny=4, Lx=3, Ly=1, originX=2, originY=0)
+
+    V1 = FunctionSpace(mesh1, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 1)
+    V = V1*V2
+
+    u = Function(V)
+    u1, u2 = split(u)
+    v1, v2 = TestFunctions(V)
+
+    f = Function(V).assign(10.)
+    f1, f2 = split(f)
+
+    a = inner(grad(u1), grad(v1))*dx(mesh1) + inner(grad(u2), grad(v2))*dx(mesh2)
+    L = inner(f1, v1)*dx(mesh1) + inner(f2, v2)*dx(mesh2)
+
+    bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
+    bc2 = DirichletBC(V.sub(1), 0, "on_boundary")
+    bcs = [bc1, bc2]
+
+    solve(a - L == 0, u, bcs)
+
+    J = assemble(u1**4*dx(mesh1) + u2**4*dx(mesh2))
+    rf = ReducedFunctional(J, Control(f))
+    df = rg.uniform(V)
+
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
+@pytest.mark.skipcomplex
+def test_submesh(rg):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    DG = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG).interpolate(conditional(y > 0.5, 1, 0))
+    relabeled_mesh = RelabeledMesh(mesh, [ind], [10])
+    submesh = Submesh(relabeled_mesh, 2, 10)
+    dx_sub = Measure("dx", domain=submesh, intersect_measures=(Measure("dx", relabeled_mesh),))
+
+    V1 = FunctionSpace(relabeled_mesh, "CG", 1)
+    V2 = FunctionSpace(submesh, "CG", 1)
+    V = V1*V2
+
+    u = Function(V)
+    u1, u2 = split(u)
+    v1, v2 = TestFunctions(V)
+
+    f = Function(V1).assign(10.)
+
+    a = inner(grad(u1), grad(v1))*dx(relabeled_mesh)
+    a += inner(u1 - u2, v2)*dx_sub
+    L = inner(f, v1)*dx(relabeled_mesh)
+
+    bcs = [DirichletBC(V.sub(0), 0, "on_boundary")]
+
+    solve(a - L == 0, u, bcs)
+
+    J = assemble(u2**4*dx_sub)
+    rf = ReducedFunctional(J, Control(f))
+    df = rg.uniform(V1)
+
+    taylor = taylor_to_dict(rf, f, df)
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
 def convergence_rates(E_values, eps_values):
     from numpy import log
     r = []

@@ -1,75 +1,67 @@
-# Main Firedrake CI workflow
+# Main Firedrake CI workflow run for pull requests or pushes to main or release
 
 on:
   workflow_call:
     inputs:
+      trigger:
+        description: Whether the workflow was triggered by a PR or push ('pr' or 'push')
+        type: string
+        required: true
       source_ref:
         description: The input Git ref to checkout
         type: string
         required: true
-      target_branch:
-        description: The target branch (usually 'main' or 'release')
+      base_ref:
+        description: The base branch ('main' or 'release')
         type: string
         required: true
-      run_tests:
-        description: Whether to run the test suite
-        type: boolean
-        default: true
-      build_docs:
-        description: Whether to build the documentation
-        type: boolean
-        default: true
-      test_macos:
-        description: Whether to test using macOS
-        type: boolean
-        default: false
-      test_gpu:
-        description: Whether to test using CUDA-enabled PETSc
-        type: boolean
-        default: false
       deploy_website:
         description: Whether to deploy the website
         type: boolean
         default: false
-      upload_pypi:
-        description: Whether to upload an sdist to PyPI
+      test_complex:
+        description: Whether to test a complex build
         type: boolean
-        default: false
+        required: true
+      test_cuda:
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        required: true
+      test_macos:
+        description: Whether to test using macOS
+        type: boolean
+        required: true
 
   workflow_dispatch:
     inputs:
+      trigger:
+        description: Whether the workflow was triggered by a PR or push ('pr' or 'push')
+        type: string
+        required: true
       source_ref:
         description: The input Git ref to checkout
         type: string
         required: true
-      target_branch:
-        description: The target branch (usually 'main' or 'release')
+      base_ref:
+        description: The base branch ('main' or 'release')
         type: string
         required: true
-      run_tests:
-        description: Whether to run the test suite
-        type: boolean
-        default: true
-      build_docs:
-        description: Whether to build the documentation
-        type: boolean
-        default: true
-      test_macos:
-        description: Whether to test using macOS
-        type: boolean
-        default: false
-      test_gpu:
-        description: Whether to test using CUDA-enabled PETSc
-        type: boolean
-        default: false
       deploy_website:
         description: Whether to deploy the website
         type: boolean
         default: false
-      upload_pypi:
-        description: Whether to upload an sdist to PyPI
+      test_complex:
+        description: Whether to test a complex build
         type: boolean
-        default: false
+        required: true
+      test_cuda:
+        description: Whether to test using CUDA-enabled PETSc
+        type: boolean
+        required: true
+      test_macos:
+        description: Whether to test using macOS
+        type: boolean
+        required: true
 
 concurrency:
   # Cancel running jobs if new commits are pushed
@@ -78,57 +70,419 @@ concurrency:
     ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  OMPI_ALLOW_RUN_AS_ROOT: 1
+  OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+  OMP_NUM_THREADS: 1
+  OPENBLAS_NUM_THREADS: 1
+  PYTEST_MPI_MAX_NPROCS: 8
+  PYOP2_SPMD_STRICT: 1
+  FIREDRAKE_CI: 1
+  # NOTE: One should occasionally update test_durations.json by running
+  # 'make test_durations' inside a 'firedrake:latest' Docker image.
+  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
+
 jobs:
-  test_linux:
-    name: Build and test Firedrake (Linux)
-    strategy:
-      # We want to know all of the tests which fail, so don't kill real if
-      # complex fails and vice-versa
-      fail-fast: false
-      matrix:
-        arch: [default, complex]
+
+  # Test suite
+
+  test_default:
+    name: Test default
     runs-on: [self-hosted, Linux]
     container:
-      # TODO: set to 'ubuntu:latest'
-      image: ubuntu:noble
-    outputs:
-      sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
+      image: ubuntu:latest
     env:
-      OMPI_ALLOW_RUN_AS_ROOT: 1
-      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-      FIREDRAKE_CI: 1
-      PYOP2_SPMD_STRICT: 1
-      # Disable fast math as it exposes compiler bugs
-      PYOP2_CFLAGS: -fno-fast-math
-      # NOTE: One should occasionally update test_durations.json by running
-      # 'make test_durations' inside a 'firedrake:latest' Docker image.
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
-      PYTEST_MPI_MAX_NPROCS: 8
+      # Disable some compiler optimisations as they cause runner-specific bugs
+      PYOP2_CFLAGS: -O1 -fno-fast-math
     steps:
-      - name: Fix HOME
-        # For unknown reasons GitHub actions overwrite HOME to /github/home
-        # which will break everything unless fixed
-        # (https://github.com/actions/runner/issues/863)
-        run: echo "HOME=/root" >> "$GITHUB_ENV"
-
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
 
-      # Use a different mirror to fetch apt packages from to get around
-      # temporary outage.
-      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
-      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
-      - name: Configure apt
-        run: |
-          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-          apt-get update
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
 
-      # Git is needed for actions/checkout and Python for firedrake-configure
-      - name: Install system dependencies (1)
-        run: apt-get -y install git python3
+      - name: Install Firedrake
+        id: install
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.source_ref }}
+          base_ref: ${{ inputs.base_ref }}
+          deps: ci
+
+      - name: Run TSFC tests
+        # Run even if earlier tests failed
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+        timeout-minutes: 10
+
+      - name: Run PyOP2 tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+        timeout-minutes: 10
+
+
+      - name: Run Firedrake tests (nprocs = 1)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 90
+
+      - name: Run tests (nprocs = 2)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 60
+
+      - name: Run tests (nprocs = 3)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 60
+
+      - name: Run tests (nprocs = 4)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 15
+
+      - name: Run tests (nprocs = 5)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 15
+
+      - name: Run tests (nprocs = 6)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 15
+
+      - name: Run tests (nprocs = 7)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 15
+
+      - name: Run tests (nprocs = 8)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 15
+
+      - name: Run Gusto smoke tests
+        # Only test Gusto in real mode
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          if [ ${{ inputs.base_ref }} = 'release' ]; then
+            GUSTO_BRANCH='main'
+          else
+            GUSTO_BRANCH='future'
+          fi
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
+          pip install --verbose ./gusto-repo
+          python -m pytest -n 8 --verbose \
+            gusto-repo/integration-tests/balance/test_saturated_balance.py \
+            gusto-repo/integration-tests/equations/test_thermal_sw.py \
+            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
+        timeout-minutes: 10
+
+      - name: Run Thetis smoke tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
+          pip install --verbose ./thetis-repo
+          python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
+        timeout-minutes: 10
+
+      - name: Run spyro smoke tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+          pip install --verbose ./spyro-repo
+          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
+        timeout-minutes: 5
+
+      - name: Run G-ADOPT smoke tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+          pip install --verbose ./g-adopt-repo
+          make -C g-adopt-repo/demos/mantle_convection/base_case check
+        timeout-minutes: 5
+
+      - name: Upload log files
+        uses: actions/upload-artifact@v4
+        if: success() || steps.install.conclusion == 'success'
+        with:
+          name: firedrake-logs-default
+          path: pytest_*.log
+
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
+
+  # Since we can't skip matrix entries based on 'inputs.test_complex' etc
+  # we have to build the matrix as a separate step
+  gen_linux_extra_matrix:
+    name: Prepare matrix for Linux extra tests
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Generate matrix
+        id: generate
+        run: |
+          if [ ${{ inputs.test_complex }} == 'true' ]; then
+            matrix='{"scalar_type": "complex", "gpu": "none"}'
+          fi
+          if [ ${{ inputs.test_cuda }} == 'true' ]; then
+            arch='{"scalar_type": "default", "gpu": "cuda"}'
+            if [ "$matrix" ]; then
+              matrix="$matrix, $arch"
+            else
+              matrix="$arch"
+            fi
+          fi
+
+          echo "Matrix is:"
+          echo "$matrix"
+          echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
+
+  test_linux_extra:
+    name: Test Linux extra
+    needs: gen_linux_extra_matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
+    runs-on: [self-hosted, Linux, gpu]
+    container:
+      # TODO: set to 'ubuntu:latest' for GPU case
+      image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
+      options: --gpus all
+    env:
+      # Disable some compiler optimisations as they cause runner-specific bugs
+      PYOP2_CFLAGS: -O1 -fno-fast-math
+      # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
+      PETSC_OPTIONS: -use_gpu_aware_mpi 0
+    steps:
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - name: Confirm NVIDIA GPUs are enabled
+        if: matrix.gpu == 'cuda'
+        # The presence of the nvidia-smi command indicates that the Nvidia drivers have
+        # successfully been imported into the container, there is no point continuing
+        # if nvidia-smi is not present
+        run: nvidia-smi
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Firedrake
+        id: install
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: linux
+          source_ref: ${{ inputs.source_ref }}
+          base_ref: ${{ inputs.base_ref }}
+          scalar_type: ${{ matrix.scalar_type }}
+          gpu: ${{ matrix.gpu }}
+          deps: ci
+
+      - name: Confirm GPU usage in OffloadPC test
+        shell: bash
+        if: matrix.gpu == 'cuda'
+        run: |
+          . venv/bin/activate
+          : # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
+          : # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
+          : # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
+          : # into an array and tests if the final element of that array is above 80.
+          : # -----
+          : # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
+          while read -r line; do
+            if [[ "${line}" =~ ^SNESSolve ]]; then
+              readarray -d' ' arr <<<"${line}"
+              echo "SNESSolve PETSc log_view line"
+              echo "============================="
+              echo "${line}"
+              [[ "${arr[-1]}" -gt 80 ]] && exit 0 || exit 1
+            fi
+          done < <( python firedrake-repo/tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
+          echo "SNESSolve not found in PETSc log_view output!"
+          exit 1
+
+      # TODO: We should run all tests that are specific to a particular configuration
+      # (e.g. run all tests marked 'skipnogpu')
+      - name: Run tests subset
+        if: inputs.trigger == 'push'
+        run: |
+          . venv/bin/activate
+
+          : # Run 10% of the whole test suite (nprocs = {1, 2, 3})
+          PYTEST_ARGS="--splits 10 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake"
+
+          python3 -m pytest -n 8 $PYTEST_ARGS
+          mpiexec -n 2 python3 -m pytest $PYTEST_ARGS
+          mpiexec -n 3 python3 -m pytest $PYTEST_ARGS
+        timeout-minutes: 30
+
+      - name: Run TSFC tests
+        if: inputs.trigger == 'pr'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+        timeout-minutes: 10
+
+      - name: Run PyOP2 tests
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+        timeout-minutes: 10
+
+      - name: Run Firedrake tests (nprocs = 1)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 90
+
+      - name: Run Firedrake tests (nprocs = 2)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 60
+
+      - name: Run Firedrake tests (nprocs = 3)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 60
+
+      - name: Run Firedrake tests (nprocs = 4)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 5)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 6)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 7)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Run Firedrake tests (nprocs = 8)
+        if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 20
+
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
+
+  # TODO: run full test suite on PR and subset on push like above
+  test_macos:
+    name: Test macOS
+    runs-on: [self-hosted, macOS]
+    if: inputs.test_macos
+    steps:
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Firedrake
+        id: install
+        uses: ./firedrake-repo/.github/actions/install
+        with:
+          os: macos
+          source_ref: ${{ inputs.source_ref }}
+          base_ref: ${{ inputs.base_ref }}
+          deps: ci
+
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
+
+  # Quick checks
+
+  check:
+    name: Basic repository checks
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install python3
 
       - uses: actions/checkout@v5
         with:
@@ -152,484 +506,6 @@ jobs:
             exit 1
           fi
 
-      - name: Install system dependencies (2)
-        run: |
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
-          apt-get -y install python3-venv
-          : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
-
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch ${{ matrix.arch }} --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=8 --download-slepc
-          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
-          make check
-          {
-            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}"
-            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}"
-          } >> "$GITHUB_ENV"
-
-      - name: Install Firedrake
-        id: install
-        run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
-          python3 -m venv venv
-          . venv/bin/activate
-
-          : # Empty the pip cache to ensure that everything is compiled from scratch
-          pip cache purge
-
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            EXTRA_BUILD_ARGS=''
-            EXTRA_PIP_FLAGS=''
-          else
-            : # Install build dependencies
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install -r ./firedrake-repo/requirements-build.txt
-
-            : # Install runtime dependencies that have been removed from the pyproject.toml
-            : # because they rely on non-PyPI versions of petsc4py.
-            pip install --no-build-isolation --no-deps \
-              "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
-
-            : # We have to pass '--no-build-isolation' to use a custom petsc4py
-            EXTRA_BUILD_ARGS='--no-isolation'
-            EXTRA_PIP_FLAGS='--no-build-isolation'
-          fi
-
-          : # Install from an sdist so we can make sure that it is not ill-formed
-          pip install build
-          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
-
-          pip install --verbose $EXTRA_PIP_FLAGS \
-            --no-binary h5py \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
-
-          firedrake-clean
-          pip list
-
-      - name: Upload sdist (default ARCH only)
-        if: matrix.arch == 'default'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: firedrake-repo/dist/*
-
-      - name: Report sdist build status
-        id: report_sdist
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
-      - name: Run firedrake-check
-        run: |
-          . venv/bin/activate
-          firedrake-check
-        timeout-minutes: 5
-
-      - name: Run TSFC tests
-        # Run even if earlier tests failed
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 10
-
-      - name: Run PyOP2 tests
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-        timeout-minutes: 10
-
-
-      - name: Run Firedrake tests (nprocs = 1)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 90
-
-      - name: Run tests (nprocs = 2)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
-
-      - name: Run tests (nprocs = 3)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
-
-      - name: Run tests (nprocs = 4)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 5)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 6)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 7)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 8)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run Gusto smoke tests
-        # Only test Gusto in real mode
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            GUSTO_BRANCH='main'
-          else
-            GUSTO_BRANCH='future'
-          fi
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
-          pip install --verbose ./gusto-repo
-          python -m pytest -n 8 --verbose \
-            gusto-repo/integration-tests/balance/test_saturated_balance.py \
-            gusto-repo/integration-tests/equations/test_thermal_sw.py \
-            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
-        timeout-minutes: 10
-
-      - name: Run Thetis smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
-          pip install --verbose ./thetis-repo
-          python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
-        timeout-minutes: 10
-
-      - name: Run spyro smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
-          pip install --verbose ./spyro-repo
-          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
-        timeout-minutes: 5
-
-      - name: Run G-ADOPT smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.target_branch }}
-          pip install --verbose ./g-adopt-repo
-          make -C g-adopt-repo/demos/mantle_convection/base_case check
-        timeout-minutes: 5
-
-      - name: Upload log files
-        uses: actions/upload-artifact@v4
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        with:
-          name: firedrake-logs-${{ matrix.arch }}
-          path: pytest_*.log
-
-      - name: Post-run cleanup
-        if: always()
-        run: find . -delete
-
-  test_macos:
-    name: Build and test Firedrake (macOS)
-    runs-on: [self-hosted, macOS]
-    if: inputs.test_macos
-    env:
-      FIREDRAKE_CI: 1
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-    steps:
-      - name: Add homebrew to PATH
-        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
-        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
-
-      - uses: actions/checkout@v5
-        with:
-          path: firedrake-repo
-          ref: ${{ inputs.source_ref }}
-
-      - name: Install system dependencies
-        run: |
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
-
-      - name: Install PETSc
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch default --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=4
-          make
-          make check
-          {
-            echo "PETSC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-default"
-            echo "SLEPC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc/arch-firedrake-default"
-          } >> "$GITHUB_ENV"
-
-      - name: Install Firedrake
-        id: install
-        run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
-          python3 -m venv venv
-          . venv/bin/activate
-
-          : # Empty the pip cache to ensure that everything is compiled from scratch
-          pip cache purge
-
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            EXTRA_PIP_FLAGS=''
-          else
-            : # Install build dependencies
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install -r ./firedrake-repo/requirements-build.txt
-
-            : # We have to pass '--no-build-isolation' to use a custom petsc4py
-            EXTRA_PIP_FLAGS='--no-build-isolation'
-          fi
-
-          pip install --verbose $EXTRA_PIP_FLAGS \
-            --no-binary h5py \
-            './firedrake-repo[check]'
-
-          firedrake-clean
-          pip list
-
-      - name: Run smoke tests
-        run: |
-          . venv/bin/activate
-          firedrake-check
-        timeout-minutes: 10
-
-      - name: Post-run cleanup
-        if: always()
-        run: |
-          find . -delete
-
-  test_gpu:
-    name: Build and test Firedrake (Linux CUDA)
-    runs-on: [self-hosted, Linux, gpu]
-    container:
-      # TODO: set to 'ubuntu:latest'
-      image: ubuntu:noble
-      options: --gpus all
-    if: inputs.test_gpu
-    env:
-      OMPI_ALLOW_RUN_AS_ROOT: 1
-      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-      FIREDRAKE_CI: 1
-      PYOP2_SPMD_STRICT: 1
-      # Disable fast math as it exposes compiler bugs
-      PYOP2_CFLAGS: -fno-fast-math
-      # NOTE: One should occasionally update test_durations.json by running
-      # 'make test_durations' inside a 'firedrake:latest' Docker image.
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
-      PYTEST_MPI_MAX_NPROCS: 8
-      # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
-      PETSC_OPTIONS: -use_gpu_aware_mpi 0
-    steps:
-      - name: Confirm Nvidia GPUs are enabled
-        # The presence of the nvidia-smi command indicates that the Nvidia drivers have
-        # successfully been imported into the container, there is no point continuing
-        # if nvidia-smi is not present
-        run: nvidia-smi
-
-      - name: Fix HOME
-        # For unknown reasons GitHub actions overwrite HOME to /github/home
-        # which will break everything unless fixed
-        # (https://github.com/actions/runner/issues/863)
-        run: echo "HOME=/root" >> "$GITHUB_ENV"
-
-
-      # Git is needed for actions/checkout and Python for firedrake-configure
-      # curl needed for adding new deb repositories to ubuntu
-      - name: Install system dependencies (1)
-        run: |
-          apt-get update
-          apt-get -y install git python3 curl
-
-
-      - name: Pre-run cleanup
-        # Make sure the current directory is empty
-        run: find . -delete
-
-      - uses: actions/checkout@v5
-        with:
-          path: firedrake-repo
-          ref: ${{ inputs.source_ref }}
-
-      - name: Add Nvidia CUDA deb repositories
-        run: |
-          deburl=$( python3 ./firedrake-repo/scripts/firedrake-configure --show-extra-repo-pkg-url --gpu-arch cuda )
-          debfile=$( basename "${deburl}" )
-          curl -fsSLO "${deburl}"
-          dpkg -i "${debfile}"
-          apt-get update
-
-      - name: Install system dependencies (2)
-        run: |
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-system-packages)
-          apt-get -y install python3-venv
-          : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
-
-      - name: Install PETSc
-        env:
-          EXTRA_OPTIONS: -use_gpu_aware_mpi 0
-        run: |
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            git clone --depth 1 \
-              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --gpu-arch cuda --show-petsc-version) \
-              https://gitlab.com/petsc/petsc.git
-          else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          fi
-          cd petsc
-          python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch default --gpu-arch cuda --show-petsc-configure-options | \
-            xargs -L1 ./configure --with-make-np=4
-          make
-          make check
-          {
-            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
-            echo "PETSC_ARCH=arch-firedrake-default-cuda"
-            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-default-cuda"
-          } >> "$GITHUB_ENV"
-
-      - name: Install Firedrake
-        id: install
-        run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-env)
-          python3 -m venv venv
-          . venv/bin/activate
-
-          : # Empty the pip cache to ensure that everything is compiled from scratch
-          pip cache purge
-
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            EXTRA_PIP_FLAGS=''
-          else
-            : # Install build dependencies
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install -r ./firedrake-repo/requirements-build.txt
-
-            : # We have to pass '--no-build-isolation' to use a custom petsc4py
-            EXTRA_PIP_FLAGS='--no-build-isolation'
-          fi
-
-          pip install --verbose $EXTRA_PIP_FLAGS \
-            --no-binary h5py \
-            --extra-index-url https://download.pytorch.org/whl/cu130 \
-            './firedrake-repo[ci]'
-
-          firedrake-clean
-          pip list
-
-      - name: Run smoke tests
-        run: |
-          . venv/bin/activate
-          firedrake-check
-        timeout-minutes: 10
-
-      - name: Confirm GPU usage in OffloadPC test
-        shell: bash
-        run: |
-          . venv/bin/activate
-          # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
-          # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
-          # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
-          # into an array and tests if the final element of that array is above 80.
-          # -----
-          # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
-          #
-          while read -r line; do
-            if [[ "${line}" =~ ^SNESSolve ]]; then
-              readarray -d' ' arr <<<"${line}"
-              echo "SNESSolve PETSc log_view line"
-              echo "============================="
-              echo "${line}"
-              [[ "${arr[-1]}" -gt 80 ]] && exit 0 || exit 1
-            fi
-          done < <( python firedrake-repo/tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
-          echo "SNESSolve not found in PETSc log_view output!"
-          exit 1
-
-      - name: Post-run cleanup
-        if: always()
-        run: |
-          find . -delete
-
   lint:
     name: Lint codebase
     runs-on: ubuntu-latest
@@ -639,7 +515,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.13'
       - name: Setup flake8 annotations
         uses: rbialon/flake8-annotations@v1
       - name: Install linting packages
@@ -647,12 +523,13 @@ jobs:
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
+  # Docs
+
   build_docs:
-    if: inputs.build_docs
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.target_branch }}
+      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.base_ref }}
     outputs:
       conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
@@ -679,7 +556,7 @@ jobs:
         id: build_docs
         working-directory: firedrake-repo/docs
         run: |
-          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
+          make SPHINXOPTS="-t ${{ inputs.base_ref }}" html
           make latex
           make latexpdf
           # : Copy manual to HTML tree
@@ -727,14 +604,14 @@ jobs:
         run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
   deploy_website:
-    name: Deploy GitHub pages (optional)
+    name: Deploy GitHub pages (push to main only)
     needs: build_docs
     # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
-      inputs.target_branch == 'main' &&
+      inputs.base_ref == 'main' &&
       needs.build_docs.outputs.conclusion == 'success'
     permissions:
       pages: write
@@ -746,24 +623,3 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
-
-  upload_pypi:
-    name: Upload to PyPI (optional)
-    needs: test_linux
-    if: |
-      always() &&
-      inputs.upload_pypi &&
-      inputs.target_branch == 'release' &&
-      needs.test_linux.outputs.sdist_conclusion == 'success'
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - name: Push to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

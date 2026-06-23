@@ -1547,7 +1547,7 @@ class CheckpointFile:
                 if timestepping:
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
-                    assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
+                    assert idx is None, "In non-timestepping mode: idx parameter must not be set"
             else:
                 raise RuntimeError(f"Function {path} not found in {self.filename}")
             with tf.dat.vec_wo as vec:
