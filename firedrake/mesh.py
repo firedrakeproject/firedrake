@@ -2487,7 +2487,7 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        self._rtree = None
+        self._rtree_cache = None
 
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
@@ -2570,7 +2570,7 @@ values from f.)"""
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
         return coords_min, coords_max
 
-    @cached_property_until(lambda self: self.coordinates.dat.dat_version)
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
     def rtree(self):
         """Builds an rtree from bounding box coordinates, expanding
