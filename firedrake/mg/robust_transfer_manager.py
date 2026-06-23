@@ -33,7 +33,7 @@ class RobustTransferManager(TransferManager):
     via standard interpolation into subdomain boundaries followed by an extension
     into the interior of the subdomains by solving the homogeneous PDE.
 
-    The subdomain solver options are under the prefix ``mg_transfer_``.
+    The subdomain solver options are under the prefix ``mg_transfer_manager_``.
     """
 
     class TransferCallable:
@@ -72,7 +72,7 @@ class RobustTransferManager(TransferManager):
         """Get the options prefix in the _SNESContext of a FunctionSpace."""
         ctx = dmhooks.get_appctx(V.dm)
         prefix = ctx.options_prefix if ctx else ""
-        prefix += "mg_transfer_"
+        prefix += "mg_transfer_manager_"
         return prefix
 
     def auxiliary_target_space(self, V):
