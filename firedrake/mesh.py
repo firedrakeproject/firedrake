@@ -633,16 +633,17 @@ class AbstractMeshTopology(abc.ABC):
             arity = 2
 
         local_facet_numbers = dmcommon.local_facet_number(self, facet_type)
-        owned_local_facet_numbers = local_facet_numbers[:facet_axes.owned.local_size]
+        # owned_local_facet_numbers = local_facet_numbers[:facet_axes.owned.local_size]
 
         # only ghost facets can have negative entries
-        utils.debug_assert(lambda: (owned_local_facet_numbers >= 0).all())
+        # utils.debug_assert(lambda: (owned_local_facet_numbers >= 0).all())
 
         # FIXME: cast dtype, should be avoidable
-        owned_local_facet_numbers = owned_local_facet_numbers.astype(np.uint32)
+        # owned_local_facet_numbers = owned_local_facet_numbers.astype(np.uint32)
+        local_facet_numbers = local_facet_numbers.astype(np.uint32)
 
-        axes = op3.AxisTree.from_iterable([facet_axes.owned.as_axis(), arity])
-        return op3.Dat(axes, data=owned_local_facet_numbers.flatten())
+        axes = op3.AxisTree.from_iterable([facet_axes.as_axis(), arity])
+        return op3.Dat(axes, data=local_facet_numbers.flatten())
 
     @cached_property
     def _exterior_facet_local_orientation_dat(self) -> op3.Dat:
@@ -657,12 +658,12 @@ class AbstractMeshTopology(abc.ABC):
         if facet_type == "exterior":
             local_facet_numbers_dat = self._exterior_facet_local_numbers_dat
             arity = 1
-            facet_to_cell_map = self._facet_support_dats("exterior")[1].data_ro
+            facet_to_cell_map = self._facet_support_dat("exterior", only_owned=False).data_ro
         else:
             assert facet_type == "interior"
             local_facet_numbers_dat = self._interior_facet_local_numbers_dat
             arity = 2
-            facet_to_cell_map = self._facet_support_dats("interior")[1].data_ro
+            facet_to_cell_map = self._facet_support_dat("interior", only_owned=False).data_ro
 
         facet_to_cell_map = facet_to_cell_map.reshape((-1, arity))
 
@@ -700,7 +701,7 @@ class AbstractMeshTopology(abc.ABC):
         #  form = FacetNormal(meshA)[0] * ds(meshB, interface)
         #
         # Reshape local_facets as (-1, self._rank) to uniformly handle exterior and interior facets.
-        local_facets = local_facet_numbers_dat.data_ro.reshape((-1, arity))
+        local_facets = local_facet_numbers_dat.data_ro_with_halos.reshape((-1, arity))
         # Make slice for masking out rows for which orientations are not needed.
         slice_ = (facet_to_cell_map != -1).all(axis=1)
         data = np.full_like(local_facets, np.iinfo(dtype).max)

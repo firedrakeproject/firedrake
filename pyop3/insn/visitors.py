@@ -617,7 +617,6 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
         # Drop cost information from 'best_candidate'
         best_candidate = {key: expr for key, (expr, _, _) in best_candidate.items()}
 
-
     else:
         materialize_idxss = insn.comm.bcast(None)
 
