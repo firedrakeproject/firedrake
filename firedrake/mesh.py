@@ -328,7 +328,7 @@ class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
+    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None, use_fuse=False):
         """Initialise a mesh topology.
 
         Parameters
@@ -357,7 +357,8 @@ class AbstractMeshTopology(abc.ABC):
             Communicator.
         submesh_parent: AbstractMeshTopology
             Submesh parent.
-
+        use_fuse: bool
+            Flag to determine if the mesh is based on a UFC cell or a FUSE cell
         """
         if comm.size == 1:
             # in serial the point sf isn't initialised
@@ -481,6 +482,7 @@ class AbstractMeshTopology(abc.ABC):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
+        self._use_fuse = use_fuse
 
     layers = None
     """No layers on unstructured mesh"""
@@ -1692,6 +1694,7 @@ class MeshTopology(AbstractMeshTopology):
         permutation_name=None,
         submesh_parent=None,
         comm=COMM_WORLD,
+        use_fuse=False,
     ):
         """Initialise a mesh topology.
 
@@ -1723,6 +1726,8 @@ class MeshTopology(AbstractMeshTopology):
             Submesh parent.
         comm : mpi4py.MPI.Comm
             Communicator.
+        use_fuse: bool
+            Flag to determine if the underlying cell is a UFC cell or FUSE cell.
 
         """
         if distribution_parameters is None:
@@ -1740,7 +1745,7 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
+        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent, use_fuse=use_fuse)
 
     @cached_property
     def _entity_indices(self):
@@ -1858,7 +1863,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        return as_cell(_cells[tdim][nfacets])
+        return as_cell(_cells[tdim][nfacets], self._use_fuse)
 
     @cached_property
     def _ufl_mesh(self):
@@ -1927,7 +1932,7 @@ class MeshTopology(AbstractMeshTopology):
         cell_axis = self.cells.root
         # # so instead we do
         # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
-        if bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
+        if self._use_fuse:
             return self.entity_orientations_dat_fuse
 
         # TODO: This is quite a funky way of getting this. We should be able to get
@@ -2652,9 +2657,11 @@ class ExtrudedMeshTopology(MeshTopology):
         self._shared_data_cache = defaultdict(dict)
         self._max_work_functions = {}
 
+        self._use_fuse = mesh._use_fuse
+
     @cached_property
     def _ufl_cell(self):
-        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval"))
+        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval", self._use_fuse))
 
     @cached_property
     def _ufl_mesh(self):
@@ -3485,7 +3492,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property
     def _ufl_cell(self):
-        return as_cell(_cells[0][0])
+        return as_cell(_cells[0][0], self._use_fuse)
 
     @cached_property
     def _ufl_mesh(self):
@@ -4849,7 +4856,7 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             submesh_parent=submesh_parent.topology if submesh_parent else None,
-                            comm=user_comm)
+                            comm=user_comm, use_fuse=kwargs.get("use_fuse"))
     mesh = make_mesh_from_mesh_topology(topology, name)
 
     if from_netgen:
@@ -4990,9 +4997,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", as_cell("interval"), 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval", self._use_fuse), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval"), 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval", self._use_fuse), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:

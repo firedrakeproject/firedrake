@@ -156,7 +156,7 @@ runs:
       with:
         repository: firedrakeproject/fiat
         path: fiat-repo
-        ref: refs/heads/indiamai/integrate_fuse
+        ref: refs/heads/indiamai/fuse_cell_change
       
     - name: Install checked out FIAT
       shell: bash

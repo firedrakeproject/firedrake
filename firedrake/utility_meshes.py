@@ -670,6 +670,7 @@ def RectangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a rectangular mesh
 
@@ -730,6 +731,7 @@ def RectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse,
     )
 
 
@@ -845,6 +847,7 @@ def SquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse: bool = False,
 ):
     """Generate a square mesh.
 
@@ -905,6 +908,7 @@ def SquareMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse,
     )
 
 
@@ -920,6 +924,7 @@ def UnitSquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse: bool = False,
 ):
     """Generate a unit square mesh.
 
@@ -977,6 +982,7 @@ def UnitSquareMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse,
     )
 
 
