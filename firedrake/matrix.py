@@ -5,7 +5,7 @@ import itertools
 import ufl
 from pyop2.utils import as_tuple
 from pyop2 import op2
-from pyop2.types.mat import _GlobalMatPayload
+from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from firedrake.petsc import PETSc
 from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
@@ -22,6 +22,8 @@ class DummyOP2Mat:
 
 def _get_mat_type(petscmat: PETSc.Mat) -> str:
     """Maps PETSc matrix types to Firedrake notation"""
+    from firedrake.interpolation import VomOntoVomMatContext
+
     mat_type = petscmat.getType()
     if mat_type == "python":
         ctx = petscmat.getPythonContext()
@@ -29,6 +31,10 @@ def _get_mat_type(petscmat: PETSc.Mat) -> str:
             return "matfree"
         elif isinstance(ctx, _GlobalMatPayload):
             return "global"
+        elif isinstance(ctx, _DatMatPayload):
+            return "dat"
+        elif isinstance(ctx, VomOntoVomMatContext):
+            return "vomtovom"
         else:
             raise NotImplementedError(
                 f"Python matrix context type '{type(ctx).__name__}' not recognised"
