@@ -466,14 +466,12 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         +---3---+
         #if "fuse" in dm.name:
         # FUSE rules
-        print("FUSE")
+        # print("FUSE")
         #plex_cone_new[0] = plex_cone_old[0]
         #plex_cone_new[1] = plex_cone_old[3]
         #plex_cone_new[2] = plex_cone_old[2]
         #plex_cone_new[3] = plex_cone_old[1]
         #else:
-        # UFC rules
-        #print("UFC")
         plex_cone_new[0] = plex_cone_old[0]
         plex_cone_new[1] = plex_cone_old[2]
         plex_cone_new[2] = plex_cone_old[1]
@@ -1270,15 +1268,11 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
 
     CHKERR(PetscMalloc1(coneSize, &cone1))
     CHKERR(PetscMalloc1(coneSize, &inds))
-    #print("plex")
     for k in range(coneSize1):
         cone1[k] = plex_cone[k]
-        #print(plex_cone[k])
     n = 0
-    #print("fiat")
     for e in range(coneSize):
         q = fiat_cone[e]
-        #print(q)
         for k in range(coneSize1):
             if q == cone1[k]:
                 inds[n] = k

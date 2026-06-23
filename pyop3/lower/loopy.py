@@ -227,9 +227,8 @@ class LoopyCodegenContext(CodegenContext):
                 shape = self._temporary_shapes.get(buffer_key, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(buffer.handle, PETSc.Mat)
-
-                assert buffer.handle.type not in {"nest", "python"}
+                assert isinstance(buffer, PetscMatBuffer)
+                assert buffer.mat_type not in {"nest", "python"}
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
