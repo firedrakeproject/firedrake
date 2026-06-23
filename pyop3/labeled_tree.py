@@ -97,7 +97,15 @@ class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Pyop3Object):
         return just_one(self.component_labels)
 
 
-class LabelledTree(pyop3.obj.Pyop3Object):
+class AbstractLabeledTreeLike(pyop3.obj.Pyop3Object):
+
+    @property
+    @abc.abstractmethod
+    def is_linear(self) -> bool:
+        pass
+
+
+class LabeledTree(AbstractLabeledTreeLike):
 
     # {{{ abstract methods
 
@@ -116,7 +124,7 @@ class LabelledTree(pyop3.obj.Pyop3Object):
     # {{{ constructors
 
     @classmethod
-    def from_iterable(cls, iterable: Iterable) -> LabelledTree:
+    def from_iterable(cls, iterable: Iterable) -> LabeledTree:
         if not iterable:
             return cls()
 
@@ -129,7 +137,7 @@ class LabelledTree(pyop3.obj.Pyop3Object):
         return cls(node_map)
 
     @classmethod
-    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabelledTree:
+    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabeledTree:
         if isinstance(nest, Node):
             return cls(nest)
         else:
@@ -637,7 +645,7 @@ class MutableLabelledTreeMixin:
 
         return type(self)(self.node_map | {path: node})
 
-    def add_subtree(self, path: PathT | None, subtree: LabelledTree) -> MutableLabelledTreeMixin:
+    def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabelledTreeMixin:
         """Attach another tree to a leaf of the current tree."""
         if path is None:
             path = self.leaf_path

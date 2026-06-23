@@ -262,8 +262,8 @@ def _(array: pyop3.expr.Tensor, /, loop_context):
 
 def replace_terminals(obj: Any, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
     new_obj = _replace_terminals(obj, replace_map)
-    if assert_modified:
-        assert new_obj != obj
+    if assert_modified and new_obj == obj:
+        raise pyop3.exceptions.ExpressionUnchangedException
     return new_obj
 
 

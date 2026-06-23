@@ -243,7 +243,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-@pyop3.record.record()
+@pyop3.record.record(repr=False)
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
 

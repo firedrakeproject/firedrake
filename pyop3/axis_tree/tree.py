@@ -28,6 +28,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
@@ -40,7 +41,7 @@ from pyop3 import utils
 from pyop3.labeled_tree import (
     as_node_map,
     LabelledNodeComponent,
-    LabelledTree,
+    LabeledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
     accumulate_path,
@@ -775,7 +776,7 @@ def _getitem_cache_key(indices, *, strict=False) -> Hashable:
     return (indices, strict)
 
 
-class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
+class AbstractAxisTreeLike(pyop3.labeled_tree.AbstractLabeledTreeLike):
     """Base class for things that look like axis trees or forests."""
 
     # {{{ abstract methods
@@ -825,6 +826,13 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     @property
     @abc.abstractmethod
     def block_shape(self) -> tuple[int, ...]:
+        pass
+
+    # TODO: This is actually a property of a LabeledTree, we should have LabeledTreeLike
+    # for axis forests
+    @property
+    @abc.abstractmethod
+    def is_linear(self) -> bool:
         pass
 
     @property
@@ -891,7 +899,7 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     node_map = idict({idict(): None})
 
 
-class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, LabelledTree):
+class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIterable):
     """Base class for non-unit axis trees."""
 
     # {{{ abstract methods
@@ -1434,7 +1442,7 @@ labels.
 
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.frozenrecord(repr=False)
 class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
 
     # {{{ instance attrs
@@ -1675,7 +1683,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return Dat(self, data=numbering, constant=True)
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.frozenrecord(repr=False)
 class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ instance attrs
@@ -2370,6 +2378,10 @@ class AxisForest(AbstractAxisTreeLike):
             return utils.single_valued((
                 tree.block_shape[-min_block_shape_size:] for tree in self.trees
             ))
+
+    @property
+    def is_linear(self) -> bool:
+        return utils.single_valued(t.is_linear for t in self.trees)
 
     # }}}
 

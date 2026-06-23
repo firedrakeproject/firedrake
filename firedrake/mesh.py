@@ -657,12 +657,12 @@ class AbstractMeshTopology(abc.ABC):
         if facet_type == "exterior":
             local_facet_numbers_dat = self._exterior_facet_local_numbers_dat
             arity = 1
-            facet_to_cell_map = self._facet_support_dat("exterior").data_ro
+            facet_to_cell_map = self._facet_support_dats("exterior")[1].data_ro
         else:
             assert facet_type == "interior"
             local_facet_numbers_dat = self._interior_facet_local_numbers_dat
             arity = 2
-            facet_to_cell_map = self._facet_support_dat("interior").data_ro
+            facet_to_cell_map = self._facet_support_dats("interior")[1].data_ro
 
         facet_to_cell_map = facet_to_cell_map.reshape((-1, arity))
 
@@ -1159,34 +1159,95 @@ class AbstractMeshTopology(abc.ABC):
     def _support(self):
         supports = {}
 
-        # 1-tuple here because in theory support(facet) could map to other valid things (like points)
-        exterior_facets_axis = self.exterior_facets.owned.as_axis()
-        supports[idict({exterior_facets_axis.label: exterior_facets_axis.component.label})] = (
-            (
-                op3.TabulatedMapComponent(
-                    self.name,
-                    self.cell_label,
-                    self._facet_support_dat("exterior"),
-                    label=0,
-                ),
-            ),
-        )
+        # Facet supports:
+        for facet_type in ["exterior", "interior"]:
+            # We have seperate (but identical) maps mapping from either only
+            # owned points or all points.
+            for only_owned in [False, True]:
+                if facet_type == "exterior":
+                    facets_axes = self.exterior_facets
+                else:
+                    facets_axes = self.interior_facets
+                if only_owned:
+                    facets_axes = facets_axes.owned
+                facets_axis = facets_axes.as_axis()
 
-        interior_facets_axis = self.interior_facets.owned.as_axis()
-        supports[idict({interior_facets_axis.label: interior_facets_axis.component.label})] = (
-            (
-                op3.TabulatedMapComponent(
-                    self.name,
-                    self.cell_label,
-                    self._facet_support_dat("interior"),
-                    label=0,
-                ),
-            ),
-        )
+                support_dat = self._facet_support_dat(facet_type, only_owned=only_owned)
+
+                # 1-tuple here because in theory support(facet) could map to other valid things (like points)
+                supports[idict({facets_axis.label: facets_axis.component.label})] = (
+                    (
+                        op3.TabulatedMapComponent(
+                            self.name,
+                            self.cell_label,
+                            support_dat,
+                            label=0,
+                        ),
+                    ),
+                )
 
         return op3.Map(supports, name="support")
 
-    # TODO: Redesign all this, this sucks for extruded meshes
+    @cached_method()
+    def _facet_support_dat(
+        self,
+        facet_type: Literal["exterior", "interior"],
+        *,
+        only_owned: bool,
+    ) -> op3.Dat:
+        """Return a dat encoding the support of exterior/interior facets."""
+        # Get the support map for *all* facets in the mesh, not just the
+        # exterior/interior ones. We have to filter it. Note that these
+        # dats are ragged because support sizes are not consistent.
+        all_facets_support_dat = self._support_dats[self.facet_label][self.cell_label]
+
+        if facet_type == "exterior":
+            facet_axes = self.exterior_facets
+            selected_facets_is = dmcommon.section_offsets(
+                self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True
+            )
+            arity = 1
+        else:
+            facet_axes = self.interior_facets
+            selected_facets_is = dmcommon.section_offsets(
+                self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True
+            )
+            if only_owned:
+                arity = 2
+            else:
+                # ragged
+                arity = None
+
+        if only_owned:
+            facet_axes = facet_axes.owned
+
+            # Remove ghost indices
+            selected_facets_is = dmcommon.filter_is(
+                selected_facets_is, 0, self.facets.owned.local_size
+            )
+            assert selected_facets_is.size == facet_axes.local_size
+
+        facet_axis = facet_axes.as_axis()
+        facet_selector = op3.Slice(
+            all_facets_support_dat.axes.root.label,
+            [
+                op3.Subset(
+                    all_facets_support_dat.axes.root.component.label,
+                    op3.Dat.from_array(selected_facets_is.indices),
+                    label=facet_axis.component.label,
+                )
+            ],
+            label=facet_axis.label,
+        )
+
+        arity_axis = all_facets_support_dat.axes.leaf_axis
+        arity_slice = op3.Slice(
+            arity_axis.label,
+            [op3.AffineSliceComponent(arity_axis.component.label, stop=arity)],
+            label="support",
+        )
+        return all_facets_support_dat[facet_selector, arity_slice]
+
     @cached_property
     def _support_dats(self):
         def support_func(pt):
@@ -1228,61 +1289,14 @@ class AbstractMeshTopology(abc.ABC):
                 iterset_axis, op3.Axis(size_dat)
             ])
             support_dat = op3.Dat(support_axes.regionless().materialize(), data=data, prefix="support")
-            owned_support_dat = op3.Dat(
-                support_axes.owned.regionless().materialize(), data=support_dat.data_ro, prefix="support"
-            )
+            # owned_support_dat = op3.Dat(
+            #     support_axes.owned.regionless().materialize(), data=support_dat.data_ro, prefix="support"
+            # )
 
 
-            supports.append({map_dim: (support_dat, owned_support_dat)})
+            # supports.append({map_dim: (support_dat, owned_support_dat)})
+            supports.append({map_dim: support_dat})
         return tuple(supports)
-
-    # this is almost completely pointless
-    def _facet_support_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
-        assert facet_type in {"exterior", "interior"}
-
-        # Get the support map for *all* facets in the mesh, not just the
-        # exterior/interior ones. We have to filter it. Note that these
-        # dats are ragged because support sizes are not consistent.
-        _, facet_support_dat = self._support_dats[self.facet_label][self.cell_label]
-
-        if facet_type == "exterior":
-            facet_axis = self.exterior_facets.owned.as_axis()
-            selected_facets_is = dmcommon.section_offsets(
-                self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True
-            )
-            arity = 1
-        else:
-            facet_axis = self.interior_facets.owned.as_axis()
-            selected_facets_is = dmcommon.section_offsets(
-                self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True
-            )
-            arity = 2
-
-        # Remove ghost indices
-        new_selected_facets_is = dmcommon.filter_is(selected_facets_is, 0, self.facets.owned.local_size)
-        selected_facets = new_selected_facets_is.indices
-        assert selected_facets.size == facet_axis.local_size
-
-        mysubset = op3.Slice(
-            facet_support_dat.axes.root.label,
-            [
-                op3.Subset(
-                    facet_support_dat.axes.root.component.label,
-                    op3.Dat.from_array(selected_facets, comm=self.comm),
-                    label=facet_axis.component.label,
-                )
-            ],
-            label=facet_axis.label,
-        )
-
-        *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()
-        myslice = op3.Slice(leaf_axis_label, [op3.AffineSliceComponent(leaf_component_label, stop=arity)], label="support")
-
-        # TODO: This should ideally work
-        # return facet_support_dat[mysubset, slice(arity)]
-        specialized_by_type_facet_support_dat = facet_support_dat[mysubset, myslice]
-        assert specialized_by_type_facet_support_dat.axes.local_size == facet_axis.local_size * arity
-        return specialized_by_type_facet_support_dat
 
 
     # delete?

@@ -35,6 +35,13 @@ class EmptyIterableException(Pyop3Exception):
 class NonUnitIterableException(Pyop3Exception):
     pass
 
+# {{{ expressions
+
+class ExpressionUnchangedException(Pyop3Exception):
+    pass
+
+# }}}
+
 # {{{ axis trees
 
 class IncompatibleAxisTargetException(Pyop3Exception):
