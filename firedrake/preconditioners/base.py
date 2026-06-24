@@ -108,7 +108,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
             ctx = get_appctx(pc.getDM())
             a = ctx.Jp or ctx.J
             bcs = ctx.bcs_Jp
-        if len(args):
+        if args != a.arguments():
             a = a(*args)
         return a, bcs
 
