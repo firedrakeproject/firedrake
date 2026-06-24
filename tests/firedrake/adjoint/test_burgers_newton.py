@@ -35,34 +35,59 @@ def setup_test(mesh):
     return V, ic, nu
 
 
-def _check_forward(tape):
+def _control_bvs(controls):
+    # The control block variables legitimately retain their checkpoint
+    # across forward/adjoint replays (that is how the user-supplied
+    # control value is plumbed through to the next evaluation), so the
+    # post-replay clear-down assertions must skip them. Expects the
+    # control overloaded variables.
+    if controls is None:
+        return set()
+    return {c.block_variable for c in controls}
+
+
+def _check_forward(tape, controls=None):
+    skip = _control_bvs(controls)
     for current_step in tape.timesteps[1:-1]:
         for block in current_step:
             for deps in block.get_dependencies():
+                if deps in skip:
+                    continue
                 if (
                     deps not in tape.timesteps[0].checkpointable_state
                     and deps not in tape.timesteps[-1].checkpointable_state
                 ):
                     assert deps._checkpoint is None
             for out in block.get_outputs():
+                if out in skip:
+                    continue
                 if out not in tape.timesteps[-1].checkpointable_state:
                     assert out._checkpoint is None
 
 
-def _check_recompute(tape):
+def _check_recompute(tape, controls=None):
+    skip = _control_bvs(controls)
     for current_step in tape.timesteps[1:-1]:
         for block in current_step:
             for deps in block.get_dependencies():
+                if deps in skip:
+                    continue
                 if deps not in tape.timesteps[0].checkpointable_state:
                     assert deps._checkpoint is None
             for out in block.get_outputs():
+                if out in skip:
+                    continue
                 assert out._checkpoint is None
 
     for block in tape.timesteps[0]:
         for out in block.get_outputs():
+            if out in skip:
+                continue
             assert out._checkpoint is None
     for block in tape.timesteps[len(tape.timesteps)-1]:
         for deps in block.get_dependencies():
+            if deps in skip:
+                continue
             if (
                 deps not in tape.timesteps[0].checkpointable_state
                 and deps not in tape.timesteps[len(tape.timesteps)-1].adjoint_dependencies
@@ -70,20 +95,27 @@ def _check_recompute(tape):
                 assert deps._checkpoint is None
 
 
-def _check_reverse(tape):
+def _check_reverse(tape, controls=None):
+    skip = _control_bvs(controls)
     for step, current_step in enumerate(tape.timesteps):
         if step > 0:
             for block in current_step:
                 for deps in block.get_dependencies():
+                    if deps in skip:
+                        continue
                     if deps not in tape.timesteps[0].checkpointable_state:
                         assert deps._checkpoint is None
 
                 for out in block.get_outputs():
+                    if out in skip:
+                        continue
                     assert out._checkpoint is None
                     assert out.adj_value is None
 
             for block in current_step:
                 for out in block.get_outputs():
+                    if out in skip:
+                        continue
                     assert out._checkpoint is None
 
 
@@ -157,7 +189,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
     if checkpointing:
         assert len(tape.timesteps) == total_steps
         if checkpointing == "Revolve" or checkpointing == "Mixed":
-            _check_forward(tape)
+            _check_forward(tape, controls=[ic])
 
     Jhat = ReducedFunctional(val, Control(ic))
     if checkpointing != "NoneAdjoint":
@@ -165,7 +197,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
         if checkpointing is not None:
             # Check if the reverse checkpointing is working correctly.
             if checkpointing == "Revolve" or checkpointing == "Mixed":
-                _check_reverse(tape)
+                _check_reverse(tape, controls=[ic])
 
     # Recomputing the functional with a modified control variable
     # before the recompute test.
@@ -173,7 +205,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
     if checkpointing:
         # Check is the checkpointing is working correctly.
         if checkpointing == "Revolve" or checkpointing == "Mixed":
-            _check_recompute(tape)
+            _check_recompute(tape, controls=[ic])
 
     # Recompute test
     assert (np.allclose(Jhat(ic), val))
