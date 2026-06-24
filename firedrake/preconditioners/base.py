@@ -109,7 +109,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
             a = ctx.Jp or ctx.J
             bcs = ctx.bcs_Jp
         if args != a.arguments():
-            a = a(*args)
+            a = ufl.replace(a, dict(zip(a.arguments(), args)))
         return a, bcs
 
     @staticmethod
