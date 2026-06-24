@@ -92,7 +92,7 @@ class ExtractSubBlock(MultiFunction):
             return form
 
         if isinstance(form, slate.slate.TensorBase):
-            return slate.slate.Block(form, argument_indices)
+            return slate.slate.Block(form, (self.blocks[0], self.blocks[1]))
 
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)

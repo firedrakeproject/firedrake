@@ -668,9 +668,10 @@ class Block(TensorBase):
     def __init__(self, tensor, indices):
         """Constructor for the Block class."""
         super(Block, self).__init__()
+        indices = tuple(map(as_tuple, indices))
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(map(as_tuple, indices)))
         self._indices = indices
+        self._blocks = dict(enumerate(indices))
 
     def reconstruct(self, tensor, indices=None):
         """Reconstructs this TensorBase with new operands."""

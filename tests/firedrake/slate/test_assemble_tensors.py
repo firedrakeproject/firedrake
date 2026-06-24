@@ -340,3 +340,29 @@ def test_reciprocal(mesh):
     ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
     for r, d in zip(res, np.diag(ref)):
         assert np.allclose(r, d, rtol=1e-14)
+
+
+def test_nested_block(mesh):
+    V = FunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "DG", 1, variant="integral")
+    Z = V * Q
+
+    v0, q0 = TestFunctions(Z)
+    v1, q1 = TrialFunctions(Z)
+    a = (inner(grad(v1), grad(v0)) * dx
+         + inner(q1, v0) * dx
+         + inner(v1, q0) * dx
+         - inner(q1, q0) * dx
+         )
+
+    b = inner(q1, v0) * dx
+    J = Tensor(a)
+    D = Block(J, (1, 1))
+    B = Block(Tensor(b), ((0, 1), 1))
+    Jp = J - B * Inverse(D) * B.T
+
+    expect = assemble(Jp, mat_type="nest").petscmat.getNestSubMatrix(0, 0)
+
+    result = assemble(Block(Jp, (0, 0))).petscmat
+
+    assert np.allclose(result[:, :], expect[:, :])
