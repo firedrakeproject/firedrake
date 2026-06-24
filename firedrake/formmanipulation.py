@@ -91,11 +91,6 @@ class ExtractSubBlock(MultiFunction):
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
 
-        # FIXME slate is getting wrapped in FormSum((TensorBase, 1))
-        if isinstance(form, FormSum) and len(form.components()) == 1:
-            if form.weights()[0] == 1:
-                form = form.components()[0]
-
         if isinstance(form, slate.slate.TensorBase):
             return slate.slate.Block(form, argument_indices)
 
