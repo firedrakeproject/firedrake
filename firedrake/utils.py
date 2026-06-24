@@ -272,7 +272,7 @@ def cached_property_until(key: Callable[[Self], Hashable]):
     """Decorator for a property that is cached until some value changes.
     
     For example, the `expensive_property` below will be cached until `self.value` changes,
-    and will be recomputed with the new `self.value` when accessed again.
+    and will be recomputed with the new `self.value` and cached when accessed again.
 
     ```
     class MyClass:
