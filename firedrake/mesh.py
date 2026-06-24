@@ -210,27 +210,12 @@ def _parse_gmsh_physical_names(filename):
 
 def _extract_netgen_region_names(ngmesh, mesh_dim):
     """Extract region names from Netgen, converting codimension to dimension."""
-    get_names = getattr(ngmesh, "GetRegionNames", None)
-    if get_names is None:
-        get_names = getattr(ngmesh, "getRegionNames", None)
-    if get_names is None:
-        return []
-
     region_names = []
-    for codim in range(mesh_dim + 1):
-        target_dim = mesh_dim - codim
-        try:
-            names = get_names(codim=codim)
-        except TypeError:
-            try:
-                names = get_names(dim=target_dim)
-            except TypeError:
-                continue
-        except RuntimeError:
-            continue
-        for tag, name in enumerate(names, start=1):
-            if name:
-                region_names.append((target_dim, tag, name))
+    for dim in range(mesh_dim + 1):
+        names = ngmesh.GetRegionNames(dim=dim)
+        for subdomain_id, name in enumerate(names, start=1):
+            if name != "":
+                region_names.append((dim, subdomain_id, name))
     return region_names
 
 
@@ -238,12 +223,12 @@ def _register_region_names(mesh, region_names):
     all_region_names = mesh.comm.allgather(region_names)
     seen = set()
     for rank_region_names in all_region_names:
-        for dim, tag, name in rank_region_names:
-            key = (dim, tag, name)
+        for dim, subdomain_id, name in rank_region_names:
+            key = (dim, subdomain_id, name)
             if key in seen:
                 continue
             seen.add(key)
-            mesh.rename_subdomain(dim, tag, name)
+            mesh.rename_subdomain(dim, subdomain_id, name)
 
 
 class _Facets(object):
@@ -683,7 +668,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # Cell subsets for integration over subregions
         self._subsets = {}
         # Human-readable region names, keyed by topological entity dimension.
-        self.region_names = {d: {} for d in range(tdim + 1)}
+        self.region_names = defaultdict(dict)
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -2961,7 +2946,6 @@ values from f.)"""
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topology) + current))
 
-
     _reserved_subdomain_names = frozenset({"on_boundary", "everywhere", "otherwise", "top", "bottom"})
 
     def rename_subdomain(self, dim, subdomain_id, subdomain_name):
@@ -2973,10 +2957,7 @@ values from f.)"""
         if not 0 <= dim <= mesh_dim:
             raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
 
-        region_names = getattr(self.topology, "region_names", None)
-        if region_names is None:
-            region_names = self.topology.region_names = {d: {} for d in range(mesh_dim + 1)}
-        dim_region_names = region_names.setdefault(dim, {})
+        dim_region_names = self.topology.region_names[dim]
         dim_region_names.setdefault(subdomain_name, []).extend(_as_subdomain_id_list(subdomain_id))
 
     def parse_subdomain_id(self, dim, subdomain_id):
@@ -2986,11 +2967,10 @@ values from f.)"""
         if not 0 <= dim <= mesh_dim:
             raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
 
-        dim_region_names = getattr(self.topology, "region_names", {}).get(dim, {})
-        collection_types = (list, tuple, set, frozenset, np.ndarray)
+        dim_region_names = self.topology.region_names[dim]
 
         def is_collection(value):
-            return not isinstance(value, str) and isinstance(value, collection_types)
+            return not isinstance(value, str) and isinstance(value, Sequence)
 
         def resolve_string(value):
             if value in self._reserved_subdomain_names:
@@ -3008,7 +2988,7 @@ values from f.)"""
             if isinstance(value, str):
                 resolved = resolve_string(value)
                 if flatten_named:
-                    return list(resolved)
+                    return resolved
                 if len(resolved) == 1:
                     return resolved[0]
                 return resolved
@@ -3019,7 +2999,7 @@ values from f.)"""
                         resolved.append(resolve(entry, flatten_named=False))
                     else:
                         entry_resolved = resolve(entry, flatten_named=flatten_named)
-                        if flatten_named and isinstance(entry_resolved, list):
+                        if flatten_named and isinstance(entry_resolved, Sequence):
                             resolved.extend(entry_resolved)
                         else:
                             resolved.append(entry_resolved)

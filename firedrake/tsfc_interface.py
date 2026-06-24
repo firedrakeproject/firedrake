@@ -11,6 +11,7 @@ import collections
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
+from ufl.measure import as_integral_type
 from .ufl_expr import TestFunction, extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
@@ -26,7 +27,6 @@ from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
 from firedrake.petsc import PETSc
 from firedrake import utils
-from firedrake.ufl_measure import entity_dimension_from_integral_type
 
 # Set TSFC default scalar type at load time
 tsfc_default_parameters["scalar_type"] = utils.ScalarType
@@ -151,6 +151,20 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
+def entity_dimension_from_integral_type(domain, integral_type):
+    integral_type = as_integral_type(integral_type)
+    topological_dimension = domain.topological_dimension
+    if integral_type == "cell":
+        return topological_dimension
+    if integral_type.startswith("exterior_facet") or integral_type.startswith("interior_facet"):
+        return topological_dimension - 1
+    if integral_type == "ridge":
+        return topological_dimension - 2
+    if integral_type == "vertex":
+        return 0
+    return topological_dimension
+
+
 def _resolve_region_names(form):
     if not isinstance(form, Form):
         return form
@@ -160,15 +174,13 @@ def _resolve_region_names(form):
     for integral in form.integrals():
         domain = integral.ufl_domain()
         parse_subdomain_id = getattr(domain, "parse_subdomain_id", None)
-        if parse_subdomain_id is None:
-            integrals.append(integral)
-            continue
-        dim = entity_dimension_from_integral_type(domain, integral.integral_type())
-        subdomain_id = integral.subdomain_id()
-        new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
-        if new_subdomain_id != subdomain_id:
-            integral = integral.reconstruct(subdomain_id=new_subdomain_id)
-            changed = True
+        if parse_subdomain_id is not None:
+            dim = entity_dimension_from_integral_type(domain, integral.integral_type())
+            subdomain_id = integral.subdomain_id()
+            new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
+            if new_subdomain_id != subdomain_id:
+                integral = integral.reconstruct(subdomain_id=new_subdomain_id)
+                changed = True
         integrals.append(integral)
     return Form(integrals) if changed else form
 

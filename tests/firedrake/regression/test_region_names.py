@@ -47,7 +47,7 @@ def test_measure_accepts_region_name_with_domain():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")
 
-    named = assemble(Constant(1) * Measure("ds", domain=mesh, subdomain_id="vertical"))
+    named = assemble(Constant(1) * ds(domain=mesh, subdomain_id="vertical"))
     ufl_named = assemble(Constant(1) * ufl.Measure("ds", domain=mesh, subdomain_id="vertical"))
     target = assemble(Constant(1) * ds(1, domain=mesh)) + assemble(Constant(1) * ds(2, domain=mesh))
 

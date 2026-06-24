@@ -47,7 +47,6 @@ del petsc
 
 from ufl import *  # noqa: F401
 from finat.ufl import *  # noqa: F401
-from firedrake.ufl_measure import *  # noqa: F401,F403
 
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401

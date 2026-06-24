@@ -347,9 +347,7 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
     if function_space.boundary_set:
         boundary_set = frozenset(boundary_set) | function_space.boundary_set
         function_space = function_space.function_space
-    if hasattr(mesh, "parse_subdomain_id"):
-        boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)
-
+    boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)
     return make_space(impl.RestrictedFunctionSpace(function_space.topological,
                                                    boundary_set=boundary_set,
                                                    name=name),
