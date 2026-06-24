@@ -743,6 +743,7 @@ class CheckpointFile:
             # -- Save mesh topology --
             base_tmesh = mesh.topology._base_mesh
             self._save_mesh_topology(base_tmesh)
+            self._save_mesh_topology(tmesh)
             if tmesh.name not in self.require_group(self._path_to_topologies()):
                 # The tmesh (an ExtrudedMeshTopology) is treated as if it was a first class topology object. It
                 # shares the plex data with the base_tmesh, but those data are stored under base_tmesh's path,
@@ -901,6 +902,7 @@ class CheckpointFile:
             with self.opts.inserted_options():
                 topology_dm.distributionSetName(distribution_name)
                 topology_dm.topologyView(viewer=self.viewer)
+                topology_dm.coordinatesView(viewer=self.viewer)
                 topology_dm.distributionSetName(None)
                 topology_dm.labelsView(viewer=self.viewer)
             self.viewer.popFormat()
@@ -1213,32 +1215,7 @@ class CheckpointFile:
             # -- Load mesh topology --
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
-            periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
-            variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
-            if variable_layers:
-                cell = base_tmesh.ufl_cell()
-                element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
-                _ = self._load_function_space_topology(base_tmesh, element)
-                base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
-                                                                    base_tmesh._distribution_name,
-                                                                    base_tmesh._permutation_name)
-                sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
-                _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
-                nroots, _, _ = lsf.getGraph()
-                layers_a = np.empty(nroots, dtype=utils.IntType)
-                layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self.comm)
-                layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
-                self.viewer.pushGroup(path)
-                layers_a_iset.load(self.viewer)
-                self.viewer.popGroup()
-                layers_a = layers_a_iset.getIndices()
-                layers = np.empty((base_tmesh.cells.local_size, 2), dtype=utils.IntType)
-                unit = MPI._typedict[np.dtype(utils.IntType).char]
-                lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
-                lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
-            else:
-                layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
-            tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name)
+            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters, extruded=True)
             # -- Load mesh --
             path = self._path_to_mesh(tmesh_name, name)
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
@@ -1313,7 +1290,7 @@ class CheckpointFile:
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
-    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters):
+    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters, extruded=False):
         """Load the :class:`~.MeshTopology`.
 
         :arg tmesh_name: The name of the :class:`~.MeshTopology` to load.
@@ -1357,6 +1334,7 @@ class CheckpointFile:
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)
+        plex.coordinatesLoad(self.viewer, sfXB)
         plex.distributionSetName(None)
         plex.labelsLoad(self.viewer, sfXB)
         self.viewer.popFormat()
@@ -1385,10 +1363,16 @@ class CheckpointFile:
             perm_is = None
         # -- Construct Mesh (Topology) --
         # Use public API so pass user comm (self.comm)
-        tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
-                             distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
-                             distribution_name=distribution_name, permutation_name=permutation_name,
-                             comm=self.comm)
+        if extruded:
+            periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
+            layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
+            # we don't actually care about the plex, just the sf
+            tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name, sfXB=sfXB)
+        else:
+            tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
+                                 distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
+                                 distribution_name=distribution_name, permutation_name=permutation_name,
+                                 comm=self.comm)
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
@@ -1445,11 +1429,9 @@ class CheckpointFile:
             section = PETSc.Section().create(comm=tmesh.comm)
             section.setPermutation(tmesh._new_to_old_point_renumbering)
             dm.setSection(section)
-            base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
-            sfXC = base_tmesh.sfXC
             topology_dm.setName(tmesh.name)
-            gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, sfXC)
-            topology_dm.setName(base_tmesh.name)
+            gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, tmesh.sfXC)
+            topology_dm.setName(tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)

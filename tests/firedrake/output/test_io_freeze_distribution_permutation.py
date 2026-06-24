@@ -11,7 +11,7 @@ mesh_name = "m"
 func_name = "f"
 
 
-@pytest.mark.parallel(7)
+# @pytest.mark.parallel(7)
 @pytest.mark.parametrize('case', ["interval",
                                   "interval_small",
                                   "interval_periodic",

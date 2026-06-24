@@ -2589,7 +2589,7 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, periodic=False, name=None):
+    def __init__(self, mesh, layers, periodic=False, name=None, *, sfXB=None):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
@@ -2622,6 +2622,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
+        self.sfXB = sfXB
+        if self.sfXB is not None:
+            self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
         r"The PETSc DM representation of the mesh topology."
         self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters

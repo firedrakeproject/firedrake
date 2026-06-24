@@ -302,7 +302,6 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
     try:
         first = next(iterator)
     except StopIteration:
-        breakpoint()
         raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
     try:
