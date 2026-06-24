@@ -765,3 +765,9 @@ def test_interpolate_derivative_nodes(element, degree):
     expr = (x + y)**2 + x + y + 1
     f = assemble(interpolate(expr, V))
     assert errornorm(expr, f) < 1e-12
+
+    # Interpolate a Function
+    W = FunctionSpace(mesh, "CG", degree)
+    g = Function(W).interpolate(expr)
+    f2 = assemble(interpolate(g, V))
+    assert errornorm(f2, f) < 1e-12
