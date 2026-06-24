@@ -3506,6 +3506,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
             parent_renum = self._parent_mesh._new_to_old_point_renumbering.getIndices()
             pStart, _ = parent.getChart()
+            parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
             # Use kind = 'stable' to make the ordering deterministic.
             perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
