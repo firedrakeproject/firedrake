@@ -147,7 +147,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name):
 
 
 @pytest.mark.parallel(2)
-@pytest.mark.parametrize('cell_family_degree', [
+@pytest.mark.parametrize('cell_type,family,degree', [
     ("triangle_small", "P", 1),
     ("triangle_small", "P", 6),
     ("triangle_small", "DP", 0),
@@ -185,9 +185,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name):
     ("triangle_3d", "BDMF", 4),
     ("quad_3d", "RTCF", 4)
 ])
-def test_io_function_base(cell_family_degree, tmpdir):
-    # Parameters
-    cell_type, family, degree = cell_family_degree
+def test_io_function_base(cell_type, family, degree, tmpdir):
     filename = join(str(tmpdir), "test_io_function_base_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)

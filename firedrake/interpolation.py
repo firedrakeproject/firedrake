@@ -7,9 +7,10 @@ import os
 import tempfile
 import abc
 
+import dataclasses
 from functools import cached_property, partial
 from typing import Hashable, Literal, Callable, Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
@@ -151,7 +152,13 @@ class Interpolate(UFLInterpolate):
     def _ufl_expr_reconstruct_(
             self, expr: Expr, v: WithGeometry | BaseForm | None = None, **interp_data
     ):
-        interp_data = interp_data or asdict(self.options)
+        # Note that we can't use dataclasses.asdict here because we can't deepcopy
+        # PETSc objects, this is the recommended workaround.
+        options = {
+            field.name: getattr(self.options, field.name)
+            for field in dataclasses.fields(self.options)
+        }
+        interp_data = options | interp_data
         return UFLInterpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
     @property
@@ -1073,12 +1080,10 @@ def _build_interpolation_callables(
         target_element = runtime_quadrature_element(source_mesh, target_element,
                                                     rt_var_name=rt_var_name)
 
-    iter_spec = get_iteration_spec(target_mesh, "cell")
-
-    if not (subset is None or subset is Ellipsis):
-        raise NotImplementedError
-        assert subset.superset == cell_set
-        cell_set = subset
+    if subset is not None:
+        iter_spec = get_iteration_spec(target_mesh, "cell", subdomain_id=subset)
+    else:
+        iter_spec = get_iteration_spec(target_mesh, "cell")
 
     parameters = {}
     parameters['scalar_type'] = ScalarType
@@ -1667,8 +1672,12 @@ class MixedInterpolator(Interpolator):
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
         shape = tuple(len(a.function_space()) for a in self.interpolate_args)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-        for indices, (interp, sub_bcs) in Isub.items():
-            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
+        for (ridx, cidx), (interp, sub_bcs) in Isub.items():
+            if ridx is None:
+                ridx = 0
+            if cidx is None:
+                cidx = 0
+            blocks[ridx, cidx] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
         return PETSc.Mat().createNest(blocks)
 
     def _build_aij(
