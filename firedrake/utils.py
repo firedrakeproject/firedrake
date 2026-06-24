@@ -268,16 +268,30 @@ def check_netgen_installed() -> None:
         )
 
 
-def cached_property_until(value: Callable[[Self], Hashable]):
+def cached_property_until(key: Callable[[Self], Hashable]):
     """Decorator for a property that is cached until some value changes.
-    For examples of usage, see PointEvaluator and MeshGeometry.
+    
+    For example, the `expensive_property` below will be cached until `self.value` changes,
+    and will be recomputed with the new `self.value` when accessed again.
+
+    ```
+    class MyClass:
+        
+        def __init__(self, value):
+            self.value = value
+
+        @cached_property_until(lambda self: self.value)
+        def expensive_property(self):
+            # Some expensive computation that depends on self.value
+            ...
+    ```
     """
     def decorator(func):
         @property
         @functools.wraps(func)
         def wrapper(self):
             cache_attribute = f"_{func.__name__}_cache"
-            current_value = value(self)
+            current_value = key(self)
             cached_value = getattr(self, cache_attribute, None)
             if cached_value is None or cached_value[0] != current_value:
                 result = func(self)

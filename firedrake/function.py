@@ -752,6 +752,7 @@ class PointEvaluator:
     )
     def vom(self) -> MeshGeometry:
         """The VOM used for point evaluation. This is cached until the mesh coordinates or tolerance change."""
+        # We invalidate when the parent mesh moves until https://github.com/firedrakeproject/firedrake/issues/4540 is fixed.
         return VertexOnlyMesh(
             self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
             redundant=self.redundant, tolerance=None
@@ -794,7 +795,6 @@ class PointEvaluator:
 
         if function.function_space().mesh().unique() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        vom = self.vom
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
@@ -808,8 +808,8 @@ class PointEvaluator:
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
 
-        P0DG = fs(vom, "DG", 0)
-        P0DG_io = fs(vom.input_ordering, "DG", 0)
+        P0DG = fs(self.vom, "DG", 0)
+        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
