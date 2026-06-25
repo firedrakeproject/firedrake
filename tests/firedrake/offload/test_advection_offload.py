@@ -4,15 +4,11 @@ import pytest
 import numpy as np
 
 
-@pytest.fixture(scope="module",
-                params=[("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")],
-                ids=lambda x: '_'.join(x)
-                )
-def ksp_pc(request):
-    return request.param
-
-
 @pytest.mark.skipnogpu
+@pytest.mark.parametrize(
+    "ksp_type, pc_type",
+    [("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")]
+)
 @pytest.mark.parallel([1, 2])
 def test_advection_offload(ksp_type, pc_type):
     mesh = PeriodicIntervalMesh(100, length=2)
