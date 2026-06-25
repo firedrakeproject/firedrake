@@ -91,7 +91,7 @@ def run_stokes_mini(n):
     return errornorm(uexact, u, degree_rise=0), errornorm(pexact, p, degree_rise=0)
 
 
-def test_no_offload_A():
+def test_matfree_A_does_not_offload():
     u_err = []
     p_err = []
 
