@@ -262,8 +262,8 @@ def _(array: pyop3.expr.Tensor, /, loop_context):
 
 def replace_terminals(obj: Any, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
     new_obj = _replace_terminals(obj, replace_map)
-    if assert_modified:
-        assert new_obj != obj
+    if assert_modified and new_obj == obj:
+        raise pyop3.exceptions.ExpressionUnchangedException
     return new_obj
 
 
@@ -575,9 +575,9 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         axis_tree = utils.just_one(axis_trees)
 
         candidates = {}
-        for path, layout in dat_expr.layouts.items():
-            selector_ = selector[index, path] if selector is not None else None
-            candidates[index, path] = collect_candidate_indirections(
+        for i, (path, layout) in enumerate(dat_expr.layouts.items()):
+            selector_ = selector[index, i] if selector is not None else None
+            candidates[index, i] = collect_candidate_indirections(
                 layout, axis_tree.linearize(path), selector=selector_, **kwargs
             )
         return idict(candidates)
@@ -607,9 +607,9 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         candidates = {}
         layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
         for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
-            for path, layout in layouts.items():
-                selector_ = selector[index, i, path] if selector is not None else None
-                candidates[index, i, path] = collect_candidate_indirections(
+            for j, (path, layout) in enumerate(layouts.items()):
+                selector_ = selector[index, i, j] if selector is not None else None
+                candidates[index, i, j] = collect_candidate_indirections(
                     layout, axis_tree.linearize(path), loop_indices, compress=compress, selector=selector_
                 )
         return idict(candidates)
@@ -782,8 +782,8 @@ class MaterializedIndirectionsSetter(NodeVisitor):
     @process.register(pyop3.expr.NonlinearDatBufferExpression)
     def _(self, buffer_expr: pyop3.expr.NonlinearDatBufferExpression, index, layouts, key):
         new_layouts = {}
-        for leaf_path in buffer_expr.layouts.keys():
-            layout = layouts[key + ((index, leaf_path),)]
+        for i, leaf_path in enumerate(buffer_expr.layouts.keys()):
+            layout = layouts[key + ((index, i),)]
             new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
         new_layouts = idict(new_layouts)
         return buffer_expr.__record_init__(layouts=new_layouts)
@@ -803,8 +803,8 @@ class MaterializedIndirectionsSetter(NodeVisitor):
         buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
         for i, buffer_layouts in enumerate(buffer_layoutss):
             new_layouts = {}
-            for leaf_path in buffer_layouts.keys():
-                layout = layouts[key + ((index, i, leaf_path),)]
+            for j, leaf_path in enumerate(buffer_layouts.keys()):
+                layout = layouts[key + ((index, i, j),)]
                 new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
             new_buffer_layoutss.append(utils.freeze(new_layouts))
         return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
@@ -878,6 +878,7 @@ def _(dat, /) -> OrderedFrozenSet:
 
 
 @memory_cache(heavy=True)
+@pyop3.mpi.collective
 def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.Comm) -> pyop3.expr.LinearDatBufferExpression:
     axes = composite_dat.axis_tree
 

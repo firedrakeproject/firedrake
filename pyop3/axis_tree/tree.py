@@ -28,19 +28,20 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
 from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
+from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.labeled_tree import (
     as_node_map,
     LabelledNodeComponent,
-    LabelledTree,
+    LabeledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
     accumulate_path,
@@ -230,6 +231,10 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.get_comm(self.size)
+
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
 
@@ -257,13 +262,6 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
             assert self.size.value >= 0
 
     # }}}
-
-    @property
-    def comm(self) -> MPI.Comm:
-        if isinstance(self.size, numbers.Integral):
-            return MPI.COMM_SELF
-        else:
-            return self.size.comm
 
     def __str__(self) -> str:
         if self.label is None:
@@ -385,6 +383,10 @@ class AxisComponent(LabelledNodeComponent):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self.regions, self.size, self.sf)
+
     def __init__(
         self,
         regions,
@@ -494,10 +496,6 @@ class AxisComponent(LabelledNodeComponent):
         return len(self.regions) > 1 or utils.just_one(self.regions).label is not None
 
     @property
-    def comm(self) -> MPI.Comm | None:
-        return self.sf.comm if self.sf else None
-
-    @property
     def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
@@ -557,7 +555,7 @@ class AxisComponent(LabelledNodeComponent):
 
 
 @pyop3.record.frozenrecord()
-class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
+class Axis(LoopIterable, MultiComponentLabelledNode):
 
     # {{{ instance attrs
 
@@ -571,6 +569,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
         return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self._label, "Axis"))
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    @cached_property
+    def comm(self) -> MPI.Comm | None:
+        return pyop3.visitors.common_comm(*self.components)
 
     def __init__(
         self,
@@ -650,10 +652,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
 
     def matching_component(self, component_label: ComponentLabelT) -> AxisComponent:
         return self.components[self.component_index(component_label)]
-
-    @property
-    def comm(self) -> MPI.Comm | None:
-        return utils.single_comm(self.components, "comm", allow_undefined=True)
 
     @property
     def size(self):
@@ -778,7 +776,7 @@ def _getitem_cache_key(indices, *, strict=False) -> Hashable:
     return (indices, strict)
 
 
-class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
+class AbstractAxisTreeLike(pyop3.labeled_tree.AbstractLabeledTreeLike):
     """Base class for things that look like axis trees or forests."""
 
     # {{{ abstract methods
@@ -828,6 +826,13 @@ class AbstractAxisTreeLike(pyop3.obj.Pyop3Object):
     @property
     @abc.abstractmethod
     def block_shape(self) -> tuple[int, ...]:
+        pass
+
+    # TODO: This is actually a property of a LabeledTree, we should have LabeledTreeLike
+    # for axis forests
+    @property
+    @abc.abstractmethod
+    def is_linear(self) -> bool:
         pass
 
     @property
@@ -894,7 +899,7 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     node_map = idict({idict(): None})
 
 
-class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, LabelledTree, DistributedObject):
+class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIterable):
     """Base class for non-unit axis trees."""
 
     # {{{ abstract methods
@@ -1150,7 +1155,7 @@ class AbstractNonUnitAxisTree(AbstractAxisTree, ContextFreeLoopIterable, Labelle
         if self.comm.size == 1:
             return self
         else:
-            return self.with_region_label(OWNED_REGION_LABEL)
+            return self.with_region_label(OWNED_REGION_LABEL, allow_missing=True)
 
     @cached_property
     def unconstrained(self):
@@ -1424,13 +1429,6 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
 
         return LoopIndex(self)
 
-    @property
-    def comm(self):
-        from pyop3.debug import warn_todo
-        warn_todo("This comm choice is unsafe")
-        return MPI.COMM_SELF
-
-
 
 UNIT_AXIS_TREE = _UnitAxisTree()
 """Placeholder value for an axis tree that is guaranteed to have a single entry.
@@ -1444,7 +1442,7 @@ labels.
 
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.frozenrecord(repr=False)
 class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
 
     # {{{ instance attrs
@@ -1462,6 +1460,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return (type(self), node_map_key)
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    @cached_property
+    def comm(self):
+        return pyop3.visitors.common_comm(*self._node_map.values())
 
     def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
@@ -1512,10 +1514,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
             return self
         else:
             return self[self._block_indices(block_shape)].materialize()
-
-    @property
-    def comm(self):
-        return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # TODO: rename to local_section
     def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
@@ -1685,7 +1683,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return Dat(self, data=numbering, constant=True)
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.frozenrecord(repr=False)
 class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ instance attrs
@@ -1739,6 +1737,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = idict(targets_key)
 
         return (type(self), node_map_key, visitor(self._unindexed), targets_key)
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self._node_map.values(), self._unindexed)
 
     # TODO: where to put *, and order?
     def __init__(
@@ -1945,10 +1947,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     # }}}
 
     @property
-    def comm(self):
-        return self.unindexed.comm
-
-    @property
     def layouts(self):
         return self.unindexed.layouts
 
@@ -2083,6 +2081,10 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
 
         return (type(self), visitor(self._unindexed), targets_key)
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self._node_maps.values(), self.unindexed)
+
     def __init__(
         self,
         unindexed: AxisTree | None,
@@ -2122,10 +2124,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
         return complete_axis_targets({
             idict(): self._targets[idict()] + self.materialize().targets[idict()]
         })
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.unindexed.comm
 
     def materialize(self):
         return UNIT_AXIS_TREE
@@ -2291,7 +2289,11 @@ class AxisForest(AbstractAxisTreeLike):
     _trees: tuple
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
-        return (type(self), tuple(map(visitor, self.trees)))
+        return (type(self), tuple(map(visitor, self._trees)))
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self._trees)
 
     def __new__(
         cls,
@@ -2377,6 +2379,10 @@ class AxisForest(AbstractAxisTreeLike):
                 tree.block_shape[-min_block_shape_size:] for tree in self.trees
             ))
 
+    @property
+    def is_linear(self) -> bool:
+        return utils.single_valued(t.is_linear for t in self.trees)
+
     # }}}
 
     def __str__(self, /) -> str:
@@ -2439,10 +2445,6 @@ class AxisForest(AbstractAxisTreeLike):
                 return utils.just_one(indexed_trees_)
             else:
                 return AxisForest(indexed_trees_)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm(self.trees, "comm")
 
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
@@ -2521,6 +2523,10 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
         trees_key = idict(trees_key)
         return (type(self), trees_key)
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self.trees.values())
+
     def __init__(self, trees: Mapping):
         trees = idict(trees)
 
@@ -2535,10 +2541,6 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
     @property
     def context_map(self):  # old alias
         return self.trees
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.single_comm(self.context_map.values(), "comm")
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.context_map!r})"

@@ -23,38 +23,11 @@ if typing.TYPE_CHECKING:
 from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
 
 
-class ParallelAwareObject(abc.ABC):
-    """Abstract class for objects that know about communicators.
-
-    Unlike `DistributedObject`s, it is allowed for objects inheriting from
-    this class to have `None` for communicator values.
-
-    """
-
-    @property
-    @abc.abstractmethod
-    def comm(self) -> MPI.Comm | None:
-        pass
-
-
-class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
-    """Abstract class for objects that have a parallel execution context.
-
-    The expected usage is for classes to implement the attribute `user_comm`.
-
-    """
-
-    @property
-    @abc.abstractmethod
-    def comm(self) -> MPI.Comm:
-        pass
-
-
 class BufferSizeMismatchException(Exception):
     pass
 
 
-class AbstractStarForest(DistributedObject, abc.ABC):
+class AbstractStarForest(abc.ABC):
 
     # {{{ abstract methods
 

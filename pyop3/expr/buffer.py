@@ -7,13 +7,13 @@ from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import ClassVar
 
+import pyop3.axis_tree
 import pyop3.record
 from pyop3 import utils
 from pyop3.node import NodeVisitor
 from pyop3.labeled_tree import is_subpath
 from pyop3.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
-from pyop3.sf import DistributedObject
 from pyop3.collections import OrderedFrozenSet
 
 from .base import Expression, as_str
@@ -21,7 +21,7 @@ from .tensor import Scalar, Dat, CompositeDat
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
+class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     # {{{ abstract methods
 
@@ -221,8 +221,6 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     This class is useful for describing dats whose layouts have been optimised.
 
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
-
     """
     # {{{ instance attrs
 
@@ -240,12 +238,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         return (type(self), visitor(self._buffer), layouts_key)
 
     def __post_init__(self) -> None:
-        from pyop3.expr.visitors import check_valid_layout
-
-        assert isinstance(self._buffer, AbstractBuffer)
-        assert isinstance(self.layouts, idict)
-        for l in self.layouts.values():
-            check_valid_layout(l)
+        pass
 
     # }}}
 
@@ -433,9 +426,17 @@ def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
 def _(dat: Dat) -> LinearDatBufferExpression:
     assert dat.transform is None
     if not dat.axes.is_linear:
-        raise ValueError("The provided Dat must be linear")
+        raise ValueError("The provided dat must be linear")
 
     axes = dat.axes.regionless()
+    # We assume that if we hit an axis forest at this point then any layout
+    # expression is valid.
+    # This can happen if we use maps with multiple possible matches (e.g. mapping
+    # from cells or owned cells).
+    if isinstance(axes, pyop3.axis_tree.AxisForest):
+        # FIXME, merge?
+        axes = axes.trees[-1]
+
     layout = utils.just_one(axes.leaf_subst_layouts.values())
     return LinearDatBufferExpression(dat.buffer, layout)
 

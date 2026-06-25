@@ -2589,65 +2589,6 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_markers(PETSc.DM dm, np.ndarray cell_numbering,
-                     subdomain_id):
-    """Get the cells marked by a given subdomain_id.
-
-    :arg dm: The DM for the mesh topology
-    :arg cell_numbering: Section mapping dm cell points to firedrake cell indices.
-    :arg subdomain_id: The subdomain_id to look for.
-
-    :raises ValueError: if the subdomain_id is not valid.
-    :returns: A numpy array (possibly empty) of the cell ids.
-    """
-    cdef:
-        PetscInt i, j, n, offset, c, cStart, cEnd, ncells
-        np.ndarray cells
-        np.ndarray indices
-
-    if not dm.hasLabel(CELL_SETS_LABEL):
-        return np.empty(0, dtype=IntType)
-    vals = dm.getLabelIdIS(CELL_SETS_LABEL).indices
-    comm = dm.comm.tompi4py()
-
-    def merge_ids(x, y, datatype):
-        return x.union(y)
-
-    op = MPI.Op.Create(merge_ids, commute=True)
-
-    all_ids = np.asarray(sorted(comm.allreduce(set(vals), op=op)),
-                         dtype=IntType)
-    op.Free()
-    if subdomain_id not in all_ids:
-        raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
-
-    if subdomain_id not in vals:
-        return np.empty(0, dtype=IntType)
-
-    n = dm.getStratumSize(CELL_SETS_LABEL, subdomain_id)
-    if n == 0:
-        return np.empty(0, dtype=IntType)
-    indices = dm.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
-    ncells = 0
-    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    for i in range(n):
-        c = indices[i]
-        if cStart <= c < cEnd:
-            ncells += 1
-    if ncells == 0:
-        return np.empty(0, dtype=IntType)
-    cells = np.empty(ncells, dtype=IntType)
-    j = 0
-    for i in range(n):
-        c = indices[i]
-        if cStart <= c < cEnd:
-            cells[j] = cell_numbering[c]
-            j += 1
-    return cells
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     """Builds a list of all facets ordered according to the given numbering.
 
@@ -4748,8 +4689,8 @@ def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     cdef:
         PETSc.IS filtered_is
 
-    # empty ISes remain empty
-    if not is_ or is_.size == 0:
+    # cast null ISes to empty ones
+    if not is_:
         return PETSc.IS().createGeneral(np.empty(0, dtype=IntType))
 
     filtered_is = is_.duplicate()

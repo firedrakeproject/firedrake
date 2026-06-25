@@ -146,9 +146,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         # TODO: This breaks for certain inputs (e.g. FormSum) but this
         # is a very heavy-handed way to fix that
         try:
-            return frozenset({d.topology for d in extract_domains(self.F)})
+            return op3.collections.OrderedFrozenSet([d.topology for d in extract_domains(self.F)])
         except:
-            return frozenset()
+            return ()
 
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,

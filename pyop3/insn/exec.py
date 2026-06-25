@@ -486,7 +486,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "form" in str(self):
+        # if "expression" in str(self):
         #     breakpoint()
 
         if not kwargs:  # shortcut for the most common case

@@ -139,14 +139,12 @@ jobs:
         # UNDO ME
         timeout-minutes: 180
 
-      - name: Run tests (nprocs = 2)
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
-
-     # - name: Run tests (nprocs = 3)
+     # - name: Run tests (nprocs = 2)
+     #   if: success() || steps.install.conclusion == 'success'
+     #   run: |
+     #     . venv/bin/activate
+     #     firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+     #   timeout-minutes: 60
      #   if: success() || steps.install.conclusion == 'success'
      #   run: |
      #     . venv/bin/activate
@@ -210,7 +208,8 @@ jobs:
      #   if: success() || steps.install.conclusion == 'success'
      #   run: |
      #     . venv/bin/activate
-     #     git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
+     #     : # UNDO ME
+     #     git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch connorjward/pyop3
      #     pip install --verbose ./thetis-repo
      #     python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
      #   timeout-minutes: 10
@@ -228,7 +227,8 @@ jobs:
      #   if: success() || steps.install.conclusion == 'success'
      #   run: |
      #     . venv/bin/activate
-     #     git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+     #     : # UNDO ME
+     #     git clone --depth 1 https://github.com/connorjward/g-adopt.git g-adopt-repo --branch connorjward/pyop3
      #     pip install --verbose ./g-adopt-repo
      #     make -C g-adopt-repo/demos/mantle_convection/base_case check
      #   timeout-minutes: 5

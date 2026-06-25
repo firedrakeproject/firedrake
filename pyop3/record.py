@@ -28,12 +28,14 @@ from pyop3.cache import memory_cache
 from pyop3.exceptions import UnhashableObjectException
 
 
-def record():
-    return _make_record_class(eq=False)
+def record(**kwargs):
+    assert "eq" not in kwargs
+    return _make_record_class(eq=False, **kwargs)
 
 
-def frozenrecord():
-    return _make_record_class(frozen=True)
+def frozenrecord(**kwargs):
+    assert "frozen" not in kwargs
+    return _make_record_class(frozen=True, **kwargs)
 
 
 def _make_record_class(**kwargs):
