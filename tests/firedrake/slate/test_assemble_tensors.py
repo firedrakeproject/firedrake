@@ -342,9 +342,10 @@ def test_reciprocal(mesh):
         assert np.allclose(r, d, rtol=1e-14)
 
 
-def test_nested_block(mesh):
-    V = FunctionSpace(mesh, "CG", 2)
-    Q = FunctionSpace(mesh, "DG", 1, variant="integral")
+@pytest.mark.parametrize("degree", (0, 1))
+def test_nested_block(mesh, degree):
+    V = FunctionSpace(mesh, "CG", degree+1)
+    Q = FunctionSpace(mesh, "DG", degree, variant="integral")
     Z = V * Q
 
     v0, q0 = TestFunctions(Z)
