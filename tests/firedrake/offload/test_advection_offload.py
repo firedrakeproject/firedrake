@@ -64,7 +64,7 @@ def run_test_advection_offload(ksp_type, pc_type):
         t += dt
         if maxchange < 1e-5 or np.isnan(maxchange):
             break
-    return maxchange
+    assert maxchange < 1e-5
 
 
 @pytest.mark.skipnogpu
