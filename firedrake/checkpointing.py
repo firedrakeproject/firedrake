@@ -737,36 +737,56 @@ class CheckpointFile:
         """
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()
-        # Handle extruded mesh
         tmesh = mesh.topology
-        if mesh.extruded:
-            # -- Save mesh topology --
-            base_tmesh = mesh.topology._base_mesh
-            self._save_mesh_topology(base_tmesh)
-            self._save_mesh_topology(tmesh)
-            if tmesh.name not in self.require_group(self._path_to_topologies()):
-                # The tmesh (an ExtrudedMeshTopology) is treated as if it was a first class topology object. It
-                # shares the plex data with the base_tmesh, but those data are stored under base_tmesh's path,
-                # so we here create a symbolic link:
-                # topologies/{tmesh.name}/topology <- topologies/{base_tmesh.name}/topology
-                # This is merely to make this group (topologies/{tmesh.name}) behave exactly like standard topology
-                # groups (topologies/{some_non_extruded_topology_name}), and not necessary at the moment.
-                path = self._path_to_topology(tmesh.name)
+
+        # -- Save mesh topology --
+        self._save_mesh_topology(tmesh)
+        # -- Save mesh --
+        path = self._path_to_meshes(tmesh.name)
+        if mesh.name not in self.require_group(path):
+            path = self._path_to_mesh(tmesh.name, mesh.name)
+            self.require_group(path)
+            # Save Firedrake coodinates.
+            self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
+            self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
+            self._save_function_topology(mesh._coordinates)
+            self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
+            # Save cell_orientations for immersed meshes.
+            if hasattr(mesh, "_cell_orientations"):
+                path = self._path_to_mesh_immersed(tmesh.name, mesh.name)
                 self.require_group(path)
-                self.h5pyfile[os.path.join(path, "topology")] = self.h5pyfile[os.path.join(self._path_to_topology(base_tmesh.name), "topology")]
+                self.set_attr(path, PREFIX_IMMERSED + "_cell_orientations", mesh._cell_orientations.name())
+                cell_orientations_tV = mesh._cell_orientations.function_space()
+                self._save_function_space_topology(cell_orientations_tV)
+                # Compute "canonical" cell_orientations array.
+                # This is the mesh._cell_orientations array (for manifold orientation) that the mesh would
+                # have if all cell orientations of the reference-physical cell mappings were "0" (matching
+                # plex cone ordering).
+                # This can be done by flipping values (0 <-> 1) for cells for which "reflection" have been
+                # introduced relative to orientation 0.
+                canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cell_set.size])
+                o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
+                reflected = o_r_map[tmesh.entity_orientations[:tmesh.cell_set.size, -1]]
+                reflected_indices = (reflected == 1)
+                canonical_cell_orientations[reflected_indices] = 1 - canonical_cell_orientations[reflected_indices]
+                cell_orientations_iset = PETSc.IS().createGeneral(canonical_cell_orientations, comm=tmesh.comm)
+                cell_orientations_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
+                self.viewer.pushGroup(path)
+                cell_orientations_iset.view(self.viewer)
+                self.viewer.popGroup()
+
+            if mesh.extruded:
+                # -- Save mesh topology --
+                base_tmesh = mesh.topology._base_mesh
+                self._save_mesh_topology(base_tmesh)
                 path = self._path_to_topology_extruded(tmesh.name)
                 self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
                 self.set_attr(path, PREFIX_EXTRUDED + "_periodic", tmesh.extruded_periodic)
                 self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
-            # -- Save mesh --
-            path = self._path_to_meshes(tmesh.name)
-            if mesh.name not in self.require_group(path):
+                # -- Save mesh --
                 path = self._path_to_mesh(tmesh.name, mesh.name)
                 self.require_group(path)
-                self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
-                self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
-                self._save_function_topology(mesh._coordinates)
                 if hasattr(mesh, PREFIX + "_radial_coordinates"):
                     # Cannot do: self.save_function(mesh.radial_coordinates)
                     # This will cause infinite recursion.
@@ -775,59 +795,19 @@ class CheckpointFile:
                     self._save_ufl_element(path, PREFIX + "_radial_coordinate_element", radial_coordinates.function_space().ufl_element())
                     self.set_attr(path, PREFIX + "_radial_coordinates", radial_coordinates.name())
                     self._save_function_topology(radial_coordinates)
-                self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
                 # The followings are conceptually redundant, but needed.
                 path = os.path.join(self._path_to_mesh(tmesh.name, mesh.name), PREFIX_EXTRUDED)
                 self.require_group(path)
                 if mesh._base_mesh:
                     self.save_mesh(mesh._base_mesh)
                     self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
-        else:
-            # -- Save mesh topology --
-            self._save_mesh_topology(tmesh)
-            # -- Save mesh --
-            path = self._path_to_meshes(tmesh.name)
-            if mesh.name not in self.require_group(path):
-                path = self._path_to_mesh(tmesh.name, mesh.name)
-                self.require_group(path)
-                # Save Firedrake coodinates.
-                self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
-                self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
-                self._save_function_topology(mesh._coordinates)
-                # Save DMPlex coordinates for a complete representation of the plex.
-                # Practically, plex coordinates will be needed when we checkpoint MeshHierarchy in the future.
-                with self.opts.inserted_options():
-                    tmesh.topology_dm.coordinatesView(viewer=self.viewer)
-                self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
-                # Save cell_orientations for immersed meshes.
-                if hasattr(mesh, "_cell_orientations"):
-                    path = self._path_to_mesh_immersed(tmesh.name, mesh.name)
-                    self.require_group(path)
-                    self.set_attr(path, PREFIX_IMMERSED + "_cell_orientations", mesh._cell_orientations.name())
-                    cell_orientations_tV = mesh._cell_orientations.function_space()
-                    self._save_function_space_topology(cell_orientations_tV)
-                    # Compute "canonical" cell_orientations array.
-                    # This is the mesh._cell_orientations array (for manifold orientation) that the mesh would
-                    # have if all cell orientations of the reference-physical cell mappings were "0" (matching
-                    # plex cone ordering).
-                    # This can be done by flipping values (0 <-> 1) for cells for which "reflection" have been
-                    # introduced relative to orientation 0.
-                    canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cell_set.size])
-                    o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
-                    reflected = o_r_map[tmesh.entity_orientations[:tmesh.cell_set.size, -1]]
-                    reflected_indices = (reflected == 1)
-                    canonical_cell_orientations[reflected_indices] = 1 - canonical_cell_orientations[reflected_indices]
-                    cell_orientations_iset = PETSc.IS().createGeneral(canonical_cell_orientations, comm=tmesh.comm)
-                    cell_orientations_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
-                    self.viewer.pushGroup(path)
-                    cell_orientations_iset.view(self.viewer)
-                    self.viewer.popGroup()
 
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
         # -- Save DMPlex --
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
+        assert tmesh.name == tmesh_name
         distribution_name = tmesh._distribution_name
         permutation_name = tmesh._permutation_name
         if tmesh_name in self.require_group(self._path_to_topologies()):
@@ -1045,18 +1025,8 @@ class CheckpointFile:
                 assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             else:
                 dm = self._get_dm_for_checkpointing(tV)
-                topology_dm = tmesh.topology_dm
-                # If tmesh is an ExtrudedMeshTopology, it inherits plex from the base_tmesh ( = tmesh._base_mesh).
-                # In that case we need to save (section) dm under tmesh.name instead of under base_tmesh.name, so
-                # we need to switch names of the topology_dm.
-                # We could in theory save the topology_dm under tmesh.name as well as under base_tmesh.name or
-                # create a symbolic link as /topologies/tmesh.name/topology <- /topologies/base_tmesh.name/topology
-                # to have a full structure under tmesh.name, but at least for now we don't need to.
-                base_tmesh_name = topology_dm.getName()
                 with self.opts.inserted_options():
-                    topology_dm.setName(tmesh.name)
-                    topology_dm.sectionView(self.viewer, dm)
-                    topology_dm.setName(base_tmesh_name)
+                    tmesh.topology_dm.sectionView(self.viewer, dm)
 
     @PETSc.Log.EventDecorator("SaveFunction")
     def save_function(self, f, idx=None, name=None, timestepping_info=None):
@@ -1210,12 +1180,10 @@ class CheckpointFile:
 
         """
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
-        path = self._path_to_topology_extruded(tmesh_name)
-        if path in self.h5pyfile:
+        extruded = self._path_to_topology_extruded(tmesh_name) in self.h5pyfile
+        if extruded:
             # -- Load mesh topology --
-            base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
-            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters, extruded=True)
+            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
             # -- Load mesh --
             path = self._path_to_mesh(tmesh_name, name)
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
@@ -1237,7 +1205,7 @@ class CheckpointFile:
             except KeyError:
                 pass
             else:
-                mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
+                mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=tmesh._base_mesh)
         else:
             # -- Load mesh topology --
             if topology is None:
@@ -1290,7 +1258,7 @@ class CheckpointFile:
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
-    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters, extruded=False):
+    def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters):
         """Load the :class:`~.MeshTopology`.
 
         :arg tmesh_name: The name of the :class:`~.MeshTopology` to load.
@@ -1341,6 +1309,16 @@ class CheckpointFile:
         # These labels are distribution dependent.
         # We should be able to save/load labels selectively.
         plex.removeLabel("firedrake_is_ghost")
+
+        path = self._path_to_topology_extruded(tmesh_name)
+        if path in self.h5pyfile:  # extruded
+            base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
+            base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
+            periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
+            layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
+            return ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name, sfXB=sfXB)
+
+        # not extruded
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self.comm)
@@ -1361,18 +1339,13 @@ class CheckpointFile:
             self.viewer.popGroup()
         else:
             perm_is = None
+
         # -- Construct Mesh (Topology) --
         # Use public API so pass user comm (self.comm)
-        if extruded:
-            periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
-            layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
-            # we don't actually care about the plex, just the sf
-            tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name, sfXB=sfXB)
-        else:
-            tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
-                                 distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
-                                 distribution_name=distribution_name, permutation_name=permutation_name,
-                                 comm=self.comm)
+        tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
+                             distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
+                             distribution_name=distribution_name, permutation_name=permutation_name,
+                             comm=self.comm)
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
@@ -1427,11 +1400,9 @@ class CheckpointFile:
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh.comm)
-            section.setPermutation(tmesh._new_to_old_point_renumbering)
+            section.setPermutation(tmesh._dm_renumbering)
             dm.setSection(section)
-            topology_dm.setName(tmesh.name)
             gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, tmesh.sfXC)
-            topology_dm.setName(tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)

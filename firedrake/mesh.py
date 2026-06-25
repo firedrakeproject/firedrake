@@ -2621,10 +2621,11 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
-        self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
-        self.sfXB = sfXB
-        if self.sfXB is not None:
-            self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
+        topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
+        topology_dm.setName(self.name)
+
+        self.topology_dm = topology_dm
+        self.sfXC = sfXB
         r"The PETSc DM representation of the mesh topology."
         self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
