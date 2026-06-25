@@ -2589,7 +2589,7 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, periodic=False, name=None, *, sfXB=None):
+    def __init__(self, mesh, layers, periodic=False, name=None):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
@@ -2625,7 +2625,6 @@ class ExtrudedMeshTopology(MeshTopology):
         topology_dm.setName(self.name)
 
         self.topology_dm = topology_dm
-        self.sfXC = sfXB
         r"The PETSc DM representation of the mesh topology."
         self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
@@ -2828,6 +2827,21 @@ class ExtrudedMeshTopology(MeshTopology):
             for base_dim in self._base_mesh._plex_strata_ordering
             for extr_dim in range(2)
         )
+
+    @cached_property
+    def sfXC(self) -> PETSc.SF:
+        """Star forest needed for checkpointing.
+
+        The star forest is used by function spaces to load their data.
+
+        """
+        # This attribute has to be computed after initialisation (we cannot
+        # use 'dm.topologyLoad()') because the star forest that we get from
+        # 'topologyLoad' does not account for overlap and extruded meshes
+        # currently assume that the base mesh already has the requisite
+        # overlap set up.
+        raise NotImplementedError("TODO NEXT, grow this sf from the base mesh")
+
 
     @cached_property
     def entity_orientations(self):

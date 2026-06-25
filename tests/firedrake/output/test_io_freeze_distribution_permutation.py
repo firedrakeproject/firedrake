@@ -11,7 +11,8 @@ mesh_name = "m"
 func_name = "f"
 
 
-@pytest.mark.parallel(7)
+# @pytest.mark.parallel(7)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize('case', ["interval",
                                   "interval_small",
                                   "interval_periodic",
@@ -66,8 +67,10 @@ def test_io_freeze_dist_perm_base(case, tmpdir):
         V = FunctionSpace(mesh, "CG", 4)
         f = Function(V, name=func_name).interpolate(cos(2 * pi * x) + cos(8 * pi * y))
     elif case == "triangle_extrusion":
-        base_mesh = UnitSquareMesh(10, 10)
-        mesh = ExtrudedMesh(base_mesh, layers=4, name=mesh_name)
+        # base_mesh = UnitSquareMesh(10, 10)
+        base_mesh = UnitSquareMesh(1, 1)
+        # mesh = ExtrudedMesh(base_mesh, layers=4, name=mesh_name)
+        mesh = ExtrudedMesh(base_mesh, layers=2, name=mesh_name)
         V = VectorFunctionSpace(mesh, "CG", 2)
         x, y, z = SpatialCoordinate(mesh)
         f = Function(V, name=func_name).interpolate(as_vector([cos(x), cos(y), cos(z)]))

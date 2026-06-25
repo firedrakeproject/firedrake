@@ -1144,11 +1144,8 @@ class CheckpointFile:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
             with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
-                base_tmesh_name = topology_dm.getName()
                 with self.opts.inserted_options():
-                    topology_dm.setName(tmesh.name)
                     topology_dm.globalVectorView(self.viewer, dm, vec)
-                    topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
             path = self._path_to_vec_timestepping(tmesh.name, dm_name, tf.name())
@@ -1316,7 +1313,7 @@ class CheckpointFile:
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
             periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
             layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
-            return ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name, sfXB=sfXB)
+            return ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name)
 
         # not extruded
         if load_distribution_permutation:
@@ -1494,10 +1491,7 @@ class CheckpointFile:
                                                                tmesh._distribution_name,
                                                                tmesh._permutation_name)
                 dm, sf, _ = self._function_load_utils[tmesh_key + sd_key]
-                base_tmesh_name = topology_dm.getName()
-                topology_dm.setName(tmesh.name)
                 topology_dm.globalVectorLoad(self.viewer, dm, sf, vec)
-                topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
         return tf
