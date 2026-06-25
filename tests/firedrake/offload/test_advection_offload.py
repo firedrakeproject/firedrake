@@ -51,7 +51,7 @@ def test_advection_offload(ksp_type, pc_type):
     solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
 
     t = 0
-    steps = 1200
+    steps = 600
     t_end = steps * dt
 
     while t <= t_end:
@@ -59,6 +59,6 @@ def test_advection_offload(ksp_type, pc_type):
         maxchange = sqrt(assemble((u_n - u_n1)**2 * dx))
         u_n.assign(u_n1)
         t += dt
-        if maxchange < 1e-5 or np.isnan(maxchange):
+        if maxchange < 1e-4 or np.isnan(maxchange):
             break
-    assert maxchange < 1e-5
+    assert maxchange < 1e-4

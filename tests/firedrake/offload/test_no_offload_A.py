@@ -56,18 +56,13 @@ def test_matfree_A_does_not_offload():
                 "pc_type": "python",
                 "pc_python_type": "firedrake.OffloadPC",
                 "offload": {
-                    "pc_type": "ksp",
-                    "ksp": {
-                        "ksp_monitor_true_residual": None,
-                        "ksp_converged_reason": None,
-                        "ksp_type": "cg",
-                        "ksp_rtol": 1e-5,
-                        "ksp_max_it": 50,
-                    }
+                    "pc_type": "none",
+                    "ksp_type": "preonly",
                 }
             }
         },
         "fieldsplit_1": {
+            "ksp_type": "preonly",
             "pc_type": "none",
         },
     }
