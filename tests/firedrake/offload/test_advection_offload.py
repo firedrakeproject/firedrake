@@ -12,8 +12,9 @@ def ksp_pc(request):
     return request.param
 
 
-def run_test_advection_offload(ksp_type, pc_type):
-
+@pytest.mark.skipnogpu
+@pytest.mark.parallel([1, 2])
+def test_advection_offload(ksp_type, pc_type):
     mesh = PeriodicIntervalMesh(100, length=2)
     x = SpatialCoordinate(mesh)[0]
     u_init = sin(2*pi*x)
