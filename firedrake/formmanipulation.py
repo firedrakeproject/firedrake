@@ -3,7 +3,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, FormSum, ListTensor, ZeroBaseForm
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags

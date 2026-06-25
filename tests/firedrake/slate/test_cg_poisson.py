@@ -2,8 +2,60 @@ import pytest
 from firedrake import *
 import numpy as np
 
+mg_params = {
+    "pc_use_amat": False,
+    "ksp_monitor": None,
+    "ksp_type": "cg",
+    "ksp_rtol": 1E-10,
+    "ksp_atol": 0E-10,
+    "ksp_norm_type": "natural",
+    "pc_type": "mg",
+    "mg_levels": {
+        "ksp_type": "chebyshev",
+        "esteig_ksp_view_singularvalues": None,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_construct_dim": 0,
+        "pc_star_use_coloring": True,
+        "pc_star_sub_sub_pc_type": "cholesky",
+        "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc",
+    },
+    "mg_coarse": {
+        "ksp_type": "preonly",
+        "pc_type": "redundant",
+        "redundant_pc_type": "cholesky",
+        "redundant_pc_factor_mat_solver_type": "mumps",
+    }
+}
 
-def run_CG_problem(r, degree, quads=False):
+fieldsplit_params = {
+    "mat_type": "matfree",
+    "pmat_type": "aij",
+    "ksp_type": "preonly",
+    "pc_type": "fieldsplit",
+    "pc_fieldsplit_type": "schur",
+    "pc_fieldsplit_schur_factorization_type": "full",
+    "pc_fieldsplit_schur_precondition": "a11",
+    # Build the block sweep from the true operator, but keep the
+    # field-1 MG solve on the preconditioning block S via pc_use_amat=False.
+    "pc_fieldsplit_diag_use_amat": False,
+    "pc_fieldsplit_off_diag_use_amat": True,
+    "fieldsplit_ksp_type": "preonly",
+    "fieldsplit_0_pc_type": "cholesky",
+    "fieldsplit_1": mg_params,
+}
+
+scpc_params = {
+    "ksp_type": "preonly",
+    "pc_type": "python",
+    "mat_type": "matfree",
+    "pc_python_type": "firedrake.SCPC",
+    "pc_sc_eliminate_fields": "0",
+    "condensed_field": mg_params,
+}
+
+
+def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
     """
     Solves the Dirichlet problem for the elliptic equation:
 
@@ -29,49 +81,43 @@ def run_CG_problem(r, degree, quads=False):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant="integral")
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
     V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
     uh = Function(V)
 
     # Formulate the CG method in UFL
     u = sum(TrialFunctions(V))
     v = sum(TestFunctions(V))
-    a = inner(grad(v), grad(u)) * dx
-    L = inner(v, f) * dx
-
-    params = {
-        "ksp_type": "preonly",
-        "pc_type": "python",
-        "mat_type": "matfree",
-        "pc_python_type": "firedrake.SCPC",
-        "pc_sc_eliminate_fields": "0",
-        "condensed_field": {
-            "mat_type": "aij",
-            "ksp_monitor": None,
-            "ksp_type": "cg",
-            "ksp_rtol": 1E-10,
-            "ksp_atol": 0E-10,
-            "ksp_norm_type": "natural",
-            "pc_type": "mg",
-            "mg_levels": {
-                "ksp_type": "chebyshev",
-                "pc_type": "python",
-                "pc_python_type": "firedrake.ASMStarPC",
-                "pc_star_construct_dim": 0,
-                "pc_star_sub_sub_pc_type": "cholesky",
-                "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc"},
-            "mg_coarse": {
-                "ksp_type": "preonly",
-                "pc_type": "redundant",
-                "redundant_pc_type": "cholesky",
-                "redundant_pc_factor_mat_solver_type": "mumps"}}}
-
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(f, v) * dx
     bcs = DirichletBC(V.sub(1), 0, "on_boundary")
-    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+
+    aP = None
+    if pc_type == "scpc":
+        params = scpc_params
+    elif pc_type == "fieldsplit":
+        params = fieldsplit_params
+        ui, uf = TrialFunctions(V)
+        vi, vf = TestFunctions(V)
+        A = Tensor(a)
+        AII = Block(A, (0, 0))
+        AFI = Block(Tensor(inner(grad(ui), grad(vf))*dx), ((0, 1), 0))
+        AIF = Block(Tensor(inner(grad(uf), grad(vi))*dx), (0, (0, 1)))
+        aP = A - AFI * Inverse(AII) * AIF
+    else:
+        raise ValueError(f"Unrecognised pc_type {pc_type}")
+
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs, aP=aP)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.snes.ksp.setErrorIfNotConverged(True)
     solver.solve()
+
     ksp = solver.snes.ksp
-    ksp = ksp.pc.getPythonContext().condensed_ksp
+    if pc_type == "scpc":
+        ksp = ksp.pc.getPythonContext().condensed_ksp
+    else:
+        ksp = ksp.pc.getFieldSplitSubKSP()[1]
+
     its = ksp.getIterationNumber()
     error = norm(u_exact-sum(uh), norm_type="L2")
     return error, its
@@ -91,3 +137,12 @@ def test_cg_convergence(degree, quads, rate):
     diff = np.array(errors)
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > rate).all()
+
+
+@pytest.mark.parametrize("refine", (2, 4))
+def test_Jp_fieldsplit_mg(refine):
+    degree = 3
+    quad = False
+    error_sc, its_sc = run_CG_problem(refine, degree, quad, pc_type="scpc")
+    error_fs, its_fs = run_CG_problem(refine, degree, quad, pc_type="fieldsplit")
+    assert its_sc == its_fs
