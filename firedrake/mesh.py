@@ -5018,9 +5018,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", as_cell("interval", self._use_fuse), 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval", mesh._use_fuse), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval", self._use_fuse), 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval", mesh._use_fuse), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
