@@ -450,6 +450,91 @@ class CrossMeshInterpolator(Interpolator):
             an intermediate quadrature space."""
 
         self.into_quadrature_space = into_quadrature_space
+        self._hierarchy_transfer_spaces = self._get_hierarchy_transfer_spaces()
+
+    def _get_hierarchy_transfer_spaces(self):
+        if self.rank != 2 or self.ufl_interpolate.is_adjoint:
+            return None
+        if len(self.target_space) > 1:
+            return None
+        from fractions import Fraction
+        from firedrake.mg import utils as mgutils
+
+        Vcol_arg = self.interpolate_args[1].function_space()
+        Vrow = self.target_space
+        Vcol = Vcol_arg.dual() if is_dual(Vcol_arg) else Vcol_arg
+        if len(Vrow) > 1 or len(Vcol) > 1:
+            return None
+
+        hierarchy, levelc = mgutils.get_level(Vcol.mesh())
+        hierarchyf, levelf = mgutils.get_level(Vrow.mesh())
+        if hierarchy is None or hierarchy is not hierarchyf:
+            return None
+        if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
+            return None
+        return Vcol, Vrow
+
+    @staticmethod
+    def _identity_node_map(V: WithGeometry) -> op2.Map:
+        cache = V.mesh()._shared_data_cache["hierarchy_identity_node_map"]
+        key = (V.ufl_element(), V.boundary_set)
+        try:
+            return cache[key]
+        except KeyError:
+            values = numpy.arange(V.node_set.total_size, dtype=IntType).reshape(-1, 1)
+            return cache.setdefault(key, op2.Map(V.node_set, V.node_set, 1, values=values))
+
+    @staticmethod
+    def _bc_matches_space(bc: DirichletBC, V: WithGeometry) -> bool:
+        fs = bc.function_space()
+        while fs.component is not None and fs.parent is not None:
+            fs = fs.parent
+        return fs == V
+
+    def _assemble_hierarchy_interpolation(self, bcs=None, mat_type=None) -> PETSc.Mat | None:
+        if mat_type not in {"aij", None} or self._hierarchy_transfer_spaces is None:
+            return None
+        from firedrake.mg import kernels as mgkernels
+        from firedrake.mg import utils as mgutils
+
+        Vcol, Vrow = self._hierarchy_transfer_spaces
+        row_map = self._identity_node_map(Vrow)
+        col_map = mgutils.fine_node_to_coarse_node_map(Vrow, Vcol)
+        sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                                [(row_map, col_map, None)],
+                                name=f"{Vrow.name}_{Vcol.name}_hierarchy_interpolation_sparsity",
+                                nest=False,
+                                block_sparse=False)
+        mat = op2.Mat(sparsity)
+
+        lgmaps = None
+        if bcs:
+            row_bcs = [bc for bc in bcs if self._bc_matches_space(bc, Vrow)]
+            col_bcs = [bc for bc in bcs if self._bc_matches_space(bc, Vcol)]
+            if row_bcs or col_bcs:
+                lgmaps = [(Vrow.local_to_global_map(row_bcs), Vcol.local_to_global_map(col_bcs))]
+
+        kernel = mgkernels.prolong_matrix_kernel(Vcol, Vrow)
+        node_locations = mgutils.physical_node_locations(Vrow)
+        source_mesh = Vcol.mesh()
+        source_coords = source_mesh.coordinates
+        compose_map = lambda u: mgutils.fine_node_to_coarse_node_map(Vrow, u.function_space())
+        kernel_args = [
+            mat(op2.INC, (row_map, col_map), lgmaps=lgmaps),
+            node_locations.dat(op2.READ),
+            source_coords.dat(op2.READ, compose_map(source_coords)),
+        ]
+        if kernel.oriented:
+            co = source_mesh.cell_orientations()
+            kernel_args.append(co.dat(op2.READ, compose_map(co)))
+        if kernel.needs_cell_sizes:
+            cs = source_mesh.cell_sizes
+            kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
+        source_coords.dat.global_to_local_begin(op2.READ)
+        source_coords.dat.global_to_local_end(op2.READ)
+        op2.par_loop(kernel, Vrow.node_set, *kernel_args)
+        mat.assemble()
+        return mat.handle
 
     @cached_property
     def _target_space_element(self) -> FiniteElementBase:
@@ -565,9 +650,24 @@ class CrossMeshInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
+        mat_type = mat_type or "aij"
+
+        if self.rank == 2:
+            assert mat_type == "aij"
+            hierarchy_mat = self._assemble_hierarchy_interpolation(bcs=bcs, mat_type=mat_type)
+            if hierarchy_mat is not None:
+                if self.into_quadrature_space:
+                    Q = assemble(self._interpolate_from_quadrature, bcs=bcs, mat_type=mat_type).petscmat
+                    result = Q.matMult(hierarchy_mat)
+                else:
+                    result = hierarchy_mat
+
+                def callable() -> PETSc.Mat:
+                    return result
+                return callable
+
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
-        mat_type = mat_type or "aij"
 
         if self.into_quadrature_space:
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)

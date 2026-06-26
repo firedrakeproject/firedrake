@@ -147,6 +147,17 @@ def _make_kernel_args(kernel, element, *args):
     return kernel_args
 
 
+def _make_matrix_kernel_args(kernel, element, *args):
+    """Returns argument names for a rank-2 hierarchy interpolation kernel."""
+    mask = [True] * len(args)
+    mask[1] = kernel.oriented
+    mask[2] = kernel.needs_cell_sizes
+    mask[3] = kernel.needs_external_coords
+    is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
+    mask[-1] = not is_constant
+    return ", ".join(arg for arg, include in zip(args, mask) if include)
+
+
 def _make_element_key(element):
     """Returns a cache key for a finat element."""
     return entity_dofs_key(element.complex.get_topology()) + entity_dofs_key(element.entity_dofs())
@@ -248,6 +259,120 @@ def prolong_kernel(expression, Vf):
                "tdim": element.cell.get_spatial_dimension()}
 
         transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
+        transfer_kernel.oriented = kernel.oriented
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
+        return cache.setdefault(key, transfer_kernel)
+
+
+def prolong_matrix_kernel(Vc, Vf):
+    hierarchy, levelf = utils.get_level(Vf.mesh())
+    hierarchy, levelc = utils.get_level(Vc.mesh())
+    if Vc.mesh().extruded:
+        assert Vf.mesh().extruded
+        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    if levelf <= levelc:
+        raise ValueError("Can only build hierarchy interpolation matrices from coarse to fine spaces")
+    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio
+    coordinates = Vc.mesh().coordinates
+    key = (("prolong_matrix", ncandidate)
+           + (Vf.block_size,)
+           + _make_element_key(Vf.finat_element)
+           + _make_element_key(Vc.finat_element)
+           + _make_element_key(coordinates.function_space().finat_element))
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
+    try:
+        return cache[key]
+    except KeyError:
+        trial = ufl.TrialFunction(Vc)
+        kernel = dual_evaluation_kernel(trial, ufl.TestFunction(Vf.dual()))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
+        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        coords_element = create_element(coordinates.ufl_element())
+        element = create_element(Vc.ufl_element())
+        num_verts = len(element.cell.get_vertices())
+        row_dim = Vf.block_size
+        source_cell_inc = element.space_dimension()
+        source_stencil_inc = ncandidate * source_cell_inc
+        local_tensor_size = row_dim * source_stencil_inc
+        cell_tensor_size = row_dim * source_cell_inc
+
+        kernel_code = """#include <petsc.h>
+        %(to_reference)s
+        %(evaluate)s
+        __attribute__((noinline)) /* Clang bug */
+        static void pyop2_kernel_prolong_matrix(PetscScalar *A, const PetscScalar *X, const PetscScalar *Xc
+                                                %(cell_orient)s%(cell_sizes)s)
+        {
+            PetscScalar Xref[%(tdim)d];
+            PetscScalar B[%(cell_tensor_size)d];
+            int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
+            for (int i = 0; i < %(local_tensor_size)d; i++) {
+                A[i] = 0;
+            }
+            for (int i = 0; i < %(cell_tensor_size)d; i++) {
+                B[i] = 0;
+            }
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist = 2*bestdist;
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    break;
+                }
+
+                celldist = %(celldist_l1_c_expr)s;
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+
+            }
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 10) {
+                    cell = bestcell;
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
+            }
+            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
+            pyop2_kernel_evaluate(%(kernel_args)s);
+            for (int i = 0; i < %(row_dim)d; i++) {
+                for (int j = 0; j < %(source_cell_inc)d; j++) {
+                    A[i*%(source_stencil_inc)d + cell*%(source_cell_inc)d + j] =
+                        B[i*%(source_cell_inc)d + j];
+                }
+            }
+        }
+        """ % {"to_reference": str(to_reference_kernel),
+               "evaluate": evaluate_code,
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
+               "kernel_args": _make_matrix_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+               "ncandidate": ncandidate,
+               "row_dim": row_dim,
+               "source_cell_inc": source_cell_inc,
+               "source_stencil_inc": source_stencil_inc,
+               "cell_tensor_size": cell_tensor_size,
+               "local_tensor_size": local_tensor_size,
+               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
+               "Xc_cell_inc": coords_element.space_dimension(),
+               "tdim": element.cell.get_spatial_dimension()}
+
+        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong_matrix")
         transfer_kernel.oriented = kernel.oriented
         transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
         return cache.setdefault(key, transfer_kernel)
