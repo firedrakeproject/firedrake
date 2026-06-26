@@ -32,7 +32,7 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True):
+    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
         """
         An object for managing transfers between levels in a multigrid
         hierarchy (possibly via embedding in DG spaces).
@@ -47,6 +47,8 @@ class TransferManager(object):
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
+        self.mat_type = mat_type
+        self._mat_cache = {}
 
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
@@ -78,8 +80,14 @@ class TransferManager(object):
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element, gdim, op):
-                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                if self.mat_type == "aij":
+                    ops = self.prolong_aij, self.restrict_aij, firedrake.inject
+                elif self.mat_type == "matfree":
+                    ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                else:
+                    raise ValueError(f"Unsupported mat_type {self.mat_type}")
                 return self.native_transfers.setdefault(element, ops)[op]
+
         return None
 
     def cache(self, V):
@@ -362,3 +370,23 @@ class TransferManager(object):
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+
+    def prolongation_matrix(self, Vc, Vf):
+        key = (Vc, Vf)
+        try:
+            return self._mat_cache[key]
+        except KeyError:
+            P = firedrake.assemble(firedrake.interpolate(firedrake.TrialFunction(Vc), Vf))
+            return self._mat_cache.setdefault(key, P)
+
+    def prolong_aij(self, uc, uf):
+        Vc = uc.function_space()
+        Vf = uf.function_space()
+        P = self.prolongation_matrix(Vc, Vf)
+        return firedrake.assemble(firedrake.action(P, uc), tensor=uf)
+
+    def restrict_aij(self, rf, rc):
+        Vc = rc.function_space().dual()
+        Vf = rf.function_space().dual()
+        P = self.prolongation_matrix(Vc, Vf)
+        return firedrake.assemble(firedrake.action(rf, P), tensor=rc)
