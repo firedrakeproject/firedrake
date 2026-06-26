@@ -467,36 +467,13 @@ def create_interpolation(dmc, dmf):
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
-    mat_type = None
-    for prefix in (dmc.getOptionsPrefix(), getattr(cctx, "options_prefix", ""), getattr(fctx, "options_prefix", ""), ""):
-        mat_type = PETSc.Options(prefix or "").getString("mg_levels_transfer_mat_type", default="")
-        if mat_type:
-            break
-    mat_type = mat_type or "matfree"
-    if mat_type == "matfree":
-        manager = get_transfer_manager(dmf)
-        ctx = Interpolation(V_c, V_f, manager, cbcs, fbcs)
-        mat = PETSc.Mat().create(comm=dmc.comm)
-        mat.setSizes((row_size, col_size))
-        mat.setType(mat.Type.PYTHON)
-        mat.setPythonContext(ctx)
-        mat.setUp()
-    elif mat_type == "aij":
-        hierarchy, levelc = utils.get_level(V_c.mesh())
-        hierarchyf, levelf = utils.get_level(V_f.mesh())
-        if hierarchy is None or hierarchy is not hierarchyf:
-            raise ValueError("Cannot build MeshHierarchy interpolation between unrelated meshes")
-        if hierarchy.refinements_per_level != 1:
-            raise NotImplementedError("mg_levels_transfer_mat_type=aij is only implemented for MeshHierarchy refinements_per_level == 1")
-        if levelf != levelc + 1:
-            raise NotImplementedError("mg_levels_transfer_mat_type=aij is only implemented between adjacent MeshHierarchy levels")
-        if len(V_c) > 1 or len(V_f) > 1:
-            raise NotImplementedError("mg_levels_transfer_mat_type=aij is not implemented for mixed function spaces")
-        interp = firedrake.interpolate(firedrake.TrialFunction(V_c), V_f)
-        mat = firedrake.assemble(interp, bcs=cbcs + fbcs, mat_type="aij").petscmat
-    else:
-        raise ValueError(f"Unknown mg_levels_transfer_mat_type '{mat_type}'")
-
+    manager = get_transfer_manager(dmf)
+    ctx = Interpolation(V_c, V_f, manager, cbcs, fbcs)
+    mat = PETSc.Mat().create(comm=dmc.comm)
+    mat.setSizes((row_size, col_size))
+    mat.setType(mat.Type.PYTHON)
+    mat.setPythonContext(ctx)
+    mat.setUp()
     if row_size == col_size:
         # PETSc cannot determine the coarse space if the dimensions are equal.
         # The coarse space is identified by the dimension of rscale, so we provide one.
