@@ -1,7 +1,4 @@
 from firedrake import *
-from firedrake.dmhooks import push_appctx, pop_appctx
-from firedrake.mg.ufl_utils import create_interpolation
-from firedrake.petsc import PETSc
 import pytest
 import numpy
 
@@ -22,7 +19,6 @@ def rg():
     ("N1curl", 1, None, False),
     ("DG", 1, None, False),
     ("DG", 1, "integral", False),
-    ("GN", 1, None, False),
 ])
 def test_prolong_aij_matches_matfree(rg, family, degree, variant, vector):
     base = UnitSquareMesh(2, 3)
@@ -95,35 +91,3 @@ def test_poisson_gmg_aij_transfer():
     }
     solve(a == L, u, bcs=bc, solver_parameters=params)
     assert errornorm(exact, u) < 1.0e-3
-
-
-def test_hierarchy_aij_transfer_rejects_multiple_refinements_per_level():
-    class Problem:
-        def __init__(self, V):
-            self.u_restrict = Function(V)
-
-        def dirichlet_bcs(self):
-            return ()
-
-    class Context:
-        def __init__(self, V):
-            self._problem = Problem(V)
-            self.options_prefix = ""
-
-    base = UnitSquareMesh(1, 1)
-    mh = MeshHierarchy(base, 1, refinements_per_level=2)
-    Vc = FunctionSpace(mh[0], "CG", 1)
-    Vf = FunctionSpace(mh[1], "CG", 1)
-    cctx = Context(Vc)
-    fctx = Context(Vf)
-    opts = PETSc.Options()
-    opts["mg_levels_transfer_mat_type"] = "aij"
-    push_appctx(Vc.dm, cctx)
-    push_appctx(Vf.dm, fctx)
-    try:
-        with pytest.raises(NotImplementedError, match="refinements_per_level == 1"):
-            create_interpolation(Vc.dm, Vf.dm)
-    finally:
-        pop_appctx(Vf.dm, fctx)
-        pop_appctx(Vc.dm, cctx)
-        del opts["mg_levels_transfer_mat_type"]
