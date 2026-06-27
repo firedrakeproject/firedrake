@@ -31,7 +31,8 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
@@ -86,7 +87,8 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name:
         An optional name for the function space.
     vfamily :
@@ -125,7 +127,8 @@ def DualSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name :
         An optional name for the function space.
     vfamily:
@@ -164,7 +167,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     dim :
         An optional number of degrees of freedom per function space
         node (defaults to the geometric dimension of the mesh).
@@ -216,7 +220,8 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     shape :
         An optional shape for the tensor-valued degrees of freedom at
         each function space node (defaults to a square tensor using the
@@ -313,7 +318,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
-    return cls.create(new, mixed_mesh_geometry)
+    return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
@@ -331,7 +336,17 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
         An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
-                                                                 boundary_set=boundary_set,
-                                                                 name=name),
-                                    function_space.mesh())
+    if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
+        raise TypeError(f"Can't make restricted space with {type(function_space).__name__}")
+
+    make_space = type(function_space)
+    mesh = function_space.mesh()
+
+    if function_space.boundary_set:
+        boundary_set = frozenset(boundary_set) | function_space.boundary_set
+        function_space = function_space.function_space
+
+    return make_space(impl.RestrictedFunctionSpace(function_space.topological,
+                                                   boundary_set=boundary_set,
+                                                   name=name),
+                      mesh)

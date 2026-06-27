@@ -61,7 +61,7 @@ distribution_parameters_noop = {"partition": False,
 reorder_noop = None
 
 
-class DumbCheckpoint(object):
+class DumbCheckpoint:
 
     r"""A very dumb checkpoint object.
 
@@ -348,7 +348,7 @@ class DumbCheckpoint(object):
         self.close()
 
 
-class HDF5File(object):
+class HDF5File:
 
     r"""An object to facilitate checkpointing.
 
@@ -663,7 +663,7 @@ class TemporaryFunctionCheckpointFile:
         self.close()
 
 
-class CheckpointFile(object):
+class CheckpointFile:
 
     r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
 
@@ -681,6 +681,18 @@ class CheckpointFile(object):
     latest_version = '3.0.0'
 
     def __init__(self, filename, mode, comm=COMM_WORLD):
+        # parse mode into a string
+        match mode:
+            case PETSc.Viewer.FileMode.READ | PETSc.Viewer.FileMode.R:
+                mode = "r"
+            case PETSc.Viewer.FileMode.WRITE | PETSc.Viewer.FileMode.W:
+                mode = "w"
+            case PETSc.Viewer.FileMode.APPEND | PETSc.Viewer.FileMode.A:
+                mode = "a"
+
+        if mode in {"r", "a"} and not os.path.exists(filename):
+            raise FileNotFoundError(f"'{filename}' does not exist")
+
         self.viewer = ViewerHDF5()
         self.filename = filename
         self.comm = comm
@@ -690,21 +702,24 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        if mode in [PETSc.Viewer.FileMode.WRITE, PETSc.Viewer.FileMode.W, "w"]:
-            version = CheckpointFile.latest_version
-            self.set_attr_byte_string("/", "dmplex_storage_version", version)
-        elif mode in [PETSc.Viewer.FileMode.APPEND, PETSc.Viewer.FileMode.A, "a"]:
-            if self.has_attr("/", "dmplex_storage_version"):
-                version = self.get_attr_byte_string("/", "dmplex_storage_version")
-            else:
+
+        match mode:
+            case "w":
                 version = CheckpointFile.latest_version
                 self.set_attr_byte_string("/", "dmplex_storage_version", version)
-        elif mode in [PETSc.Viewer.FileMode.READ, PETSc.Viewer.FileMode.R, "r"]:
-            if not self.has_attr("/", "dmplex_storage_version"):
-                raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
-            version = CheckpointFile.latest_version
-        else:
-            raise NotImplementedError(f"Unsupportd file mode: {mode} not in {'w', 'a', 'r'}")
+            case "a":
+                if self.has_attr("/", "dmplex_storage_version"):
+                    version = self.get_attr_byte_string("/", "dmplex_storage_version")
+                else:
+                    version = CheckpointFile.latest_version
+                    self.set_attr_byte_string("/", "dmplex_storage_version", version)
+            case "r":
+                if not self.has_attr("/", "dmplex_storage_version"):
+                    raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
+                version = CheckpointFile.latest_version
+            case _:
+                raise NotImplementedError(f"Unsupported file mode: {mode} not in {'w', 'a', 'r'}")
+
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": version}, "")
         r"""DMPlex HDF5 version options."""
 
@@ -1246,7 +1261,7 @@ class CheckpointFile(object):
                 radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
                 radial_coordinates = self._load_function_topology(tmesh, radial_coord_element, radial_coord_name)
                 tV_radial_coord = impl.FunctionSpace(tmesh, radial_coord_element)
-                V_radial_coord = impl.WithGeometry.create(tV_radial_coord, mesh)
+                V_radial_coord = impl.WithGeometry(tV_radial_coord, mesh)
                 radial_coord_function_name = self.get_attr(path, PREFIX + "_radial_coordinate_function")
                 mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
             # The followings are conceptually redundant, but needed.
@@ -1416,7 +1431,7 @@ class CheckpointFile(object):
             element = self._load_ufl_element(path, PREFIX + "_ufl_element")
             tV = self._load_function_space_topology(tmesh, element)
             # Construct function space
-            V = impl.WithGeometry.create(tV, mesh)
+            V = impl.WithGeometry(tV, mesh)
         else:
             raise RuntimeError(f"""
                 FunctionSpace ({name}) not found in either of the following path in {self.filename}:
@@ -1496,10 +1511,7 @@ class CheckpointFile(object):
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 _f = self.load_function(mesh, _name, idx=idx)
-                element = V.ufl_element()
-                _element = get_embedding_element_for_checkpointing(element, V.value_shape)
-                method = get_embedding_method_for_checkpointing(element)
-                assert _element == _f.function_space().ufl_element()
+                method = get_embedding_method_for_checkpointing(V.ufl_element())
                 f = Function(V, name=name)
                 self._project_function_for_checkpointing(f, _f, method)
                 return f
@@ -1535,7 +1547,7 @@ class CheckpointFile(object):
                 if timestepping:
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
-                    assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
+                    assert idx is None, "In non-timestepping mode: idx parameter must not be set"
             else:
                 raise RuntimeError(f"Function {path} not found in {self.filename}")
             with tf.dat.vec_wo as vec:

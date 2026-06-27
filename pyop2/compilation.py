@@ -50,13 +50,13 @@ from tempfile import gettempdir, mkstemp
 from typing import Hashable
 from random import randint
 
+import petsctools
 
 from pyop2 import mpi
 from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
-from pyop2.utils import get_petsc_variables
 from petsc4py import PETSc
 
 
@@ -73,8 +73,6 @@ _compiler = None
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
-# PETSc Configuration
-petsc_variables = get_petsc_variables()
 
 
 def set_default_compiler(compiler):
@@ -269,44 +267,46 @@ class Compiler(ABC):
 
     @property
     def cc(self):
-        return self._cc or petsc_variables["CC"]
+        return self._cc or petsctools.get_petscvariables()["CC"]
 
     @property
     def cxx(self):
-        return self._cxx or petsc_variables["CXX"]
+        return self._cxx or petsctools.get_petscvariables()["CXX"]
 
     @property
     def ld(self):
         return self._ld
 
     @property
-    def cflags(self):
-        cflags = self._cflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cflags += self._debugflags
-        else:
-            cflags += self._optflags
-        cflags += tuple(shlex.split(configuration["cflags"]))
-        return cflags
+    def cflags(self) -> tuple[str, ...]:
+        return (
+            *self._cflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *shlex.split(configuration["cflags"]),
+        )
 
     @property
-    def cxxflags(self):
-        cxxflags = self._cxxflags + self._extra_compiler_flags + self.bugfix_cflags
-        if self._debug:
-            cxxflags += self._debugflags
-        else:
-            cxxflags += self._optflags
-        cxxflags += tuple(shlex.split(configuration["cxxflags"]))
-        return cxxflags
+    def cxxflags(self) -> tuple[str, ...]:
+        return (
+            *self._cxxflags,
+            *(self._debugflags if self._debug else self._optflags),
+            *self.bugfix_cflags,
+            *self._extra_compiler_flags,
+            *shlex.split(configuration["cxxflags"]),
+        )
 
     @property
-    def ldflags(self):
-        ldflags = self._ldflags + self._extra_linker_flags
-        ldflags += tuple(shlex.split(configuration["ldflags"]))
-        return ldflags
+    def ldflags(self) -> tuple[str, ...]:
+        return (
+            *self._ldflags,
+            *self._extra_linker_flags,
+            *shlex.split(configuration["ldflags"]),
+        )
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         return ()
 
 
@@ -350,30 +350,17 @@ class LinuxGnuCompiler(Compiler):
     _debugflags = ("-O0", "-g")
 
     @property
-    def bugfix_cflags(self):
+    def bugfix_cflags(self) -> tuple[str, ...]:
         """Flags to work around bugs in compilers."""
-        ver = self._version
-        cflags = ()
-        if Version("4.8.0") <= ver < Version("4.9.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
-            cflags = ("-fno-ivopts",)
-        if Version("5.0") <= ver <= Version("5.4.0"):
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("6.0.0") <= ver < Version("6.5.0"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.1.0") <= ver < Version("7.1.2"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
-            cflags = ("-fno-tree-loop-vectorize",)
-        if Version("7.3") <= ver <= Version("7.5"):
-            # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90055
-            # See also https://github.com/firedrakeproject/firedrake/issues/1442
-            # And https://github.com/firedrakeproject/firedrake/issues/1717
-            # Bug also on skylake with the vectoriser in this
-            # combination (disappears without
-            # -fno-tree-loop-vectorize!)
-            cflags = ("-fno-tree-loop-vectorize", "-mno-avx512f")
-        return cflags
+        cflags = []
+        if not self._debug and self._version >= Version("15"):
+            # Disable '-O3' for GCC versions >=15 because it causes issues with
+            # complex interpolation kernels
+            # TODO: revisit this in later GCC releases to see if we can set a
+            # maximum version constraint
+            # (see https://github.com/firedrakeproject/firedrake/issues/5107)
+            cflags.append("-O2")
+        return tuple(cflags)
 
 
 class LinuxClangCompiler(Compiler):
@@ -453,9 +440,9 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     else:
         # Sniff compiler from file extension,
         if extension == "cpp":
-            exe = petsc_variables["CXX"]
+            exe = petsctools.get_petscvariables()["CXX"]
         else:
-            exe = petsc_variables["CC"]
+            exe = petsctools.get_petscvariables()["CC"]
         compiler = sniff_compiler(exe, comm)
 
     debug = configuration["debug"]
@@ -565,78 +552,63 @@ def make_so(compiler, code, extension, comm):
         exe = compiler.cc
         compiler_flags = compiler.cflags
 
-    # Compile on compilation communicator (ccomm) rank 0
-    if ccomm.rank == 0:
-        # Track exceptions as values so that they may be raised collectively
+    def compile_single_rank():
+        # Adding random 2-digit hexnum avoids using excessive filesystem inodes
+        tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
+        tempdir.mkdir(parents=True, exist_ok=True)
+        # This path + filename should be unique
+        descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
+        filename = Path(filename)
+
+        cname = filename
+        oname = filename.with_suffix(".o")
+        soname = filename.with_suffix(".so")
+        logfile = filename.with_suffix(".log")
+        errfile = filename.with_suffix(".err")
+
         try:
-            # Adding random 2-digit hexnum avoids using excessive filesystem inodes
-            tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
-            tempdir.mkdir(parents=True, exist_ok=True)
-            # This path + filename should be unique
-            descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
-            filename = Path(filename)
+            with progress(INFO, 'Compiling wrapper'):
+                # Write source code to disk
+                with open(cname, "w") as fh:
+                    fh.write(code)
+                os.close(descriptor)
 
-            cname = filename
-            oname = filename.with_suffix(".o")
-            soname = filename.with_suffix(".so")
-            logfile = filename.with_suffix(".log")
-            errfile = filename.with_suffix(".err")
-        except BaseException as e:
-            result = e
-        else:
-            try:
-                with progress(INFO, 'Compiling wrapper'):
-                    # Write source code to disk
-                    with open(cname, "w") as fh:
-                        fh.write(code)
-                    os.close(descriptor)
-
-                    if not compiler.ld:
-                        # Compile and link
-                        cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
-                        _run(cc, logfile, errfile)
-                    else:
-                        # Compile
-                        cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
-                        _run(cc, logfile, errfile)
-                        # Extract linker specific "cflags" from ldflags and link
-                        ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
-                        _run(ld, logfile, errfile, step="Linker", filemode="a")
-
-                result = soname
-            except subprocess.CalledProcessError as e:
-                msg = dedent(f"""
-                    Command "{e.cmd}" return error status {e.returncode}.
-                    Unable to compile code
-                """)
-                if os.environ.get("FIREDRAKE_CI", False):
-                    msg += dedent(f"""
-                        Code is:
-                        {code}
-                    """)
-                    with open(errfile) as err:
-                        msg += dedent(f"""
-                            Compiler output is:
-                            {''.join(err.readlines())}
-                        """)
+                if not compiler.ld:
+                    # Compile and link
+                    cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
+                    _run(cc, logfile, errfile)
                 else:
+                    # Compile
+                    cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
+                    _run(cc, logfile, errfile)
+                    # Extract linker specific "cflags" from ldflags and link
+                    ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
+                    _run(ld, logfile, errfile, step="Linker", filemode="a")
+        except subprocess.CalledProcessError as e:
+            msg = dedent(f"""
+                Command "{e.cmd}" return error status {e.returncode}.
+                Unable to compile code
+            """)
+            if os.environ.get("FIREDRAKE_CI", False):
+                msg += dedent(f"""
+                    Code is:
+                    {code}
+                """)
+                with open(errfile) as err:
                     msg += dedent(f"""
-                        Compile log in {logfile!s}
-                        Compile errors in {errfile!s}
+                        Compiler output is:
+                        {''.join(err.readlines())}
                     """)
-                result = CompilationError(msg)
-                result.__cause__ = e  # equivalent to 'raise XXX from e'
-            except BaseException as e:
-                # catch and broadcast all exceptions to prevent deadlocks
-                result = e
-    else:
-        result = None
+            else:
+                msg += dedent(f"""
+                    Compile log in {logfile!s}
+                    Compile errors in {errfile!s}
+                """)
+            raise CompilationError(msg) from e
+        else:
+            return soname
 
-    result = ccomm.bcast(result)
-    if isinstance(result, BaseException):
-        raise result
-    else:
-        return result
+    return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
