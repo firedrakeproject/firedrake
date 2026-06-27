@@ -5,6 +5,7 @@ import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
+from .interface import assemble_prolongation_aij
 from finat.element_factory import create_element
 
 __all__ = ("TransferManager", )
@@ -43,6 +44,7 @@ class TransferManager(object):
         :arg use_averaging: Use averaging to approximate the
            projection out of the embedded DG space? If False, a global
            L2 projection will be performed.
+        :arg mat_type: The matrix assembly type for prolongation/restriction.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
@@ -375,7 +377,7 @@ class TransferManager(object):
         try:
             return self._mat_cache[key]
         except KeyError:
-            P = firedrake.assemble(firedrake.interpolate(firedrake.TrialFunction(Vc), Vf))
+            P = assemble_prolongation_aij(Vc, Vf)
             return self._mat_cache.setdefault(key, P)
 
     def prolong_aij(self, uc, uf):

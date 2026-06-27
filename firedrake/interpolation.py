@@ -452,29 +452,6 @@ class CrossMeshInterpolator(Interpolator):
         self.into_quadrature_space = into_quadrature_space
 
     @cached_property
-    def _into_hierarchy(self):
-        if self.rank != 2 or self.ufl_interpolate.is_adjoint:
-            return False
-        if len(self.target_space) > 1:
-            return False
-        from fractions import Fraction
-        from firedrake.mg.utils import get_level
-
-        Vcol_arg = self.interpolate_args[1].function_space()
-        Vrow = self.target_space
-        Vcol = Vcol_arg.dual() if is_dual(Vcol_arg) else Vcol_arg
-        if len(Vrow) > 1 or len(Vcol) > 1:
-            return False
-
-        hierarchy, levelc = get_level(Vcol.mesh())
-        hierarchyf, levelf = get_level(Vrow.mesh())
-        if hierarchy is None or hierarchy is not hierarchyf:
-            return False
-        if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
-            return False
-        return True
-
-    @cached_property
     def _target_space_element(self) -> FiniteElementBase:
         """The element of `self.target_space`. If `self.target_space` is tensor/vector valued,
         the base scalar element.
@@ -588,24 +565,9 @@ class CrossMeshInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
-        from firedrake.mg.interface import assemble_prolongation_aij
-        mat_type = mat_type or "aij"
-
-        if self._into_hierarchy and self.rank == 2 and mat_type == "aij":
-            source_space = self.operand.function_space()
-            hierarchy_mat = assemble_prolongation_aij(source_space, self.target_space, bcs=bcs)
-            if self.into_quadrature_space:
-                Q = assemble(self._interpolate_from_quadrature, bcs=bcs, mat_type=mat_type).petscmat
-                result = Q.matMult(hierarchy_mat)
-            else:
-                result = hierarchy_mat
-
-            def callable() -> PETSc.Mat:
-                return result
-            return callable
-
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
+        mat_type = mat_type or "aij"
 
         if self.into_quadrature_space:
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)

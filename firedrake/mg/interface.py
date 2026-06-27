@@ -1,15 +1,19 @@
 from pyop2 import op2
+from fractions import Fraction
 
 from firedrake import ufl_expr, dmhooks
+from firedrake.assemble import assemble
+from firedrake.interpolation import interpolate
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.matrix import AssembledMatrix
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
 from . import utils
 from . import kernels
 
 
-__all__ = ["prolong", "restrict", "inject"]
+__all__ = ["prolong", "restrict", "inject", "assemble_prolongation_aij"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):
@@ -299,8 +303,24 @@ def _bc_matches_space(bc, V):
     return fs == V
 
 
+@PETSc.Log.EventDecorator()
 def assemble_prolongation_aij(Vc, Vf, bcs=None):
+    if len(Vc) > 1 or len(Vc) > 1:
+        raise NotImplementedError("Mixed spaces are handled through TransferManager")
+    arguments = (ufl_expr.TestFunction(Vf.dual()), ufl_expr.TrialFunction(Vc))
+    Vtarget = Vf
+    if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
+        # Introduce an intermediate quadrature target space
+        Vf = Vf.quadrature_space()
     Vrow, Vcol = Vf, Vc
+
+    hierarchy, levelc = utils.get_level(Vcol.mesh())
+    hierarchyf, levelf = utils.get_level(Vrow.mesh())
+    if hierarchy is None or hierarchy is not hierarchyf:
+        raise ValueError("Mismatching hierarchies")
+    if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
+        raise ValueError("Only implemented on consecutive levels")
+
     row_map = utils.identity_node_map(Vrow)
     col_map = utils.fine_node_to_coarse_node_map(Vrow, Vcol)
     sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
@@ -337,4 +357,11 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     source_coords.dat.global_to_local_end(op2.READ)
     op2.par_loop(kernel, Vrow.node_set, *kernel_args)
     mat.assemble()
-    return mat.handle
+    result = mat.handle
+
+    if needs_quadrature:
+        interp = interpolate(ufl_expr.TrialFunction(Vf), Vtarget)
+        Q = assemble(interp, bcs=bcs, mat_type="aij").petscmat
+        result = Q.matMult(result)
+
+    return AssembledMatrix(arguments, result, bcs=bcs)

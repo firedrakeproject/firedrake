@@ -1,3 +1,4 @@
+from functools import partial
 from itertools import chain
 
 import numpy
@@ -312,20 +313,18 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
-            mat_type = "matfree"
             prefix = self.options_prefix or ""
             opts = PETSc.Options(prefix)
 
-            mat_type = opts.getString("mg_transfer_mat_type", default=mat_type)
-            if opts.hasName("mg_transfer_manager"):
-                managername = opts["mg_transfer_manager"]
-            elif opts.hasName("fas_transfer_manager"):
-                managername = opts["fas_transfer_manager"]
-                mat_type = opts.getString("fas_transfer_mat_type", default=mat_type)
-            else:
-                managername = None
+            def get_first_option(opts, prefixes, default=""):
+                return next((s for s in map(partial(opts.getString, default=""), prefixes) if s), default)
+
+            manager_prefixes = ("mg_transfer_manager", "fas_transfer_manager")
+            managername = get_first_option(opts, manager_prefixes, default=None)
             if managername is None:
                 from firedrake import TransferManager
+                mat_type_prefixes = ("mg_transfer_mat_type", "fas_transfer_mat_type")
+                mat_type = get_first_option(opts, mat_type_prefixes, default="matfree")
                 transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)

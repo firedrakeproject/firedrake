@@ -147,17 +147,6 @@ def _make_kernel_args(kernel, element, *args):
     return kernel_args
 
 
-def _make_matrix_kernel_args(kernel, element, *args):
-    """Returns argument names for a rank-2 hierarchy interpolation kernel."""
-    mask = [True] * len(args)
-    mask[1] = kernel.oriented
-    mask[2] = kernel.needs_cell_sizes
-    mask[3] = kernel.needs_external_coords
-    is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
-    mask[-1] = not is_constant
-    return ", ".join(arg for arg, include in zip(args, mask) if include)
-
-
 def _make_element_key(element):
     """Returns a cache key for a finat element."""
     return entity_dofs_key(element.complex.get_topology()) + entity_dofs_key(element.entity_dofs())
@@ -285,8 +274,7 @@ def prolong_matrix_kernel(Vc, Vf):
     try:
         return cache[key]
     except KeyError:
-        trial = ufl.TrialFunction(Vc)
-        kernel = dual_evaluation_kernel(trial, ufl.TestFunction(Vf.dual()))
+        kernel = dual_evaluation_kernel(ufl.TrialFunction(Vc), ufl.TestFunction(Vf.dual()))
         evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
@@ -360,7 +348,7 @@ def prolong_matrix_kernel(Vc, Vf):
                "evaluate": evaluate_code,
                "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_matrix_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
                "ncandidate": ncandidate,
                "row_dim": row_dim,
                "source_cell_inc": source_cell_inc,

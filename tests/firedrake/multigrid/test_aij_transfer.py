@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.mg.interface import assemble_prolongation_aij
 import pytest
 import numpy
 
@@ -30,11 +31,14 @@ def test_prolong_aij_matches_matfree(rg, family, degree, variant, vector):
         Vc = FunctionSpace(mh[0], family, degree, variant=variant)
         Vf = FunctionSpace(mh[1], family, degree, variant=variant)
 
-    bcs = ()
-    cbcs = [DirichletBC(Vc, 0, (1, 3))]
-    fbcs = [DirichletBC(Vf, 0, (1, 3))]
+    if Vf.finat_element.is_dg():
+        cbcs = []
+        fbcs = []
+    else:
+        cbcs = [DirichletBC(Vc, 0, (1, 3))]
+        fbcs = [DirichletBC(Vf, 0, (1, 3))]
     bcs = cbcs + fbcs
-    P = assemble(interpolate(TrialFunction(Vc), Vf), bcs=bcs, mat_type="aij")
+    P = assemble_prolongation_aij(Vc, Vf, bcs=bcs)
 
     uc = rg.uniform(Vc)
     uf_aij = assemble(action(P, uc))
@@ -61,27 +65,26 @@ def test_prolong_aij_matches_matfree(rg, family, degree, variant, vector):
 
 def test_poisson_gmg_aij_transfer():
     base = UnitSquareMesh(4, 4)
-    mh = MeshHierarchy(base, 1)
+    mh = MeshHierarchy(base, 2)
     mesh = mh[-1]
 
     V = FunctionSpace(mesh, "CG", 2)
     x, y = SpatialCoordinate(mesh)
-    exact = sin(pi*x)*sin(pi*y)
-    f = 2*pi*pi*exact
+    exact = sin(pi*x)*sin(pi*y**2)
 
     u = Function(V)
     v = TestFunction(V)
     w = TrialFunction(V)
     a = inner(grad(w), grad(v)) * dx
-    L = inner(f, v) * dx
+    L = a(v, exact)
     bc = DirichletBC(V, 0, "on_boundary")
     params = {
         "snes_type": "ksponly",
         "ksp_type": "cg",
+        "ksp_max_it": 10,
         "ksp_rtol": 1.0e-10,
         "mat_type": "aij",
         "pc_type": "mg",
-        "pc_mg_type": "full",
         "mg_transfer_mat_type": "aij",
         "mg_levels_ksp_type": "chebyshev",
         "mg_levels_ksp_max_it": 2,
