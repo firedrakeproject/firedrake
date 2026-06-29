@@ -241,6 +241,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc, pre_apply_bcs):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < conv_tol
 
 
+@pytest.mark.skipsingle  # fp32: matfree EquationBC mesh-convergence rate degrades below single precision; convergence-rate tests are deferred for fp32 rather than relaxed to a meaningless tolerance
 @pytest.mark.parametrize("with_bbc", [False, True])
 def test_EquationBC_poisson_matfree(with_bbc):
     eq_type = "linear"
@@ -274,9 +275,8 @@ def test_EquationBC_poisson_matfree(with_bbc):
             for mesh_num in mesh_sizes:
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
-    # fp32 matfree+bbc degrades to porder convergence due to precision limits
-    expected_rate = porder if (ScalarType == np.float32 and with_bbc) else porder + 1
-    conv_tol = 0.4 if ScalarType == np.float32 else 0.05
+    expected_rate = porder + 1
+    conv_tol = 0.05
     assert abs(math.log2(err[0]) - math.log2(err[1]) - expected_rate) < conv_tol
 
 

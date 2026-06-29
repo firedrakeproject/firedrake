@@ -66,7 +66,6 @@ def test_homogeneous_field(V, mat_type, interface):
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
-@pytest.mark.skipsingle  # fp32: asserts exact Hypre-AMS CG iteration counts (9/6) at ksp_rtol 1e-8, which is below single-precision eps; the count is precision-specific and not reproducible in fp32
 def test_homogeneous_field_linear_convergence():
     N = 4
     mesh = UnitCubeMesh(2**N, 2**N, 2**N)
@@ -92,7 +91,8 @@ def test_homogeneous_field_linear_convergence():
         params = {'snes_type': 'ksponly',
                   'ksp_type': 'cg',
                   'ksp_max_it': '30',
-                  'ksp_rtol': '1e-8',
+                  # fp32: 1e-8 is below single-precision eps; relax to the achievable floor.
+                  'ksp_rtol': '1e-5' if single_mode else '1e-8',
                   'pc_type': 'python',
                   'pc_python_type': 'firedrake.HypreAMS',
                   'pc_hypre_ams_zero_beta_poisson': True,
@@ -102,4 +102,9 @@ def test_homogeneous_field_linear_convergence():
         A.assign(0)
         solver = LinearVariationalSolver(problem, solver_parameters=params)
         solver.solve()
-        assert solver.snes.ksp.getIterationNumber() == expected
+        if single_mode:
+            # fp32: the exact CG iteration count is precision-specific; require only
+            # convergence within ksp_max_it rather than the fp64 count.
+            assert solver.snes.ksp.getIterationNumber() < 30
+        else:
+            assert solver.snes.ksp.getIterationNumber() == expected
