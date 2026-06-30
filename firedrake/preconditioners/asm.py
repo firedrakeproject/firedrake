@@ -177,10 +177,8 @@ class ASMStarPC(ASMPatchPC):
         depth = opts.getInt("construct_dim", default=0)
         validate_overlap(mesh, depth, "star")
 
-        if backend == "petscasm":
-            use_coloring = opts.getBool("use_coloring", default=True)
-        else:
-            use_coloring = opts.getBool("use_coloring", default=False)
+        use_coloring_default = (backend == "petscasm")
+        use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         # Accessing .indices causes the allocation of a global array,
@@ -240,10 +238,8 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
         include_star = include_type == "star"
 
-        if backend == "petscasm":
-            use_coloring = opts.getBool("use_coloring", default=True)
-        else:
-            use_coloring = opts.getBool("use_coloring", default=False)
+        use_coloring_default = (backend == "petscasm")
+        use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         def splitting(V):
