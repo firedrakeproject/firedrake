@@ -50,6 +50,7 @@ class ASMPatchPC(PCBase):
 
         opts = PETSc.Options(self.prefix)
         backend = opts.getString("backend", default="petscasm").lower()
+        self._backend = backend
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
@@ -171,13 +172,10 @@ class ASMStarPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
-        backend = opts.getString("backend", default="petscasm").lower()
-        # Either use PETSc's ASM PC or use TinyASM (as simple ASM
-        # implementation designed to be fast for small block sizes).
         depth = opts.getInt("construct_dim", default=0)
         validate_overlap(mesh, depth, "star")
 
-        use_coloring_default = (backend == "petscasm")
+        use_coloring_default = (self._backend == "petscasm")
         use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
@@ -222,7 +220,6 @@ class ASMVankaPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
-        backend = opts.getString("backend", default="petscasm").lower()
         depth = opts.getInt("construct_dim", default=-1)
         height = opts.getInt("construct_codim", default=-1)
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
@@ -238,7 +235,7 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
         include_star = include_type == "star"
 
-        use_coloring_default = (backend == "petscasm")
+        use_coloring_default = (self._backend == "petscasm")
         use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
