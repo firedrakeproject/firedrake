@@ -150,9 +150,11 @@ class ASMStarPC(ASMPatchPC):
     consists of all DoFs on the topological star of the mesh entity
     specified by `pc_star_construct_dim`.
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    Non-overlapping patches are grouped together via a
+    coloring of the mesh entities. 
+    This is the default behavior for ``backend=="petscasm"``.
+    The default may be overridden explicitly by setting
+    `pc_star_use_coloring` to `True` or `False`.
 
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
@@ -198,9 +200,11 @@ class ASMVankaPC(ASMPatchPC):
     consists of all DoFs on the closure of the star of the mesh entity
     specified by `pc_vanka_construct_dim` (or codim).
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_vanka_use_coloring`.
+    Non-overlapping patches are grouped together via a
+    coloring of the mesh entities. 
+    This is the default behavior for ``backend=="petscasm"``.
+    The default may be overridden explicitly by setting
+    `pc_vanka_use_coloring` to `True` or `False`.
 
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
