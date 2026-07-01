@@ -1476,7 +1476,8 @@ class AbstractMeshTopology(abc.ABC):
             return self._reorder_closure_fiat_quad(plex_closures)
 
         else:
-            assert self.ufl_cell() == ufl.hexahedron
+            # assert self.ufl_cell() == ufl.hexahedron
+            assert self.ufl_cell().cellname.split("_")[-1] == "hexahedron"
             return self._reorder_closure_fiat_hex(plex_closures)
 
     @cached_property

@@ -82,7 +82,7 @@ def check_element(element, top=True):
        type(element) is not finat.ufl.MixedElement:
         raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "Real"]:
+       element.family() not in ["Q", "DQ", "Real", "IT"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):

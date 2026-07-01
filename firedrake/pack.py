@@ -809,8 +809,8 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 reversed_mats += [mat_list[i]]
             t_dim = space._mesh.cell_dimension()
             # t_dim = space.ufl_element().cell._tdim
-            if space._mesh.cell_dimension() != space.ufl_element().cell._tdim:
-                raise NotImplementedError("FUSE: cell dimension of mesh doesn't match topological dimension of element cell")
+            # if space._mesh.cell_dimension() != space.ufl_element().cell._tdim:
+            #     raise NotImplementedError("FUSE: cell dimension of mesh doesn't match topological dimension of element cell")
             os = mats[-1][t_dim][0]
             ns += (os[next(iter(os.keys()))].shape[0],)
         strns = "".join([str(n) for n in ns])
