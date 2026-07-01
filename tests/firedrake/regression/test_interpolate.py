@@ -179,6 +179,23 @@ def test_compound_expression():
     assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
+def test_restricted_extruded_interval():
+    mesh = ExtrudedMesh(UnitIntervalMesh(1), 1)
+    element = FiniteElement("Q", degree=4)
+    VF = FunctionSpace(mesh, element["facet"])
+    VI = FunctionSpace(mesh, element["interior"])
+    uf = Function(VF)
+    ui = Function(VI)
+
+    x = SpatialCoordinate(mesh)
+    exprs = [Constant(1), x[0], x[1], x[0]*x[1]]
+
+    for expr in exprs:
+        uf.interpolate(expr)
+        ui.interpolate(expr)
+        assert norm(expr - (uf + ui)) < 1E-12
+
+
 def test_hdiv_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -213,8 +230,6 @@ def test_dpc_into_dq_extruded_interval():
     assert errornorm(u2, u1) < 1E-12
 
 
-# Requires the relevant FInAT or FIAT duals to be defined
-@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hdiv_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)
@@ -234,7 +249,6 @@ def test_hdiv_2d():
     assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hcurl_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)

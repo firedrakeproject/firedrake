@@ -2,6 +2,7 @@ import collections
 import time
 import sys
 from itertools import chain
+import numpy
 from finat.physically_mapped import NeedsCoordinateMappingElement
 
 import ufl
@@ -13,6 +14,7 @@ from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
+from gem.unconcatenate import unconcatenate
 
 import finat
 from finat.element_factory import as_fiat_cell
@@ -367,12 +369,14 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # Build kernel body
     return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
     return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape or (1,))
-    return_expr = gem.Indexed(return_var, return_indices or (0,))
+    return_var = gem.Variable('A', (numpy.prod(return_shape, dtype=int),))
+    return_expr = gem.Indexed(gem.reshape(return_var, return_shape), return_indices)
+    return_expr, = gem.optimise.remove_componenttensors([return_expr])
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
+    pairs = unconcatenate([(return_expr, evaluation)])
     impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices,
                                         emit_return_accumulate=False)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
