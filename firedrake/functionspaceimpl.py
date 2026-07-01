@@ -406,7 +406,13 @@ class WithGeometryBase:
         ufl_element = self.ufl_element()
         if not self.finat_element.has_pointwise_dual_basis:
             # Grab the point set for interpolation
-            _, ps = self.finat_element.dual_basis
+            _, point_sets = self.finat_element.dual_basis
+            zero = (0,) * self.finat_element.cell.get_spatial_dimension()
+            if point_sets.keys() != {zero}:
+                raise NotImplementedError(
+                    "Quadrature spaces cannot represent derivative evaluation data"
+                )
+            ps = point_sets[zero]
             # Invalidate the weights. This quadrature scheme is not for integration.
             weights = numpy.full(len(ps.points), numpy.nan)
             quad_scheme = QuadratureRule(ps, weights, self.finat_element.cell)

@@ -33,8 +33,9 @@ def firedrake_local_to_cart(element):
     :returns: a list of arrays of floats where each array is a node.
     """
     finat_element = create_base_element(element)
-    _, point_set = finat_element.dual_basis
-    return point_set.points
+    _, point_sets = finat_element.dual_basis
+    zero = (0,) * finat_element.cell.get_spatial_dimension()
+    return point_sets[zero].points
 
 
 def invert(list1, list2):
