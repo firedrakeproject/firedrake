@@ -1525,14 +1525,7 @@ class CheckpointFile:
 
     def _get_dm_for_checkpointing(self, tV):
         sd_key = self._get_shared_data_key_for_checkpointing(tV.mesh(), tV.ufl_element())
-        if isinstance(tV.ufl_element(), (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            global_numbering = tV.local_section
-            topology_dm = tV.mesh().topology_dm
-            dm = PETSc.DMShell().create(tV.mesh().comm)
-            dm.setPointSF(topology_dm.getPointSF())
-            dm.setSection(global_numbering)
-        else:
-            dm = tV.dm
+        dm = tV.dm
         dm.setName(self._generate_dm_name(*sd_key))
         return dm
 

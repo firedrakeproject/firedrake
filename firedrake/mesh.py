@@ -2835,12 +2835,74 @@ class ExtrudedMeshTopology(MeshTopology):
         The star forest is used by function spaces to load their data.
 
         """
-        # This attribute has to be computed after initialisation (we cannot
+        # This attribute has to be computed after initialisation (i.e. we cannot
         # use 'dm.topologyLoad()') because the star forest that we get from
-        # 'topologyLoad' does not account for overlap and extruded meshes
+        # 'topologyLoad' does not account for overlap, and extruded meshes
         # currently assume that the base mesh already has the requisite
         # overlap set up.
-        raise NotImplementedError("TODO NEXT, grow this sf from the base mesh")
+        # In the future these code paths should be unified. We could even
+        # use the multigrid code to drop the overlap before transforming.
+
+        if self.periodic:
+            raise NotImplementedError
+
+        base_nroots, base_ilocal, base_iremote = self._base_mesh.sfXC.getGraph()
+
+        breakpoint()
+
+        column_size = 2*(self.layers-1) + 1
+        nroots = base_nroots * column_size
+        base_dim_label = self.topology_dm.getLabel("base_dim")
+        base_pt_label = self.topology_dm.getLabel("base_point")
+        ilocal = np.empty((base_ilocal.size, column_size), dtype=IntType)
+        for base_pt in range(*self._base_mesh.topology_dm.getChart()):
+            ilocal[base_pt] = base_pt_label.getStratumIS(base_pt).indices
+
+        # send #cols number of values
+        (dtype, _) = op3.dtypes.get_mpi_dtype(IntType, column_size)
+        out = np.empty_like(ilocal)
+        self._base_mesh.sfXC.bcastBegin(dtype, ilocal, out, MPI.REPLACE)
+        self._base_mesh.sfXC.bcastEnd(dtype, ilocal, out, MPI.REPLACE)
+
+        iremote = np.full((*out.shape, 2), -1, dtype=IntType)
+        for i in range(base_iremote.shape[0]):
+            iremote[i, :, 0] = base_iremote[i, 0]
+        iremote[:, :, 1] = out
+
+        ilocal = ilocal.flatten()
+        iremote = iremote.reshape((ilocal.size, 2))
+        # sort_idxs = np.argsort(ilocal)
+        # ilocal = ilocal[sort_idxs]
+        # iremote = iremote[sort_idxs]
+
+        breakpoint()
+        sf = PETSc.SF().create(comm=self._base_mesh.sfXC.comm)
+        # sf.setGraph(nroots, ilocal, iremote)
+        sf.setGraph(nroots, ilocal, iremote)
+        return sf
+
+
+        iremote = np.empty((ilocal.size, 2), dtype=IntType)
+        # TODO: use clever numpy to make this fast
+        for bp in range(*self._base_mesh.topology_dm.getChart()):
+            for ic in range(column_size):
+                p = bp*column_size + ic
+                ilocal[p] = base_ilocal[bp]*column_size + ic
+                iremote[p, 0] = base_iremote[bp, 0]
+                iremote[p, 1] = base_iremote[bp, 1]*column_size + ic
+        sf.setGraph(nroots, ilocal, iremote)
+        self._base_mesh.sfXC.view()
+        sf.view()
+        breakpoint()
+        return sf
+        # sec = PETSc.Section().create(comm=MPI.COMM_SELF)
+        # sec.setChart(p_start, p_end)
+        # for p in range(p_start, p_end):
+        #     sec.setDof(p, column_size)
+        # sec.setUp()
+        # retval = op3.sf.create_petsc_section_sf(self._base_mesh.sfXC, sec)
+        # breakpoint()
+        # return retval
 
 
     @cached_property
