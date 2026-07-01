@@ -32,6 +32,9 @@ class ASMPatchPC(PCBase):
         _, P = pc.getOperators()
         dm = pc.getDM()
         self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
+        opts = PETSc.Options(self.prefix)
+        backend = opts.getString("backend", default="petscasm").lower()
+        self._backend = backend        
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
@@ -48,9 +51,6 @@ class ASMPatchPC(PCBase):
         asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
 
-        opts = PETSc.Options(self.prefix)
-        backend = opts.getString("backend", default="petscasm").lower()
-        self._backend = backend
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
