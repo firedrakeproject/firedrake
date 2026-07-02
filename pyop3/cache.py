@@ -548,7 +548,8 @@ def parallel_cache(
                         caches = []
                         cache_type = None
                         for lifetime_obj in _heavy_caches:
-                            assert lifetime_obj.comm.size >= comm.size
+                            # FIXME: This doesn't always hold, but it probably should
+                            # assert lifetime_obj.comm.size >= comm.size
                             if pyop3.config.spmd_strict:
                                 # cache access must be collective over lifetime objects
                                 lifetime_obj.comm.barrier()

@@ -709,9 +709,6 @@ class CompositeDat(Terminal):
 
     def __post_init__(self):
         pass
-        # expected = "(dat_222_buffer[array_404[dat_307_buffer[((support_5_buffer[(array_1077[dat_625_buffer[i_{_label_Slice_540_owned}]] + i_{support})] * 4) + i_{closure})]]] + (array_260[(orientations_1_buffer[((support_5_buffer[(array_1077[dat_625_buffer[i_{_label_Slice_540_owned}]] + i_{support})] * 15) + i_{closure})] + i_{dof0})] * 3))"
-        # if expected in str(list(self.exprs.values())[0]):
-        #     breakpoint()
 
     # }}}
 

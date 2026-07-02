@@ -15,6 +15,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.config
+import pyop3.device
 import pyop3.obj
 import pyop3.record
 import pyop3.sf
@@ -193,13 +194,10 @@ class NullBuffer(AbstractArrayBuffer):
     # {{{ interface impls
 
     shape: ClassVar[property] = pyop3.record.attr("_shape")
-    # name: ClassVar[property] = pyop3.record.attr("_name")
+    name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
-
-    def name(self) -> str:
-        assert False, "not using buffer.name any more"
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
         if constant is None:
@@ -648,6 +646,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         is_available = device in self._lazy_data
         is_synced = self._state[device] == max(self._state.values())
         return is_available and is_synced
+
+    @property
+    def _host_data(self) -> np.ndarray:
+        return self._lazy_data[pyop3.device.HOST_DEVICE]
 
     # {{{ PETSc interop
 

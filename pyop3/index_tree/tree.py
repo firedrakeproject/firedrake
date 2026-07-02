@@ -893,25 +893,25 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
     def leaf_target_paths(self) -> tuple:
         return collect_leaf_target_paths(self.axes)
 
-    @cached_property
-    def expanded(self):
-        """Return a `tuple` of maps specialised to possible inputs and outputs.
-
-        This is necessary because the input index may match with multiple possible
-        map inputs, and the map may have multiple possible outputs for each input.
-
-        For example, closure(cell) matches inputs of points and cells, and has output
-        cells, edges, and vertices, and separately points.
-
-        """
-        restricted_maps = []
-        for index in self.call_index.expanded:
-            for input_path in index.leaf_target_paths:
-                for output_spec in self.connectivity[input_path]:
-                    restricted_connectivity = {input_path: (output_spec,)}
-                    restricted_map = Map(restricted_connectivity, self.name)(index)
-                    restricted_maps.append(restricted_map)
-        return tuple(restricted_maps)
+    # @cached_property
+    # def expanded(self):
+    #     """Return a `tuple` of maps specialised to possible inputs and outputs.
+    #
+    #     This is necessary because the input index may match with multiple possible
+    #     map inputs, and the map may have multiple possible outputs for each input.
+    #
+    #     For example, closure(cell) matches inputs of points and cells, and has output
+    #     cells, edges, and vertices, and separately points.
+    #
+    #     """
+    #     restricted_maps = []
+    #     for index in self.call_index.expanded:
+    #         for input_path in index.leaf_target_paths:
+    #             for output_spec in self.connectivity[input_path]:
+    #                 restricted_connectivity = {input_path: (output_spec,)}
+    #                 restricted_map = Map(restricted_connectivity, self.name)(index)
+    #                 restricted_maps.append(restricted_map)
+    #     return tuple(restricted_maps)
 
     @property
     def _connectivity_dict(self):
