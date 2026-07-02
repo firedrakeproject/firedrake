@@ -189,7 +189,8 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 marking_callback=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -276,6 +277,7 @@ class _SNESContext(object):
         self._near_nullspace = None
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
+        self._marking_callback = marking_callback
 
     def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
         """Reconstruct this _SNESContext instance with new arguments."""
@@ -290,6 +292,7 @@ class _SNESContext(object):
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
+            "marking_callback": self._marking_callback,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:

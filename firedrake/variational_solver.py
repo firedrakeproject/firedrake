@@ -194,7 +194,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_jacobian_callback=None,
                  pre_function_callback=None,
                  post_function_callback=None,
-                 pre_apply_bcs=True):
+                 pre_apply_bcs=True,
+                 marking_callback=None):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -223,9 +224,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
-        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+        :kwarg pre_apply_bcs: If True, the bcs are applied before the solve.
                Otherwise, the problem is linearised around the initial guess
                before imposing bcs, and the bcs are appended to the nonlinear system.
+        :kwarg marking_callback: An optional callable of the form
+               ``callback(solver, u)`` for PETSc-driven adaptive refinement.
+               The callback receives this solver and the current Firedrake
+               solution, and must return a DG0 :class:`.Function` or
+               :class:`.Cofunction` with positive values on cells to refine.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -293,6 +299,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
+                                         marking_callback=marking_callback,
                                          options_prefix=self.options_prefix,
                                          pre_apply_bcs=pre_apply_bcs)
 
@@ -328,6 +335,23 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._transfer_operators = ()
         self._setup = False
 
+    def set_marking_callback(self, callback):
+        r"""Set the callback used by PETSc-driven adaptive refinement.
+
+        The callback is called as ``callback(solver, u)`` when PETSc asks the
+        solution DM to refine. It must return a DG0 :class:`.Function` or
+        :class:`.Cofunction` on the current solution mesh, with positive values
+        on cells to refine.
+        """
+        if not callable(callback):
+            raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
+        self.parameters.setdefault("adaptor_criterion", "refine")
+        self._ctx._marking_callback = callback
+
+    def get_adapted_solution(self):
+        r"""Return the current solution, including after PETSc adapts the DM."""
+        return self._ctx._problem.u
+
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
         Typically a :class:`~.TransferManager` object.
@@ -357,7 +381,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_jacobian(self.snes)
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
-        problem = self._problem
+        problem = self._ctx._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
@@ -396,14 +420,19 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-            work.copy(u)
+                # The appctx might have been refined
+                self._ctx = dmhooks.get_appctx(self.snes.getDM())
+        problem = self._ctx._problem
+        solution = self.snes.getSolution()
+        with problem.u_restrict.dat.vec as u:
+            solution.copy(u)
         self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u_restrict.function_space().mesh().comm
+        comm = problem.u_restrict.function_space().mesh().comm
         PETSc.garbage_cleanup(comm)
 
 
