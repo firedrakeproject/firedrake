@@ -1914,36 +1914,11 @@ class MeshTopology(AbstractMeshTopology):
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
 
     @cached_property
-    def entity_orientations_dat_fuse(self):
-        # Needed in this order for FUSE orientations
-        return self.entity_orientations_dat
-        cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
-        entity_orientations_original = dmcommon.entity_orientations(self, self._fiat_cell_closures)
-        entity_orientations = [[] for i in range(len(cell_numbering))]
-        for row,i in zip(entity_orientations_original, cell_numbering):
-            entity_orientations[i] = row
-        entity_orientations = np.array(entity_orientations)
-
-        # FIXME: the following does not work because the labels change
-        cell_axis = self.cells.root
-        # # so instead we do
-        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
-
-        # TODO: This is quite a funky way of getting this. We should be able to get
-        # it without calling the map.
-        closure_axis = self.closure(self.cells.iter()).axes.root
-        axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
-        assert axis_tree.local_size == entity_orientations.size
-        return op3.Dat(axis_tree, data=entity_orientations.flatten(), prefix="orientations")
-
-    @cached_property
     def entity_orientations_dat(self):
         # FIXME: the following does not work because the labels change
         cell_axis = self.cells.root
         # # so instead we do
         # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
-        # if self._use_fuse:
-        #     return self.entity_orientations_dat_fuse
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.

@@ -174,7 +174,7 @@ def transform_packed_cell_closure_dat(
         warnings.warn("Int Type dats cannot be transformed using fuse transforms, using old rules")
         packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
     elif transform_in_kernel and transform_out_kernel:
-        orientations = space.mesh().entity_orientations_dat_fuse
+        orientations = space.mesh().entity_orientations_dat
 
         mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([packed_dat.size, packed_dat.size]), dtype=utils.ScalarType, prefix="trans")
 
@@ -242,8 +242,8 @@ def transform_packed_cell_closure_mat(
             column_depth=column_depth,
         )
     elif transform_in_kernel and transform_out_kernel:
-        orientations = row_space.mesh().entity_orientations_dat_fuse
-        orientations_c = column_space.mesh().entity_orientations_dat_fuse
+        orientations = row_space.mesh().entity_orientations_dat
+        orientations_c = column_space.mesh().entity_orientations_dat
 
         mat_work_array_row = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.nrows, packed_mat.nrows]), dtype=utils.ScalarType, prefix="trans")
         mat_work_array_col = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.ncols, packed_mat.ncols]), dtype=utils.ScalarType, prefix="trans")
@@ -585,6 +585,10 @@ def construct_switch_statement(space, mats: dict, n: int, idx: int, args: list, 
         indent += 1
         string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
         string += [indent*"\t" + "switch (i) { \n"]
+        if isinstance(dim, tuple):
+            dim_str = "_".join([str(d) for d in dim])
+        else:
+            dim_str = str(dim)
         indent += 1
         for i in range(closure_sizes[dim]):
             string += indent*"\t" + f"case {i}:\n "
@@ -594,7 +598,7 @@ def construct_switch_statement(space, mats: dict, n: int, idx: int, args: list, 
             for val in sorted(mats[dim][i].keys()):
                 string += indent*"\t" + f"case {val}:\n "
                 indent += 1
-                matname = f"mat{dim}_{i}_{val}"
+                matname = f"mat{dim_str}_{i}_{val}"
                 #if dim > 1:
                 #    string += indent*"\t" + f"printf(\"{matname}\\n\"); \n"
                 string += indent*"\t" + f"a{idx} = {matname};\n"
