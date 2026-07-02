@@ -1916,6 +1916,7 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def entity_orientations_dat_fuse(self):
         # Needed in this order for FUSE orientations
+        return self.entity_orientations_dat
         cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
         entity_orientations_original = dmcommon.entity_orientations(self, self._fiat_cell_closures)
         entity_orientations = [[] for i in range(len(cell_numbering))]
@@ -1941,8 +1942,8 @@ class MeshTopology(AbstractMeshTopology):
         cell_axis = self.cells.root
         # # so instead we do
         # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
-        if self._use_fuse:
-            return self.entity_orientations_dat_fuse
+        # if self._use_fuse:
+        #     return self.entity_orientations_dat_fuse
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
