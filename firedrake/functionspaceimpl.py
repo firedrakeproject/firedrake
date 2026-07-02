@@ -482,6 +482,8 @@ class WithGeometryBase:
     def make_function_space(cls, mesh, element, name=None, _labels=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         topology = mesh.topology
+        if hasattr(element, 'triple') and not mesh._use_fuse:
+            raise NotImplementedError("FUSE defined element not on fuse enabled mesh.")
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             if isinstance(mesh, MeshGeometry):
