@@ -4566,11 +4566,8 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETS
 def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     cdef:
         PETSc.IS filtered_is
-
-    # cast null ISes to empty ones
-    if not is_:
-        return PETSc.IS().createGeneral(np.empty(0, dtype=IntType))
-
+    assert is_, "uninitialised ISes are not allowed as they cause deadlocks"
+    is_ = is_.toGeneral()
     filtered_is = is_.duplicate()
     PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
     return filtered_is

@@ -2803,8 +2803,9 @@ class ExtrudedMeshTopology(MeshTopology):
         base_dim_label = self.topology_dm.getLabel("base_dim")
         for base_dim in range(self._base_mesh.dimension+1):
             # Get all points that were originally a vertex, say
-            matching_base_dim_extruded_points = base_dim_label.getStratumIS(base_dim)
-            matching_base_dim_extruded_points.toGeneral()
+            matching_base_dim_extruded_points = utils.safe_is(
+                base_dim_label.getStratumIS(base_dim)
+            )
 
             for extr_dim in range(2):
                 # Filter out the extruded dimension that we don't want
@@ -2982,7 +2983,9 @@ class ExtrudedMeshTopology(MeshTopology):
         #     x--H--x--H--x
         #
         # The horizontal facets are those generated from base cells.
-        base_cell_plex_indices = self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension)
+        base_cell_plex_indices = utils.safe_is(
+            self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension)
+        )
 
         # Drop non-facet indices (i.e. the extruded cells)
         return dmcommon.filter_is(
@@ -3009,7 +3012,9 @@ class ExtrudedMeshTopology(MeshTopology):
         #     x-----x-----x
         #
         # The vertical facets are those generated from base facets.
-        base_facet_plex_indices = self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension-1)
+        base_facet_plex_indices = utils.safe_is(
+            self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension-1)
+        )
 
         # Drop non-facet indices (i.e. the extruded vertices)
         return dmcommon.filter_is(
