@@ -320,7 +320,7 @@ def is_real_tensor_product_element(element):
     assert not isinstance(element, finat.TensorFiniteElement)
 
     if isinstance(element, finat.TensorProductElement):
-        _, factor = element.factors
+        factor = element.factors[-1]
         return isinstance(factor, finat.Real)
     else:
         return False
