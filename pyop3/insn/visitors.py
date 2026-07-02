@@ -512,6 +512,8 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
     # This optimisation is collective but since the array size is part of the
     # heuristic one can get differing optimisation choices on different ranks. We
     # therefore perform all the heuristics on rank 0 and broadcast the selections.
+    # TODO: if compress is False I imagine that we don't have to do a bcast here since the
+    # result should be the same.
     if insn.comm.rank == 0:
         expr_candidates = collect_candidate_indirections(insn, compress=compress)
 

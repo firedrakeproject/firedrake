@@ -584,25 +584,25 @@ class AbstractMeshTopology(abc.ABC):
     @cached_property
     def exterior_facet_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "exterior")
-        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets.owned.as_axis(), 1])
+        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets.as_axis(), 1])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
     def interior_facet_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "interior")
-        axis_tree = op3.AxisTree.from_iterable([self.interior_facets.owned.as_axis(), 2])
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets.as_axis(), 2])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
     def exterior_facet_vert_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "exterior_vert")
-        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets_vert.owned.as_axis(), 1])
+        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets_vert.as_axis(), 1])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
     def interior_facet_vert_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "interior_vert")
-        axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.owned.as_axis(), 2])
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.as_axis(), 2])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
@@ -617,11 +617,11 @@ class AbstractMeshTopology(abc.ABC):
     # TODO: Make a standalone function
     def _local_facet_numbers_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
         if facet_type == "exterior":
-            facet_axes = self.exterior_facets.owned
+            facet_axes = self.exterior_facets
             arity = 1
         else:
             assert facet_type == "interior"
-            facet_axes = self.interior_facets.owned
+            facet_axes = self.interior_facets
             arity = 2
 
         local_facet_numbers = dmcommon.local_facet_number(self, facet_type)
@@ -693,7 +693,6 @@ class AbstractMeshTopology(abc.ABC):
         #  form = FacetNormal(meshA)[0] * ds(meshB, interface)
         #
         # Reshape local_facets as (-1, self._rank) to uniformly handle exterior and interior facets.
-        print("hmm, owned???")
         local_facets = local_facet_numbers_dat.data_ro_with_halos.reshape((-1, arity))
         # Make slice for masking out rows for which orientations are not needed.
         slice_ = (facet_to_cell_map != -1).all(axis=1)
@@ -1163,8 +1162,7 @@ class AbstractMeshTopology(abc.ABC):
             # FIXME: If we do this then we have issues later on (e.g. testing dg_advection
             # in parallel). I think this is because we are hitting the only_owned=False case
             # and then trying to materialise a ragged composite dat.
-            # for only_owned in [True, False]:
-            for only_owned in [True]:
+            for only_owned in [True, False]:
                 if facet_type == "exterior":
                     facets_axes = self.exterior_facets
                 else:
@@ -1217,7 +1215,13 @@ class AbstractMeshTopology(abc.ABC):
                 arity = 2
             else:
                 # ragged
-                arity = None
+                # arity = None
+
+                # IMPORTANT: We have to set the arity to 2 here unconditionally because
+                # otherwise we pack into ragged-ly shaped things which break certain
+                # bits of the code. For instance, materialising indirection maps
+                # for MatSetValues gets hard.
+                arity = 2
 
         if only_owned:
             facet_axes = facet_axes.owned

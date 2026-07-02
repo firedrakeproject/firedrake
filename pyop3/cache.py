@@ -542,8 +542,12 @@ def parallel_cache(
                     comm_caches = get_comm_caches(comm)
                     if heavy:
                         if cache_id not in comm_caches:
-                            # comm_caches[cache_id] = weakref.WeakKeyDictionary()
-                            comm_caches[cache_id] = {}
+                            # This must be a weak key dictionary to ensure that it does
+                            # not explode
+                            # The keys of this dictionary are the lifetime objects
+                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+                            # but this fixes a parallel bug...
+                            # comm_caches[cache_id] = {}
 
                         caches = []
                         cache_type = None

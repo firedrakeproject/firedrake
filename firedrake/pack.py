@@ -77,11 +77,13 @@ def _pack_dat_nonmixed(
     packed_dat = dat[map_]
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
-    if isinstance(packed_dat.axes, op3.AxisForest):  # bit of a hack
-        axes = packed_dat.axes.trees[0]
+    if isinstance(packed_dat.axes, op3.AxisForest):
+        depth = utils.single_valued(
+            [axis.label for axis in axes.axes].index("closure")
+            for axes in packed_dat.axes.trees
+        )
     else:
-        axes = packed_dat.axes
-    depth = [axis.label for axis in axes.axes].index("closure")
+        depth = [axis.label for axis in packed_dat.axes.axes].index("closure")
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
@@ -97,16 +99,6 @@ def _(
         row_space = row_space.function_space
     if isinstance(column_space.topological, RestrictedFunctionSpace):
         column_space = column_space.function_space
-
-    # if mat.buffer.mat_type == "python":
-    #     mat_context = mat.buffer.mat.getPythonContext()
-    #     if isinstance(mat_context, op3.RowVecPythonMatContext):
-    #         space = row_space
-    #     else:
-    #         assert isinstance(mat_context, op3.ColumnVecPythonMatContext)
-    #         space = column_space
-    #     dat = mat_context.dat
-    #     return pack(dat, space, loop_info, nodes=nodes)
 
     packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
@@ -133,9 +125,13 @@ def _pack_mat_nonmixed(
 
     depths = []
     for axes in [packed_mat.row_axes, packed_mat.column_axes]:
-        if isinstance(axes, op3.AxisForest):  # bit of a hack
-            axes = axes.trees[0]
-        depth = [axis.label for axis in axes.axes].index("closure")
+        if isinstance(axes, op3.AxisForest):
+            depth = utils.single_valued(
+                [axis.label for axis in tree.axes].index("closure")
+                for tree in axes.trees
+            )
+        else:
+            depth = [axis.label for axis in axes.axes].index("closure")
         depths.append(depth)
     row_depth, column_depth = depths
 
@@ -313,7 +309,15 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # discard nodal information
+    # If we have an axis forest then we have different interpretations of the data.
+    # We only want the most natural one here and want to drop the others. This is
+    # complicated by the fact that we can have maps from both all points and only
+    # owned points. We can also get maps from the nodal axes that we probably want
+    # to discard.
+    # For the moment we restrict ourself to selecting the first available choice.
+    # This seems to work for most things.
+    # TODO: this is fairly gross and should be rethought - perhaps we need to
+    # propagate axis forest information further in.
     if isinstance(axes, op3.AxisForest):
         axes = axes.trees[0]
 

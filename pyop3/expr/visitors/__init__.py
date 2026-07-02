@@ -587,7 +587,9 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         costs = []
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
-            cost = loopified_shape(layout)[0].local_max_size
+            cost = loopified_shape(layout)[0].local_size
+            if not isinstance(cost, numbers.Integral):
+                raise NotImplementedError("Ragged sizes are not supported")
             costs.append(cost)
 
         candidates = {}
@@ -694,10 +696,12 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
                     op_loop_axes = get_loop_axes(op)
                     compressed_expr = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
 
-                    op_cost = op_axes.local_max_size
+                    op_cost = op_axes.local_size
                     for loop_axes in op_loop_axes.values():
                         for loop_axis in loop_axes:
-                            op_cost *= loop_axis.component.local_max_size
+                            op_cost *= loop_axis.component.local_size
+                    if not isinstance(op_cost, numbers.Integral):
+                        raise NotImplementedError("Ragged sizes are not supported")
                     candidates.append((compressed_expr, op_cost, (index,)))
 
             return tuple(candidates)
@@ -713,10 +717,12 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
         # dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
         dat_axes = utils.just_one(get_shape(expr.layout))
         dat_loop_axes = get_loop_axes(expr.layout)
-        dat_cost = dat_axes.local_max_size
+        dat_cost = dat_axes.local_size
         for loop_axes in dat_loop_axes.values():
             for loop_axis in loop_axes:
-                dat_cost *= loop_axis.component.local_max_size
+                dat_cost *= loop_axis.component.local_size
+        if not isinstance(dat_cost, numbers.Integral):
+            raise NotImplementedError("Ragged sizes are not supported")
 
         child = self._call(expr.layout, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress,selector=selector)
 

@@ -194,22 +194,15 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     @property
     def local_max(self) -> numbers.Number:
-        # the other option can lead to deadlocks if not called collectively,
-        # maybe the best approach is to implement "on_comm" or similar to this
-        # can be run locally - can restrict to readonly
-        return self.buffer._host_data.max()
-        # from pyop3.expr.visitors import get_extremum
-        #
-        # return get_extremum(self, "max")
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "max")
 
     @property
     def local_min(self) -> numbers.Number:
-        # see local_max, this is not optimal
-        return self.buffer._host_data.min()
-        # from pyop3.expr.visitors import get_extremum
-        #
-        # return get_extremum(self, "min")
+        from pyop3.expr.visitors import get_extremum
 
+        return get_extremum(self, "min")
 
     @property
     def _full_str(self) -> str:
