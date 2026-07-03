@@ -163,6 +163,9 @@ class _SNESContext(object):
         User-defined function called immediately before residual assembly.
     post_function_callback
         User-defined function called immediately after residual assembly.
+    marking_callback
+        User-defined function called after the nonlinear solve returning a DG0
+        Function with cells marked for adaptive refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -187,6 +190,7 @@ class _SNESContext(object):
                  appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
+                 marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
@@ -211,6 +215,7 @@ class _SNESContext(object):
         self._pre_function_callback = pre_function_callback
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
+        self._marking_callback = marking_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -290,6 +295,7 @@ class _SNESContext(object):
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
+            "marking_callback": self._marking_callback,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:

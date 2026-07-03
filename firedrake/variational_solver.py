@@ -299,6 +299,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
+                                         marking_callback=marking_callback,
                                          options_prefix=self.options_prefix,
                                          pre_apply_bcs=pre_apply_bcs)
 
@@ -348,9 +349,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
-        self._marking_callback = callback
         self.parameters.setdefault("adaptor_criterion", "refine")
-        self._ctx._adapt_marking_callback = callback
+        self._ctx._marking_callback = callback
 
     def get_adapted_solution(self):
         r"""Return the current solution, including after PETSc adapts the DM."""
@@ -381,7 +381,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
            ``vinewtonssls`` or ``vinewtonrsls``.
         """
         # Make sure the DM has this solver's callback functions
-        self._ctx._adapt_marking_callback = self._marking_callback
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 

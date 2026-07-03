@@ -404,45 +404,38 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
 
-    mat_type = context.mat_type
-    pmat_type = context.pmat_type
-    sub_mat_type = context.sub_mat_type
-    sub_pmat_type = context.sub_pmat_type
-    options_prefix = context.options_prefix
+    # Get options prefix for current level
+    parent_context = context
+    while getattr(parent_context, old_attr, None):
+        parent_context = getattr(parent_context, old_attr, None)
 
-    if self == coarsen:
-        # Get options prefix for current level
-        parent_context = context
-        while parent_context._fine:
-            parent_context = parent_context._fine
-        parent_prefix = parent_context.options_prefix
-        opts = PETSc.Options(parent_prefix)
-        if opts.getString("snes_type", "") == "fas":
-            solver_prefix = "fas_"
-        else:
-            solver_prefix = "mg_"
-        _, level = utils.get_level(problem.u_restrict.function_space().mesh())
-        if level == 0:
-            levels_prefix = f"{solver_prefix}coarse_"
-        else:
-            levels_prefix = f"{solver_prefix}levels_"
-        current_level_prefix = f"{solver_prefix}levels_{level}_"
-        options_prefix = f"{parent_prefix}{current_level_prefix}"
+    parent_prefix = parent_context.options_prefix
+    opts = PETSc.Options(parent_prefix)
+    if opts.getString("snes_type", "") == "fas":
+        solver_prefix = "fas_"
+    else:
+        solver_prefix = "mg_"
+    _, level = utils.get_level(problem.u_restrict.function_space().mesh())
+    if level == 0:
+        levels_prefix = f"{solver_prefix}coarse_"
+    else:
+        levels_prefix = f"{solver_prefix}levels_"
+    current_level_prefix = f"{solver_prefix}levels_{level}_"
+    options_prefix = f"{parent_prefix}{current_level_prefix}"
 
-        # Use different mat_type on each level
-        mat_type = None
-        pmat_type = None
-        sub_mat_type = None
-        sub_pmat_type = None
-        for prefix in (levels_prefix, current_level_prefix):
-            mat_type = opts.getString(f"{prefix}mat_type", "") or mat_type
-            pmat_type = opts.getString(f"{prefix}pmat_type", "") or pmat_type
-            sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or sub_mat_type
-            sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or sub_pmat_type
+    # Use different mat_type on each level
+    mat_type = None
+    pmat_type = None
+    sub_mat_type = None
+    sub_pmat_type = None
+    for prefix in (levels_prefix, current_level_prefix):
+        mat_type = opts.getString(f"{prefix}mat_type", "") or mat_type
+        pmat_type = opts.getString(f"{prefix}pmat_type", "") or pmat_type
+        sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or sub_mat_type
+        sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or sub_pmat_type
 
-        pmat_type = pmat_type or mat_type
-        sub_pmat_type = sub_pmat_type or sub_mat_type
-
+    pmat_type = pmat_type or mat_type
+    sub_pmat_type = sub_pmat_type or sub_mat_type
     new_context = context.reconstruct(problem=problem,
                                       mat_type=mat_type,
                                       pmat_type=pmat_type,
@@ -454,10 +447,6 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     new_context._coefficient_mapping = coefficient_mapping
     setattr(new_context, old_attr, context)
     setattr(context, new_attr, new_context)
-
-    for attr in ("_adapt_solver", "_adapt_marking_callback"):
-        if hasattr(context, attr):
-            setattr(new_context, attr, getattr(context, attr))
 
     solutiondm = context._problem.u_restrict.function_space().dm
     parentdm = get_parent(solutiondm)
@@ -475,16 +464,12 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                     add_hook(parentdm, teardown=partial(pop_appctx, newdm, new_context))
 
     ises = new_context._x.function_space()._ises
-    for attr, transpose, near in (("_nullspace", False, False),
-                                  ("_nullspace_T", True, False),
-                                  ("_near_nullspace", False, True)):
-        nullspace = getattr(context, attr)
-        try:
-            nullspace = self(nullspace, self, coefficient_mapping=coefficient_mapping)
-        except CoarseningError:
-            pass
-        setattr(new_context, attr, nullspace)
-        new_context.set_nullspace(nullspace, ises, transpose=transpose, near=near)
+    new_context._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._nullspace, ises, transpose=False, near=False)
+    new_context._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._nullspace_T, ises, transpose=True, near=False)
+    new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
 
     return new_context
 
