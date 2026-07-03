@@ -706,24 +706,13 @@ class SameMeshInterpolator(Interpolator):
     def __init__(self, expr):
         super().__init__(expr)
         subset = self.subset
+        self._use_intermediate_buffer = False
         if subset is None:
+            # NOTE: What if subset is provided? won't things then break?
             target = self.target_mesh.unique().topology
             source = self.source_mesh.unique().topology
             if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
-                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
-                if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported.")
-                indices_active = composed_map.indices_active_with_halo
-                make_subset = not indices_active.all()
-                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
-                if make_subset:
-                    if not self.allow_missing_dofs:
-                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
-                    raise NotImplementedError
-                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
-                else:
-                    # Do not need subset as target <= source.
-                    pass
+                self._use_intermediate_buffer = True
         self.subset = subset
 
         if not isinstance(self.dual_arg, Coargument):
@@ -802,6 +791,9 @@ class SameMeshInterpolator(Interpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
         pyop3_compiler_parameters = None,
     ):
+        if pyop3_compiler_parameters is None:
+            pyop3_compiler_parameters = {}
+
         mat_type = mat_type or "aij"
         if (
             isinstance(tensor, Cofunction)
@@ -815,6 +807,22 @@ class SameMeshInterpolator(Interpolator):
         else:
             f = tensor or self._get_tensor(mat_type)
             copyout = ()
+
+        if self.rank == 1 and self._use_intermediate_buffer:
+            assignee_buffer = f.dat.buffer
+            orig_data = assignee_buffer.data_ro.copy()
+            fmin = numpy.finfo(assignee_buffer.dtype).min
+            assignee_buffer._host_data[...] = fmin
+
+            def mywrite():
+                assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
+                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._host_data, fmin))
+                # just debugging
+                assert len(unchanged_idxs) > 0
+                assignee_buffer._host_data[unchanged_idxs] = orig_data[unchanged_idxs]
+
+            copyout += (mywrite,)
+
 
         op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
@@ -856,7 +864,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data.item()
+                return f.dat.data_ro.item()
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
@@ -1068,9 +1076,25 @@ def _build_interpolation_callables(
     if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
-    # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+
+    # The parloop is always over the target mesh cells. If interpolating
+    # between submeshes then we intersect the source and target cells.
+    if (
+        source_mesh is not target_mesh
+        and source_mesh.submesh_youngest_common_ancestor(target_mesh)
+    ):
+        if subset is not None:
+            raise NotImplementedError("TODO")
+
+        iter_spec = get_iteration_spec(target_mesh, "cell", intersect_meshes=[source_mesh])
+    else:
+        if subset is not None:
+            iter_spec = get_iteration_spec(target_mesh, "cell", subdomain_id=subset)
+        else:
+            iter_spec = get_iteration_spec(target_mesh, "cell")
+
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
@@ -1080,13 +1104,7 @@ def _build_interpolation_callables(
         target_element = runtime_quadrature_element(source_mesh, target_element,
                                                     rt_var_name=rt_var_name)
 
-    if subset is not None:
-        iter_spec = get_iteration_spec(target_mesh, "cell", subdomain_id=subset)
-    else:
-        iter_spec = get_iteration_spec(target_mesh, "cell")
-
-    parameters = {}
-    parameters['scalar_type'] = ScalarType
+    parameters = {"scalar_type": ScalarType}
 
     copyin = ()
     copyout = ()

@@ -6580,6 +6580,7 @@ class IterationSpec:
     @cached_property
     def subset(self) -> op3.Slice | Ellipsis:
         if not self.needs_subset:
+            assert self.iterset.local_size == self.plex_indices.size
             return Ellipsis
         else:
             iterset_axis = self.iterset.as_axis()
@@ -6616,6 +6617,7 @@ def get_iteration_spec(
     subdomain_id: int | tuple[int, ...] | Literal["everywhere"] | Literal["otherwise"] = "everywhere",
     *,
     all_integer_subdomain_ids: Iterable[int] | None = None,
+    intersect_meshes=None,
 ) -> IterationSpec:
     """Return an iteration set appropriate for the requested integral type.
 
@@ -6681,8 +6683,27 @@ def get_iteration_spec(
         case _:
             raise AssertionError(f"Integral type {integral_type} not recognised")
 
+    needs_subset = False
+
+    # If we are intersecting submeshes then we filter the plex indices
+    if intersect_meshes:
+        needs_subset = True
+        if subdomain_id != "everywhere":
+            raise NotImplementedError
+
+        if len(intersect_meshes) != 1:
+            raise NotImplementedError
+        else:
+            intersect_mesh, = intersect_meshes
+
+        if intersect_mesh.submesh_parent is not mesh:
+            raise NotImplementedError
+
+        valid_plex_indices = dmcommon.intersect_is(
+            valid_plex_indices, intersect_mesh.topology_dm.getSubpointIS()
+        )
+
     if subdomain_id == "everywhere":
-        needs_subset = False
         plex_indices = valid_plex_indices
     else:
         needs_subset = True

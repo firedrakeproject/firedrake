@@ -387,8 +387,6 @@ class Assigner:
                         linear_assignee_expr.assign(linear_expr),
                         ),
                     eager=True,
-                    # FIXME: I think setting this will set assign values to -1, need an option
-                    # to avoid the assignment (mask_negatives)?
                     compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
                 )
 
@@ -398,8 +396,6 @@ class Assigner:
             assignee_buffer._host_data[unchanged_idxs] = orig_data[unchanged_idxs]
 
             return
-
-        # array_assign_allowed = self._array_assign_allowed and self._subset is Ellipsis
 
         match self._mode:
             case AssignmentMode.STANDARD:
@@ -418,8 +414,7 @@ class Assigner:
                 raise NotImplementedError
 
         assignee = self._assignee.dat[self._subset]
-        # if array_assign_allowed:
-        if True:
+        if self._subset is Ellipsis:
             # TODO: This is technically less efficient than the compile strategy
             # for repeated use. This should be exposed to the user.
             assignee.assign(expr, eager=True, eager_strategy="array")
