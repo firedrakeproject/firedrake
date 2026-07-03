@@ -1,6 +1,6 @@
 """
 Tests for AdaptiveMeshHierarchy
-and AdaptiveTransferManager
+and TransferManager
 """
 
 import pytest
@@ -78,18 +78,6 @@ def mh_uniform():
         mesh = Mesh(ngmesh, distribution_parameters=dparams)
         amh.add_mesh(mesh)
     return amh, mh
-
-
-@pytest.fixture
-def atm():
-    """atm used in tests"""
-    return AdaptiveTransferManager()
-
-
-@pytest.fixture
-def tm():
-    """tm used for restrict consistency"""
-    return TransferManager()
 
 
 @pytest.mark.skipnetgen
@@ -170,7 +158,7 @@ def test_CG1_native_transfers_use_adaptive_cell_maps():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_DG0(amh, atm, operator):  # pylint: disable=W0621
+def test_DG0(amh, operator):  # pylint: disable=W0621
     """
     Prolongation & Injection test for DG0
     """
@@ -187,20 +175,20 @@ def test_DG0(amh, atm, operator):  # pylint: disable=W0621
         u_coarse.interpolate(stepc)
         assert errornorm(stepc, u_coarse) <= 1e-12
 
-        atm.prolong(u_coarse, u_fine)
+        prolong(u_coarse, u_fine)
         assert errornorm(stepf, u_fine) <= 1e-12
     if operator == "inject":
         u_fine.interpolate(stepf)
         assert errornorm(stepf, u_fine) <= 1e-12
 
-        atm.inject(u_fine, u_coarse)
+        inject(u_fine, u_coarse)
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_CG1(amh, atm, operator):  # pylint: disable=W0621
+def test_CG1(amh, operator):
     """
     Prolongation & Injection test for CG1
     """
@@ -215,65 +203,19 @@ def test_CG1(amh, atm, operator):  # pylint: disable=W0621
         u_coarse.interpolate(xc)
         assert errornorm(xc, u_coarse) <= 1e-12
 
-        atm.prolong(u_coarse, u_fine)
+        prolong(u_coarse, u_fine)
         assert errornorm(xf, u_fine) <= 1e-12
     if operator == "inject":
         u_fine.interpolate(xf)
         assert errornorm(xf, u_fine) <= 1e-12
 
-        atm.inject(u_fine, u_coarse)
+        inject(u_fine, u_coarse)
         assert errornorm(xc, u_coarse) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
-def test_restrict_consistency(mh_uniform, atm, tm):  # pylint: disable=W0621
-    """
-    Test restriction consistency of amh with uniform refinement vs mh
-    """
-    amh_unif, mh = mh_uniform
-
-    V_coarse = FunctionSpace(amh_unif[0], "DG", 0)
-    V_fine = FunctionSpace(amh_unif[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, _ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    atm.prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    atm.restrict(rf, rc)
-
-    # compare with mesh_hierarchy
-    xcoarse, _ = SpatialCoordinate(mh[0])
-    Vcoarse = FunctionSpace(mh[0], "DG", 0)
-    Vfine = FunctionSpace(mh[-1], "DG", 0)
-
-    mhuc = Function(Vcoarse)
-    mhuc.interpolate(xcoarse)
-    mhuf = Function(Vfine)
-    tm.prolong(mhuc, mhuf)
-
-    mhrf = assemble(conj(TestFunction(Vfine)) * dx)
-    mhrc = Cofunction(Vcoarse.dual())
-
-    tm.restrict(mhrf, mhrc)
-
-    assert abs(
-        (assemble(action(mhrc, mhuc)) - assemble(action(mhrf, mhuf)))
-        / assemble(action(mhrf, mhuf))
-    ) <= 1e-12
-    assert abs(
-        (assemble(action(rc, u_coarse)) - assemble(action(mhrc, mhuc)))
-        / assemble(action(mhrc, mhuc))
-    ) <= 1e-12
-
-
-@pytest.mark.parallel([1, 2])
-@pytest.mark.skipnetgen
-def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
+def test_restrict_CG1(amh):
     """
     Test restriction with CG1
     """
@@ -284,11 +226,11 @@ def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
 
     u_coarse.interpolate(xc)
-    atm.prolong(u_coarse, u_fine)
+    prolong(u_coarse, u_fine)
 
     rf = assemble(conj(TestFunction(V_fine)) * dx)
     rc = Cofunction(V_coarse.dual())
-    atm.restrict(rf, rc)
+    restrict(rf, rc)
 
     assert np.allclose(
         assemble(action(rc, u_coarse)),
@@ -299,7 +241,7 @@ def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
-def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
+def test_restrict_DG0(amh):
     """
     Test restriction with DG0
     """
@@ -310,11 +252,11 @@ def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
 
     u_coarse.interpolate(xc)
-    atm.prolong(u_coarse, u_fine)
+    prolong(u_coarse, u_fine)
 
     rf = assemble(conj(TestFunction(V_fine)) * dx)
     rc = Cofunction(V_coarse.dual())
-    atm.restrict(rf, rc)
+    restrict(rf, rc)
 
     assert np.allclose(
         assemble(action(rc, u_coarse)),
@@ -325,7 +267,7 @@ def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
-def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
+def test_mg_jacobi(amh):
     """
     Test multigrid with jacobi smoothers
     """
@@ -355,7 +297,6 @@ def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
 
     problem = NonlinearVariationalProblem(F, u, bc)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
-    solver.set_transfer_manager(atm)
     solver.solve()
     assert errornorm(u_ex, u) <= 1e-8
 
@@ -363,7 +304,7 @@ def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("params", ["jacobi", "asm", "patch"])
-def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
+def test_mg_patch(amh, params):
     """
     Test multigrid with patch relaxation
     """
@@ -438,7 +379,5 @@ def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
     problem = NonlinearVariationalProblem(F, u, bc)
     solver = NonlinearVariationalSolver(problem,
                                         solver_parameters=solver_params)
-    solver.set_transfer_manager(atm)
-
     solver.solve()
     assert errornorm(u_ex, u) <= 1e-8
