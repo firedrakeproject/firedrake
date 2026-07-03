@@ -246,7 +246,7 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
         _, level = utils.get_level(Vc.mesh())
-        if (hierarchy.coarse_to_fine_cells[level] < 0).any():
+        if dg and (hierarchy.coarse_to_fine_cells[level] < 0).any():
             return coarse
             # TODO
             raise NotImplementedError(

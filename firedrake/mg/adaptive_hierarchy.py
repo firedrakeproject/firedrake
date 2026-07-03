@@ -28,8 +28,19 @@ def _distribute_cell_data(mesh, values):
 
     DG0 = FunctionSpace(mesh, "DG", 0)
     data = np.asarray(netgen_distribute(DG0, values), dtype=IntType)
-    cell_nodes = DG0.cell_node_map().values_with_halo[:, 0]
-    return data[cell_nodes]
+    cstart, cend = mesh.topology_dm.getHeightStratum(0)
+    cell_numbers = np.fromiter(
+        (mesh._cell_numbering.getOffset(cell) for cell in range(cstart, cend)),
+        dtype=IntType,
+        count=cend - cstart,
+    )
+    ncell = min(data.shape[0], cell_numbers.size)
+    data = data[:ncell]
+    cell_numbers = cell_numbers[:ncell]
+    result = np.full(mesh.cell_set.total_size, -1, dtype=IntType)
+    valid = (0 <= cell_numbers) & (cell_numbers < mesh.cell_set.total_size)
+    result[cell_numbers[valid]] = data[valid]
+    return result
 
 
 def _adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):

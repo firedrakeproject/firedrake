@@ -97,6 +97,9 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
                     k = 0
                     for l in range(fine_cell_per_coarse_cell):
                         fine = coarse_to_fine_cells[i, l]
+                        if fine < 0:
+                            k += fine_per_cell * ratio
+                            continue
                         for layer in range(ratio):
                             fine_layer = coarse_layer * ratio + layer
                             for m in range(fine_per_cell):
@@ -107,6 +110,9 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
                 k = 0
                 for l in range(fine_cell_per_coarse_cell):
                     fine = coarse_to_fine_cells[i, l]
+                    if fine < 0:
+                        k += fine_per_cell
+                        continue
                     for m in range(fine_per_cell):
                         coarse_to_fine_map[node, k] = fine_map[fine, m]
                         k += 1
@@ -149,6 +155,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
 
     for i in range(fine_cells):
         for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
+            if coarse_cell < 0:
+                continue
             for j in range(fine_per_cell):
                 node = fine_map[i, j]
                 if extruded:

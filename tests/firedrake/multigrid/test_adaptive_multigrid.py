@@ -122,6 +122,51 @@ def test_refine_marked_elements_populates_cell_maps():
             assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
 
 
+@pytest.mark.skipnetgen
+def test_CG1_native_transfers_use_adaptive_cell_maps():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    mesh = Mesh(geo.GenerateMesh(maxh=0.5))
+    amh = AdaptiveMeshHierarchy(mesh)
+
+    M = FunctionSpace(mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[0] = 1
+    refined_mesh = mesh.refine_marked_elements(markers)
+    amh.add_mesh(refined_mesh)
+
+    assert (amh.coarse_to_fine_cells[0] < 0).any()
+
+    V_coarse = FunctionSpace(mesh, "CG", 1)
+    V_fine = FunctionSpace(refined_mesh, "CG", 1)
+    xc, yc = SpatialCoordinate(mesh)
+    xf, yf = SpatialCoordinate(refined_mesh)
+    expr_coarse = xc + 2 * yc
+    expr_fine = xf + 2 * yf
+
+    u_coarse = Function(V_coarse).interpolate(expr_coarse)
+    u_fine = Function(V_fine)
+    prolong(u_coarse, u_fine)
+    assert errornorm(expr_fine, u_fine) <= 1e-12
+
+    u_fine_exact = Function(V_fine).interpolate(expr_fine)
+    u_coarse_injected = Function(V_coarse)
+    inject(u_fine_exact, u_coarse_injected)
+    assert errornorm(expr_coarse, u_coarse_injected) <= 1e-12
+
+    r_fine = assemble(conj(TestFunction(V_fine)) * dx)
+    r_coarse = Cofunction(V_coarse.dual())
+    restrict(r_fine, r_coarse)
+    assert np.allclose(
+        assemble(action(r_coarse, u_coarse)),
+        assemble(action(r_fine, u_fine)),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])

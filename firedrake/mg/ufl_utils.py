@@ -279,11 +279,18 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
             cmapping = cctx._coefficient_mapping
             if cmapping is None:
                 return
-            for c in cmapping:
+            for c, mapped in cmapping.items():
+                _, clevel = utils.get_level(c.function_space().mesh())
+                _, mlevel = utils.get_level(mapped.function_space().mesh())
                 if is_dual(c):
-                    manager.restrict(c, cmapping[c])
+                    if clevel > mlevel:
+                        manager.restrict(c, mapped)
+                elif clevel > mlevel:
+                    manager.inject(c, mapped)
+                elif clevel < mlevel:
+                    manager.prolong(c, mapped)
                 else:
-                    manager.inject(c, cmapping[c])
+                    mapped.assign(c)
             # Apply bcs
             if cctx.pre_apply_bcs:
                 for bc in cctx._problem.dirichlet_bcs():
