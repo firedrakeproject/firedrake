@@ -17,7 +17,7 @@ def test_marking_callback_configures_refine_adaptor():
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
 
     assert solver.parameters["adaptor_criterion"] == "refine"
-    assert solver._ctx._adapt_marking_callback is mark_cells
+    assert solver._ctx._marking_callback is mark_cells
 
 
 @pytest.mark.skipnetgen

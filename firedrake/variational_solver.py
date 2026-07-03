@@ -310,6 +310,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
+        self._marking_callback = None
+        if marking_callback is not None:
+            self.set_marking_callback(marking_callback)
+        ctx._adapt_marking_callback = self._marking_callback
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
