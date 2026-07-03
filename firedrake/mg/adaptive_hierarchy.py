@@ -7,6 +7,7 @@ from firedrake.mesh import MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mg import HierarchyBase
+from firedrake.petsc import PETSc
 from firedrake.mg.utils import set_level
 from firedrake.utils import IntType
 
@@ -85,6 +86,107 @@ def _adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
     return coarse_to_fine, fine_to_coarse
 
 
+class RedistMesh:
+    """Transfer data between a parent-owned mesh and its redistributed mesh."""
+
+    def __init__(self, orig, redist):
+        self.orig = orig
+        self.redist = redist
+
+    def _move(self, source, target, source_mesh, target_mesh):
+        source_section = source.function_space().dm.getDefaultSection()
+        target_space = target.function_space()
+        target_section = target_space.dm.getDefaultSection()
+        with source.dat.vec_ro as source_vec:
+            source_sf = source_mesh.sfBC_orig
+            if source_sf is None:
+                root_section = source_section
+                root_vec = source_vec
+            else:
+                root_section, root_vec = source_mesh.topology_dm.distributeField(
+                    source_sf.createInverse(), source_section, source_vec
+                )
+
+            try:
+                target_sf = target_mesh.sfBC
+                if target_sf is None:
+                    target_work = root_vec
+                else:
+                    _, target_work = target_mesh.topology_dm.distributeField(
+                        target_sf, root_section, root_vec, target_section
+                    )
+                target.dat.data_wo_with_halos.reshape(-1)[:] = target_work.getArray(
+                    readonly=True
+                )
+            except (PETSc.Error, ValueError):
+                target.interpolate(source)
+
+    def orig2redist(self, source, target):
+        self._move(source, target, self.orig, self.redist)
+
+    def redist2orig(self, source, target):
+        self._move(source, target, self.redist, self.orig)
+
+
+def _parent_owner_partition(coarse_mesh, parent_cell_numbers):
+    comm = coarse_mesh.comm
+    coarse_cell_numbers = _distribute_cell_data(
+        coarse_mesh, np.arange(len(_netgen_cells(coarse_mesh)), dtype=IntType)
+    )
+    owned_cell_numbers = coarse_cell_numbers[:coarse_mesh.cell_set.size]
+    owned = np.empty((owned_cell_numbers.size, 2), dtype=IntType)
+    owned[:, 0] = owned_cell_numbers
+    owned[:, 1] = comm.rank
+    gathered = comm.gather(owned, root=0)
+
+    if comm.rank != 0:
+        return None, None
+
+    parent_owner = {}
+    for cells in gathered:
+        for cell_number, rank in cells:
+            parent_owner[int(cell_number)] = int(rank)
+
+    buckets = [[] for _ in range(comm.size)]
+    for fine_cell, parent_number in enumerate(parent_cell_numbers):
+        try:
+            owner = parent_owner[int(parent_number)]
+        except KeyError as exc:
+            raise RuntimeError(
+                "Cannot determine owner for adaptive parent cell "
+                f"{int(parent_number)}"
+            ) from exc
+        buckets[owner].append(fine_cell)
+
+    sizes = [len(bucket) for bucket in buckets]
+    points = np.asarray(
+        [point for bucket in buckets for point in bucket], dtype=IntType
+    )
+    return sizes, points
+
+
+def _parent_owned_transfer_mesh(coarse_mesh, mesh, parent_cell_numbers):
+    if mesh.comm.size == 1 or mesh.sfBC_orig is None:
+        return mesh
+
+    from firedrake.mesh import Mesh
+
+    distribution_parameters = dict(mesh._distribution_parameters)
+    distribution_parameters["partition"] = _parent_owner_partition(
+        coarse_mesh, parent_cell_numbers
+    )
+    transfer_mesh = Mesh(
+        mesh.netgen_mesh,
+        reorder=mesh._did_reordering,
+        distribution_parameters=distribution_parameters,
+        comm=mesh.comm,
+        netgen_flags=mesh.netgen_flags,
+        tolerance=mesh.tolerance,
+    )
+    transfer_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+    return transfer_mesh
+
+
 class AdaptiveMeshHierarchy(HierarchyBase):
     """
     HierarchyBase for hierarchies of adaptively refined meshes.
@@ -123,16 +225,24 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             finest level.
         """
         level = len(self.meshes)
+        transfer_mesh = mesh
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
             parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
             if parent_cell_numbers is not None:
-                coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
+                transfer_mesh = _parent_owned_transfer_mesh(
                     self.meshes[-1], mesh, parent_cell_numbers
+                )
+                if transfer_mesh is not mesh:
+                    mesh.redist = RedistMesh(transfer_mesh, mesh)
+                coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
+                    self.meshes[-1], transfer_mesh, parent_cell_numbers
                 )
 
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
+        if transfer_mesh is not mesh:
+            set_level(transfer_mesh, self, level)
 
         if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
             self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells

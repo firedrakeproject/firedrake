@@ -2934,6 +2934,9 @@ values from f.)"""
                                                             self._cell_numbering,
                                                             mvec)
                 mark_np = mvec0.getArray()
+        cells = (self.netgen_mesh.Elements3D() if tdim == 3
+                 else self.netgen_mesh.Elements2D())
+        mark_np = mark_np[:len(cells)]
         max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
         # Create a copy of the netgen mesh
         netgen_mesh = self.netgen_mesh.Copy()

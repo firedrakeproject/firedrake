@@ -61,6 +61,7 @@ def test_marking_callback_refine_hook_reconstructs_problem():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
 def test_snes_adapt_sequence_with_adaptive_multigrid():
     from netgen.occ import WorkPlane, Axes, OCCGeometry, X, Z
 
