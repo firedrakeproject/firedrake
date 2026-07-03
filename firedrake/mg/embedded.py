@@ -218,9 +218,21 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
+    def _uncached_parallel_adaptive_transfer(self, V):
+        mesh = V.mesh()
+        if mesh.comm.size == 1:
+            return False
+        try:
+            hierarchy, _ = getattr(mesh.topological, "__level_info__")
+        except AttributeError:
+            return False
+        return type(hierarchy).__name__ == "AdaptiveMeshHierarchy"
+
     def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
         the last time a grid transfer was executed with them."""
+        if self._uncached_parallel_adaptive_transfer(V):
+            return True
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         try:
@@ -230,6 +242,8 @@ class TransferManager(object):
 
     def cache_dat_versions(self, V, transfer_op, source, target):
         """Record the returned dat_versions of the source and target."""
+        if self._uncached_parallel_adaptive_transfer(V):
+            return
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         self.cache(V)._dat_versions[key] = dat_versions

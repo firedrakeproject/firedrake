@@ -7,7 +7,6 @@ from firedrake.mesh import MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mg import HierarchyBase
-from firedrake.petsc import PETSc
 from firedrake.mg.utils import set_level
 from firedrake.utils import IntType
 
@@ -23,6 +22,10 @@ def _netgen_cells(mesh):
     raise NotImplementedError("Adaptive hierarchy maps are only implemented in dimension 2 and 3.")
 
 
+def _netgen_cell_count(mesh):
+    return getattr(mesh, "_adaptive_netgen_num_cells", len(_netgen_cells(mesh)))
+
+
 def _distribute_cell_data(mesh, values):
     from firedrake.functionspace import FunctionSpace
     from firedrake.netgen import netgen_distribute
@@ -36,11 +39,9 @@ def _distribute_cell_data(mesh, values):
         count=cend - cstart,
     )
     ncell = min(data.shape[0], cell_numbers.size)
-    data = data[:ncell]
-    cell_numbers = cell_numbers[:ncell]
     result = np.full(mesh.cell_set.total_size, -1, dtype=IntType)
-    valid = (0 <= cell_numbers) & (cell_numbers < mesh.cell_set.total_size)
-    result[cell_numbers[valid]] = data[valid]
+    valid = (0 <= cell_numbers[:ncell]) & (cell_numbers[:ncell] < result.size)
+    result[cell_numbers[:ncell][valid]] = data[:ncell][valid]
     return result
 
 
@@ -49,20 +50,15 @@ def _adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
         return None, None
 
     coarse_cell_numbers = _distribute_cell_data(
-        coarse_mesh, np.arange(len(_netgen_cells(coarse_mesh)), dtype=IntType)
+        coarse_mesh, np.arange(_netgen_cell_count(coarse_mesh), dtype=IntType)
     )
     fine_parent_numbers = _distribute_cell_data(
         fine_mesh, np.asarray(parent_cell_numbers, dtype=IntType)
     )
 
     coarse_owned = coarse_mesh.cell_set.size
-    coarse_total = min(coarse_mesh.cell_set.total_size, coarse_cell_numbers.size)
     fine_owned = fine_mesh.cell_set.size
-    fine_total = min(fine_mesh.cell_set.total_size, fine_parent_numbers.size)
 
-    coarse_lookup = {}
-    for cell, cell_number in enumerate(coarse_cell_numbers[:coarse_total]):
-        coarse_lookup.setdefault(int(cell_number), cell)
     coarse_owned_lookup = {
         int(cell_number): cell
         for cell, cell_number in enumerate(coarse_cell_numbers[:coarse_owned])
@@ -70,10 +66,10 @@ def _adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
 
     fine_to_coarse = np.full((fine_owned, 1), -1, dtype=IntType)
     for fine_cell, parent_number in enumerate(fine_parent_numbers[:fine_owned]):
-        fine_to_coarse[fine_cell, 0] = coarse_lookup.get(int(parent_number), -1)
+        fine_to_coarse[fine_cell, 0] = coarse_owned_lookup.get(int(parent_number), -1)
 
     children = [[] for _ in range(coarse_owned)]
-    for fine_cell, parent_number in enumerate(fine_parent_numbers[:fine_total]):
+    for fine_cell, parent_number in enumerate(fine_parent_numbers[:fine_owned]):
         coarse_cell = coarse_owned_lookup.get(int(parent_number))
         if coarse_cell is not None:
             children[coarse_cell].append(fine_cell)
@@ -84,6 +80,35 @@ def _adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
         coarse_to_fine[coarse_cell, :len(local_children)] = local_children
 
     return coarse_to_fine, fine_to_coarse
+
+
+def _netgen_parent_cell_numbers(coarse_mesh, fine_mesh):
+    if not (hasattr(coarse_mesh, "netgen_mesh") and hasattr(fine_mesh, "netgen_mesh")):
+        return None
+
+    tdim = fine_mesh.topological_dimension
+    try:
+        parents = (fine_mesh.netgen_mesh.parentelements if tdim == 3
+                   else fine_mesh.netgen_mesh.parentsurfaceelements)
+    except AttributeError:
+        return None
+
+    parents = np.asarray(parents.NumPy()["i"], dtype=IntType)
+    nfine = len(_netgen_cells(fine_mesh))
+    ncoarse = _netgen_cell_count(coarse_mesh)
+    if parents.shape[0] < nfine or ncoarse == 0:
+        return None
+
+    indices = np.arange(nfine, dtype=IntType)
+    while True:
+        refined = indices >= ncoarse
+        if not refined.any():
+            break
+        parent_indices = parents[indices[refined]]
+        if (parent_indices < 0).any():
+            return None
+        indices[refined] = parent_indices
+    return indices
 
 
 class RedistMesh:
@@ -107,19 +132,16 @@ class RedistMesh:
                     source_sf.createInverse(), source_section, source_vec
                 )
 
-            try:
-                target_sf = target_mesh.sfBC
-                if target_sf is None:
-                    target_work = root_vec
-                else:
-                    _, target_work = target_mesh.topology_dm.distributeField(
-                        target_sf, root_section, root_vec, target_section
-                    )
-                target.dat.data_wo_with_halos.reshape(-1)[:] = target_work.getArray(
-                    readonly=True
+            target_sf = target_mesh.sfBC_orig
+            if target_sf is None:
+                target_work = root_vec
+            else:
+                _, target_work = target_mesh.topology_dm.distributeField(
+                    target_sf, root_section, root_vec, target_section
                 )
-            except (PETSc.Error, ValueError):
-                target.interpolate(source)
+            target.dat.data_wo_with_halos.reshape(-1)[:] = target_work.getArray(
+                readonly=True
+            )
 
     def orig2redist(self, source, target):
         self._move(source, target, self.orig, self.redist)
@@ -131,7 +153,7 @@ class RedistMesh:
 def _parent_owner_partition(coarse_mesh, parent_cell_numbers):
     comm = coarse_mesh.comm
     coarse_cell_numbers = _distribute_cell_data(
-        coarse_mesh, np.arange(len(_netgen_cells(coarse_mesh)), dtype=IntType)
+        coarse_mesh, np.arange(_netgen_cell_count(coarse_mesh), dtype=IntType)
     )
     owned_cell_numbers = coarse_cell_numbers[:coarse_mesh.cell_set.size]
     owned = np.empty((owned_cell_numbers.size, 2), dtype=IntType)
@@ -225,24 +247,26 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             finest level.
         """
         level = len(self.meshes)
-        transfer_mesh = mesh
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
             parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
+            if parent_cell_numbers is None:
+                parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
+                if parent_cell_numbers is not None:
+                    mesh._adaptive_parent_cell_numbers = parent_cell_numbers
             if parent_cell_numbers is not None:
-                transfer_mesh = _parent_owned_transfer_mesh(
+                mesh = _parent_owned_transfer_mesh(
                     self.meshes[-1], mesh, parent_cell_numbers
                 )
-                if transfer_mesh is not mesh:
-                    mesh.redist = RedistMesh(transfer_mesh, mesh)
                 coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
-                    self.meshes[-1], transfer_mesh, parent_cell_numbers
+                    self.meshes[-1], mesh, parent_cell_numbers
                 )
+
+        if hasattr(mesh, "netgen_mesh"):
+            mesh._adaptive_netgen_num_cells = len(_netgen_cells(mesh))
 
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
-        if transfer_mesh is not mesh:
-            set_level(transfer_mesh, self, level)
 
         if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
             self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
@@ -291,4 +315,4 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
         refined_mesh = mesh.refine_marked_elements(markers)
         self.add_mesh(refined_mesh)
-        return refined_mesh
+        return self.meshes[-1]

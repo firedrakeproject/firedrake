@@ -73,6 +73,17 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
+        valid = coarse_to_fine_nodes >= 0
+        if not valid.all():
+            nonempty = valid.any(axis=1)
+            if not nonempty[:Vc.node_set.size].all():
+                raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
+            replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
+                                      dtype=coarse_to_fine_nodes.dtype)
+            rows = numpy.nonzero(nonempty)[0]
+            replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
+            coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
+                                               replacement[:, None])
         return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
                                              coarse_to_fine_nodes.shape[1],
                                              values=coarse_to_fine_nodes))
@@ -110,13 +121,20 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cell_set
-        arity = Vf.finat_element.space_dimension() * ncell
+        fine_per_cell = Vf.finat_element.space_dimension()
+        arity = fine_per_cell * ncell
         coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
+        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
+        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
+        valid = owned_coarse_to_fine >= 0
+        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
+        values = values.reshape(iterset.size, arity)
 
         if Vc.extruded:
             off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
+            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([
+                numpy.where(values >= 0, values + off*i, -1) for i in range(level_ratio)
+            ])
         else:
             coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
         offset = Vf.offset
