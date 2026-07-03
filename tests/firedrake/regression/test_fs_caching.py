@@ -37,21 +37,17 @@ def test_meshes_collected():
 
 def test_same_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
-
     V1 = FunctionSpace(m, 'CG', 2)
-
     V2 = FunctionSpace(m, 'CG', 2)
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data == V2._shared_data
+    assert V1.axes is V2.axes
 
 
 def test_different_fs_misses_cache():
     m = UnitSquareMesh(1, 1)
-
     V1 = FunctionSpace(m, 'CG', 2)
-
     V2 = FunctionSpace(m, 'DG', 2)
 
     assert V1 != V2
@@ -59,39 +55,30 @@ def test_different_fs_misses_cache():
 
 def test_alias_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
-
     V1 = FunctionSpace(m, 'CG', 2)
-
     V2 = FunctionSpace(m, 'Lagrange', 2)
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data == V2._shared_data
+    assert V1.axes is V2.axes
 
 
 def test_extruded_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
-
     e = ExtrudedMesh(m, 2, layer_height=1)
-
     V1 = FunctionSpace(e, 'CG', 1)
-
     V2 = FunctionSpace(e, 'CG', 1)
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data == V2._shared_data
+    assert V1.axes is V2.axes
 
 
 def test_extruded_fs_misses_cache():
     m = UnitSquareMesh(1, 1)
-
     e = ExtrudedMesh(m, 2, layer_height=1)
-
     V1 = FunctionSpace(e, 'CG', 1)
-
     V2 = FunctionSpace(e, 'DG', 1)
-
     assert V1 != V2
 
 

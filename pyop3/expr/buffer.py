@@ -276,7 +276,13 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
                 leaf_layouts_[path] = layout
         return idict(leaf_layouts_)
 
-    def linearize(self, path) -> LinearDatBufferExpression:
+    def linearize(self, path, *, allow_partial: bool = False) -> LinearDatBufferExpression:
+        if allow_partial:
+            path = utils.just_one(
+                lpath
+                for lpath in self.layouts.keys()
+                if lpath.keys() <= path.keys()
+            )
         return LinearDatBufferExpression(self.buffer, self.layouts[path])
 
 

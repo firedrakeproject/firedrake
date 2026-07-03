@@ -798,36 +798,28 @@ class Assignment(AbstractAssignment):
     def shape(self) -> tuple[AxisTree, ...]:
         return pyop3.expr.visitors.get_shape(self.assignee)
 
-        # assert False, "old code"
-        # from pyop3.expr.visitors import get_shape
+        # the below doesn't really work, need shapes to match exactly
+        # assignee_shapes = pyop3.expr.visitors.get_shape(self.assignee)
+        # expr_shapes = pyop3.expr.visitors.get_shape(self.expression)
         #
-        # assignee_shapes = get_shape(self.assignee)
-        # expr_shapes = get_shape(self.expression)
-        # if expr_shapes == (UNIT_AXIS_TREE,):
-        #     expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
+        # # sometimes the expression may not be matrix-valued
+        # if len(assignee_shapes) != len(expr_shapes):
+        #     assert len(assignee_shapes) == 2 and len(expr_shapes) == 1
+        #     expr_shapes = expr_shapes * 2
         #
-        # # The shape of the assignment is simply the shape of the assignee, nothing else
-        # # makes sense. For more complex things loops should be used.
-        # # FIXME: This logic is dreadful
-        # axis_trees = []
-        # for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
-        #     if isinstance(assignee_shape, AxisForest):
-        #         if isinstance(expr_shape, AxisForest):
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
-        #                 ][0]
-        #         else:
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if axis_tree_is_valid_subset(expr_shape, shape)
-        #                 ][0]  
-        #     axis_trees.append(assignee_shape)
-        # return tuple(axis_trees)
+        # # Set 'only_unit' here because we are happy for 'expr_shapes' to be
+        # # different to 'assignee_shape' up to unit axes. For example, we
+        # # want to allow the operation
+        # #
+        # #     loop(p, dat1[p].assign(dat2[f(p)])
+        # #
+        # # even though dat2[f(p)] will have an extra axis introduced by
+        # # the map. Provided f(p) only has size 1 the LHS and RHS are
+        # # still the same shape.
+        # return tuple(
+        #     pyop3.axis_tree.merge_axis_trees([assignee_shape, expr_shape], only_unit=True)
+        #     for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True)
+        # )
 
     # }}}
 

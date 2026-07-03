@@ -4,11 +4,11 @@ import numbers
 import operator
 from functools import cached_property
 from types import EllipsisType
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
-
 
 from pyadjoint.tape import annotate_tape
 import finat.ufl
@@ -21,11 +21,53 @@ from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.dag_traverser import DAGTraverser
 
+from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, ScalarType, split_by
+
+
+class _AssignExprTypeChecker(DAGTraverser):
+    def __init__(self, function_space):
+        self.function_space = function_space
+        self.assign_type: Literal["array", "loop"] = "array"
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj, /) -> None:
+        pass
+
+    @process.register
+    def _(self, func: Function | Cofunction, /) -> None:
+        if (
+            func.ufl_element().family() != "Real"
+            and func.ufl_element() != self.function_space.ufl_element()
+        ):
+            raise ValueError("All functions in the expression must have the same "
+                             "element as the assignee")
+
+        func_mesh = func.function_space().mesh()
+        if func_mesh != self.function_space.mesh():
+            common_ancestor = self.function_space.mesh().submesh_youngest_common_ancestor(func_mesh)
+            if not common_ancestor:
+                raise ValueError(
+                    "All functions in the expression must be defined on a single domain "
+                    "that is in the same submesh family as domain of the assignee"
+                )
+            self.assign_type = "loop"
+
+        if func.function_space() != self.function_space:
+            # If we have a restricted function space we have different data
+            # layouts so naive array assignment will fail
+            self.assign_type = "loop"
+
+
+def _get_assign_type(function_space, expr) -> Literal["array", "loop"]:
+    visitor = _AssignExprTypeChecker(function_space)
+    visitor(expr)
+    return visitor.assign_type
 
 
 class AssignExprBuilder(DAGTraverser):
@@ -41,9 +83,18 @@ class AssignExprBuilder(DAGTraverser):
     may be either a :class:`firedrake.constant.Constant` or :class:`firedrake.function.Function`.
     """
 
-    def __init__(self, function_space):
+    def __init__(self, function_space, assign_mode: Literal["array", "expr"]) -> None:
+        if assign_mode == "array":
+            loop_indices = None
+        else:
+            points = function_space.mesh().points
+            loop_indices = tuple(
+                points.linearize(path).iter()
+                for path in points.leaf_paths
+            )
+
         self.function_space = function_space
-        self.array_assign_allowed = True
+        self.loop_indices = loop_indices
         super().__init__()
 
     @functools.singledispatchmethod
@@ -53,49 +104,71 @@ class AssignExprBuilder(DAGTraverser):
     @process.register(Function)
     @process.register(Cofunction)
     def _(self, func) -> op3.Dat:
-        if (
-            func.ufl_element().family() != "Real"
-            and func.ufl_element() != self.function_space.ufl_element()
-        ):
-            raise ValueError("All functions in the expression must have the same "
-                             "element as the assignee")
-
-        # NOTE: Is it really valid to consider Real a scalar type here? It means that we are
+        # NOTE: Is it really valid to consider Real a scalar type here?
         is_scalar = func.ufl_element().family() == "Real"
         is_vector = not is_scalar
 
-        func_mesh = func.function_space().mesh()
-        if func_mesh != self.function_space.mesh():
-            if not self.function_space.mesh().submesh_youngest_common_ancestor(func_mesh):
-                raise ValueError(
-                    "All functions in the expression must be defined on a single domain "
-                    "that is in the same submesh family as domain of the assignee"
+        if self.loop_indices:
+            func_mesh = func.function_space().mesh()
+            if func_mesh != self.function_space.mesh():
+                common_ancestor = self.function_space.mesh().submesh_youngest_common_ancestor(func_mesh)
+
+                dat_expr = []
+                for loop_index in self.loop_indices:
+                    # we are looping over the points of the target mesh, so we need to go
+                    # target points -> common ancestor -> func points
+                    bb = self.function_space.mesh().submesh_ancestors
+                    for b in reversed(bb[:bb.index(common_ancestor)]):
+                        loop_index = b.submesh_child_point_parent_point_map(loop_index)
+                    aa = func_mesh.submesh_ancestors
+                    for a in aa[:aa.index(common_ancestor)]:
+                        loop_index = a.submesh_parent_point_child_point_map(loop_index)
+                    dat_expr.append(func.dat[loop_index])
+                dat_expr = tuple(dat_expr)
+            else:
+                dat_expr = tuple(
+                    func.dat[loop_index]
+                    for loop_index in self.loop_indices
                 )
 
-            # To get this to work I think that we have to pass a loop
-            # index along. Else we can't use maps.
-            raise NotImplementedError("TODO")
+            # convert to expressions
+            new_dat_expr = []
+            for dat_expr_ in dat_expr:
+                axis_tree = dat_expr_.axes
+                layouts = idict({
+                    leaf_path: axis_tree.subst_layouts()[leaf_path]
+                    for leaf_path in axis_tree.leaf_paths
+                })
+                # new_dat_expr.append(op3.expr.NonlinearDatBufferExpression(func.dat.buffer, layouts))
+                new_dat_expr.append(op3.expr.LinearDatBufferExpression(func.dat.buffer, utils.just_one(layouts.values())))
+            dat_expr = tuple(new_dat_expr)
+        else:
+            dat_expr = func.dat
 
-        if func.function_space() != self.function_space:
-            # If we have a restricted function space we have different data
-            # layouts so naive array assignment will fail
-            self.array_assign_allowed = False
-
-        return func.dat, is_scalar, is_vector
+        return dat_expr, is_scalar, is_vector
 
     @process.register(Constant)
     def _(self, const) -> tuple[op3.Dat, bool, bool]:
         # TODO: Might want to restrict the allowed shapes here to only scalar and
         # self.function_space.shape
-        return const.dat, True, False
+        const_expr = const.dat
+        if self.loop_indices:
+            const_expr = (const_expr,) * len(self.loop_indices)
+        return const_expr, True, False
 
     @process.register(ufl.classes.ScalarValue)
     def _(self, num) -> numbers.Number:
-        return num.value(), True, False
+        expr = num.value()
+        if self.loop_indices:
+            expr = (expr,) * len(self.loop_indices)
+        return expr, True, False
 
     @process.register(ufl.classes.Zero)
     def _(self, zero) -> numbers.Number:
-        return 0, True, False
+        expr = 0
+        if self.loop_indices:
+            expr = (expr,) * len(self.loop_indices)
+        return expr, True, False
 
     @process.register
     @DAGTraverser.postorder
@@ -110,13 +183,18 @@ class AssignExprBuilder(DAGTraverser):
 
         is_scalar = a_is_scalar and b_is_scalar
         is_vector = a_is_vector or b_is_vector
-        return a_expr * b_expr, is_scalar, is_vector
+
+        if self.loop_indices:
+            expr = tuple(a_expr_ * b_expr_ for a_expr_, b_expr_ in zip(a_expr, b_expr, strict=True))
+        else:
+            expr = a_expr * b_expr
+        return expr, is_scalar, is_vector
 
     @process.register(ufl.classes.Division)
     @DAGTraverser.postorder
     def _(self, o, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_loop_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_loop_expr, b_is_scalar, b_is_vector = b
 
         if b_is_vector:
             raise ValueError("Expressions involving division by a vector-valued subexpression "
@@ -124,17 +202,27 @@ class AssignExprBuilder(DAGTraverser):
 
         is_scalar = a_is_scalar and b_is_scalar
         is_vector = a_is_vector
-        return a_expr / b_expr, is_scalar, is_vector
+
+        if self.loop_indices:
+            expr = tuple(a_expr_ / b_expr_ for a_expr_, b_expr_ in zip(a_expr, b_expr, strict=True))
+        else:
+            expr = a_expr / b_expr
+        return expr, is_scalar, is_vector
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Sum, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_loop_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_loop_expr, b_is_scalar, b_is_vector = b
 
         is_scalar = a_is_scalar and b_is_scalar
         is_vector = a_is_vector or b_is_vector
-        return a_expr + b_expr, is_scalar, is_vector
+
+        if self.loop_indices:
+            expr = tuple(a_expr_ + b_expr_ for a_expr_, b_expr_ in zip(a_expr, b_expr, strict=True))
+        else:
+            expr = a_expr + b_expr
+        return expr, is_scalar, is_vector
 
     @process.register
     @DAGTraverser.postorder
@@ -199,9 +287,10 @@ class Assigner:
         self._subset = parse_subset(subset)
         self._mode = mode
 
-        expr_builder = AssignExprBuilder(assignee.function_space())
+        self._assign_type = _get_assign_type(assignee.function_space(), expression)
+        expr_builder = AssignExprBuilder(assignee.function_space(), self._assign_type)
+        self._expr_builder = expr_builder
         self._assign_expr, self._expr_is_scalar, self._expr_is_vector = expr_builder(expression)
-        self._array_assign_allowed = expr_builder.array_assign_allowed
 
     @PETSc.Log.EventDecorator()
     def assign(self, allow_missing_dofs=False):
@@ -220,7 +309,97 @@ class Assigner:
                 "Use Function.assign instead."
             )
 
-        array_assign_allowed = self._array_assign_allowed and self._subset is Ellipsis
+        if self._assign_type == "loop":
+            if self._subset is not Ellipsis:
+                raise NotImplementedError("not all points")
+            if self._mode != AssignmentMode.STANDARD:
+                raise NotImplementedError
+
+            assignee_buffer = self._assignee.dat.buffer
+            orig_data = assignee_buffer._host_data.copy()
+
+            fmin = np.finfo(assignee_buffer.dtype).min
+            assignee_buffer._host_data[...] = fmin
+
+            for loop_index, expr in zip(self._expr_builder.loop_indices, self._assign_expr, strict=True):
+                # Convert things from dats into dat expressions. This gives us more
+                # flexibility to build the loops that we want.
+                axis_tree = self._assignee.dat[loop_index].axes
+                layouts = idict({
+                    leaf_path: axis_tree.subst_layouts()[leaf_path]
+                    for leaf_path in axis_tree.leaf_paths
+                })
+                # assignee_expr = op3.expr.NonlinearDatBufferExpression(self._assignee.dat.buffer, layouts)
+                assignee_expr = op3.expr.LinearDatBufferExpression(self._assignee.dat.buffer, utils.just_one(layouts.values()))
+                shape = op3.axis_tree.merge_axis_trees([
+                    axis_tree,
+                    op3.expr.visitors.get_shape(expr)[0]
+                ])
+
+                # lets assume linear shape for now
+                if not shape.is_linear:
+                    raise NotImplementedError
+                # for leaf_path in shape.leaf_paths:
+                #     linear_shape = shape.linearize(leaf_path)
+                #     shape_index = linear_shape.iter()
+                #
+                #     loop_var_replace_map = {
+                #         axis.label: op3.expr.LoopIndexVar(shape_index, axis)
+                #         for axis in linear_shape.axes
+                #     }
+                #
+                #     # linear_assignee_expr = op3.replace_terminals(
+                #     #     assignee_expr.linearize(leaf_path, allow_partial=True), loop_var_replace_map
+                #     # )
+                #     # linear_expr = op3.replace_terminals(
+                #     #     expr.linearize(leaf_path, allow_partial=True), loop_var_replace_map
+                #     # )
+                #
+                #     op3.loop(
+                #         loop_index,
+                #         op3.loop(
+                #             shape_index,
+                #             # linear_assignee_expr.assign(linear_expr),
+                #             assignee_expr.assign(expr),
+                #             ),
+                #         eager=True,
+                #     )
+
+                shape_index = shape.iter()
+
+                loop_var_replace_map = {
+                    axis.label: op3.expr.LoopIndexVar(shape_index, axis)
+                    for axis in shape.axes
+                }
+
+                linear_assignee_expr = op3.replace_terminals(
+                    assignee_expr, loop_var_replace_map
+                )
+                linear_expr = op3.replace_terminals(
+                    expr, loop_var_replace_map
+                )
+                # import pyop3.debug
+                # pyop3.debug.enable_conditional_breakpoints()
+                op3.loop(
+                    loop_index,
+                    op3.loop(
+                        shape_index,
+                        linear_assignee_expr.assign(linear_expr),
+                        ),
+                    eager=True,
+                    # FIXME: I think setting this will set assign values to -1, need an option
+                    # to avoid the assignment (mask_negatives)?
+                    compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
+                )
+
+            assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
+
+            unchanged_idxs = np.where(np.isclose(assignee_buffer._host_data, fmin))
+            assignee_buffer._host_data[unchanged_idxs] = orig_data[unchanged_idxs]
+
+            return
+
+        # array_assign_allowed = self._array_assign_allowed and self._subset is Ellipsis
 
         match self._mode:
             case AssignmentMode.STANDARD:
@@ -239,7 +418,8 @@ class Assigner:
                 raise NotImplementedError
 
         assignee = self._assignee.dat[self._subset]
-        if array_assign_allowed:
+        # if array_assign_allowed:
+        if True:
             # TODO: This is technically less efficient than the compile strategy
             # for repeated use. This should be exposed to the user.
             assignee.assign(expr, eager=True, eager_strategy="array")
@@ -247,88 +427,6 @@ class Assigner:
             # TODO: cache the expression for faster reuse of the assembler
             assignee.assign(expr, eager=True, eager_strategy="compile")
 
-    # def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
-    #     data_ro = operator.attrgetter("data_ro")
-    #     # subset_indices = Ellipsis if subset is None else indices(subset)
-    #
-    #     # def source_indices(f):
-    #     #     target_space = lhs_func.function_space()
-    #     #     target_map = target_space.cell_node_map()
-    #     #     source_map = f.function_space().cell_node_map()
-    #     #     if source_map is target_map:
-    #     #         # Source and target spaces have the same DoF ordering.
-    #     #         return subset_indices
-    #     #     else:
-    #     #         # Permute source indices into the target ordering.
-    #     #         size = target_space.dof_dset.total_size
-    #     #         perm = np.empty((size,), dtype=source_map.values.dtype)
-    #     #         np.put(perm, values(target_map), values(source_map))
-    #     #         perm = perm[:target_space.axes.owned.local_size]
-    #     #         return perm[subset_indices]
-    #
-    #     func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
-    #     rvalue = self._compute_rvalue(func_data)
-    #     self._assign_single_dat(lhs_func.dat, subset, rvalue)
-    #
-    # def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
-    #     target_mesh = extract_unique_domain(lhs_func)
-    #     target_V = lhs_func.function_space()
-    #     source_V, = set(f.function_space() for f in funcs)
-    #     raise NotImplementedError("entity node map is the wrong choice")
-    #     composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
-    #     indices_active = composed_map.indices_active_with_halo
-    #     indices_active_all = indices_active.all()
-    #     indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
-    #     if subset is None:
-    #         if not indices_active_all and not allow_missing_dofs:
-    #             raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-    #         subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
-    #         subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
-    #     else:
-    #         subset_indices_target, perm, _ = np.intersect1d(
-    #             target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
-    #             subset.indices,
-    #             return_indices=True,
-    #         )
-    #         if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
-    #             raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-    #         subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
-    #     # Use buffer array to make sure that owned DoFs are updated upon assigning.
-    #     # The following example illustrates the issue that a naive assignment would cause.
-    #     #
-    #     # Consider the following target/source meshes distributed over 2 processes
-    #     # with no partition overlap:
-    #     #
-    #     #                0----0----0----1----1
-    #     #                |         |         |
-    #     # target         0    0    0    1    1
-    #     # (parent mesh)  |         |         |
-    #     #                0----0----0----1----1  (owning ranks are shown)
-    #     #
-    #     #                          1----1----1
-    #     #                          |         |
-    #     # source                   1    1    1
-    #     # (submesh)                |         |
-    #     #                          1----1----1  (owning ranks are shown)
-    #     #
-    #     # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
-    #     # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
-    #     # only be updated on rank 1, which sees those DoFs as ghost, and those
-    #     # updated values on rank 1 would be overridden by the old values on rank 0
-    #     # upon a halo exchange.
-    #     #
-    #     # TODO: Use work array for buffer?
-    #     buffer = type(lhs_func)(target_V)
-    #     finfo = np.finfo(lhs_func.dat.dtype)
-    #     buffer.dat._data[:] = finfo.max
-    #     func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
-    #     rvalue = self._compute_rvalue(func_data)
-    #     self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
-    #     # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
-    #     buffer.dat.local_to_global_begin(op2.MIN)
-    #     buffer.dat.local_to_global_end(op2.MIN)
-    #     indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
-    #     lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
 
 @functools.singledispatch
 def parse_subset(obj: Any) -> op3.Slice | EllipsisType:

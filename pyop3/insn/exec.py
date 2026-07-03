@@ -62,8 +62,11 @@ class CompilerParameters:
 
     # {{{ other options
 
-    check_negatives: bool = False
+    propagate_negatives: bool = False
     """Whether to propagate negative values in indirections."""
+
+    mask_array_accesses: bool = False
+    """Whether to check for and skip expressions like 'dat[-1]'."""
 
     # }}}
 
@@ -488,6 +491,8 @@ class CompiledCodeExecutor:
         """
         # if "expression" in str(self):
         #     breakpoint()
+        import pyop3.debug
+        pyop3.debug.maybe_breakpoint()
 
         if not kwargs:  # shortcut for the most common case
             buffers = self._default_buffers

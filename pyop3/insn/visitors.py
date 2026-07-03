@@ -78,9 +78,10 @@ class LoopContextExpander(InstructionTransformer):
 
             restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context_))
 
-            # skip empty loops
-            if restricted_loop_index.iterset.size == 0:
-                continue
+            # (not always safe to do)
+            # # skip empty loops
+            # if restricted_loop_index.iterset.size == 0:
+            #     continue
 
             loop_context_acc_ = loop_context | loop_context_
             expanded_loop = type(loop)(

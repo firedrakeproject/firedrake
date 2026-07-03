@@ -47,6 +47,10 @@ class ExpressionUnchangedException(Pyop3Exception):
 class IncompatibleAxisTargetException(Pyop3Exception):
     pass
 
+
+class NonUnitAxisException(Pyop3Exception):
+    pass
+
 # }}}
 
 # {{{ indexing

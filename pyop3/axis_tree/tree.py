@@ -2260,7 +2260,9 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
                     match_found = True
                     matching_target[source_path_] = candidate_targets
                     matching_target |= submatching_target
-            else:  # at a leaf
+            else:
+                # At a leaf of the source axes, check if we correctly target
+                # a leaf of the target axes
                 if target_path_ in target_axes.leaf_paths:
                     assert not match_found
                     match_found = True
@@ -2582,21 +2584,29 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
         return just_one(self.context_map.values())
 
 
-def merge_axis_trees(trees: Iterable[AxisTree]) -> AxisTree:
+def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> AxisTree:
     if not trees:
         raise ValueError
 
     current_tree, *remaining_trees = trees
     while remaining_trees:
         next_tree, *remaining_trees = remaining_trees
-        current_tree = merge_trees2(current_tree, next_tree)
+        current_tree = merge_trees2(current_tree, next_tree, only_unit=only_unit)
     return current_tree
 
 
 # blast, this doesn't work...
 # @cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
-def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
+def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -> AxisTree:
     """Merge two axis trees together.
+
+    Parameters
+    ----------
+
+    only_unit
+        Whether or not the second tree is allowed to introduce new axes that
+        are not 'unit' axes. This option is useful for when one is happy to
+        have extra axes that do not materially affect the output shape.
 
     If the second tree has no common axes (share a lable) with the first then it is
     appended to every leaf of the first tree. Any common axes are skipped.
@@ -2619,7 +2629,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
             # traverse tree 2 and build a per-leaf subtree as appropriate. These
             # are then all stuck together in the final step.
 
-            subtrees = _merge_trees(tree1, tree2)
+            subtrees = _merge_trees(tree1, tree2, only_unit=only_unit)
 
             merged = AxisTree(tree1.node_map)
             for leaf, subtree in subtrees:
@@ -2632,23 +2642,23 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     return merged
 
 
-def _merge_trees(tree1, tree2, *, path1=idict(), parents=idict()):
+def _merge_trees(tree1, tree2, *, only_unit: bool, path1=idict(), parents=idict()):
     axis1 = tree1.node_map[path1]
     subtrees = []
     for component1 in axis1.components:
         path1_ = path1 | {axis1.label: component1.label}
         parents_ = parents | {axis1: component1}
         if tree1.node_map[path1_]:
-            subtrees_ = _merge_trees(tree1, tree2, path1=path1_, parents=parents_)
+            subtrees_ = _merge_trees(tree1, tree2, only_unit=only_unit, path1=path1_, parents=parents_)
             subtrees.extend(subtrees_)
         else:
             # at the bottom, now visit tree2 and try to add bits
-            subtree = _build_distinct_subtree(tree2, parents_)
+            subtree = _build_distinct_subtree(tree2, parents_, only_unit=only_unit)
             subtrees.append((path1_, subtree))
     return tuple(subtrees)
 
 
-def _build_distinct_subtree(axes, parents, *, path=idict()):
+def _build_distinct_subtree(axes, parents, *, only_unit: bool, path=idict()):
     axis = axes.node_map[path]
 
     if axis in parents:
@@ -2657,18 +2667,20 @@ def _build_distinct_subtree(axes, parents, *, path=idict()):
         component = parents[axis]
         path_ = path | {axis.label: component.label}
         if axes.node_map[path_]:
-            return _build_distinct_subtree(axes, parents, path=path_)
+            return _build_distinct_subtree(axes, parents, only_unit=only_unit, path=path_)
         else:
             return AxisTree()
     else:
+        if only_unit and (len(axis.components) > 1 or axis.component.size != 1):
+            raise pyop3.exceptions.NonUnitAxisException("Expected a unit axis")
         # Axis has not yet been visited, include in the new tree
         # and traverse all subaxes
         subtree = AxisTree(axis)
         for component in axis.components:
             path_ = path | {axis.label: component.label}
             if axes.node_map[path_]:
-                subtree_ = _build_distinct_subtree(axes, parents, path=path_)
-                subtree = subtree.add_subtree(path_, subtree_)
+                subtree_ = _build_distinct_subtree(axes, parents, only_unit=only_unit, path=path_)
+                subtree = subtree.add_subtree({axis.label: component.label}, subtree_)
         return subtree
 
 

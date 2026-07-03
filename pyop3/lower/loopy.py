@@ -73,8 +73,9 @@ class CodegenContext(abc.ABC):
 
 
 class LoopyCodegenContext(CodegenContext):
-    def __init__(self, *, check_negatives):
-        self.check_negatives = check_negatives
+    def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+        self.propagate_negatives = propagate_negatives
+        self.mask_array_accesses = mask_array_accesses
 
         self._domains = []
         self._instructions = []
@@ -443,7 +444,10 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     else:
         cs_expr = (insn,)
 
-    context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
+    context = LoopyCodegenContext(
+        propagate_negatives=compiler_parameters.propagate_negatives,
+        mask_array_accesses=compiler_parameters.mask_array_accesses,
+    )
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -917,11 +921,32 @@ def add_leaf_assignment(
     loop_indices,
 ):
     intent = assignment_type_as_intent(assignment.assignment_type)
-    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths)
-    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    lexpr = lower_expr(
+        assignment.assignee,
+        iname_replace_maps,
+        loop_indices,
+        codegen_context,
+        intent=intent,
+        paths=paths,
+    )
+    rexpr = lower_expr(
+        assignment.expression,
+        iname_replace_maps,
+        loop_indices,
+        codegen_context,
+        paths=paths,
+    )
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
+
+    if codegen_context.mask_array_accesses:
+        # a[off_a] = off_b < 0 ? a[off_a] : b[off_b]
+        offset_expr = _min_subscript_offset(rexpr)
+        # if there are no subcripts then the mask is pointless
+        if offset_expr is not None:
+            cond = pym.primitives.Comparison(offset_expr, "<", 0)
+            rexpr = pym.primitives.If(cond, lexpr, rexpr)
 
     codegen_context.add_assignment(lexpr, rexpr)
 
@@ -1081,7 +1106,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     indices = maybe_multiindex(buffer, offset_expr, context)
 
     subscript = pym.subscript(pym.var(name_in_kernel), indices)
-    if context.check_negatives and intent == Intent.READ:
+    if context.propagate_negatives and intent == Intent.READ:
         idx = indices[-1]  # only the final index has meaning
         is_negative = pym.primitives.Comparison(idx, "<", 0)
         return pym.primitives.If(is_negative, -1, subscript)
@@ -1112,6 +1137,40 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
 @_lower_expr.register(pyop3.expr.Conditional)
 def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
+
+
+class _MinSubscriptOffsetMapper(pym.mapper.IdentityMapper):
+
+    def __init__(self):
+        self.subscript_found = False
+        super().__init__()
+
+    def map_sum(self, expr):
+        assert len(expr.children) == 2
+        a, b = map(self.rec, expr.children)
+        return pym.primitives.If(pym.primitives.Comparison(a, "<", b), a, b)
+
+    def map_subscript(self, expr):
+        self.subscript_found = True
+        # do not recurse
+        return utils.just_one(expr.index_tuple)
+
+
+def _min_subscript_offset(expr: pym.ExpressionNode) -> pym.ExpressionNode | None:
+    """Return an expression for the minimum subscript offset in an expression.
+
+    This is important because we sometimes need to be able to check if we are
+    indexing with negative values (and hence might want to mask the access).
+
+    If no subscripts are found then `None` is returned.
+
+    """
+    mapper = _MinSubscriptOffsetMapper()
+    mapped_expr = mapper(expr)
+    if mapper.subscript_found:
+        return mapped_expr
+    else:
+        return None
 
 
 @functools.singledispatch

@@ -13,6 +13,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.axis_tree
 import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
@@ -442,7 +443,7 @@ def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AbstractNonUnitAxisTree]) -> 
             break
     else:
         raise pyop3.exceptions.IncompatibleAxisTargetException("No suitable axis tree candidates found")
-    # wow, cant believe that worked...
+
     if axis_tree.is_linear:
         layout = subst_layouts[axis_tree.leaf_path]
         expr = pyop3.expr.LinearDatBufferExpression(dat.buffer, layout)
@@ -922,7 +923,7 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
                 expr,
                 eager=True,
                 eager_strategy="compile",
-                compiler_parameters={"check_negatives": True},
+                compiler_parameters={"propagate_negatives": True},
             )
         else:
             to_skip.add(leaf_path)
@@ -981,7 +982,7 @@ def _(buffer_expr: pyop3.expr.BufferExpression) -> numbers.Number:
 
 
 # TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
-# NOTE: unit axis trees arent axis trees, need another type
+# TODO: What is the appropriate return type? It's not just plain axis trees
 @functools.singledispatch
 def get_shape(obj: Any, /) -> tuple[AxisTree, ...]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -1004,12 +1005,26 @@ def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
 
 @get_shape.register(pyop3.expr.Dat)
 def _(dat: pyop3.expr.Dat, /) -> tuple[AxisTree, ...]:
-    return (dat.axes,)
+    # I think that having axis forests here is just going to cause a lot of confusion.
+    # To start with we assume that the final entry in the axis forest is the one that
+    # we want. This is likely to cause a mismatch at some point and we should really
+    # try to select the tree that matches some outer context/shape.
+    if isinstance(dat.axes, pyop3.axis_tree.AxisForest):
+        return (dat.axes.trees[-1],)
+    else:
+        return (dat.axes,)
 
 
 @get_shape.register(pyop3.expr.Mat)
 def _(mat: pyop3.expr.Mat, /) -> tuple[AxisTree, ...]:
-    return (mat.row_axes, mat.column_axes)
+    # same process as dats
+    row_axes = mat.row_axes
+    if isinstance(row_axes, pyop3.axis_tree.AxisForest):
+        row_axes = row_axes.trees[-1]
+    column_axes = mat.column_axes
+    if isinstance(column_axes, pyop3.axis_tree.AxisForest):
+        column_axes = column_axes.trees[-1]
+    return (row_axes, column_axes)
 
 
 @get_shape.register(pyop3.expr.CompositeDat)
@@ -1020,6 +1035,15 @@ def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree, ...]:
 @get_shape.register(pyop3.expr.LinearDatBufferExpression)
 def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
     return get_shape(dat_expr.layout)
+
+
+@get_shape.register
+def _(dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
+    return (
+        pyop3.axis_tree.merge_axis_trees(
+            [get_shape(l)[0] for l in dat_expr.layouts.values()]
+        ),
+    )
 
 
 @get_shape.register(numbers.Number)

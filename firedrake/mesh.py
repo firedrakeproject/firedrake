@@ -729,6 +729,14 @@ class AbstractMeshTopology(abc.ABC):
         return self.flat_points[self._strata_slice]
 
     @cached_property
+    def _old_to_new_point_numbering_section(self) -> PETSc.Section:
+        return dmcommon.entity_numbering(
+            PETSc.IS().createStride(self.num_points, comm=MPI.COMM_SELF),
+            self._new_to_old_point_renumbering,
+            self.comm
+        )
+
+    @cached_property
     def _old_to_new_cell_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(self.dimension)
 
@@ -781,8 +789,6 @@ class AbstractMeshTopology(abc.ABC):
     def _old_to_new_vertex_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(0)
 
-    # IMPORTANT: This used to return a mapping from point numbering to entity numbering
-    # but now returns entity numbering to entity numbering
     @cached_method()
     def _plex_to_entity_numbering(self, dim):
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
@@ -1647,10 +1653,12 @@ class AbstractMeshTopology(abc.ABC):
         maps = []
         integral_type = other_integral_type
         subset_points = other_subset_points
+        # child -> parent
         aa = other.submesh_ancestors
         for a in aa[:aa.index(common)]:
             m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
             maps.append(m)
+        # parent -> child
         bb = self.submesh_ancestors
         for b in reversed(bb[:bb.index(common)]):
             m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
@@ -2122,6 +2130,11 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     @with_self_heavy_cache
+    def edges(self):
+        return self.points[self.edge_label]
+
+    @cached_property
+    @with_self_heavy_cache
     def vertices(self):
         return self.points[self.vertex_label]
 
@@ -2247,9 +2260,19 @@ class MeshTopology(AbstractMeshTopology):
 
     # submesh
 
-    def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, from_numbering, to_numbering, child_parent_map):
+    def _submesh_make_entity_entity_map(
+        self,
+        from_set: op3.Axis,
+        to_set: op3.Axis,
+        from_points: np.ndarray,
+        to_points: np.ndarray,
+        from_numbering: PETSc.Section,
+        to_numbering: PETSc.Section,
+        child_parent_map: bool,
+    ):
         assert from_set.local_size == len(from_points)
         assert to_set.local_size == len(to_points)
+
         # this always maps from child plex point to parent plex point
         if child_parent_map:
             # this is a dense map from the child points to the parent points
@@ -2264,16 +2287,16 @@ class MeshTopology(AbstractMeshTopology):
             from_numbering,
             to_numbering,
         )
-        map_name = f"{self.name}_submesh_map_{from_set.root.label}_{to_set.root.label}"
-        to_label = to_set.as_axis().component.label
+        map_name = f"{self.name}_submesh_map_{from_set.label}_{to_set.label}"
+        to_label = to_set.component.label
         map_axes = op3.AxisTree.from_iterable([
-            from_set.as_axis(), op3.Axis([op3.AxisComponent(1, to_label)], map_name)
+            from_set, op3.Axis([op3.AxisComponent(1, to_label)], map_name)
         ])
         map_dat = op3.Dat(map_axes, data=values.flatten())
         return op3.Map(
             {
-                from_set.leaf_path: [[
-                    op3.TabulatedMapComponent(to_set.as_axis().label, to_label, map_dat, label=to_label),
+                idict({from_set.label: from_set.component.label}): [[
+                    op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label),
                 ]],
             },
             name=map_name,
@@ -2282,8 +2305,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_child_cell_parent_cell_map(self):
         return self._submesh_make_entity_entity_map(
-            self.cells,
-            self.submesh_parent.cells,
+            self.cells.as_axis(),
+            self.submesh_parent.cells.as_axis(),
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
             self._old_to_new_cell_numbering,
@@ -2292,10 +2315,46 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
+    def submesh_child_facet_parent_facet_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.facets.as_axis(),
+            self.submesh_parent.facets.as_axis(),
+            np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
+            np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
+            self._old_to_new_facet_numbering,
+            self.submesh_parent._old_to_new_facet_numbering,
+            True,
+        )
+
+    @cached_property
+    def submesh_child_edge_parent_edge_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.edges.as_axis(),
+            self.submesh_parent.edges.as_axis(),
+            np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
+            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
+            self._plex_to_entity_numbering(1),
+            self.submesh_parent._plex_to_entity_numbering(1),
+            True,
+        )
+
+    @cached_property
+    def submesh_child_vertex_parent_vertex_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.vertices.as_axis(),
+            self.submesh_parent.vertices.as_axis(),
+            np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
+            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
+            self._old_to_new_vertex_numbering,
+            self.submesh_parent._old_to_new_vertex_numbering,
+            True,
+        )
+
+    @cached_property
     def submesh_child_exterior_facet_parent_exterior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.exterior_facets,
-            self.submesh_parent.exterior_facets,
+            self.exterior_facets.as_axis(),
+            self.submesh_parent.exterior_facets.as_axis(),
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._exterior_facet_plex_indices.indices,
             self._old_to_new_exterior_facet_numbering,
@@ -2306,8 +2365,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.exterior_facets,
-            self.submesh_parent.interior_facets,
+            self.exterior_facets.as_axis(),
+            self.submesh_parent.interior_facets.as_axis(),
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._old_to_new_exterior_facet_numbering,
@@ -2322,8 +2381,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.interior_facets,
-            self.submesh_parent.interior_facets,
+            self.interior_facets.as_axis(),
+            self.submesh_parent.interior_facets.as_axis(),
             self._interior_facet_plex_indices.indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._old_to_new_interior_facet_numbering,
@@ -2334,8 +2393,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_child_cell_parent_interior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.cells,
-            self.submesh_parent.interior_facets,
+            self.cells.as_axis(),
+            self.submesh_parent.interior_facets.as_axis(),
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._old_to_new_cell_numbering,
@@ -2346,8 +2405,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_child_cell_parent_exterior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.cells,
-            self.submesh_parent.exterior_facets,
+            self.cells.as_axis(),
+            self.submesh_parent.exterior_facets.as_axis(),
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._exterior_facet_plex_indices.indices,
             self._old_to_new_cell_numbering,
@@ -2356,10 +2415,29 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
+    def submesh_child_point_parent_point_map(self):
+        c = lambda: self.submesh_child_cell_parent_cell_map
+        f = lambda: self.submesh_child_facet_parent_facet_map
+        e = lambda: self.submesh_child_edge_parent_edge_map
+        v = lambda: self.submesh_child_vertex_parent_vertex_map
+        match self.dimension:
+            case 0:
+                maps = [c]
+            case 1:
+                maps = [c, v]
+            case 2:
+                maps = [c, e, v]
+            case 3:
+                maps = [c, f, e, v]
+
+        connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
+        return op3.Map(connectivity, name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point")
+
+    @cached_property
     def submesh_parent_cell_child_cell_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.cells,
-            self.cells,
+            self.submesh_parent.cells.as_axis(),
+            self.cells.as_axis(),
             PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._old_to_new_cell_numbering,
@@ -2368,10 +2446,46 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
+    def submesh_parent_facet_child_facet_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.facets.as_axis(),
+            self.facets.as_axis(),
+            np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
+            np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
+            self.submesh_parent._old_to_new_facet_numbering,
+            self._old_to_new_facet_numbering,
+            False,
+        )
+
+    @cached_property
+    def submesh_parent_edge_child_edge_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.edges.as_axis(),
+            self.edges.as_axis(),
+            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
+            np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
+            self.submesh_parent._plex_to_entity_numbering(1),
+            self._plex_to_entity_numbering(1),
+            False,
+        )
+
+    @cached_property
+    def submesh_parent_vertex_child_vertex_map(self):
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.vertices.as_axis(),
+            self.vertices.as_axis(),
+            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
+            np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
+            self.submesh_parent._old_to_new_vertex_numbering,
+            self._old_to_new_vertex_numbering,
+            False,
+        )
+
+    @cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.exterior_facets,
-            self.exterior_facets,
+            self.submesh_parent.exterior_facets.as_axis(),
+            self.exterior_facets.as_axis(),
             self.submesh_parent._exterior_facet_plex_indices.indices,
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._old_to_new_exterior_facet_numbering,
@@ -2386,8 +2500,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets,
-            self.exterior_facets,
+            self.submesh_parent.interior_facets.as_axis(),
+            self.exterior_facets.as_axis(),
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._old_to_new_interior_facet_numbering,
@@ -2398,8 +2512,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets,
-            self.interior_facets,
+            self.submesh_parent.interior_facets.as_axis(),
+            self.interior_facets.as_axis(),
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._interior_facet_plex_indices.indices,
             self.submesh_parent._old_to_new_interior_facet_numbering,
@@ -2410,8 +2524,8 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_parent_exterior_facet_child_cell_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.exterior_facets,
-            self.cells,
+            self.submesh_parent.exterior_facets.as_axis(),
+            self.cells.as_axis(),
             self.submesh_parent._exterior_facet_plex_indices.indices,
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._old_to_new_exterior_facet_numbering,
@@ -2422,14 +2536,34 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def submesh_parent_interior_facet_child_cell_map(self):
         return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets,
-            self.cells,
+            self.submesh_parent.interior_facets.as_axis(),
+            self.cells.as_axis(),
             self.submesh_parent._interior_facet_plex_indices.indices,
             PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._old_to_new_interior_facet_numbering,
             self._old_to_new_cell_numbering,
             False,
         )
+
+    @cached_property
+    def submesh_parent_point_child_point_map(self):
+        c = lambda: self.submesh_parent_cell_child_cell_map
+        f = lambda: self.submesh_parent_facet_child_facet_map
+        e = lambda: self.submesh_parent_edge_child_edge_map
+        v = lambda: self.submesh_parent_vertex_child_vertex_map
+        match self.dimension:
+            case 0:
+                maps = [c]
+            case 1:
+                maps = [c, v]
+            case 2:
+                maps = [c, e, v]
+            case 3:
+                maps = [c, f, e, v]
+
+        connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
+        return op3.Map(connectivity, name=f"{self.submesh_parent.name}_parent_{self.name}_child_map_point_point")
+
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.

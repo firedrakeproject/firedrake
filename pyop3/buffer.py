@@ -542,19 +542,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @not_in_flight
     @on_host
-    def reduce_leaves_to_roots(self):
+    def reduce_leaves_to_roots(self) -> None:
         self.reduce_leaves_to_roots_begin()
         self.reduce_leaves_to_roots_end()
 
     @not_in_flight
+    @on_host
+    def _reduce_leaves_to_roots(self, op: MPI.Op) -> None:
+        self._reduce_leaves_to_roots_begin(op)
+        self._reduce_leaves_to_roots_end(op)
+
+    @not_in_flight
     def reduce_leaves_to_roots_begin(self):
-        curr_dev = get_current_device()
         if not self._roots_valid:
-            self.sf.reduce_begin(
-                self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction]
-            )
+            self._reduce_leaves_to_roots_begin(self._reduction_ops[self._pending_reduction])
             self._leaves_valid = False
         self._finalizer = self.reduce_leaves_to_roots_end
+
+    @not_in_flight
+    def _reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
+        self.sf.reduce_begin(self._lazy_data[get_current_device()], op)
 
     def reduce_leaves_to_roots_end(self):
         curr_dev = get_current_device()
@@ -567,9 +574,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._roots_valid:
-            self.sf.reduce_end(self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction])
+            self._reduce_leaves_to_roots_end(self._reduction_ops[self._pending_reduction])
         self._pending_reduction = None
         self._finalizer = None
+
+    def _reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
+        self.sf.reduce_end(self._lazy_data[get_current_device()], op)
 
     @not_in_flight
     @on_host
