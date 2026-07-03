@@ -92,6 +92,36 @@ def tm():
     return TransferManager()
 
 
+@pytest.mark.skipnetgen
+def test_refine_marked_elements_populates_cell_maps():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    mesh = Mesh(geo.GenerateMesh(maxh=0.5))
+    amh = AdaptiveMeshHierarchy(mesh)
+
+    M = FunctionSpace(mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[0] = 1
+
+    refined_mesh = mesh.refine_marked_elements(markers)
+    amh.add_mesh(refined_mesh)
+
+    coarse_to_fine = amh.coarse_to_fine_cells[0]
+    fine_to_coarse = amh.fine_to_coarse_cells[1]
+
+    assert coarse_to_fine.shape[0] == mesh.cell_set.size
+    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert (fine_to_coarse >= -1).all()
+    assert (fine_to_coarse >= 0).any()
+    assert (coarse_to_fine >= 0).any()
+    for coarse_cell, fine_cells in enumerate(coarse_to_fine):
+        fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
+        if fine_cells.size:
+            assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
+
+
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])

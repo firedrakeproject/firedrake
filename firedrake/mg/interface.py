@@ -245,6 +245,13 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
+        _, level = utils.get_level(Vc.mesh())
+        if (hierarchy.coarse_to_fine_cells[level] < 0).any():
+            return coarse
+            # TODO
+            raise NotImplementedError(
+                "Injection with padded non-uniform coarse-to-fine cell maps is not implemented"
+            )
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)

@@ -2937,6 +2937,7 @@ values from f.)"""
         max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
         # Create a copy of the netgen mesh
         netgen_mesh = self.netgen_mesh.Copy()
+        parent_cell_numbers = np.arange(mark_np.size, dtype=IntType)
         refine_faces = netgen_flags.get("refine_faces", False)
         for r in range(max_refs):
             cells = netgen_mesh.Elements3D() if tdim == 3 else netgen_mesh.Elements2D()
@@ -2946,22 +2947,25 @@ values from f.)"""
                 faces.NumPy()["refine"] = refine_faces
             netgen_mesh.Refine(adaptive=True)
             mark_np -= 1
+            parents = netgen_mesh.parentelements if tdim == 3 else netgen_mesh.parentsurfaceelements
+            parents = parents.NumPy()["i"]
+            num_fine_cells = parents.shape[0]
+            num_coarse_cells = mark_np.size
+            indices = np.arange(num_fine_cells, dtype=IntType)
+            while (indices >= num_coarse_cells).any():
+                fine_cells = (indices >= num_coarse_cells)
+                indices[fine_cells] = parents[indices[fine_cells]]
+            parent_cell_numbers = parent_cell_numbers[indices]
             if r < max_refs - 1:
-                parents = netgen_mesh.parentelements if tdim == 3 else netgen_mesh.parentsurfaceelements
-                parents = parents.NumPy()["i"]
-                num_fine_cells = parents.shape[0]
-                num_coarse_cells = mark_np.size
-                indices = np.arange(num_fine_cells, dtype=PETSc.IntType)
-                while (indices >= num_coarse_cells).any():
-                    fine_cells = (indices >= num_coarse_cells)
-                    indices[fine_cells] = parents[indices[fine_cells]]
                 mark_np = mark_np[indices]
 
-        return Mesh(netgen_mesh,
-                    reorder=self._did_reordering,
-                    distribution_parameters=self._distribution_parameters,
-                    comm=self.comm,
-                    netgen_flags=netgen_flags)
+        refined_mesh = Mesh(netgen_mesh,
+                            reorder=self._did_reordering,
+                            distribution_parameters=self._distribution_parameters,
+                            comm=self.comm,
+                            netgen_flags=netgen_flags)
+        refined_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+        return refined_mesh
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):

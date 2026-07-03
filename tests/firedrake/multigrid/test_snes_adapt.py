@@ -68,7 +68,6 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     mesh = Mesh(OCCGeometry(rect1 + rect2, dim=2).GenerateMesh(maxh=0.8))
     amh = AdaptiveMeshHierarchy(mesh)
-    atm = AdaptiveTransferManager()
 
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -132,7 +131,6 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     solver = LinearVariationalSolver(problem,
                                      solver_parameters=params,
                                      marking_callback=mark_cells)
-    solver.set_transfer_manager(atm)
     solver.solve()
 
     u_adapted = solver.get_adapted_solution()
