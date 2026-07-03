@@ -22,6 +22,7 @@ from mpi4py import MPI
 import pyop3.config
 import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
+from pyop3.collections import unique
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
@@ -205,14 +206,6 @@ def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
     for dict_ in dicts:
         merged.update(dict_)
     return immutabledict(merged)
-
-
-def unique(iterable) -> tuple[Any]:
-    unique_items = []
-    for item in iterable:
-        if item not in unique_items:
-            unique_items.append(item)
-    return tuple(unique_items)
 
 
 def has_unique_entries(iterable):

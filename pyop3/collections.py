@@ -6,7 +6,6 @@ import pprint
 import numpy as np
 from immutabledict import immutabledict as idict
 
-from pyop3 import utils
 from pyop3.exceptions import ValueMismatchException
 
 
@@ -137,7 +136,7 @@ class OrderedFrozenSet(AbstractOrderedSet):
 
     def __init__(self, values: collections.abc.Sequence = (), /) -> None:
         assert is_ordered_sequence(values) or len(values) < 2
-        self._values = utils.unique(values)
+        self._values = unique(values)
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
@@ -173,3 +172,9 @@ def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
     return isinstance(obj, _ordered_sequence_types)
 
 
+def unique(iterable) -> tuple[Any]:
+    unique_items = []
+    for item in iterable:
+        if item not in unique_items:
+            unique_items.append(item)
+    return tuple(unique_items)

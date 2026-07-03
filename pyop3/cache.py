@@ -28,11 +28,10 @@ from typing import Any, Callable, Hashable
 
 from petsc4py import PETSc
 
+import pyop3.collections
 import pyop3.config
 from pyop3 import utils
-from pyop3.collections import AlwaysEmptyDict
 from pyop3.constants import _nothing
-from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
@@ -531,8 +530,8 @@ def parallel_cache(
                     LOGGER.debug(
                         f"{func.__qualname__} is heavy cached but no heavy cache has been set"
                     )
-                    caches = (AlwaysEmptyDict(),)
-                    cache_type = AlwaysEmptyDict
+                    caches = (pyop3.collections.AlwaysEmptyDict(),)
+                    cache_type = pyop3.collections.AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
                     def make_instrumented_cache():
@@ -700,8 +699,7 @@ class heavy_caches:
 
         # debugging
         if len(_alive_heavy_caches) > 100:
-            import pyop3.log
-            pyop3.log.LOGGER.warn(f"WARNING MANY ALIVE CACHES: {len(_alive_heavy_caches)}")
+            LOGGER.warn(f"WARNING MANY ALIVE CACHES: {len(_alive_heavy_caches)}")
 
         for obj in objs:
             _alive_heavy_caches.add(obj)
