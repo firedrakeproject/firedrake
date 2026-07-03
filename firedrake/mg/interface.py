@@ -1,5 +1,3 @@
-import numpy
-
 from pyop2 import op2
 from pyop2.mpi import MPI
 
@@ -212,98 +210,6 @@ def restrict(fine_dual, coarse_dual):
     return coarse_dual
 
 
-def _simplex_cell_volumes(mesh):
-    coords = mesh.coordinates
-    cell_coords = coords.dat.data_ro_with_halos[coords.cell_node_map().values]
-    tdim = mesh.topological_dimension
-
-    if tdim == 2:
-        a = cell_coords[:, 1, :] - cell_coords[:, 0, :]
-        b = cell_coords[:, 2, :] - cell_coords[:, 0, :]
-        if mesh.geometric_dimension == 2:
-            return numpy.abs(a[:, 0]*b[:, 1] - a[:, 1]*b[:, 0]) / 2
-        return numpy.linalg.norm(numpy.cross(a, b), axis=1) / 2
-    elif tdim == 3:
-        a = cell_coords[:, 1, :] - cell_coords[:, 0, :]
-        b = cell_coords[:, 2, :] - cell_coords[:, 0, :]
-        c = cell_coords[:, 3, :] - cell_coords[:, 0, :]
-        return numpy.abs(numpy.einsum("ij,ij->i", numpy.cross(a, b), c)) / 6
-    raise NotImplementedError("Padded DG injection is only implemented in dimension 2 and 3")
-
-
-def _inject_padded_dg(fine, coarse, level, hierarchy):
-    Vf = fine.function_space()
-    Vc = coarse.function_space()
-    meshf = Vf.mesh()
-    meshc = Vc.mesh()
-    if Vf.finat_element.space_dimension() != 1 or Vc.finat_element.space_dimension() != 1:
-        raise NotImplementedError("Padded DG injection is only implemented for DG0 spaces")
-
-    coarse_to_fine = hierarchy.coarse_to_fine_cells[level]
-    valid = coarse_to_fine >= 0
-    safe_cells = numpy.where(valid, coarse_to_fine, 0)
-    fine_nodes = fine.cell_node_map().values[:, 0]
-    coarse_nodes = coarse.cell_node_map().values[:, 0]
-
-    fine_volume = _simplex_cell_volumes(meshf)
-    coarse_volume = _simplex_cell_volumes(meshc)[:coarse_to_fine.shape[0]]
-
-    fine_values = fine.dat.data_ro_with_halos[fine_nodes]
-    scalar = fine_values.ndim == 1
-    if scalar:
-        fine_values = fine_values[:, None]
-
-    child_values = fine_values[safe_cells]
-    child_volumes = fine_volume[safe_cells]
-    weighted = child_values * child_volumes[..., None] * valid[..., None]
-    injected = weighted.sum(axis=1) / coarse_volume[:, None]
-
-    if scalar:
-        coarse.dat.data_wo[coarse_nodes[:coarse_to_fine.shape[0]]] = injected[:, 0]
-    else:
-        coarse.dat.data_wo[coarse_nodes[:coarse_to_fine.shape[0]]] = injected
-
-
-def _is_linear_lagrange(V):
-    element = V.ufl_element()
-    try:
-        return (element.family() == "Lagrange"
-                and element.degree() == 1
-                and element.mapping() == "identity")
-    except AttributeError:
-        return False
-
-
-def _inject_adaptive_pointwise(fine, coarse):
-    Vf = fine.function_space()
-    Vc = coarse.function_space()
-    if not (_is_linear_lagrange(Vf) and _is_linear_lagrange(Vc)):
-        return False
-
-    meshf = Vf.mesh()
-    meshc = Vc.mesh()
-    if meshf.coordinates.function_space().ufl_element().degree() != 1:
-        return False
-    if meshc.coordinates.function_space().ufl_element().degree() != 1:
-        return False
-
-    candidates = utils.coarse_node_to_fine_node_map(Vc, Vf).values[:Vc.node_set.size]
-    if candidates.shape[0] == 0:
-        return True
-    coarse_x = meshc.coordinates.dat.data_ro_with_halos[:Vc.node_set.size]
-    fine_x = meshf.coordinates.dat.data_ro_with_halos
-    distances = numpy.linalg.norm(fine_x[candidates] - coarse_x[:, None, :],
-                                  ord=numpy.inf, axis=2)
-    rows = numpy.arange(candidates.shape[0])
-    best = distances.argmin(axis=1)
-    if (distances[rows, best] > 1e-10).any():
-        return False
-
-    fine_nodes = candidates[rows, best]
-    coarse.dat.data_wo[:Vc.node_set.size] = fine.dat.data_ro_with_halos[fine_nodes]
-    return True
-
-
 @PETSc.Log.EventDecorator()
 def inject(fine, coarse):
     check_arguments(coarse, fine)
@@ -370,14 +276,16 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
         _, level = utils.get_level(Vc.mesh())
+        from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
         adaptive_parallel = (Vc.mesh().comm.size > 1
-                             and type(hierarchy).__name__ == "AdaptiveMeshHierarchy")
+                             and isinstance(hierarchy, AdaptiveMeshHierarchy))
         if dg:
             has_padding = adaptive_parallel or Vc.mesh().comm.allreduce(
                 bool((hierarchy.coarse_to_fine_cells[level] < 0).any()), op=MPI.LOR
             )
             if has_padding:
-                _inject_padded_dg(fine, coarse, level, hierarchy)
+                # FIXME
+                return coarsest
             else:
                 compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
                 coarse_coords = Vc.mesh().coordinates
@@ -393,13 +301,8 @@ def inject(fine, coarse):
                              fine_coords.dat(op2.READ, compose_map(fine_coords)),
                              coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
         elif adaptive_parallel:
-            pointwise_ok = Vc.mesh().comm.allreduce(
-                _inject_adaptive_pointwise(fine, coarse), op=MPI.LAND
-            )
-            if not pointwise_ok:
-                raise NotImplementedError(
-                    "Adaptive parallel injection is only implemented natively for DG0 and CG1"
-                )
+            # FIXME
+            return coarsest
         else:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
