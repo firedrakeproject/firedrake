@@ -701,7 +701,7 @@ class heavy_caches:
         # debugging
         if len(_alive_heavy_caches) > 100:
             import pyop3.log
-            pyop3.log.warn("WARNING MANY ALIVE CACHES: ", len(_alive_heavy_caches))
+            pyop3.log.LOGGER.warn(f"WARNING MANY ALIVE CACHES: {len(_alive_heavy_caches)}")
 
         for obj in objs:
             _alive_heavy_caches.add(obj)
