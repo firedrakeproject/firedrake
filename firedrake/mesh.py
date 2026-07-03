@@ -6752,6 +6752,11 @@ def get_iteration_spec(
                 logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
                             "Did you choose the right label?")
 
+    # Finally drop ghost points
+    plex_indices = plex_indices.difference(
+        mesh.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
+    )
+
     # Use a weakref for the mesh here because otherwise we would store a
     # reference to the mesh in the cache and, since the lifetime of the cache
     # is tied to the mesh, things will never be cleaned up.
