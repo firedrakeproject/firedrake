@@ -740,6 +740,11 @@ class AbstractMeshTopology(abc.ABC):
     def _old_to_new_cell_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(self.dimension)
 
+    @property
+    @utils.deprecated("_old_to_new_cell_numbering")
+    def _cell_numbering(self):
+        return self._old_to_new_cell_numbering
+
     @cached_property
     def _old_to_new_cell_numbering_is(self) -> PETSc.IS:
         cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
