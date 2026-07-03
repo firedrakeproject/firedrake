@@ -87,6 +87,8 @@ class AssignExprBuilder(DAGTraverser):
         if assign_mode == "array":
             loop_indices = None
         else:
+            # TODO: I think we should be able to use 'flat_points' here and thus
+            # avoid the loop over strata
             points = function_space.mesh().points
             loop_indices = tuple(
                 points.linearize(path).iter()

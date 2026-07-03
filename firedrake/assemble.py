@@ -1417,6 +1417,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 if _is_real_space(test_subspace):
                     # The test space is the row space, so a Real test space means we have a single row
                     sub_mat_type_ = "rvec"
+                elif sub_mat_type == "is" and i != j:
+                    # Don't put MATIS on the off diagonal blocks (I don't know why)
+                    sub_mat_type_ = "baij"
                 else:
                     if _is_real_space(trial_subspace):
                         # The trial space is the column space, so a Real trial space means we have a single column
