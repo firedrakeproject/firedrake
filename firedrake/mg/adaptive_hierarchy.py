@@ -205,6 +205,9 @@ def _parent_owned_transfer_mesh(coarse_mesh, mesh, parent_cell_numbers):
         netgen_flags=mesh.netgen_flags,
         tolerance=mesh.tolerance,
     )
+    # The parent-owner partition is specific to this transfer mesh; do not
+    # reuse it if this mesh is later adaptively refined.
+    transfer_mesh._distribution_parameters = mesh._distribution_parameters
     transfer_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
     return transfer_mesh
 
