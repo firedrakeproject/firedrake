@@ -7,9 +7,8 @@ from firedrake.mesh import Mesh, MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
-from firedrake.halo import _get_mtype as get_mpi_type
 from firedrake.halo import MPI
-from firedrake.mg import HierarchyBase
+from firedrake.mg.mesh import HierarchyBase, RedistMesh
 from firedrake.mg.utils import set_level
 from firedrake.netgen import netgen_distribute
 from firedrake.utils import IntType
@@ -69,18 +68,31 @@ class AdaptiveMeshHierarchy(HierarchyBase):
                 parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
                 if parent_cell_numbers is not None:
                     mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+
             if parent_cell_numbers is not None:
+                # Redistribute the mesh back to parent distribution
+
+                # FIXME we should be able to build both meshes directly from the parent
+                # Right now we undo redistribution to get back the parent-aligned child
+                # We could simply obtain the parent-aligned child if we prevent redistribution
+                # The return value of `refine_marked_elements` should include `mesh.redist = RedistMesh(...)`.
                 transfer_mesh = _parent_owned_transfer_mesh(
                     self.meshes[-1], mesh, parent_cell_numbers
                 )
                 coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
                     self.meshes[-1], transfer_mesh, parent_cell_numbers
                 )
-                has_empty_rank = mesh.comm.allreduce(mesh.cell_set.size == 0,
-                                                     op=MPI.LOR)
-                if (self.redistribute and has_empty_rank
+
+                # Only redistribute when the parent distribution is poorly-balanced
+                num_cells = transfer_mesh.cell_set.size
+                min_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MIN)
+                max_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MAX)
+                needs_redist = max_cells > 1.15 * min_cells
+
+                if (self.redistribute and needs_redist
                         and transfer_mesh is not mesh):
                     mesh.redist = RedistMesh(transfer_mesh, mesh)
+                    # FIXME need to add missing mappings from RedistributedMeshHierarchy in AdaptiveMeshHierarchy
                 else:
                     mesh = transfer_mesh
 
@@ -237,45 +249,6 @@ def _netgen_parent_cell_numbers(coarse_mesh, fine_mesh):
             return None
         indices[refined] = parent_indices
     return indices
-
-
-class RedistMesh:
-    """Transfer data between a parent-owned mesh and its redistributed mesh."""
-
-    def __init__(self, orig, redist):
-        self.orig = orig
-        self.redist = redist
-
-    def _section_sf(self, root, leaf):
-        point_sf = self.redist.sfBC_orig
-        root_section = root.function_space().dm.getDefaultSection()
-        leaf_section = leaf.function_space().dm.getDefaultSection()
-        remote_offsets, _ = point_sf.distributeSection(root_section, leaf_section)
-        return point_sf.createSectionSF(root_section, remote_offsets, leaf_section)
-
-    def orig2redist(self, source, target):
-        section_sf = self._section_sf(source, target)
-        dtype, _ = get_mpi_type(source.dat)
-        section_sf.bcastBegin(dtype,
-                              source.dat.data_ro_with_halos,
-                              target.dat.data_wo_with_halos,
-                              MPI.REPLACE)
-        section_sf.bcastEnd(dtype,
-                            source.dat.data_ro_with_halos,
-                            target.dat.data_wo_with_halos,
-                            MPI.REPLACE)
-
-    def redist2orig(self, source, target):
-        section_sf = self._section_sf(target, source)
-        dtype, _ = get_mpi_type(source.dat)
-        section_sf.reduceBegin(dtype,
-                               source.dat.data_ro_with_halos,
-                               target.dat.data_wo_with_halos,
-                               MPI.REPLACE)
-        section_sf.reduceEnd(dtype,
-                             source.dat.data_ro_with_halos,
-                             target.dat.data_wo_with_halos,
-                             MPI.REPLACE)
 
 
 def _parent_owner_partition(coarse_mesh, parent_cell_numbers):

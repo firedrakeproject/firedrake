@@ -194,7 +194,7 @@ def MeshHierarchy(mesh, refinement_levels,
         has_empty_rank = mesh.comm.allreduce(mesh.cell_set.size == 0,
                                              op=MPI.LOR)
         if has_empty_rank:
-            return _redistributed_mesh_hierarchy(
+            return RedistributedMeshHierarchy(
                 mesh, refinement_levels, refinements_per_level, reorder,
                 parameters, before, after, mesh_builder,
             )
@@ -315,9 +315,9 @@ def _redistribute_dm(dm, parameters):
     return dm.distribute(overlap=overlap)
 
 
-def _redistributed_mesh_hierarchy(mesh, refinement_levels, refinements_per_level,
-                                  reorder, parameters, before, after,
-                                  mesh_builder):
+def RedistributedMeshHierarchy(mesh, refinement_levels, refinements_per_level,
+                               reorder, parameters, before, after,
+                               mesh_builder):
     meshes = [mesh]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
