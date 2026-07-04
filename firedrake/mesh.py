@@ -2900,7 +2900,7 @@ values from f.)"""
     def unique(self):
         return self
 
-    def refine_marked_elements(self, mark, netgen_flags=None):
+    def refine_marked_elements(self, mark, netgen_flags=None, redistribute=True):
         """Refine a mesh using a DG0 marking function.
 
         This method requires that the mesh has been constructed from a
@@ -2909,6 +2909,8 @@ values from f.)"""
         :arg mark: the marking function which is a Firedrake DG0 function
             with the number of refinements on each cell.
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
+        :arg redistribute: if true, redistribute the refined mesh when the
+            parent-owned child distribution is poorly balanced.
 
         It includes the option:
             - refine_faces, which is a boolean specifying if you want to refine faces.
@@ -2962,13 +2964,8 @@ values from f.)"""
             if r < max_refs - 1:
                 mark_np = mark_np[indices]
 
-        refined_mesh = Mesh(netgen_mesh,
-                            reorder=self._did_reordering,
-                            distribution_parameters=self._distribution_parameters,
-                            comm=self.comm,
-                            netgen_flags=netgen_flags)
-        refined_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
-        return refined_mesh
+        return _make_adaptive_refined_mesh(self, netgen_mesh, netgen_flags,
+                                           parent_cell_numbers, redistribute)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
@@ -3251,6 +3248,238 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
         # We can't do this in 0D so leave it undefined.
         vmesh.reference_coordinates = None
     return vmesh
+
+
+def _adaptive_netgen_cells(mesh):
+    tdim = mesh.topological_dimension
+    if tdim == 2:
+        return mesh.netgen_mesh.Elements2D()
+    elif tdim == 3:
+        return mesh.netgen_mesh.Elements3D()
+    raise NotImplementedError("Adaptive refinement is only implemented in dimension 2 and 3.")
+
+
+def _adaptive_netgen_cell_count(mesh):
+    return getattr(mesh, "_adaptive_netgen_num_cells", len(_adaptive_netgen_cells(mesh)))
+
+
+def _adaptive_netgen_cell_data(mesh, values):
+    from firedrake.functionspace import FunctionSpace
+    from firedrake.netgen import netgen_distribute
+
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    data = np.asarray(netgen_distribute(DG0, values), dtype=IntType)
+    cstart, cend = mesh.topology_dm.getHeightStratum(0)
+    cell_numbers = np.fromiter(
+        (mesh._cell_numbering.getOffset(cell) for cell in range(cstart, cend)),
+        dtype=IntType,
+        count=cend - cstart,
+    )
+    ncell = min(data.shape[0], cell_numbers.size)
+    result = np.full(mesh.cell_set.total_size, -1, dtype=IntType)
+    valid = (0 <= cell_numbers[:ncell]) & (cell_numbers[:ncell] < result.size)
+    result[cell_numbers[:ncell][valid]] = data[:ncell][valid]
+    return result
+
+
+def _adaptive_parent_owner_partition(coarse_mesh, parent_cell_numbers):
+    comm = coarse_mesh.comm
+    coarse_cell_numbers = _adaptive_netgen_cell_data(
+        coarse_mesh,
+        np.arange(_adaptive_netgen_cell_count(coarse_mesh), dtype=IntType),
+    )
+    owned_cell_numbers = coarse_cell_numbers[:coarse_mesh.cell_set.size]
+    owned = np.empty((owned_cell_numbers.size, 2), dtype=IntType)
+    owned[:, 0] = owned_cell_numbers
+    owned[:, 1] = comm.rank
+    gathered = comm.gather(owned, root=0)
+
+    if comm.rank != 0:
+        return None, None
+
+    parent_owner = {}
+    for cells in gathered:
+        for cell_number, rank in cells:
+            parent_owner[int(cell_number)] = int(rank)
+
+    buckets = [[] for _ in range(comm.size)]
+    for fine_cell, parent_number in enumerate(parent_cell_numbers):
+        try:
+            owner = parent_owner[int(parent_number)]
+        except KeyError as exc:
+            raise RuntimeError(
+                "Cannot determine owner for adaptive parent cell "
+                f"{int(parent_number)}"
+            ) from exc
+        buckets[owner].append(fine_cell)
+
+    sizes = [len(bucket) for bucket in buckets]
+    points = np.asarray(
+        [point for bucket in buckets for point in bucket], dtype=IntType
+    )
+    return sizes, points
+
+
+def _set_adaptive_refined_mesh_metadata(mesh, netgen_mesh, netgen_flags,
+                                        distribution_parameters,
+                                        parent_cell_numbers):
+    mesh.netgen_mesh = netgen_mesh
+    mesh.netgen_flags = netgen_flags
+    mesh._distribution_parameters = dict(distribution_parameters)
+    mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+    mesh._adaptive_parent_owned = True
+    mesh._adaptive_netgen_num_cells = len(_adaptive_netgen_cells(mesh))
+
+
+def _set_adaptive_partitioner(dm, parameters):
+    partition = parameters.get("partition", True)
+    partitioner_type = parameters.get("partitioner_type")
+    partitioner = dm.getPartitioner()
+    if partition is not True:
+        sizes, points = partition
+        partitioner.setType(partitioner.Type.SHELL)
+        partitioner.setShellPartition(dm.comm.size, sizes, points)
+    elif partitioner_type is not None:
+        partitioner.setType({
+            "chaco": partitioner.Type.CHACO,
+            "ptscotch": partitioner.Type.PTSCOTCH,
+            "parmetis": partitioner.Type.PARMETIS,
+            "shell": partitioner.Type.SHELL,
+            "simple": partitioner.Type.SIMPLE,
+        }[partitioner_type])
+
+
+def _adaptive_overlap_sf(dm, parameters):
+    overlap_type, overlap = parameters.get(
+        "overlap_type", (DistributedMeshOverlapType.FACET, 1)
+    )
+    if overlap_type == DistributedMeshOverlapType.NONE:
+        if overlap > 0:
+            raise ValueError("Cannot have NONE overlap with overlap > 0")
+        return None
+    elif overlap_type in [DistributedMeshOverlapType.FACET,
+                          DistributedMeshOverlapType.RIDGE]:
+        dmcommon.set_adjacency_callback(dm, overlap_type)
+        sf = dm.distributeOverlap(overlap)
+        dmcommon.clear_adjacency_callback(dm)
+        return sf
+    elif overlap_type == DistributedMeshOverlapType.VERTEX:
+        return dm.distributeOverlap(overlap)
+    else:
+        raise ValueError("Unknown overlap type %r" % (overlap_type,))
+
+
+def _redistribute_adaptive_dm(dm, parameters):
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    _set_adaptive_partitioner(dm, parameters)
+    point_sf_orig = dm.distribute(overlap=0)
+    overlap_sf = _adaptive_overlap_sf(dm, parameters)
+    if overlap_sf is None:
+        point_sf = point_sf_orig
+    elif point_sf_orig is None:
+        point_sf = overlap_sf
+    else:
+        point_sf = point_sf_orig.compose(overlap_sf)
+    return point_sf_orig, point_sf
+
+
+def _make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
+                                parent_cell_numbers, redistribute=True):
+    distribution_parameters = dict(coarse_mesh._distribution_parameters)
+    if coarse_mesh.comm.size == 1:
+        refined_mesh = Mesh(
+            netgen_mesh,
+            reorder=coarse_mesh._did_reordering,
+            distribution_parameters=distribution_parameters,
+            comm=coarse_mesh.comm,
+            netgen_flags=netgen_flags,
+            tolerance=coarse_mesh.tolerance,
+        )
+        _set_adaptive_refined_mesh_metadata(
+            refined_mesh, netgen_mesh, netgen_flags,
+            distribution_parameters, parent_cell_numbers,
+        )
+        return refined_mesh
+
+    parent_parameters = dict(distribution_parameters)
+    parent_parameters["partition"] = _adaptive_parent_owner_partition(
+        coarse_mesh, parent_cell_numbers
+    )
+
+    transfer_parameters = dict(parent_parameters)
+    transfer_parameters["overlap_type"] = (
+        DistributedMeshOverlapType.NONE, 0
+    )
+    transfer_mesh = Mesh(
+        netgen_mesh,
+        reorder=coarse_mesh._did_reordering,
+        distribution_parameters=transfer_parameters,
+        comm=coarse_mesh.comm,
+        netgen_flags=netgen_flags,
+        tolerance=coarse_mesh.tolerance,
+    )
+    _set_adaptive_refined_mesh_metadata(
+        transfer_mesh, netgen_mesh, netgen_flags,
+        distribution_parameters, parent_cell_numbers,
+    )
+
+    num_cells = transfer_mesh.cell_set.size
+    min_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MIN)
+    max_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MAX)
+    needs_redist = max_cells > 1.15 * min_cells
+
+    if not (redistribute and needs_redist):
+        overlap_type, overlap = distribution_parameters.get(
+            "overlap_type", (DistributedMeshOverlapType.FACET, 1)
+        )
+        if overlap_type == DistributedMeshOverlapType.NONE and overlap == 0:
+            return transfer_mesh
+        refined_mesh = Mesh(
+            netgen_mesh,
+            reorder=coarse_mesh._did_reordering,
+            distribution_parameters=parent_parameters,
+            comm=coarse_mesh.comm,
+            netgen_flags=netgen_flags,
+            tolerance=coarse_mesh.tolerance,
+        )
+        _set_adaptive_refined_mesh_metadata(
+            refined_mesh, netgen_mesh, netgen_flags,
+            distribution_parameters, parent_cell_numbers,
+        )
+        return refined_mesh
+
+    from firedrake.mg.mesh import RedistMesh
+
+    redist_dm = transfer_mesh.topology_dm.clone()
+    redist_parameters = dict(distribution_parameters)
+    redist_parameters["partition"] = True
+    point_sf_orig, point_sf = _redistribute_adaptive_dm(redist_dm, redist_parameters)
+
+    redist_mesh_parameters = dict(redist_parameters)
+    redist_mesh_parameters["partition"] = False
+    redist_mesh_parameters["overlap_type"] = (
+        DistributedMeshOverlapType.NONE, 0
+    )
+    refined_mesh = Mesh(
+        redist_dm,
+        dim=coarse_mesh.geometric_dimension,
+        reorder=coarse_mesh._did_reordering,
+        distribution_parameters=redist_mesh_parameters,
+        comm=coarse_mesh.comm,
+        tolerance=coarse_mesh.tolerance,
+    )
+    _set_adaptive_refined_mesh_metadata(
+        refined_mesh, netgen_mesh, netgen_flags,
+        distribution_parameters, parent_cell_numbers,
+    )
+    if transfer_mesh.sfBC_orig is not None and point_sf_orig is not None:
+        refined_mesh.sfBC_orig = transfer_mesh.sfBC_orig.compose(point_sf_orig)
+        refined_mesh.sfBC = (refined_mesh.sfBC_orig if point_sf is point_sf_orig
+                             else transfer_mesh.sfBC_orig.compose(point_sf))
+    refined_mesh.redist = RedistMesh(transfer_mesh, refined_mesh, point_sf)
+    return refined_mesh
 
 
 @PETSc.Log.EventDecorator("CreateMesh")

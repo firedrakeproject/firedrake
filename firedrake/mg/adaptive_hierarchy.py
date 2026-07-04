@@ -3,12 +3,11 @@ from fractions import Fraction
 
 import numpy as np
 
-from firedrake.mesh import Mesh, MeshGeometry
+from firedrake.mesh import MeshGeometry, _make_adaptive_refined_mesh
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
-from firedrake.halo import MPI
-from firedrake.mg.mesh import HierarchyBase, RedistMesh
+from firedrake.mg.mesh import HierarchyBase
 from firedrake.mg.utils import set_level
 from firedrake.netgen import netgen_distribute
 from firedrake.utils import IntType
@@ -63,48 +62,46 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         """
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
-            parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
+            redist = getattr(mesh, "redist", None)
+            transfer_mesh = redist.orig if redist is not None else mesh
+            parent_cell_numbers = getattr(transfer_mesh, "_adaptive_parent_cell_numbers", None)
+            if parent_cell_numbers is None:
+                parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
             if parent_cell_numbers is None:
                 parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
-                if parent_cell_numbers is not None:
-                    mesh._adaptive_parent_cell_numbers = parent_cell_numbers
 
             if parent_cell_numbers is not None:
-                # Redistribute the mesh back to parent distribution
+                if not getattr(transfer_mesh, "_adaptive_parent_owned", False):
+                    if mesh.comm.size == 1:
+                        mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+                        mesh._adaptive_parent_owned = True
+                        transfer_mesh = mesh
+                    else:
+                        mesh = _make_adaptive_refined_mesh(
+                            self.meshes[-1], mesh.netgen_mesh, mesh.netgen_flags,
+                            parent_cell_numbers, self.redistribute,
+                        )
+                        redist = getattr(mesh, "redist", None)
+                        transfer_mesh = redist.orig if redist is not None else mesh
+                        parent_cell_numbers = transfer_mesh._adaptive_parent_cell_numbers
 
-                # FIXME we should be able to build both meshes directly from the parent
-                # Right now we undo redistribution to get back the parent-aligned child
-                # We could simply obtain the parent-aligned child if we prevent redistribution
-                # The return value of `refine_marked_elements` should include `mesh.redist = RedistMesh(...)`.
-                transfer_mesh = _parent_owned_transfer_mesh(
-                    self.meshes[-1], mesh, parent_cell_numbers
-                )
                 coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
                     self.meshes[-1], transfer_mesh, parent_cell_numbers
                 )
 
-                # Only redistribute when the parent distribution is poorly-balanced
-                num_cells = transfer_mesh.cell_set.size
-                min_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MIN)
-                max_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MAX)
-                needs_redist = max_cells > 1.15 * min_cells
-
-                if (self.redistribute and needs_redist
-                        and transfer_mesh is not mesh):
-                    mesh.redist = RedistMesh(transfer_mesh, mesh)
-                    # FIXME need to add missing mappings from RedistributedMeshHierarchy in AdaptiveMeshHierarchy
-                else:
-                    mesh = transfer_mesh
-
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
+        mesh.topology_dm.setRefineLevel(level)
         redist = getattr(mesh, "redist", None)
         if redist is not None:
             set_level(redist.orig, self, level)
+            redist.orig.topology_dm.setRefineLevel(level)
 
         if hasattr(mesh, "netgen_mesh"):
             mesh._adaptive_netgen_num_cells = len(_netgen_cells(mesh))
+            if redist is not None:
+                redist.orig._adaptive_netgen_num_cells = mesh._adaptive_netgen_num_cells
 
         if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
             self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
@@ -151,7 +148,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         markers = Function(M)
         markers.dat.data_wo[should_refine] = 1
 
-        refined_mesh = mesh.refine_marked_elements(markers)
+        refined_mesh = mesh.refine_marked_elements(markers, redistribute=self.redistribute)
         self.add_mesh(refined_mesh)
         return self.meshes[-1]
 
@@ -249,63 +246,3 @@ def _netgen_parent_cell_numbers(coarse_mesh, fine_mesh):
             return None
         indices[refined] = parent_indices
     return indices
-
-
-def _parent_owner_partition(coarse_mesh, parent_cell_numbers):
-    comm = coarse_mesh.comm
-    coarse_cell_numbers = _distribute_cell_data(
-        coarse_mesh, np.arange(_netgen_cell_count(coarse_mesh), dtype=IntType)
-    )
-    owned_cell_numbers = coarse_cell_numbers[:coarse_mesh.cell_set.size]
-    owned = np.empty((owned_cell_numbers.size, 2), dtype=IntType)
-    owned[:, 0] = owned_cell_numbers
-    owned[:, 1] = comm.rank
-    gathered = comm.gather(owned, root=0)
-
-    if comm.rank != 0:
-        return None, None
-
-    parent_owner = {}
-    for cells in gathered:
-        for cell_number, rank in cells:
-            parent_owner[int(cell_number)] = int(rank)
-
-    buckets = [[] for _ in range(comm.size)]
-    for fine_cell, parent_number in enumerate(parent_cell_numbers):
-        try:
-            owner = parent_owner[int(parent_number)]
-        except KeyError as exc:
-            raise RuntimeError(
-                "Cannot determine owner for adaptive parent cell "
-                f"{int(parent_number)}"
-            ) from exc
-        buckets[owner].append(fine_cell)
-
-    sizes = [len(bucket) for bucket in buckets]
-    points = np.asarray(
-        [point for bucket in buckets for point in bucket], dtype=IntType
-    )
-    return sizes, points
-
-
-def _parent_owned_transfer_mesh(coarse_mesh, mesh, parent_cell_numbers):
-    if mesh.comm.size == 1 or mesh.sfBC_orig is None:
-        return mesh
-
-    distribution_parameters = dict(mesh._distribution_parameters)
-    distribution_parameters["partition"] = _parent_owner_partition(
-        coarse_mesh, parent_cell_numbers
-    )
-    transfer_mesh = Mesh(
-        mesh.netgen_mesh,
-        reorder=mesh._did_reordering,
-        distribution_parameters=distribution_parameters,
-        comm=mesh.comm,
-        netgen_flags=mesh.netgen_flags,
-        tolerance=mesh.tolerance,
-    )
-    # The parent-owner partition is specific to this transfer mesh; do not
-    # reuse it if this mesh is later adaptively refined.
-    transfer_mesh._distribution_parameters = mesh._distribution_parameters
-    transfer_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
-    return transfer_mesh

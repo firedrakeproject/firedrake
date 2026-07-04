@@ -276,9 +276,8 @@ def inject(fine, coarse):
 
         # FIXME
         from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
-        adaptive_parallel = (Vc.mesh().comm.size > 1
-                             and isinstance(hierarchy, AdaptiveMeshHierarchy))
-        if adaptive_parallel:
+        adaptive = isinstance(hierarchy, AdaptiveMeshHierarchy)
+        if adaptive and (dg or Vc.mesh().comm.size > 1):
             return coarsest.interpolate(fine)
 
         if not dg:
