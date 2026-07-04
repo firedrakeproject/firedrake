@@ -7,6 +7,8 @@ from firedrake.mesh import Mesh, MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
+from firedrake.halo import _get_mtype as get_mpi_type
+from firedrake.halo import MPI
 from firedrake.mg import HierarchyBase
 from firedrake.mg.utils import set_level
 from firedrake.netgen import netgen_distribute
@@ -25,15 +27,21 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         The coarsest mesh in the hierarchy.
     nested: bool
         A flag to indicate whether the meshes are nested.
+    redistribute: bool
+        If ``True``, keep adaptively refined meshes redistributed when
+        this is needed to avoid empty ranks and use an internal
+        parent-owned mesh for transfer operators.
 
     """
-    def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
+    def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
+                 redistribute: bool = True):
         self.meshes = []
         self._meshes = []
         self.coarse_to_fine_cells = {}
         self.fine_to_coarse_cells = {Fraction(0, 1): None}
         self.refinements_per_level = 1
         self.nested = nested
+        self.redistribute = redistribute
         self._shared_data_cache = defaultdict(dict)
         self.add_mesh(base_mesh)
 
@@ -61,17 +69,27 @@ class AdaptiveMeshHierarchy(HierarchyBase):
                 parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
                 if parent_cell_numbers is not None:
                     mesh._adaptive_parent_cell_numbers = parent_cell_numbers
-            else:
-                mesh = _parent_owned_transfer_mesh(
+            if parent_cell_numbers is not None:
+                transfer_mesh = _parent_owned_transfer_mesh(
                     self.meshes[-1], mesh, parent_cell_numbers
                 )
                 coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
-                    self.meshes[-1], mesh, parent_cell_numbers
+                    self.meshes[-1], transfer_mesh, parent_cell_numbers
                 )
+                has_empty_rank = mesh.comm.allreduce(mesh.cell_set.size == 0,
+                                                     op=MPI.LOR)
+                if (self.redistribute and has_empty_rank
+                        and transfer_mesh is not mesh):
+                    mesh.redist = RedistMesh(transfer_mesh, mesh)
+                else:
+                    mesh = transfer_mesh
 
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
+        redist = getattr(mesh, "redist", None)
+        if redist is not None:
+            set_level(redist.orig, self, level)
 
         if hasattr(mesh, "netgen_mesh"):
             mesh._adaptive_netgen_num_cells = len(_netgen_cells(mesh))
@@ -228,36 +246,36 @@ class RedistMesh:
         self.orig = orig
         self.redist = redist
 
-    def _move(self, source, target, source_mesh, target_mesh):
-        source_section = source.function_space().dm.getDefaultSection()
-        target_space = target.function_space()
-        target_section = target_space.dm.getDefaultSection()
-        with source.dat.vec_ro as source_vec:
-            source_sf = source_mesh.sfBC_orig
-            if source_sf is None:
-                root_section = source_section
-                root_vec = source_vec
-            else:
-                root_section, root_vec = source_mesh.topology_dm.distributeField(
-                    source_sf.createInverse(), source_section, source_vec
-                )
-
-            target_sf = target_mesh.sfBC_orig
-            if target_sf is None:
-                target_work = root_vec
-            else:
-                _, target_work = target_mesh.topology_dm.distributeField(
-                    target_sf, root_section, root_vec, target_section
-                )
-            target.dat.data_wo_with_halos.reshape(-1)[:] = target_work.getArray(
-                readonly=True
-            )
+    def _section_sf(self, root, leaf):
+        point_sf = self.redist.sfBC_orig
+        root_section = root.function_space().dm.getDefaultSection()
+        leaf_section = leaf.function_space().dm.getDefaultSection()
+        remote_offsets, _ = point_sf.distributeSection(root_section, leaf_section)
+        return point_sf.createSectionSF(root_section, remote_offsets, leaf_section)
 
     def orig2redist(self, source, target):
-        self._move(source, target, self.orig, self.redist)
+        section_sf = self._section_sf(source, target)
+        dtype, _ = get_mpi_type(source.dat)
+        section_sf.bcastBegin(dtype,
+                              source.dat.data_ro_with_halos,
+                              target.dat.data_wo_with_halos,
+                              MPI.REPLACE)
+        section_sf.bcastEnd(dtype,
+                            source.dat.data_ro_with_halos,
+                            target.dat.data_wo_with_halos,
+                            MPI.REPLACE)
 
     def redist2orig(self, source, target):
-        self._move(source, target, self.redist, self.orig)
+        section_sf = self._section_sf(target, source)
+        dtype, _ = get_mpi_type(source.dat)
+        section_sf.reduceBegin(dtype,
+                               source.dat.data_ro_with_halos,
+                               target.dat.data_wo_with_halos,
+                               MPI.REPLACE)
+        section_sf.reduceEnd(dtype,
+                             source.dat.data_ro_with_halos,
+                             target.dat.data_wo_with_halos,
+                             MPI.REPLACE)
 
 
 def _parent_owner_partition(coarse_mesh, parent_cell_numbers):
