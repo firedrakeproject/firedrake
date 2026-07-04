@@ -3,14 +3,127 @@ from fractions import Fraction
 
 import numpy as np
 
-from firedrake.mesh import MeshGeometry
+from firedrake.mesh import Mesh, MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
 from firedrake.mg import HierarchyBase
 from firedrake.mg.utils import set_level
+from firedrake.netgen import netgen_distribute
 from firedrake.utils import IntType
 
 __all__ = ["AdaptiveMeshHierarchy"]
+
+
+class AdaptiveMeshHierarchy(HierarchyBase):
+    """
+    HierarchyBase for hierarchies of adaptively refined meshes.
+
+    Parameters
+    ----------
+    base_mesh
+        The coarsest mesh in the hierarchy.
+    nested: bool
+        A flag to indicate whether the meshes are nested.
+
+    """
+    def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
+        self.meshes = []
+        self._meshes = []
+        self.coarse_to_fine_cells = {}
+        self.fine_to_coarse_cells = {Fraction(0, 1): None}
+        self.refinements_per_level = 1
+        self.nested = nested
+        self._shared_data_cache = defaultdict(dict)
+        self.add_mesh(base_mesh)
+
+    def add_mesh(self, mesh: MeshGeometry,
+                 coarse_to_fine_cells=None,
+                 fine_to_coarse_cells=None):
+        """
+        Adds a mesh into the hierarchy.
+
+        Parameters
+        ----------
+        mesh
+            The mesh to be added to the finest level.
+        coarse_to_fine_cells
+            Optional map from cells on the previous finest level to cells on
+            ``mesh``.
+        fine_to_coarse_cells
+            Optional map from cells on ``mesh`` to cells on the previous
+            finest level.
+        """
+        level = len(self.meshes)
+        if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+            parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
+            if parent_cell_numbers is None:
+                parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
+                if parent_cell_numbers is not None:
+                    mesh._adaptive_parent_cell_numbers = parent_cell_numbers
+            else:
+                mesh = _parent_owned_transfer_mesh(
+                    self.meshes[-1], mesh, parent_cell_numbers
+                )
+                coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
+                    self.meshes[-1], mesh, parent_cell_numbers
+                )
+
+        self._meshes.append(mesh)
+        self.meshes.append(mesh)
+        set_level(mesh, self, level)
+
+        if hasattr(mesh, "netgen_mesh"):
+            mesh._adaptive_netgen_num_cells = len(_netgen_cells(mesh))
+
+        if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
+            self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
+            self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+
+    def adapt(self, eta: Function | Cofunction, theta: float):
+        """
+        Adds a new mesh to the hierarchy by locally refining the finest mesh
+        with a simplified variant of Dorfler marking. The finest mesh must
+        come from a netgen mesh.
+
+        Parameters
+        ----------
+        eta
+            A DG0 :class:`~firedrake.function.Function` with the local error estimator.
+        theta
+            The threshold for marking as a fraction of the maximum error.
+
+        Note
+        ----
+        Dorfler marking involves sorting all of the elements by decreasing
+        error estimator and taking the minimal set that exceeds some fixed
+        fraction of the total error. What this code implements is the simpler
+        variant that doesn't have a proof of convergence (as far as I know)
+        but works as well in practice.
+
+        """
+        if not isinstance(eta, (Function, Cofunction)):
+            raise TypeError(f"eta must be a Function or Cofunction, not a {type(eta).__name__}")
+        M = eta.function_space()
+        if M.finat_element.space_dimension() != 1:
+            raise ValueError("eta must be a Function or Cofunction in DG0")
+        mesh = self.meshes[-1]
+        if M.mesh() is not mesh:
+            raise ValueError("eta must be defined on the finest mesh of the hierarchy")
+
+        # Take the maximum over all processes
+        with eta.dat.vec_ro as evec:
+            _, eta_max = evec.max()
+
+        threshold = theta * eta_max
+        should_refine = eta.dat.data_ro > threshold
+
+        markers = Function(M)
+        markers.dat.data_wo[should_refine] = 1
+
+        refined_mesh = mesh.refine_marked_elements(markers)
+        self.add_mesh(refined_mesh)
+        return self.meshes[-1]
 
 
 def _netgen_cells(mesh):
@@ -27,9 +140,6 @@ def _netgen_cell_count(mesh):
 
 
 def _distribute_cell_data(mesh, values):
-    from firedrake.functionspace import FunctionSpace
-    from firedrake.netgen import netgen_distribute
-
     DG0 = FunctionSpace(mesh, "DG", 0)
     data = np.asarray(netgen_distribute(DG0, values), dtype=IntType)
     cstart, cend = mesh.topology_dm.getHeightStratum(0)
@@ -191,8 +301,6 @@ def _parent_owned_transfer_mesh(coarse_mesh, mesh, parent_cell_numbers):
     if mesh.comm.size == 1 or mesh.sfBC_orig is None:
         return mesh
 
-    from firedrake.mesh import Mesh
-
     distribution_parameters = dict(mesh._distribution_parameters)
     distribution_parameters["partition"] = _parent_owner_partition(
         coarse_mesh, parent_cell_numbers
@@ -210,112 +318,3 @@ def _parent_owned_transfer_mesh(coarse_mesh, mesh, parent_cell_numbers):
     transfer_mesh._distribution_parameters = mesh._distribution_parameters
     transfer_mesh._adaptive_parent_cell_numbers = parent_cell_numbers
     return transfer_mesh
-
-
-class AdaptiveMeshHierarchy(HierarchyBase):
-    """
-    HierarchyBase for hierarchies of adaptively refined meshes.
-
-    Parameters
-    ----------
-    base_mesh
-        The coarsest mesh in the hierarchy.
-    nested: bool
-        A flag to indicate whether the meshes are nested.
-
-    """
-    def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
-        self.meshes = []
-        self._meshes = []
-        self.coarse_to_fine_cells = {}
-        self.fine_to_coarse_cells = {Fraction(0, 1): None}
-        self.refinements_per_level = 1
-        self.nested = nested
-        self._shared_data_cache = defaultdict(dict)
-        self.add_mesh(base_mesh)
-
-    def add_mesh(self, mesh: MeshGeometry, coarse_to_fine_cells=None, fine_to_coarse_cells=None):
-        """
-        Adds a mesh into the hierarchy.
-
-        Parameters
-        ----------
-        mesh
-            The mesh to be added to the finest level.
-        coarse_to_fine_cells
-            Optional map from cells on the previous finest level to cells on
-            ``mesh``.
-        fine_to_coarse_cells
-            Optional map from cells on ``mesh`` to cells on the previous
-            finest level.
-        """
-        level = len(self.meshes)
-        if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
-            parent_cell_numbers = getattr(mesh, "_adaptive_parent_cell_numbers", None)
-            if parent_cell_numbers is None:
-                parent_cell_numbers = _netgen_parent_cell_numbers(self.meshes[-1], mesh)
-                if parent_cell_numbers is not None:
-                    mesh._adaptive_parent_cell_numbers = parent_cell_numbers
-            if parent_cell_numbers is not None:
-                mesh = _parent_owned_transfer_mesh(
-                    self.meshes[-1], mesh, parent_cell_numbers
-                )
-                coarse_to_fine_cells, fine_to_coarse_cells = _adaptive_cell_maps(
-                    self.meshes[-1], mesh, parent_cell_numbers
-                )
-
-        if hasattr(mesh, "netgen_mesh"):
-            mesh._adaptive_netgen_num_cells = len(_netgen_cells(mesh))
-
-        self._meshes.append(mesh)
-        self.meshes.append(mesh)
-        set_level(mesh, self, level)
-
-        if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
-            self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
-            self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
-
-    def adapt(self, eta: Function | Cofunction, theta: float):
-        """
-        Adds a new mesh to the hierarchy by locally refining the finest mesh
-        with a simplified variant of Dorfler marking. The finest mesh must
-        come from a netgen mesh.
-
-        Parameters
-        ----------
-        eta
-            A DG0 :class:`~firedrake.function.Function` with the local error estimator.
-        theta
-            The threshold for marking as a fraction of the maximum error.
-
-        Note
-        ----
-        Dorfler marking involves sorting all of the elements by decreasing
-        error estimator and taking the minimal set that exceeds some fixed
-        fraction of the total error. What this code implements is the simpler
-        variant that doesn't have a proof of convergence (as far as I know)
-        but works as well in practice.
-
-        """
-        if not isinstance(eta, (Function, Cofunction)):
-            raise TypeError(f"eta must be a Function or Cofunction, not a {type(eta).__name__}")
-        M = eta.function_space()
-        if M.finat_element.space_dimension() != 1:
-            raise ValueError("eta must be a Function or Cofunction in DG0")
-        mesh = self.meshes[-1]
-        if M.mesh() is not mesh:
-            raise ValueError("eta must be defined on the finest mesh of the hierarchy")
-
-        # Take the maximum over all processes
-        with eta.dat.vec_ro as evec:
-            _, eta_max = evec.max()
-
-        threshold = theta * eta_max
-        should_refine = eta.dat.data_ro > threshold
-
-        markers = Function(M)
-        markers.dat.data_wo[should_refine] = 1
-
-        refined_mesh = mesh.refine_marked_elements(markers)
-        self.add_mesh(refined_mesh)
-        return self.meshes[-1]
