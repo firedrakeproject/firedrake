@@ -1,5 +1,4 @@
 from pyop2 import op2
-from pyop2.mpi import MPI
 
 from firedrake import ufl_expr, dmhooks
 from firedrake.function import Function
@@ -255,8 +254,7 @@ def inject(fine, coarse):
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
 
-    coarsest = coarse
-    coarsest.dat.data_wo_with_halos[...] = 0
+    coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
@@ -275,35 +273,15 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-        _, level = utils.get_level(Vc.mesh())
+
+        # FIXME
         from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
         adaptive_parallel = (Vc.mesh().comm.size > 1
                              and isinstance(hierarchy, AdaptiveMeshHierarchy))
-        if dg:
-            has_padding = adaptive_parallel or Vc.mesh().comm.allreduce(
-                bool((hierarchy.coarse_to_fine_cells[level] < 0).any()), op=MPI.LOR
-            )
-            if has_padding:
-                # FIXME
-                return coarsest
-            else:
-                compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
-                coarse_coords = Vc.mesh().coordinates
-                fine_coords = Vf.mesh().coordinates
-                # Have to do this, because the node set core size is not right for
-                # this expanded stencil
-                for d in [fine, fine_coords]:
-                    d.dat.global_to_local_begin(op2.READ)
-                    d.dat.global_to_local_end(op2.READ)
-                op2.par_loop(kernel, Vc.mesh().cell_set,
-                             coarse.dat(op2.INC, coarse.cell_node_map()),
-                             fine.dat(op2.READ, compose_map(fine)),
-                             fine_coords.dat(op2.READ, compose_map(fine_coords)),
-                             coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
-        elif adaptive_parallel:
-            # FIXME
-            return coarsest
-        else:
+        if adaptive_parallel:
+            return coarsest.interpolate(fine)
+
+        if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
             kernel_args = [
@@ -327,6 +305,21 @@ def inject(fine, coarse):
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, coarse.node_set, *kernel_args)
+        else:
+            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
+            coarse_coords = Vc.mesh().coordinates
+            fine_coords = Vf.mesh().coordinates
+            # Have to do this, because the node set core size is not right for
+            # this expanded stencil
+            for d in [fine, fine_coords]:
+                d.dat.global_to_local_begin(op2.READ)
+                d.dat.global_to_local_end(op2.READ)
+            op2.par_loop(kernel, Vc.mesh().cell_set,
+                         coarse.dat(op2.INC, coarse.cell_node_map()),
+                         fine.dat(op2.READ, compose_map(fine)),
+                         fine_coords.dat(op2.READ, compose_map(fine_coords)),
+                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+
         if needs_quadrature:
             # Transfer to the actual target space
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
