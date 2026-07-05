@@ -195,8 +195,8 @@ class AssignExprBuilder(DAGTraverser):
     @process.register(ufl.classes.Division)
     @DAGTraverser.postorder
     def _(self, o, a, b):
-        a_expr, a_loop_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_loop_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
 
         if b_is_vector:
             raise ValueError("Expressions involving division by a vector-valued subexpression "
@@ -214,8 +214,8 @@ class AssignExprBuilder(DAGTraverser):
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Sum, a, b):
-        a_expr, a_loop_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_loop_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
 
         is_scalar = a_is_scalar and b_is_scalar
         is_vector = a_is_vector or b_is_vector

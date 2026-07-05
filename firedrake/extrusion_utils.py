@@ -116,10 +116,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
         ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
@@ -132,10 +129,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0

@@ -34,10 +34,10 @@ def test_create_submesh_comm_self(reorder, ignore_halo):
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
     # Submesh on COMM_SELF should not have halo
-    assert submesh.cell_set.total_size == submesh.cell_set.size
+    assert submesh.cells.local_size == submesh.cells.owned.local_size
     # Submesh on COMM_SELF should exclude the halo from the parent mesh if ignore_halo = True
-    expected_size = mesh.cell_set.size if ignore_halo else mesh.cell_set.total_size
-    assert submesh.cell_set.size == expected_size
+    expected_size = mesh.cells.owned.local_size if ignore_halo else mesh.cells.local_size
+    assert submesh.cells.owned.local_size == expected_size
 
     x = Function(submesh.coordinates.function_space())
     x.assign(mesh.coordinates)

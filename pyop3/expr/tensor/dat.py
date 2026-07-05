@@ -751,6 +751,10 @@ class AggregateDat(pyop3.obj.Pyop3Object):
             visitor(self.axis),
         )
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return utils.single_valued(d.comm for d in self.subdats)
+
     def __init__(self, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -759,6 +763,8 @@ class AggregateDat(pyop3.obj.Pyop3Object):
         self.subdats = subdats
         self.axis = axis
         self.name = name
+
+        self.record_setup()
 
     # }}}
 
