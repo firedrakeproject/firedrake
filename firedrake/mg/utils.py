@@ -5,7 +5,138 @@ from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
+import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython import mgimpl as impl
+from firedrake.halo import _get_mtype as get_mpi_type
+from firedrake.halo import MPI
+
+
+class RedistMesh:
+    """Transfer data between a parent-owned mesh and its redistributed mesh."""
+
+    def __init__(self, orig, redist, point_sf=None):
+        self.orig = orig
+        self.redist = redist
+        self.point_sf = point_sf if point_sf is not None else redist.sfBC
+
+    def _section_sf(self, root, leaf):
+        point_sf = self.point_sf
+        root_section = root.function_space().dm.getDefaultSection()
+        leaf_section = leaf.function_space().dm.getDefaultSection()
+        remote_offsets, _ = point_sf.distributeSection(root_section, leaf_section)
+        return point_sf.createSectionSF(root_section, remote_offsets, leaf_section)
+
+    def orig2redist(self, source, target):
+        section_sf = self._section_sf(source, target)
+        dtype, _ = get_mpi_type(source.dat)
+        section_sf.bcastBegin(dtype,
+                              source.dat.data_ro_with_halos,
+                              target.dat.data_wo_with_halos,
+                              MPI.REPLACE)
+        section_sf.bcastEnd(dtype,
+                            source.dat.data_ro_with_halos,
+                            target.dat.data_wo_with_halos,
+                            MPI.REPLACE)
+
+    def redist2orig(self, source, target):
+        section_sf = self._section_sf(target, source)
+        dtype, _ = get_mpi_type(source.dat)
+        section_sf.reduceBegin(dtype,
+                               source.dat.data_ro_with_halos,
+                               target.dat.data_wo_with_halos,
+                               MPI.REPLACE)
+        section_sf.reduceEnd(dtype,
+                             source.dat.data_ro_with_halos,
+                             target.dat.data_wo_with_halos,
+                             MPI.REPLACE)
+
+
+def set_partitioner(dm, parameters):
+    partition = parameters.get("partition", True)
+    partitioner_type = parameters.get("partitioner_type")
+    partitioner = dm.getPartitioner()
+    if partition is not True:
+        sizes, points = partition
+        partitioner.setType(partitioner.Type.SHELL)
+        partitioner.setShellPartition(dm.comm.size, sizes, points)
+    elif partitioner_type is not None:
+        partitioner.setType({
+            "chaco": partitioner.Type.CHACO,
+            "ptscotch": partitioner.Type.PTSCOTCH,
+            "parmetis": partitioner.Type.PARMETIS,
+            "shell": partitioner.Type.SHELL,
+            "simple": partitioner.Type.SIMPLE,
+        }[partitioner_type])
+
+
+def distribute_overlap(dm, parameters):
+    overlap_type, overlap = parameters.get(
+        "overlap_type", (firedrake.DistributedMeshOverlapType.FACET, 1)
+    )
+    if overlap_type == firedrake.DistributedMeshOverlapType.NONE:
+        if overlap > 0:
+            raise ValueError("Cannot have NONE overlap with overlap > 0")
+        return None
+    elif overlap_type in [firedrake.DistributedMeshOverlapType.FACET,
+                          firedrake.DistributedMeshOverlapType.RIDGE]:
+        dmcommon.set_adjacency_callback(dm, overlap_type)
+        sf = dm.distributeOverlap(overlap)
+        dmcommon.clear_adjacency_callback(dm)
+        return sf
+    elif overlap_type == firedrake.DistributedMeshOverlapType.VERTEX:
+        return dm.distributeOverlap(overlap)
+    else:
+        raise ValueError("Unknown overlap type %r" % (overlap_type,))
+
+
+def redistribute_dm(dm, parameters):
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    set_partitioner(dm, parameters)
+    point_sf_orig = dm.distribute(overlap=0)
+    overlap_sf = distribute_overlap(dm, parameters)
+    if overlap_sf is None:
+        point_sf = point_sf_orig
+    elif point_sf_orig is None:
+        point_sf = overlap_sf
+    else:
+        point_sf = point_sf_orig.compose(overlap_sf)
+    return point_sf_orig, point_sf
+
+
+def make_unoverlapped_dm(mesh):
+    tdim = mesh.topology_dm.getDimension()
+    dm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    dm.setRefinementUniform(True)
+    return dm
+
+
+def fixup_embedded_coords(dm, mesh):
+    if hasattr(mesh, '_radius'):
+        coords = dm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
+        scale = mesh._radius / numpy.linalg.norm(coords, axis=1).reshape(-1, 1)
+        coords *= scale
+
+
+def dm_has_empty_rank(dm):
+    cstart, cend = dm.getHeightStratum(0)
+    comm = dm.comm.tompi4py() if hasattr(dm.comm, "tompi4py") else dm.comm
+    return comm.allreduce(cstart == cend, op=MPI.LOR)
+
+
+def has_empty_rank(mesh):
+    return mesh.comm.allreduce(mesh.cell_set.size == 0, op=MPI.LOR)
+
+
+def set_refine_level(mesh, level):
+    mesh.topology_dm.setRefineLevel(level)
+    redist = getattr(mesh, "redist", None)
+    if redist is not None:
+        redist.orig.topology_dm.setRefineLevel(level)
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
@@ -168,6 +299,9 @@ def physical_node_locations(V):
 def set_level(obj, hierarchy, level):
     """Attach hierarchy and level info to an object."""
     setattr(obj.topological, "__level_info__", (hierarchy, level))
+    redist = getattr(obj, "redist", None)
+    if redist is not None:
+        setattr(redist.orig.topological, "__level_info__", (hierarchy, level))
     return obj
 
 

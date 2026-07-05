@@ -7,57 +7,16 @@ from pyop2.datatypes import IntType
 
 import petsctools
 import firedrake
-import firedrake.cython.dmcommon as dmcommon
 from functools import cached_property
 
 from firedrake import utils
-from firedrake.halo import _get_mtype as get_mpi_type
-from firedrake.halo import MPI
 from firedrake.cython import mgimpl as impl
-from .utils import set_level
+from .utils import (RedistMesh, dm_has_empty_rank, fixup_embedded_coords,
+                    make_unoverlapped_dm, redistribute_dm, set_level,
+                    set_refine_level)
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
-
-
-class RedistMesh:
-    """Transfer data between a parent-owned mesh and its redistributed mesh."""
-
-    def __init__(self, orig, redist, point_sf=None):
-        self.orig = orig
-        self.redist = redist
-        self.point_sf = point_sf if point_sf is not None else redist.sfBC
-
-    def _section_sf(self, root, leaf):
-        point_sf = self.point_sf
-        root_section = root.function_space().dm.getDefaultSection()
-        leaf_section = leaf.function_space().dm.getDefaultSection()
-        remote_offsets, _ = point_sf.distributeSection(root_section, leaf_section)
-        return point_sf.createSectionSF(root_section, remote_offsets, leaf_section)
-
-    def orig2redist(self, source, target):
-        section_sf = self._section_sf(source, target)
-        dtype, _ = get_mpi_type(source.dat)
-        section_sf.bcastBegin(dtype,
-                              source.dat.data_ro_with_halos,
-                              target.dat.data_wo_with_halos,
-                              MPI.REPLACE)
-        section_sf.bcastEnd(dtype,
-                            source.dat.data_ro_with_halos,
-                            target.dat.data_wo_with_halos,
-                            MPI.REPLACE)
-
-    def redist2orig(self, source, target):
-        section_sf = self._section_sf(target, source)
-        dtype, _ = get_mpi_type(source.dat)
-        section_sf.reduceBegin(dtype,
-                               source.dat.data_ro_with_halos,
-                               target.dat.data_wo_with_halos,
-                               MPI.REPLACE)
-        section_sf.reduceEnd(dtype,
-                             source.dat.data_ro_with_halos,
-                             target.dat.data_wo_with_halos,
-                             MPI.REPLACE)
 
 
 class HierarchyBase(object):
@@ -89,14 +48,8 @@ class HierarchyBase(object):
         self.nested = nested
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
-            redist = getattr(m, "redist", None)
-            if redist is not None:
-                set_level(redist.orig, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
             set_level(m, self, level)
-            redist = getattr(m, "redist", None)
-            if redist is not None:
-                set_level(redist.orig, self, level)
         self._shared_data_cache = defaultdict(dict)
 
     @cached_property
@@ -190,140 +143,10 @@ def MeshHierarchy(mesh, refinement_levels,
     else:
         before = after = lambda dm, i: None
 
-    if redistribute and mesh.comm.size > 1:
-        has_empty_rank = mesh.comm.allreduce(mesh.cell_set.size == 0,
-                                             op=MPI.LOR)
-        if has_empty_rank:
-            return RedistributedMeshHierarchy(
-                mesh, refinement_levels, refinements_per_level, reorder,
-                parameters, before, after, mesh_builder,
-            )
+    mesh_parameters = dict(parameters)
+    mesh_parameters["partition"] = False
 
-    # Effectively "invert" addOverlap().
-    # -- The resulting plex is to have the identical data structure as the one before addOverlap().
-    #    This is algorithmically guaranteed.
-    tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
-    cdm.removeLabel("pyop2_core")
-    cdm.removeLabel("pyop2_owned")
-    cdm.removeLabel("pyop2_ghost")
-    cdm.setRefinementUniform(True)
-    dms = [cdm]
-    for i in range(refinement_levels*refinements_per_level):
-        if i % refinements_per_level == 0:
-            before(cdm, i)
-        rdm = cdm.refine()
-        if i % refinements_per_level == 0:
-            after(rdm, i)
-        dms.append(rdm)
-        cdm = rdm
-        # Fix up coords if refining embedded circle or sphere
-        if hasattr(mesh, '_radius'):
-            # FIXME, really we need some CAD-like representation
-            # of the boundary we're trying to conform to.  This
-            # doesn't DTRT really for cubed sphere meshes (the
-            # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-            scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-            coords *= scale
-    lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
-    parameters["partition"] = False
-    meshes = [mesh] + [
-        mesh_builder(
-            dm,
-            dim=mesh.geometric_dimension,
-            distribution_parameters=parameters,
-            reorder=reorder,
-            comm=mesh.comm,
-        )
-        for dm in dms[1:]
-    ]
-    lgmaps_with_overlap = []
-    for i, m in enumerate(meshes):
-        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
-        m.topology_dm.setRefineLevel(i)
-    lgmaps = [
-        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
-    ]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
-
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=True)
-
-
-def _make_unoverlapped_dm(mesh):
-    tdim = mesh.topology_dm.getDimension()
-    dm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
-    dm.setRefinementUniform(True)
-    return dm
-
-
-def _fixup_embedded_coords(dm, mesh):
-    if hasattr(mesh, '_radius'):
-        coords = dm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-        scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-        coords *= scale
-
-
-def _redistribute_dm(dm, parameters):
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
-    overlap_type, overlap = parameters.get(
-        "overlap_type", (firedrake.DistributedMeshOverlapType.FACET, 1)
-    )
-    if overlap_type == firedrake.DistributedMeshOverlapType.NONE:
-        if overlap > 0:
-            raise ValueError("Cannot have NONE overlap with overlap > 0")
-        overlap = 0
-    elif overlap_type in [firedrake.DistributedMeshOverlapType.FACET,
-                          firedrake.DistributedMeshOverlapType.RIDGE,
-                          firedrake.DistributedMeshOverlapType.VERTEX]:
-        pass
-    else:
-        raise ValueError("Unknown overlap type %r" % (overlap_type,))
-
-    partition = parameters.get("partition", True)
-    partitioner_type = parameters.get("partitioner_type")
-    partitioner = dm.getPartitioner()
-    if partition is not True:
-        sizes, points = partition
-        partitioner.setType(partitioner.Type.SHELL)
-        partitioner.setShellPartition(dm.comm.size, sizes, points)
-    elif partitioner_type is not None:
-        partitioner.setType({
-            "chaco": partitioner.Type.CHACO,
-            "ptscotch": partitioner.Type.PTSCOTCH,
-            "parmetis": partitioner.Type.PARMETIS,
-            "shell": partitioner.Type.SHELL,
-            "simple": partitioner.Type.SIMPLE,
-        }[partitioner_type])
-
-    return dm.distribute(overlap=overlap)
-
-
-def RedistributedMeshHierarchy(mesh, refinement_levels, refinements_per_level,
-                               reorder, parameters, before, after,
-                               mesh_builder):
-    meshes = [mesh]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-
-    transfer_parameters = dict(parameters)
-    transfer_parameters["partition"] = False
+    transfer_parameters = dict(mesh_parameters)
     transfer_parameters["overlap_type"] = (
         firedrake.DistributedMeshOverlapType.NONE, 0
     )
@@ -331,9 +154,18 @@ def RedistributedMeshHierarchy(mesh, refinement_levels, refinements_per_level,
     redist_parameters = dict(parameters)
     redist_parameters["partition"] = True
 
+    redist_mesh_parameters = dict(redist_parameters)
+    redist_mesh_parameters["partition"] = False
+    redist_mesh_parameters["overlap_type"] = (
+        firedrake.DistributedMeshOverlapType.NONE, 0
+    )
+
+    meshes = [mesh]
+    coarse_to_fine_cells = []
+    fine_to_coarse_cells = [None]
     cmesh = mesh
     for i in range(refinement_levels*refinements_per_level):
-        cdm = _make_unoverlapped_dm(cmesh)
+        cdm = make_unoverlapped_dm(cmesh)
         clgmaps = (impl.create_lgmap(cdm), impl.create_lgmap(cmesh.topology_dm))
 
         if i % refinements_per_level == 0:
@@ -344,36 +176,47 @@ def RedistributedMeshHierarchy(mesh, refinement_levels, refinements_per_level,
         rdm.removeLabel("pyop2_core")
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
-        _fixup_embedded_coords(rdm, mesh)
+        fixup_embedded_coords(rdm, mesh)
 
         fine_lgmap_without_overlap = impl.create_lgmap(rdm)
-        transfer_mesh = mesh_builder(
-            rdm,
-            dim=mesh.geometric_dimension,
-            distribution_parameters=transfer_parameters,
-            reorder=reorder,
-            comm=mesh.comm,
-        )
-        flgmaps = (
-            fine_lgmap_without_overlap,
-            impl.create_lgmap(transfer_mesh.topology_dm),
-        )
+        needs_redist = (redistribute and mesh.comm.size > 1
+                        and dm_has_empty_rank(rdm))
+        if needs_redist:
+            transfer_mesh = mesh_builder(
+                rdm,
+                dim=mesh.geometric_dimension,
+                distribution_parameters=transfer_parameters,
+                reorder=reorder,
+                comm=mesh.comm,
+            )
+            flgmaps = (
+                fine_lgmap_without_overlap,
+                impl.create_lgmap(transfer_mesh.topology_dm),
+            )
 
-        rdm_redist = rdm.clone()
-        point_sf = _redistribute_dm(rdm_redist, redist_parameters)
-        redist_mesh_parameters = dict(redist_parameters)
-        redist_mesh_parameters["partition"] = False
-        redist_mesh_parameters["overlap_type"] = (
-            firedrake.DistributedMeshOverlapType.NONE, 0
-        )
-        fine_mesh = mesh_builder(
-            rdm_redist,
-            dim=mesh.geometric_dimension,
-            distribution_parameters=redist_mesh_parameters,
-            reorder=reorder,
-            comm=mesh.comm,
-        )
-        fine_mesh.redist = RedistMesh(transfer_mesh, fine_mesh, point_sf)
+            rdm_redist = rdm.clone()
+            _, point_sf = redistribute_dm(rdm_redist, redist_parameters)
+            fine_mesh = mesh_builder(
+                rdm_redist,
+                dim=mesh.geometric_dimension,
+                distribution_parameters=redist_mesh_parameters,
+                reorder=reorder,
+                comm=mesh.comm,
+            )
+            fine_mesh.redist = RedistMesh(transfer_mesh, fine_mesh, point_sf)
+        else:
+            fine_mesh = mesh_builder(
+                rdm,
+                dim=mesh.geometric_dimension,
+                distribution_parameters=mesh_parameters,
+                reorder=reorder,
+                comm=mesh.comm,
+            )
+            transfer_mesh = fine_mesh
+            flgmaps = (
+                fine_lgmap_without_overlap,
+                impl.create_lgmap(fine_mesh.topology_dm),
+            )
 
         c2f, f2c = impl.coarse_to_fine_cells(cmesh, transfer_mesh,
                                              clgmaps, flgmaps)
@@ -383,10 +226,7 @@ def RedistributedMeshHierarchy(mesh, refinement_levels, refinements_per_level,
         cmesh = fine_mesh
 
     for i, m in enumerate(meshes):
-        m.topology_dm.setRefineLevel(i)
-        redist = getattr(m, "redist", None)
-        if redist is not None:
-            redist.orig.topology_dm.setRefineLevel(i)
+        set_refine_level(m, i)
 
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
                                 for i, c2f in enumerate(coarse_to_fine_cells))
