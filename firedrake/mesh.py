@@ -2977,7 +2977,8 @@ values from f.)"""
 
         '''
         utils.check_netgen_installed()
-        from firedrake.netgen import find_permutation, netgen_distribute
+        from firedrake.netgen import find_permutation_via_vertices, netgen_distribute
+        from scipy.spatial.distance import cdist
         from firedrake.functionspace import FunctionSpace
         from firedrake.function import Function
 
@@ -3011,6 +3012,14 @@ values from f.)"""
             ref_pts.append(pt)
         reference_points = np.array(ref_pts)
 
+        # Indices of the nodes located at the reference-cell vertices; used by the
+        # vertex-based permutation. Match by coordinate rather than assuming FIAT
+        # orders vertex nodes first (it does not, in general).
+        reference_vertices = np.asarray(fiat_element.get_reference_element().get_vertices())
+        vertex_node_indices = np.argmin(
+            cdist(reference_points, reference_vertices), axis=0
+        )
+
         # Construct numpy arrays for physical domain data
         physical_points = np.zeros(
             (ng_dimension, reference_points.shape[0], self.geometric_dimension)
@@ -3040,10 +3049,18 @@ values from f.)"""
         cellNum = np.array(list(map(self._cell_numbering.getOffset, range(cstart, cend))))
         broken_indices = cell_node_map.values[cellNum[own_curved]]
 
-        # Find the correct coordinate permutation for each cell
-        permutation = find_permutation(
+        # Find the correct coordinate permutation for each cell. The permutation
+        # between netgen's node ordering and Firedrake's is a pure function of the
+        # relative vertex ordering, so it is recovered from the cheap, robust match
+        # of the cell corners alone (rather than all high-order nodes). Non-simplex
+        # cells (e.g. the split-to-quads path) and any degenerate cell are handled
+        # internally by find_permutation_via_vertices.
+        target_points = new_coordinates.dat.data_ro_with_halos[broken_indices].real
+        permutation = find_permutation_via_vertices(
             own_physical_points,
-            new_coordinates.dat.data_ro_with_halos[broken_indices].real,
+            target_points,
+            reference_points,
+            vertex_node_indices,
             tol=permutation_tol,
         )
         self.comm.Barrier()

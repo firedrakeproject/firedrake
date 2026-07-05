@@ -16,6 +16,7 @@ try:
     import netgen.meshing as ngm
     from netgen.meshing import MeshingParameters
     from ngsPETSc import MeshMapping
+    from ngsPETSc.utils.utils import find_permutation_via_vertices
 except ImportError:
     pass
 

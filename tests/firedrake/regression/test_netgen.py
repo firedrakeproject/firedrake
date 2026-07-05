@@ -342,3 +342,131 @@ def test_netgen_occ_adaptivity():
             break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
+
+
+# --- Curving DOF-permutation correspondence -------------------------------
+# The curved coordinates are built by matching netgen's node ordering to
+# Firedrake's. curve_field recovers this from the cheap, robust cell-corner
+# (vertex) correspondence and a precomputed reference-element table
+# (find_permutation_via_vertices). This must agree exactly with a direct
+# per-node geometric match (find_permutation) on every curved cell.
+
+def _curved_disk(maxh):
+    import netgen
+    comm = COMM_WORLD
+    if comm.rank == 0:
+        from netgen.occ import WorkPlane, OCCGeometry
+        ngmesh = OCCGeometry(WorkPlane().Circle(0, 0, 1).Face(), dim=2).GenerateMesh(maxh=maxh)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(2)
+    return ngmesh
+
+
+def _curved_sphere(maxh):
+    import netgen
+    comm = COMM_WORLD
+    if comm.rank == 0:
+        from netgen.occ import Sphere, Pnt, OCCGeometry
+        ngmesh = OCCGeometry(Sphere(Pnt(0, 0, 0), 1)).GenerateMesh(maxh=maxh)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+    return ngmesh
+
+
+def _curved_box_minus_cylinder(maxh):
+    import netgen
+    comm = COMM_WORLD
+    if comm.rank == 0:
+        from netgen.occ import Box, Cylinder, Pnt, Z, OCCGeometry
+        shape = Box(Pnt(-1, -1, -1), Pnt(1, 1, 1)) - Cylinder(Pnt(0, 0, -1), Z, r=0.4, h=2)
+        ngmesh = OCCGeometry(shape).GenerateMesh(maxh=maxh)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+    return ngmesh
+
+
+def _curved_sphere_surface(maxh):
+    import netgen
+    comm = COMM_WORLD
+    if comm.rank == 0:
+        from netgen.csg import CSGeometry, Pnt, Sphere
+        from netgen.meshing import MeshingParameters, MeshingStep
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        ngmesh = geo.GenerateMesh(mp=MeshingParameters(maxh=maxh,
+                                                       perfstepsend=MeshingStep.MESHSURFACE))
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+    return ngmesh
+
+
+def _curving_permutation_inputs(msh, order):
+    # Reproduce the per-cell inputs curve_field feeds to the permutation routine:
+    # netgen's straight-element node coordinates (own_physical_points), Firedrake's
+    # interpolated node coordinates (target_points), the reference node points and
+    # the indices of the nodes at the reference-cell vertices.
+    from scipy.spatial.distance import cdist
+    from firedrake.netgen import netgen_distribute
+    broken_space = msh.coordinates.function_space().reconstruct(degree=order).broken_space()
+    new_coordinates = Function(broken_space).interpolate(msh.coordinates)
+    fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
+    reference_points = np.array([list(n.get_point_dict().keys())[0]
+                                 for n in fiat_element.dual_basis()])
+    reference_vertices = np.asarray(fiat_element.get_reference_element().get_vertices())
+    vertex_node_indices = np.argmin(cdist(reference_points, reference_vertices), axis=0)
+
+    ng_element = (msh.netgen_mesh.Elements2D() if msh.topological_dimension == 2
+                  else msh.netgen_mesh.Elements3D())
+    physical_points = np.zeros((len(ng_element), reference_points.shape[0],
+                                msh.geometric_dimension))
+    msh.netgen_mesh.CalcElementMapping(reference_points, physical_points)
+    msh.netgen_mesh.Curve(order)
+    curved = ng_element.NumPy()["curved"]
+
+    cell_node_map = new_coordinates.cell_node_map()
+    num_cells = cell_node_map.values.shape[0]
+    DG0 = FunctionSpace(msh, "DG", 0)
+    own_curved = np.flatnonzero(netgen_distribute(DG0, curved)[:num_cells])
+    own_physical_points = netgen_distribute(broken_space, physical_points)[own_curved]
+    cstart, cend = msh.topology_dm.getHeightStratum(0)
+    cellNum = np.array(list(map(msh._cell_numbering.getOffset, range(cstart, cend))))
+    broken_indices = cell_node_map.values[cellNum[own_curved]]
+    target_points = new_coordinates.dat.data_ro_with_halos[broken_indices].real
+    return own_physical_points, target_points, reference_points, vertex_node_indices
+
+
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("builder,maxh", [
+    (_curved_disk, 0.4),
+    (_curved_sphere, 0.6),
+    (_curved_box_minus_cylinder, 0.6),
+    (_curved_sphere_surface, 0.4),
+], ids=["disk2D", "sphere3D", "box_minus_cylinder3D", "sphere_surface"])
+@pytest.mark.parametrize("order", [2, 3, 4])
+def test_netgen_curve_field_permutation(builder, maxh, order):
+    # The vertex-based correspondence used by curve_field must reproduce a direct
+    # per-node geometric match bit-for-bit, on every curved cell.
+    from firedrake.netgen import find_permutation, find_permutation_via_vertices
+    msh = Mesh(builder(maxh))
+    own_physical_points, target_points, reference_points, vertex_node_indices = \
+        _curving_permutation_inputs(msh, order)
+    fast = find_permutation_via_vertices(
+        own_physical_points, target_points, reference_points,
+        vertex_node_indices, tol=1e-8)
+    reference = find_permutation(own_physical_points, target_points, tol=1e-8)
+    assert np.array_equal(fast, reference)
+    # And the permutation genuinely maps netgen nodes onto Firedrake nodes.
+    for i in range(own_physical_points.shape[0]):
+        assert np.allclose(own_physical_points[i][fast[i]], target_points[i], atol=1e-7)
+
+
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("order", [2, 3, 4])
+def test_netgen_curve_field_disk_area(order):
+    # Legacy-independent sanity: the curved disk area is close to pi (a straight
+    # maxh=0.4 mesh underestimates it by ~1%; curving recovers it).
+    msh = Mesh(_curved_disk(0.4), netgen_flags={"degree": order})
+    area = assemble(Constant(1.0) * dx(domain=msh))
+    assert abs(area - pi) < 1e-2
