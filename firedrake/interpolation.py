@@ -197,6 +197,8 @@ class Interpolate(UFLInterpolate):
             try:
                 extract_unique_domain(split_operand)
             except ValueError:
+                if len(self.target_space) > 1:
+                    return MixedInterpolator(self)
                 raise NotImplementedError(
                     "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
                 )
@@ -283,7 +285,12 @@ class Interpolator(abc.ABC):
         try:
             source_mesh = extract_unique_domain(operand)
         except ValueError:
-            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+            try:
+                source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+            except ValueError:
+                # The operand spans multiple meshes. This is only reachable for
+                # MixedInterpolator, which splits the interpolation into blocks.
+                source_mesh = None
         self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
