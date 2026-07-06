@@ -122,8 +122,7 @@ def redistribute_dm(dm, parameters):
 
 def dm_has_empty_rank(dm):
     cstart, cend = dm.getHeightStratum(0)
-    comm = dm.comm.tompi4py() if hasattr(dm.comm, "tompi4py") else dm.comm
-    return comm.allreduce(cstart == cend, op=MPI.LOR)
+    return dm.comm.tompi4py().allreduce(cstart == cend, op=MPI.LOR)
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
