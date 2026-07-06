@@ -197,6 +197,8 @@ class Interpolate(UFLInterpolate):
             try:
                 extract_unique_domain(split_operand)
             except ValueError:
+                if len(self.target_space) > 1:
+                    return MixedInterpolator(self)
                 raise NotImplementedError(
                     "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
                 )
@@ -276,6 +278,21 @@ class Interpolator(abc.ABC):
         """The dual argument slot of the Interpolate expression."""
         self.target_space = dual_arg.function_space().dual()
         """The primal space we are interpolating into."""
+        # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
+        self.target_mesh = self.target_space.mesh()
+        """The domain we are interpolating into."""
+
+        try:
+            source_mesh = extract_unique_domain(operand)
+        except ValueError:
+            try:
+                source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+            except ValueError:
+                # The operand spans multiple meshes. This is only reachable for
+                # MixedInterpolator, which splits the interpolation into blocks.
+                source_mesh = None
+        self.source_mesh = source_mesh or self.target_mesh
+        """The domain we are interpolating from."""
 
         # Interpolation options
         self.subset = expr.options.subset
