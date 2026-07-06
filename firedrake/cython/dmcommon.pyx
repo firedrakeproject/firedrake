@@ -404,7 +404,7 @@ def local_facet_number(mesh, facet_type):
 
     nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
-    facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
+    facet_number = np.empty((nfacets, ncells_per_facet), dtype=np.uintc)
     for fi, facet in enumerate(facets):
         facet_renum = facet_numbering.getOffset(facet)
         specific_facet_renum = specific_numbering.getOffset(facet)

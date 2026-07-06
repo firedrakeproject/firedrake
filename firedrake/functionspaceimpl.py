@@ -951,7 +951,7 @@ class AbstractFunctionSpace:
         # Create an array of offsets
         offsets = op3.Dat(
             space.plex_axes,
-            data=numpy.arange(space.plex_axes.local_size, dtype=IntType),
+            data=numpy.arange(space.plex_axes.buffer_size(include_ghosts=True), dtype=IntType),
         )
 
         # Now pack this for use in a parloop
@@ -1158,9 +1158,26 @@ class FunctionSpace(AbstractFunctionSpace):
     @_mesh_cached
     @_with_mesh_heavy_cache
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
+        from firedrake import FunctionSpace
         from firedrake.cython import dmcommon
 
-        # assert self.parent is None, "axis_constraints not valid for indexed spaces"
+        # TODO: What if wrapped in a vector space?
+        # if (
+        #     isinstance(self.ufl_element(), finat.ufl.TensorProductElement)
+        #     and any(e.family() == "Real" for e in self.ufl_element().factor_elements)
+        # ):
+        #     *other_factors, last_factor = self.ufl_element().factor_elements
+        #     if any(e.family() == "Real" for e in other_factors):
+        #         raise NotImplementedError
+        #     assert last_factor.family() == "Real"
+        #
+        #     if len(other_factors) != 1:
+        #         raise NotImplementedError
+        #
+        #     axis_constraints = FunctionSpace(self.mesh()._base_mesh, other_factors[0]).dm_axis_constraints
+        #
+        #     breakpoint()
+
 
         mesh_axis = self._mesh.flat_points
         num_points = mesh_axis.local_size

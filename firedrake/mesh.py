@@ -707,6 +707,28 @@ class AbstractMeshTopology(abc.ABC):
             name=f"{self.name}_{facet_type}_local_facet_orientation"
         )
 
+    @cached_property
+    def _point_to_exterior_facet(self) -> np.ndarray:
+        return self._point_to_facet("exterior")
+
+    @cached_property
+    def _point_to_interior_facet(self) -> np.ndarray:
+        return self._point_to_facet("interior")
+
+    def _point_to_facet(self, facet_type: Literal["exterior", "interior"]) -> np.ndarray:
+        if facet_type == "exterior":
+            facet_is = self._exterior_facet_plex_indices
+            facet_numbering_sec = self._old_to_new_exterior_facet_numbering
+        else:
+            facet_is = self._interior_facet_plex_indices
+            facet_numbering_sec = self._old_to_new_interior_facet_numbering
+        _, p_end = self.topology_dm.getChart()
+        point_to_facet = np.full(p_end, -1, dtype=IntType)
+        point_to_facet[facet_is.indices] = dmcommon.section_offsets(
+            facet_numbering_sec, facet_is
+        )
+        return point_to_facet
+
     @property
     @abc.abstractmethod
     def _strata_slice(self):  # or strata_axis?
