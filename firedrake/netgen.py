@@ -9,6 +9,7 @@ from scipy.spatial.distance import cdist
 from pyop2.mpi import COMM_WORLD, MPI
 from firedrake.petsc import PETSc
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
+from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP, Mesh
 from firedrake.utils import IntType
 import firedrake
 
@@ -90,10 +91,6 @@ def adaptive_netgen_cells(mesh):
     raise NotImplementedError("Adaptive refinement is only implemented in dimension 2 and 3.")
 
 
-def adaptive_netgen_cell_count(mesh):
-    return getattr(mesh, "_adaptive_netgen_num_cells", len(adaptive_netgen_cells(mesh)))
-
-
 def _adaptive_netgen_cell_data(mesh, values):
     from firedrake.functionspace import FunctionSpace
 
@@ -116,7 +113,7 @@ def _adaptive_parent_owner_partition(coarse_mesh, parent_cell_numbers):
     comm = coarse_mesh.comm
     coarse_cell_numbers = _adaptive_netgen_cell_data(
         coarse_mesh,
-        np.arange(adaptive_netgen_cell_count(coarse_mesh), dtype=IntType),
+        np.arange(len(adaptive_netgen_cells(coarse_mesh)), dtype=IntType),
     )
     owned_cell_numbers = coarse_cell_numbers[:coarse_mesh.cell_set.size]
     owned = np.empty((owned_cell_numbers.size, 2), dtype=IntType)
@@ -158,35 +155,21 @@ def _set_adaptive_refined_mesh_metadata(mesh, netgen_mesh, netgen_flags,
     mesh._distribution_parameters = dict(distribution_parameters)
     mesh._adaptive_parent_cell_numbers = parent_cell_numbers
     mesh._adaptive_parent_owned = True
-    mesh._adaptive_netgen_num_cells = len(adaptive_netgen_cells(mesh))
 
 
 def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
-                               parent_cell_numbers, redistribute=True):
-    from firedrake.mesh import Mesh
-
+                               parent_cell_numbers, redistribute=True,
+                               balancing=0.15):
     distribution_parameters = dict(coarse_mesh._distribution_parameters)
-    if coarse_mesh.comm.size == 1:
-        refined_mesh = Mesh(
-            netgen_mesh,
-            reorder=coarse_mesh._did_reordering,
-            distribution_parameters=distribution_parameters,
-            comm=coarse_mesh.comm,
-            netgen_flags=netgen_flags,
-            tolerance=coarse_mesh.tolerance,
-        )
-        _set_adaptive_refined_mesh_metadata(
-            refined_mesh, netgen_mesh, netgen_flags,
-            distribution_parameters, parent_cell_numbers,
-        )
-        return refined_mesh
-
     parent_parameters = dict(distribution_parameters)
-    parent_parameters["partition"] = _adaptive_parent_owner_partition(
-        coarse_mesh, parent_cell_numbers
-    )
+    if coarse_mesh.comm.size > 1:
+        parent_parameters["partition"] = _adaptive_parent_owner_partition(
+            coarse_mesh, parent_cell_numbers
+        )
 
     transfer_parameters = dict(parent_parameters)
+    # Preserve transfer_parameters["partition"]: this is the shell
+    # partition that keeps each child cell on its parent cell's rank.
     transfer_parameters["overlap_type"] = (
         DistributedMeshOverlapType.NONE, 0
     )
@@ -203,10 +186,13 @@ def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
         distribution_parameters, parent_cell_numbers,
     )
 
+    if coarse_mesh.comm.size == 1:
+        return transfer_mesh
+
     num_cells = transfer_mesh.cell_set.size
-    min_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MIN)
+    avg_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.SUM) / transfer_mesh.comm.size
     max_cells = transfer_mesh.comm.allreduce(num_cells, op=MPI.MAX)
-    needs_redist = max_cells > 1.15 * min_cells
+    needs_redist = max_cells > (1 + balancing) * avg_cells
 
     if not (redistribute and needs_redist):
         overlap_type, overlap = distribution_parameters.get(
@@ -228,23 +214,18 @@ def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
         )
         return refined_mesh
 
-    from firedrake.mg.utils import RedistMesh, redistribute_dm
+    from firedrake.mg.utils import RedistributedMeshTransfer, redistribute_dm
 
     redist_dm = transfer_mesh.topology_dm.clone()
     redist_parameters = dict(distribution_parameters)
     redist_parameters["partition"] = True
     point_sf_orig, point_sf = redistribute_dm(redist_dm, redist_parameters)
 
-    redist_mesh_parameters = dict(redist_parameters)
-    redist_mesh_parameters["partition"] = False
-    redist_mesh_parameters["overlap_type"] = (
-        DistributedMeshOverlapType.NONE, 0
-    )
     refined_mesh = Mesh(
         redist_dm,
         dim=coarse_mesh.geometric_dimension,
         reorder=coarse_mesh._did_reordering,
-        distribution_parameters=redist_mesh_parameters,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
         comm=coarse_mesh.comm,
         tolerance=coarse_mesh.tolerance,
     )
@@ -256,11 +237,12 @@ def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
         refined_mesh.sfBC_orig = transfer_mesh.sfBC_orig.compose(point_sf_orig)
         refined_mesh.sfBC = (refined_mesh.sfBC_orig if point_sf is point_sf_orig
                              else transfer_mesh.sfBC_orig.compose(point_sf))
-    refined_mesh.redist = RedistMesh(transfer_mesh, refined_mesh, point_sf)
+    refined_mesh.redist = RedistributedMeshTransfer(transfer_mesh, refined_mesh, point_sf)
     return refined_mesh
 
 
-def refine_marked_elements(mesh, mark, netgen_flags=None, redistribute=True):
+def refine_marked_elements(mesh, mark, netgen_flags=None, redistribute=True,
+                           balancing=0.15):
     if netgen_flags is None:
         netgen_flags = mesh.netgen_flags
     tdim = mesh.topological_dimension
@@ -305,7 +287,8 @@ def refine_marked_elements(mesh, mark, netgen_flags=None, redistribute=True):
             mark_np = mark_np[indices]
 
     return make_adaptive_refined_mesh(mesh, netgen_mesh, netgen_flags,
-                                      parent_cell_numbers, redistribute)
+                                      parent_cell_numbers, redistribute,
+                                      balancing)
 
 
 def adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
@@ -313,7 +296,7 @@ def adaptive_cell_maps(coarse_mesh, fine_mesh, parent_cell_numbers):
         return None, None
 
     coarse_cell_numbers = _adaptive_netgen_cell_data(
-        coarse_mesh, np.arange(adaptive_netgen_cell_count(coarse_mesh), dtype=IntType)
+        coarse_mesh, np.arange(len(adaptive_netgen_cells(coarse_mesh)), dtype=IntType)
     )
     fine_parent_numbers = _adaptive_netgen_cell_data(
         fine_mesh, np.asarray(parent_cell_numbers, dtype=IntType)
@@ -358,7 +341,7 @@ def adaptive_parent_cell_numbers(coarse_mesh, fine_mesh):
 
     parents = np.asarray(parents.NumPy()["i"], dtype=IntType)
     nfine = len(adaptive_netgen_cells(fine_mesh))
-    ncoarse = adaptive_netgen_cell_count(coarse_mesh)
+    ncoarse = len(adaptive_netgen_cells(coarse_mesh))
     if parents.shape[0] < nfine or ncoarse == 0:
         return None
 

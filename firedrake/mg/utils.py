@@ -11,7 +11,7 @@ from firedrake.halo import _get_mtype as get_mpi_type
 from firedrake.halo import MPI
 
 
-class RedistMesh:
+class RedistributedMeshTransfer:
     """Transfer data between a parent-owned mesh and its redistributed mesh."""
 
     def __init__(self, orig, redist, point_sf=None):
@@ -89,6 +89,21 @@ def distribute_overlap(dm, parameters):
         raise ValueError("Unknown overlap type %r" % (overlap_type,))
 
 
+def make_unoverlapped_dm(mesh):
+    """Effectively invert addOverlap().
+
+    The resulting plex has the identical data structure as the one before
+    addOverlap(). This is algorithmically guaranteed.
+    """
+    tdim = mesh.topology_dm.getDimension()
+    dm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    dm.setRefinementUniform(True)
+    return dm
+
+
 def redistribute_dm(dm, parameters):
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
@@ -105,38 +120,10 @@ def redistribute_dm(dm, parameters):
     return point_sf_orig, point_sf
 
 
-def make_unoverlapped_dm(mesh):
-    tdim = mesh.topology_dm.getDimension()
-    dm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
-    dm.setRefinementUniform(True)
-    return dm
-
-
-def fixup_embedded_coords(dm, mesh):
-    if hasattr(mesh, '_radius'):
-        coords = dm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-        scale = mesh._radius / numpy.linalg.norm(coords, axis=1).reshape(-1, 1)
-        coords *= scale
-
-
 def dm_has_empty_rank(dm):
     cstart, cend = dm.getHeightStratum(0)
     comm = dm.comm.tompi4py() if hasattr(dm.comm, "tompi4py") else dm.comm
     return comm.allreduce(cstart == cend, op=MPI.LOR)
-
-
-def has_empty_rank(mesh):
-    return mesh.comm.allreduce(mesh.cell_set.size == 0, op=MPI.LOR)
-
-
-def set_refine_level(mesh, level):
-    mesh.topology_dm.setRefineLevel(level)
-    redist = getattr(mesh, "redist", None)
-    if redist is not None:
-        redist.orig.topology_dm.setRefineLevel(level)
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
@@ -294,6 +281,13 @@ def physical_node_locations(V):
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)
+
+
+def set_dm_refine_level(mesh, level):
+    mesh.topology_dm.setRefineLevel(level)
+    redist = getattr(mesh, "redist", None)
+    if redist is not None:
+        redist.orig.topology_dm.setRefineLevel(level)
 
 
 def set_level(obj, hierarchy, level):

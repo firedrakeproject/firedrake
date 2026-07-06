@@ -38,7 +38,7 @@ def amh(request):
         DG = FunctionSpace(mesh, "DG", 0)
         should_refine = rg.uniform(DG, 0, 1).dat.global_data
 
-        ngmesh = mesh.netgen_mesh
+        ngmesh = mesh.netgen_mesh.Copy()
         if dim == 2:
             els = ngmesh.Elements2D()
         else:
@@ -73,7 +73,7 @@ def mh_uniform():
     amh = AdaptiveMeshHierarchy(base2)
     for _ in range(2):
         mesh = amh[-1]
-        ngmesh = mesh.netgen_mesh
+        ngmesh = mesh.netgen_mesh.Copy()
         ngmesh.Refine()
         mesh = Mesh(ngmesh, distribution_parameters=dparams)
         amh.add_mesh(mesh)
@@ -155,10 +155,66 @@ def test_CG1_native_transfers_use_adaptive_cell_maps():
     )
 
 
+@pytest.mark.skipnetgen
+def test_adapt_after_uniform_netgen_refinement():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    netgen_mesh = geo.GenerateMesh(maxh=0.5)
+    netgen_mesh.Refine()
+    mesh = Mesh(netgen_mesh)
+    amh = AdaptiveMeshHierarchy(mesh)
+
+    M = FunctionSpace(mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[0] = 1
+
+    refined_mesh = mesh.refine_marked_elements(markers)
+    amh.add_mesh(refined_mesh)
+
+    coarse_to_fine = amh.coarse_to_fine_cells[0]
+    fine_to_coarse = amh.fine_to_coarse_cells[1]
+
+    assert coarse_to_fine.shape[0] == mesh.cell_set.size
+    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert (fine_to_coarse >= 0).any()
+    assert (coarse_to_fine >= 0).any()
+
+
+@pytest.mark.skipnetgen
+def test_adapt_after_uniform_firedrake_refinement():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    netgen_mesh = geo.GenerateMesh(maxh=0.5)
+    mesh = Mesh(netgen_mesh)
+    mh = MeshHierarchy(mesh, 1, netgen_flags={})
+    mesh = mh[-1]
+
+    amh = AdaptiveMeshHierarchy(mesh)
+
+    M = FunctionSpace(mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[0] = 1
+
+    refined_mesh = mesh.refine_marked_elements(markers)
+    amh.add_mesh(refined_mesh)
+
+    coarse_to_fine = amh.coarse_to_fine_cells[0]
+    fine_to_coarse = amh.fine_to_coarse_cells[1]
+
+    assert coarse_to_fine.shape[0] == mesh.cell_set.size
+    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert (fine_to_coarse >= 0).any()
+    assert (coarse_to_fine >= 0).any()
+
+
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_DG0(amh, operator):  # pylint: disable=W0621
+def test_DG0(amh, operator):
     """
     Prolongation & Injection test for DG0
     """

@@ -9,11 +9,11 @@ import petsctools
 import firedrake
 from functools import cached_property
 
+from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
-from .utils import (RedistMesh, dm_has_empty_rank, fixup_embedded_coords,
-                    make_unoverlapped_dm, redistribute_dm, set_level,
-                    set_refine_level)
+from .utils import (RedistributedMeshTransfer, dm_has_empty_rank, make_unoverlapped_dm,
+                    redistribute_dm, set_level, set_dm_refine_level)
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -146,19 +146,8 @@ def MeshHierarchy(mesh, refinement_levels,
     mesh_parameters = dict(parameters)
     mesh_parameters["partition"] = False
 
-    transfer_parameters = dict(mesh_parameters)
-    transfer_parameters["overlap_type"] = (
-        firedrake.DistributedMeshOverlapType.NONE, 0
-    )
-
     redist_parameters = dict(parameters)
     redist_parameters["partition"] = True
-
-    redist_mesh_parameters = dict(redist_parameters)
-    redist_mesh_parameters["partition"] = False
-    redist_mesh_parameters["overlap_type"] = (
-        firedrake.DistributedMeshOverlapType.NONE, 0
-    )
 
     meshes = [mesh]
     coarse_to_fine_cells = []
@@ -176,7 +165,15 @@ def MeshHierarchy(mesh, refinement_levels,
         rdm.removeLabel("pyop2_core")
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
-        fixup_embedded_coords(rdm, mesh)
+        # Fix up coords if refining embedded circle or sphere
+        if hasattr(mesh, '_radius'):
+            # FIXME, really we need some CAD-like representation
+            # of the boundary we're trying to conform to.  This
+            # doesn't DTRT really for cubed sphere meshes (the
+            # refined meshes are no longer gnonomic).
+            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
+            scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
+            coords *= scale
 
         fine_lgmap_without_overlap = impl.create_lgmap(rdm)
         needs_redist = (redistribute and mesh.comm.size > 1
@@ -185,13 +182,9 @@ def MeshHierarchy(mesh, refinement_levels,
             transfer_mesh = mesh_builder(
                 rdm,
                 dim=mesh.geometric_dimension,
-                distribution_parameters=transfer_parameters,
+                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                 reorder=reorder,
                 comm=mesh.comm,
-            )
-            flgmaps = (
-                fine_lgmap_without_overlap,
-                impl.create_lgmap(transfer_mesh.topology_dm),
             )
 
             rdm_redist = rdm.clone()
@@ -199,11 +192,11 @@ def MeshHierarchy(mesh, refinement_levels,
             fine_mesh = mesh_builder(
                 rdm_redist,
                 dim=mesh.geometric_dimension,
-                distribution_parameters=redist_mesh_parameters,
+                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                 reorder=reorder,
                 comm=mesh.comm,
             )
-            fine_mesh.redist = RedistMesh(transfer_mesh, fine_mesh, point_sf)
+            fine_mesh.redist = RedistributedMeshTransfer(transfer_mesh, fine_mesh, point_sf)
         else:
             fine_mesh = mesh_builder(
                 rdm,
@@ -213,10 +206,11 @@ def MeshHierarchy(mesh, refinement_levels,
                 comm=mesh.comm,
             )
             transfer_mesh = fine_mesh
-            flgmaps = (
-                fine_lgmap_without_overlap,
-                impl.create_lgmap(fine_mesh.topology_dm),
-            )
+
+        flgmaps = (
+            fine_lgmap_without_overlap,
+            impl.create_lgmap(transfer_mesh.topology_dm),
+        )
 
         c2f, f2c = impl.coarse_to_fine_cells(cmesh, transfer_mesh,
                                              clgmaps, flgmaps)
@@ -226,7 +220,7 @@ def MeshHierarchy(mesh, refinement_levels,
         cmesh = fine_mesh
 
     for i, m in enumerate(meshes):
-        set_refine_level(m, i)
+        set_dm_refine_level(m, i)
 
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
                                 for i, c2f in enumerate(coarse_to_fine_cells))

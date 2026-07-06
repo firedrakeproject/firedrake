@@ -2900,7 +2900,8 @@ values from f.)"""
     def unique(self):
         return self
 
-    def refine_marked_elements(self, mark, netgen_flags=None, redistribute=True):
+    def refine_marked_elements(self, mark, netgen_flags=None, redistribute=True,
+                               balancing=0.5):
         """Refine a mesh using a DG0 marking function.
 
         This method requires that the mesh has been constructed from a
@@ -2911,6 +2912,8 @@ values from f.)"""
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
         :arg redistribute: if true, redistribute the refined mesh when the
             parent-owned child distribution is poorly balanced.
+        :arg balancing: relative load imbalance above which to redistribute
+            when ``redistribute`` is true.
 
         It includes the option:
             - refine_faces, which is a boolean specifying if you want to refine faces.
@@ -2922,7 +2925,8 @@ values from f.)"""
             raise ValueError("Adaptive refinement requires a netgen mesh.")
 
         from firedrake.netgen import refine_marked_elements
-        return refine_marked_elements(self, mark, netgen_flags, redistribute)
+        return refine_marked_elements(self, mark, netgen_flags, redistribute,
+                                      balancing)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
