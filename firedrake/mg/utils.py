@@ -6,6 +6,7 @@ from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
 import firedrake.cython.dmcommon as dmcommon
+from firedrake.mesh import MeshTopology
 from firedrake.cython import mgimpl as impl
 from firedrake.halo import _get_mtype as get_mpi_type
 from firedrake.halo import MPI
@@ -51,24 +52,6 @@ class RedistributedMeshTransfer:
                              MPI.REPLACE)
 
 
-def set_partitioner(dm, parameters):
-    partition = parameters.get("partition", True)
-    partitioner_type = parameters.get("partitioner_type")
-    partitioner = dm.getPartitioner()
-    if partition is not True:
-        sizes, points = partition
-        partitioner.setType(partitioner.Type.SHELL)
-        partitioner.setShellPartition(dm.comm.size, sizes, points)
-    elif partitioner_type is not None:
-        partitioner.setType({
-            "chaco": partitioner.Type.CHACO,
-            "ptscotch": partitioner.Type.PTSCOTCH,
-            "parmetis": partitioner.Type.PARMETIS,
-            "shell": partitioner.Type.SHELL,
-            "simple": partitioner.Type.SIMPLE,
-        }[partitioner_type])
-
-
 def distribute_overlap(dm, parameters):
     overlap_type, overlap = parameters.get(
         "overlap_type", (firedrake.DistributedMeshOverlapType.FACET, 1)
@@ -108,7 +91,10 @@ def redistribute_dm(dm, parameters):
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")
-    set_partitioner(dm, parameters)
+
+    distribute = parameters.get("partition", True)
+    partitioner_type = parameters.get("partitioner_type")
+    MeshTopology._set_partitioner(dm, distribute, partitioner_type)
     point_sf_orig = dm.distribute(overlap=0)
     overlap_sf = distribute_overlap(dm, parameters)
     if overlap_sf is None:

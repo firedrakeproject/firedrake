@@ -1431,8 +1431,9 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    @staticmethod
     @PETSc.Log.EventDecorator()
-    def _set_partitioner(self, plex, distribute, partitioner_type=None):
+    def _set_partitioner(plex, distribute, partitioner_type=None):
         """Set partitioner for (re)distributing underlying plex over comm.
 
         :arg distribute: Boolean or (sizes, points)-tuple.  If (sizes, point)-
