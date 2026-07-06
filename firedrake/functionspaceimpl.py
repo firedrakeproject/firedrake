@@ -33,6 +33,7 @@ from pyop3.utils import just_one, single_valued
 from pyop3.cache import cached_on, with_heavy_caches, cached_method
 from pyop3.device import on_host
 from finat.quadrature import QuadratureRule
+import pyop3.debug
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
@@ -42,11 +43,12 @@ import firedrake.logging
 from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
-from firedrake.cython import extrusion_numbering as extnum
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies, get_iteration_spec
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, deprecated
+
+from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 
 
 def check_element(element, top=True):
@@ -108,6 +110,19 @@ def create_element(ufl_element):
         # Retrieve scalar element
         finat_element = finat_element.base_element
     return finat_element
+
+
+@functools.singledispatch
+def scalar_element(element: finat.ufl.FiniteElementBase) -> finat.ufl.FiniteElementBase:
+    """Unwrap vector shape"""
+    assert not isinstance(element, finat.ufl.MixedElement)
+    return element
+
+
+@scalar_element.register
+def _(element: finat.ufl.VectorElement | finat.ufl.TensorElement) -> finat.ufl.FiniteElementBase:
+    """Unwrap vector shape"""
+    return utils.single_valued(element.sub_elements)
 
 
 def entity_dofs_key(entity_dofs):
@@ -724,12 +739,12 @@ class AbstractFunctionSpace:
 
     @property
     def _is_real_tensor_product(self) -> bool:
-        # TODO: What if wrapped in a vector space?
+        elem = scalar_element(self.ufl_element())
         if (
-            isinstance(self.ufl_element(), finat.ufl.TensorProductElement)
-            and any(e.family() == "Real" for e in self.ufl_element().factor_elements)
+            isinstance(elem, finat.ufl.TensorProductElement)
+            and any(e.family() == "Real" for e in elem.factor_elements)
         ):
-            *other_factors, last_factor = self.ufl_element().factor_elements
+            *other_factors, last_factor = elem.factor_elements
             if any(e.family() == "Real" for e in other_factors):
                 raise NotImplementedError
             assert last_factor.family() == "Real"
@@ -1179,7 +1194,6 @@ class FunctionSpace(AbstractFunctionSpace):
     @_with_mesh_heavy_cache
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         from firedrake import FunctionSpace
-        from firedrake.cython import dmcommon
 
         if self._is_real_tensor_product:
             # TODO: introduce 'mesh._product_meshes'
@@ -1218,22 +1232,14 @@ class FunctionSpace(AbstractFunctionSpace):
 
         else:
             assert self.extruded
+            ndofs_array = _get_ndofs_extruded(self.mesh(), entity_dofs)
 
-            # TODO: put in Cython
-            dim_label = dm.getLabel("depth")
-            base_dim_label = dm.getLabel("base_dim")
-            for pt in range(*dm.getChart()):
-                dim = dim_label.getValue(pt)
-                base_dim = base_dim_label.getValue(pt)
-                if base_dim == dim:
-                    # vertex
-                    ndofs = entity_dofs[base_dim, 0]
-                else:
-                    # edge
-                    ndofs = entity_dofs[base_dim, 1]
-                ndofs_array[pt] = ndofs
-
-        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(base_mesh, ndofs_array, self.block_size, self.boundary_set)
+        # TODO: This logic needs cleaning up, we do the reordering inside this function
+        # and we also always split into unconstrained and constrained even if we know
+        # we don't have to (no boundary set).
+        num_unconstrained_dofs, num_constrained_dofs = _partition_constrained_points(
+            base_mesh, ndofs_array, self.boundary_set
+        )
 
         unconstrained_dofs_dat = op3.Dat(
             mesh_axis, data=num_unconstrained_dofs, buffer_kwargs={"constant": True}
@@ -1319,9 +1325,17 @@ class FunctionSpace(AbstractFunctionSpace):
 
         # Create the pretend axis tree that includes the mesh axis. This is
         # just a DG0 function.
-        factor_elems = list(self.ufl_element().factor_elements)
-        factor_elems[-1] = factor_elems[-1].reconstruct(family="DG")
-        dg_elem = finat.ufl.TensorProductElement(*factor_elems)
+        def convert_real_to_dg(elem):
+            assert not isinstance(elem, finat.ufl.MixedElement)
+            assert isinstance(elem, finat.ufl.TensorProductElement)
+            factor_elems = list(elem.factor_elements)
+            factor_elems[-1] = factor_elems[-1].reconstruct(family="DG")
+            return finat.ufl.TensorProductElement(*factor_elems)
+
+        if isinstance(self.ufl_element(), finat.ufl.VectorElement | finat.ufl.TensorElement):
+            dg_elem = self.ufl_element().reconstruct(convert_real_to_dg(self.ufl_element()._sub_element))
+        else:
+            dg_elem = convert_real_to_dg(self.ufl_element())
 
         dg_space = FunctionSpace(self._mesh, dg_elem)
         if mode == "plex":
@@ -1374,7 +1388,7 @@ class FunctionSpace(AbstractFunctionSpace):
                     if axis_target.axis == "nodes":
 
                         num_nodes = fake_axes.root.local_size
-                        num_base_nodes = self.nodal_layout_axes.local_size
+                        num_base_nodes = self._nodes_axis.local_size
                         num_nodes_per_column = num_nodes // num_base_nodes
 
                         node_to_base_node_map = numpy.repeat(
@@ -1542,7 +1556,6 @@ class FunctionSpace(AbstractFunctionSpace):
     @_mesh_cached
     def section(self):
         from firedrake import FunctionSpace
-        from firedrake.cython import dmcommon
 
         # The section is defined as if the data exists in isolation, so we don't
         # care if it is an unmixed space or a component of a mixed space.
@@ -1565,9 +1578,18 @@ class FunctionSpace(AbstractFunctionSpace):
             section.setChart(p_start, p_end)
             section.setPermutation(self.mesh()._new_to_old_point_renumbering)
 
-            subelem, _ = self.ufl_element().factor_elements
+            def drop_last(elem):
+                subelem, _ = elem.factor_elements
+                return subelem
+
+            if isinstance(self.ufl_element(), finat.ufl.VectorElement | finat.ufl.TensorElement):
+                subelem = self.ufl_element().reconstruct(
+                    drop_last(self.ufl_element()._sub_element)
+                )
+            else:
+                subelem = drop_last(self.ufl_element())
             base_section = FunctionSpace(self.mesh()._base_mesh, subelem).section
-            pt_to_base_pt = self.mesh()._point_to_base_point_map_renum
+            pt_to_base_pt = self.mesh()._point_to_base_point_array
 
             for pt in range(p_start, p_end):
                 base_pt = pt_to_base_pt[pt]
@@ -1578,6 +1600,7 @@ class FunctionSpace(AbstractFunctionSpace):
         # TODO: This can be made generic to all layouts if we just specify the mesh axis here somehow
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
+        # TODO: I would like this to work for Real too
         axis_section = self.dm_axes.section({}, "mylabel")
 
         # The section returned by pyop3 deals with mesh points according to their final
@@ -1596,8 +1619,6 @@ class FunctionSpace(AbstractFunctionSpace):
         to restricted function spaces.
 
         """
-        from firedrake.cython import dmcommon
-
         if not self.boundary_set:
             return self.section
 

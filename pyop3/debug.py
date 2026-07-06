@@ -1,4 +1,6 @@
 import collections
+import contextlib
+import time
 import warnings
 from typing import Optional, Union
 
@@ -65,3 +67,14 @@ def sane_print(array: np.ndarray) -> None:
     """
     with np.printoptions(precision=5, floatmode="fixed", suppress=True):
         print(array)
+
+
+@contextlib.contextmanager
+def timer(func_name: str | None = None):
+    start = time.time()
+    yield
+    duration = time.time() - start
+    if func_name is None:
+        print(f"Timer took {duration} seconds")
+    else:
+        print(f"Timer for '{func_name}' took {duration} seconds")

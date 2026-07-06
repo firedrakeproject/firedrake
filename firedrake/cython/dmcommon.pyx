@@ -320,6 +320,7 @@ def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
 
 
 # TODO: This should be in petsc4py
+# NOTE: This is way way way slower than numpy.intersect1d
 def intersect_is(is1: PETSc.IS, is2: PETSc.IS) -> PETSc.IS:
     """Return the intersection of two PETSc ISs."""
     cdef:
