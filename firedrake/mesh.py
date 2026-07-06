@@ -3040,6 +3040,29 @@ class ExtrudedMeshTopology(MeshTopology):
         # up for the whole column
         return np.repeat(orientationss, self.layers-1, axis=0)
 
+    @cached_property
+    def _point_to_base_point_map_plex(self):
+        # TODO: This is slow and inconvenient, is there a better way?
+        base_pt_label = self.topology_dm.getLabel("base_point")
+
+        pt_to_base_pt_plex = np.empty(self.num_points, dtype=IntType)
+        for pt in range(self.num_points):
+            base_pt = base_pt_label.getValue(pt)
+            pt_to_base_pt_plex[pt] = base_pt
+        return utils.readonly(pt_to_base_pt_plex)
+
+    # TODO: I think this is just np.repeat(np.arange)
+    @cached_property
+    def _point_to_base_point_map_renum(self):
+        from firedrake.cython import dmcommon
+
+        return dmcommon.renumber_map_fixed(
+            np.arange(self.num_points, dtype=IntType),
+            self._point_to_base_point_map_plex[:, np.newaxis],  # arity 1 map between plex points
+            self._old_to_new_point_numbering_section,
+            self._base_mesh._old_to_new_point_numbering_section,
+        ).flatten()
+
     # {{{ facet iteration
 
     @cached_property

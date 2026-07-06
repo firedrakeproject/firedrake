@@ -714,12 +714,32 @@ class AbstractFunctionSpace:
             if item1 == "mesh":
                 item2 = layout_mut.pop(0)
                 assert item2 == "dof", "invalid layout otherwise"
-                new_layout.append("nodes")
+                # new_layout.append("nodes")
+                new_layout.append("layoutnodes")
             elif isinstance(item1, tuple):
                 new_layout.append(cls._parse_nodal_layout(item1))
             else:
                 new_layout.append(item1)
         return tuple(new_layout)
+
+    @property
+    def _is_real_tensor_product(self) -> bool:
+        # TODO: What if wrapped in a vector space?
+        if (
+            isinstance(self.ufl_element(), finat.ufl.TensorProductElement)
+            and any(e.family() == "Real" for e in self.ufl_element().factor_elements)
+        ):
+            *other_factors, last_factor = self.ufl_element().factor_elements
+            if any(e.family() == "Real" for e in other_factors):
+                raise NotImplementedError
+            assert last_factor.family() == "Real"
+
+            if len(other_factors) != 1:
+                raise NotImplementedError
+
+            return True
+        else:
+            return False
 
     # }}}
 
@@ -1161,40 +1181,39 @@ class FunctionSpace(AbstractFunctionSpace):
         from firedrake import FunctionSpace
         from firedrake.cython import dmcommon
 
-        # TODO: What if wrapped in a vector space?
-        # if (
-        #     isinstance(self.ufl_element(), finat.ufl.TensorProductElement)
-        #     and any(e.family() == "Real" for e in self.ufl_element().factor_elements)
-        # ):
-        #     *other_factors, last_factor = self.ufl_element().factor_elements
-        #     if any(e.family() == "Real" for e in other_factors):
-        #         raise NotImplementedError
-        #     assert last_factor.family() == "Real"
-        #
-        #     if len(other_factors) != 1:
-        #         raise NotImplementedError
-        #
-        #     axis_constraints = FunctionSpace(self.mesh()._base_mesh, other_factors[0]).dm_axis_constraints
-        #
-        #     breakpoint()
+        if self._is_real_tensor_product:
+            # TODO: introduce 'mesh._product_meshes'
+            # What if the 'R' dimension is on the base mesh?
+            # What if we extrude multiple times?
+            base_mesh = self._mesh._base_mesh
 
+        else:
+            base_mesh = self._mesh
 
-        mesh_axis = self._mesh.flat_points
+        mesh_axis = base_mesh.flat_points
         num_points = mesh_axis.local_size
-        plex = self._mesh.topology_dm
+        plex = base_mesh.topology_dm
 
         constraints = [AxisConstraint(mesh_axis)]
 
         # Create an (unpermuted) mapping from plex point to number of DoFs
         ndofs_array = numpy.empty(num_points, dtype=IntType)
         entity_dofs = _num_entity_dofs(self.finat_element)
-        dm = self.mesh().topology_dm
-        if type(self._mesh.topology) is MeshTopology:
+        dm = base_mesh.topology_dm
+        if type(base_mesh.topology) is MeshTopology:
+
+            if self._is_real_tensor_product:
+                flattened_entity_dofs = {}
+                for base_dim in range(dm.getDimension()+1):
+                    assert entity_dofs[base_dim, 0] == 0, "If the vertical direction is R cannot have vertex dofs"
+                    flattened_entity_dofs[base_dim] = entity_dofs[base_dim, 1]
+                entity_dofs = flattened_entity_dofs
+
             for dim in range(dm.getDimension()+1):
                 p_start, p_end = dm.getDepthStratum(dim)
                 ndofs_array[p_start:p_end] = entity_dofs[dim]
 
-        elif type(self._mesh.topology) is VertexOnlyMeshTopology:
+        elif type(base_mesh.topology) is VertexOnlyMeshTopology:
             ndofs_array[...] = entity_dofs[0]
 
         else:
@@ -1214,10 +1233,14 @@ class FunctionSpace(AbstractFunctionSpace):
                     ndofs = entity_dofs[base_dim, 1]
                 ndofs_array[pt] = ndofs
 
-        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(self._mesh, ndofs_array, self.block_size, self.boundary_set)
+        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(base_mesh, ndofs_array, self.block_size, self.boundary_set)
 
-        unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs, buffer_kwargs={"constant": True})
-        constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs, buffer_kwargs={"constant": True})
+        unconstrained_dofs_dat = op3.Dat(
+            mesh_axis, data=num_unconstrained_dofs, buffer_kwargs={"constant": True}
+        )
+        constrained_dofs_dat = op3.Dat(
+            mesh_axis, data=num_constrained_dofs, buffer_kwargs={"constant": True}
+        )
         unconstrained_dofs_expr = op3.as_linear_buffer_expression(unconstrained_dofs_dat)
 
         # TODO: ideally do this earlier but we have to do it here because we renumber inside
@@ -1263,6 +1286,13 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
+        # NOTE: We now have different but very similar treatment for R and AxR spaces
+        if self._is_real_tensor_product:
+            return self._make_plex_axes_real_tensor_product("plex")
+        else:
+            return self._make_plex_axes_default()
+
+    def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
@@ -1283,6 +1313,95 @@ class FunctionSpace(AbstractFunctionSpace):
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
         return self.dm_axes[index_tree]
 
+    def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
+        # Very similar to what we do for purely Real function spaces except
+        # the base mesh exists.
+
+        # Create the pretend axis tree that includes the mesh axis. This is
+        # just a DG0 function.
+        factor_elems = list(self.ufl_element().factor_elements)
+        factor_elems[-1] = factor_elems[-1].reconstruct(family="DG")
+        dg_elem = finat.ufl.TensorProductElement(*factor_elems)
+
+        dg_space = FunctionSpace(self._mesh, dg_elem)
+        if mode == "plex":
+            fake_axes = dg_space.plex_axes.materialize()
+        else:
+            assert mode == "nodal"
+            fake_axes = dg_space.nodal_axes.materialize()
+
+        # Now map the mesh-aware axis tree back to the actual one.
+        #
+        # Other elements of the tree (i.e. tensor shape) are the same and
+        # can be left unchanged.
+        targets = utils.StrictlyUniqueDefaultDict(list)
+        for path, axis_targetss in fake_axes.targets.items():
+            new_axis_targets = []
+            axis_targets = utils.just_one(axis_targetss)
+            if mode == "plex":
+                for axis_target in axis_targets:
+                    # make mesh things target the original mesh axis, and make dofs target dofs
+                    if axis_target.axis == self._mesh.name:
+                        base_dim, extr_dim = axis_target.component
+                        # hacky way to get the right entities
+                        base_selector = utils.just_one(
+                            sc.array.buffer
+                            for sc in self.mesh()._base_mesh._strata_slice.components
+                            if sc.label == base_dim
+                        )
+
+                        if extr_dim == 0:
+                            selector = numpy.repeat(base_selector.data, self.mesh().layers)
+                        else:
+                            assert extr_dim == 1
+                            selector = numpy.repeat(base_selector.data, self.mesh().layers-1)
+                        selector = op3.ArrayBuffer(selector, prefix="map", constant=True)
+
+                        target_expr = op3.LinearDatBufferExpression(
+                            selector, axis_target.expr  # index using current axis var
+                        )
+
+                        axis_target = op3.AxisTarget("mesh", "mylabel", target_expr)
+                    elif "dof" in axis_target.axis:
+                        axis_target = op3.AxisTarget("dof", None, axis_target.expr)
+                    else:
+                        # keep target unchanged
+                        pass
+                    new_axis_targets.append(axis_target)
+            else:
+                assert mode == "nodal"
+                for axis_target in axis_targets:
+                    if axis_target.axis == "nodes":
+
+                        num_nodes = fake_axes.root.local_size
+                        num_base_nodes = self.nodal_layout_axes.local_size
+                        num_nodes_per_column = num_nodes // num_base_nodes
+
+                        node_to_base_node_map = numpy.repeat(
+                            numpy.arange(num_base_nodes, dtype=IntType),
+                            num_nodes_per_column,
+                        )
+                        target_expr = op3.LinearDatBufferExpression(
+                            op3.ArrayBuffer(
+                                node_to_base_node_map, constant=True, prefix="map"
+                            ),
+                            axis_target.expr,  # index using current axis var
+                        )
+
+                        axis_target = op3.AxisTarget("layoutnodes", None, target_expr)
+                    else:
+                        # keep target unchanged
+                        pass
+                    new_axis_targets.append(axis_target)
+            targets[path] = [new_axis_targets]
+        targets = utils.freeze(targets)
+
+        unindexed = self.dm_axes if mode == "plex" else self.nodal_layout_axes
+
+        return op3.IndexedAxisTree(
+            fake_axes, unindexed=unindexed, targets=targets,
+        )
+
     @cached_property
     def _nodes_axis(self) -> op3.Axis:
         scalar_axis_tree = self.dm_axes.blocked(self.shape)
@@ -1301,12 +1420,17 @@ class FunctionSpace(AbstractFunctionSpace):
             region_size = scalar_axis_tree.with_region_labels(region_set).size
             regions.append(op3.AxisComponentRegion(region_size, frozenset(region_set)))
 
-        return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
+        # return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
+        return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
     @cached_property
     def nodal_axes(self) -> op3.AxisTree:
-        # TODO: This should return an indexed axis tree that points to the 'true' nodal layout.
-        axes = self._nodes_axis.as_tree()
+        if self._is_real_tensor_product:
+            return self._make_plex_axes_real_tensor_product("nodal")
+
+        # TODO: get the labeling right then do it this way
+        # return self.nodal_layout_axes
+        axes = self._nodes_axis.__record_init__(_label="nodes").as_tree()
         for i, dim in enumerate(self.shape):
             axes = axes.add_axis(None, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
         assert axes.sf == self.dm_axes.sf
@@ -1417,15 +1541,14 @@ class FunctionSpace(AbstractFunctionSpace):
     @cached_property
     @_mesh_cached
     def section(self):
+        from firedrake import FunctionSpace
         from firedrake.cython import dmcommon
 
         # The section is defined as if the data exists in isolation, so we don't
         # care if it is an unmixed space or a component of a mixed space.
-        # orphaned_space = self.collapse() if self.parent else self
-        orphaned_space = self  # think we don't need to collapse here since layout_axes doesn't index
 
         if self.ufl_element().family() == "Real":
-            ndofs = orphaned_space.dm_axes.local_size
+            ndofs = self.dm_axes.local_size
             section = PETSc.Section().create(comm=self.comm)
             p_start, p_end = self.mesh().topology_dm.getChart()
             section.setChart(p_start, p_end)
@@ -1435,10 +1558,27 @@ class FunctionSpace(AbstractFunctionSpace):
                 section.setOffset(pt, 0)
             return section
 
+        if self._is_real_tensor_product:
+            ndofs = self.dm_axes.local_size
+            section = PETSc.Section().create(comm=self.comm)
+            p_start, p_end = self.mesh().topology_dm.getChart()
+            section.setChart(p_start, p_end)
+            section.setPermutation(self.mesh()._new_to_old_point_renumbering)
+
+            subelem, _ = self.ufl_element().factor_elements
+            base_section = FunctionSpace(self.mesh()._base_mesh, subelem).section
+            pt_to_base_pt = self.mesh()._point_to_base_point_map_renum
+
+            for pt in range(p_start, p_end):
+                base_pt = pt_to_base_pt[pt]
+                section.setDof(pt, base_section.getDof(base_pt))
+                section.setOffset(pt, base_section.getOffset(base_pt))
+            return section
+
         # TODO: This can be made generic to all layouts if we just specify the mesh axis here somehow
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
-        axis_section = orphaned_space.dm_axes.section({}, "mylabel")
+        axis_section = self.dm_axes.section({}, "mylabel")
 
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
@@ -2308,11 +2448,13 @@ class RealFunctionSpace(FunctionSpace):
             new_axis_targets = []
             axis_targets = utils.just_one(axis_targetss)
             if mode == "plex":
-                if path.keys() != {self._mesh.name}:
-                    for axis_target in axis_targets:
-                        if axis_target.axis.startswith("dof"):
-                            axis_target = op3.AxisTarget("dof", None, 0)
-                        new_axis_targets.append(axis_target)
+                if path.keys() == {self._mesh.name}:
+                    continue
+
+                for axis_target in axis_targets:
+                    if axis_target.axis.startswith("dof"):
+                        axis_target = op3.AxisTarget("dof", None, 0)
+                    new_axis_targets.append(axis_target)
             else:
                 assert mode == "nodal"
                 for axis_target in axis_targets:

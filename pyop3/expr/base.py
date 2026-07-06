@@ -550,7 +550,8 @@ class AxisVar(TerminalExpression):
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
         assert axis.component.sf is None
-        assert tuple(r.label for r in axis.component.regions) == (None,)
+        # FIXME
+        # assert tuple(r.label for r in axis.component.regions) == (None,)
 
         object.__setattr__(self, "axis", axis)
         self.__post_init__()

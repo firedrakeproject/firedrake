@@ -1335,7 +1335,7 @@ class AbstractIndexedAxisTree(AbstractAxisTreeLike):
     @cached_property
     def sf(self) -> StarForest:
         petsc_sf = pyop3.sf.filter_petsc_sf(
-            self.unindexed.sf.sf, self._buffer_indices(include_ghosts=True), 0, self.local_size
+            self.unindexed.sf.sf, self._buffer_indices(include_ghosts=True), 0, self.buffer_size(include_ghosts=True)
         )
         return StarForest(petsc_sf, self.comm)
 
@@ -1663,22 +1663,24 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         if include_ghosts:
             return self.local_size
         else:
-            return self.owned.local_size
+            # FIXME: Very bad API now
+            # return self.owned.local_size
+            return self.free.local_size
 
     # This is a PETSc-specific attribute
     @cached_property
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        # debugging
-        self.sf
+        num_free_pts = self.buffer_size(include_ghosts=False)
+        num_pts = self.buffer_size(include_ghosts=True)
 
         with temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.free.local_size) or 0
-        numbering = np.arange(start, start + self.local_size, dtype=IntType)
+            start = icomm.exscan(num_free_pts) or 0
+        numbering = np.arange(start, start + num_pts, dtype=IntType)
 
         # set ghost+constrained entries to -1 to make sure they are overwritten
-        numbering[self.free.local_size:] = -1
+        numbering[num_free_pts:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         return Dat(self, data=numbering, constant=True)
 
