@@ -14,10 +14,14 @@ def test_redistributed_hierarchy():
 
 @pytest.mark.parallel(nprocs=4)
 def test_redistributed_hierarchy_transfers_no_empty_ranks():
-    base = UnitSquareMesh(1, 1)
-    mh = MeshHierarchy(base, 1)
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = UnitSquareMesh(1, 1, distribution_parameters=dparams)
+    mh = MeshHierarchy(base, 2)
 
-    assert mh[1].cell_set.size > 0
+    for m in mh[1:]:
+        assert m.cell_set.size > 0
+        for k, v in dparams.items():
+            assert m._distribution_parameters.get(k, None) == v
 
     Vc = FunctionSpace(mh[0], "CG", 1)
     Vf = FunctionSpace(mh[1], "CG", 1)

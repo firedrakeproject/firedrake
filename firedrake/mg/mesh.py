@@ -196,6 +196,7 @@ def MeshHierarchy(mesh, refinement_levels,
                 reorder=reorder,
                 comm=mesh.comm,
             )
+            fine_mesh._distribution_parameters = parameters
             fine_mesh.redist = RedistributedMeshTransfer(transfer_mesh, fine_mesh, point_sf)
         else:
             fine_mesh = mesh_builder(
