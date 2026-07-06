@@ -52,7 +52,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
     """
     netgen_data = np.asarray(netgen_data)
     mesh = V.mesh()
-    sf = mesh.sfBC_orig
+    sf = mesh.sfBC
     if sf is None:
         # This mesh was not redistributed at construction.
         # This means that the underlying netgen mesh represents
@@ -335,10 +335,16 @@ def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
         refined_mesh, netgen_mesh, netgen_flags,
         distribution_parameters, parent_cell_numbers,
     )
-    if transfer_mesh.sfBC_orig is not None and point_sf_orig is not None:
+    if point_sf_orig is not None and transfer_mesh.sfBC_orig is not None:
         refined_mesh.sfBC_orig = transfer_mesh.sfBC_orig.compose(point_sf_orig)
-        refined_mesh.sfBC = (refined_mesh.sfBC_orig if point_sf is point_sf_orig
-                             else transfer_mesh.sfBC_orig.compose(point_sf))
+    if point_sf is not None:
+        if (point_sf is point_sf_orig
+                and transfer_mesh.sfBC is transfer_mesh.sfBC_orig):
+            refined_mesh.sfBC = refined_mesh.sfBC_orig
+        elif transfer_mesh.sfBC is not None:
+            refined_mesh.sfBC = transfer_mesh.sfBC.compose(point_sf)
+        else:
+            refined_mesh.sfBC = point_sf
     refined_mesh.redist = RedistributedMeshTransfer(transfer_mesh, refined_mesh, point_sf)
     return refined_mesh
 
@@ -351,12 +357,12 @@ def refine_marked_elements(mesh, mark, netgen_flags=None, redistribute=True,
     if tdim not in {2, 3}:
         raise NotImplementedError("No implementation for dimension other than 2 and 3.")
     with mark.dat.vec as mvec:
-        if mesh.sfBC_orig is None:
+        if mesh.sfBC is None:
             cstart, cend = mesh.topology_dm.getHeightStratum(0)
             cellNum = list(map(mesh._cell_numbering.getOffset, range(cstart, cend)))
             mark_np = mvec.getArray()[cellNum]
         else:
-            sfBCInv = mesh.sfBC_orig.createInverse()
+            sfBCInv = mesh.sfBC.createInverse()
             _, mvec0 = mesh.topology_dm.distributeField(sfBCInv,
                                                         mesh._cell_numbering,
                                                         mvec)

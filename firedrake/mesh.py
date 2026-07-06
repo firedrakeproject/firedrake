@@ -3392,6 +3392,8 @@ def Mesh(meshfile, **kwargs):
                         comm=mesh.comm)
             temp.netgen_mesh = mesh.netgen_mesh
             temp.netgen_flags = mesh.netgen_flags
+            temp.sfBC = mesh.sfBC
+            temp.sfBC_orig = mesh.sfBC_orig
             temp._distribution_parameters = mesh._distribution_parameters
             temp._did_reordering = mesh._did_reordering
             mesh = temp

@@ -156,6 +156,7 @@ def test_CG1_native_transfers_use_adaptive_cell_maps():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
 def test_adapt_after_uniform_netgen_refinement():
     from netgen.geom2d import SplineGeometry
 
@@ -183,6 +184,7 @@ def test_adapt_after_uniform_netgen_refinement():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
 def test_adapt_after_uniform_firedrake_refinement():
     from netgen.geom2d import SplineGeometry
 

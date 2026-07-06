@@ -161,9 +161,10 @@ def uniformRefinementRoutine(ngmesh, cdm):
     logger.info(f"\t\t\t[{time.time()}]Mapping the mesh to Netgen mesh")
     tic = time.time()
     mapping = MeshMapping(rdm, geo=ngmesh)
+    ngmesh = mapping.ngMesh
     toc = time.time()
     logger.info(f"\t\t\t[{time.time()}]Mapped the mesh to Netgen. Time taken: {toc-tic}")
-    return (rdm, mapping.ngMesh)
+    return (rdm, ngmesh)
 
 
 def uniformMapRoutine(meshes, lgmaps):
@@ -349,5 +350,6 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh._did_reordering = mesh._did_reordering
     tmesh.netgen_mesh = mesh.netgen_mesh
     tmesh.netgen_flags = mesh.netgen_flags
+    tmesh.sfBC = mesh.sfBC
     tmesh.sfBC_orig = mesh.sfBC_orig
     return tmesh
