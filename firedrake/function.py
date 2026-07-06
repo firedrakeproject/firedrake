@@ -475,6 +475,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake.assign import Assigner, parse_subset
 
         subset = parse_subset(subset)
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.reduce_leaves_to_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             self.dat.data_wo[...] = expr

@@ -241,6 +241,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         subset = parse_subset(subset)
 
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.reduce_leaves_to_roots()
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):

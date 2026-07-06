@@ -337,6 +337,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
             self._lazy_data[curr_dev].flags.writeable = False
 
+        self._debug_is_poisoned = False
+
     # }}}
 
     # {{{ Class attrs
@@ -355,15 +357,15 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        return self.get_array().shape
+        return self._lazy_data[get_current_device()].shape
 
     @property
     def size(self) -> int:
-        return self.get_array().size
+        return self._lazy_data[get_current_device()].size
 
     @property
     def dtype(self) -> np.dtype:
-        return self.get_array().dtype
+        return self._lazy_data[get_current_device()].dtype
 
     @property
     def state(self) -> int:
@@ -498,6 +500,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._leaves_valid
 
     def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+        if self._debug_is_poisoned:
+            breakpoint()
+
         curr_dev = get_current_device() 
 
         if not self._is_data_available_and_synced(curr_dev):
@@ -640,7 +645,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_property
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
-    
+
     def sync_devices(self):
         last_updated_device = self._last_updated_device
         current_device = get_current_device()
@@ -649,7 +654,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._lazy_data[last_updated_device], 
             constant=self.constant
         )
-        
         self._state[current_device] = self._state[last_updated_device]
 
     def _is_data_available_and_synced(self, device: Device) -> bool:
@@ -697,6 +701,14 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._leaves_valid = False
             # TODO
             # self._work_vec.stateIncrease()
+
+    # }}}
+
+    # {{{ debugging helper methods
+
+    def _debug_poison_array(self):
+        """Turn the next array access into an error."""
+        self._debug_is_poisoned = True
 
     # }}}
 

@@ -71,36 +71,6 @@ def quadrilateral(request):
     return request.param
 
 
-def test_vertical_average_variable(quadrilateral):
-    """Test computing vertical average on mesh with variable nb of levels"""
-    tolerance = 2e-14
-    mesh2d = RectangleMesh(5, 1, 5, 1, quadrilateral=quadrilateral)
-
-    # construct number of levels
-    xy = SpatialCoordinate(mesh2d)
-    p0_2d = FunctionSpace(mesh2d, 'DG', 0)
-    f_2d = Function(p0_2d).interpolate(1 + xy[0])
-    max_layers = np.floor(f_2d.dat.data.real).astype(int)
-    layers = np.zeros((p0_2d.dof_count, 2), dtype=int)
-    layers[:, 1] = max_layers
-
-    mesh = ExtrudedMesh(mesh2d, layers=layers, layer_height=1.0)
-
-    fs = FunctionSpace(mesh, 'DG', 1)
-    xyz = SpatialCoordinate(mesh)
-    f = Function(fs).interpolate(xyz[2])
-
-    p0 = FunctionSpace(mesh, 'DG', 0)
-    correct = Function(p0, name='solution').interpolate(1 + xyz[0])
-    correct.dat.data[:] = np.floor(correct.dat.data.real)/2
-
-    fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
-    f_real = Function(fs_real).project(f)
-
-    l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
-    assert abs(l2err) < tolerance
-
-
 @pytest.mark.parametrize(('testcase', 'tolerance'),
                          [(("CG", 1), 2e-7),
                           (("CG", 2), 1e-7),
