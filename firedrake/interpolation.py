@@ -8,7 +8,7 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace, expand_derivatives
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.tensors import as_vector
@@ -112,7 +112,9 @@ def split_mixed_coefficients(expr: Expr) -> Expr:
                 else:
                     flat_components.extend(sub[i] for i in numpy.ndindex(sub.ufl_shape))
             replacements[c] = as_vector(flat_components)
-    return replace(expr, replacements) if replacements else expr
+    if not replacements:
+        return expr
+    return expand_derivatives(replace(expr, replacements))
 
 
 class Interpolate(UFLInterpolate):
