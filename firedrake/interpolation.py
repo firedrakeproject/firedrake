@@ -106,7 +106,7 @@ class NestedInterpolateLowerer(DAGTraverser):
 
     def __init__(self):
         super().__init__()
-        self.subs = {}  # inner Interpolate node -> placeholder Function
+        self.subs = {}  # placeholder Function -> interpolator
 
     @singledispatchmethod
     def process(self, o: Expr) -> Expr:
@@ -125,7 +125,6 @@ class NestedInterpolateLowerer(DAGTraverser):
 
         inner_node = o._ufl_expr_reconstruct_(operand)
         fn = Function(o.ufl_function_space())
-        # self.subs[inner_node] = fn
         self.subs[fn] = get_interpolator(inner_node)
         return as_ufl(fn)
 
