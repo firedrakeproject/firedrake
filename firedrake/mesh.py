@@ -4724,7 +4724,6 @@ def _parent_mesh_embedding(
         missing_local_leaves = (winner_ranks_on_leaves == -1) & (input_ranks_on_leaves == comm.rank)
         if np.any(missing_local_leaves):
             # add these leaves to the embedded SF, but mark them with parent_cell_num=-1 and reference_coords=nan
-            leaf_is_embedded |= missing_local_leaves
             parent_cell_nums[missing_local_leaves] = -1
             reference_coords[missing_local_leaves, :] = np.nan
 
