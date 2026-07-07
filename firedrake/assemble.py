@@ -375,7 +375,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            appctx=self._appctx).allocate()
             else:
                 test, trial = self._form.arguments()
-                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
                 mat = op3.Mat.from_sparsity(sparsity)
                 return Matrix(self._form, mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
