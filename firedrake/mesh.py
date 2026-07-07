@@ -4550,7 +4550,7 @@ def _parent_mesh_embedding(
             ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
         return cell_nums, ref_coords, ref_dists_l1
     
-    def _owning_ranks(cell_nums: np.ndarray, visible_ranks: np.ndarray) -> np.ndarray:
+    def _owning_ranks(cell_nums: np.ndarray) -> np.ndarray:
         # Given an array of cell numbers, returns the owning rank for each cell,
         # or -1 if not visible on this rank.
         owner_ranks = np.full_like(cell_nums, -1, dtype=IntType)
@@ -4560,7 +4560,7 @@ def _parent_mesh_embedding(
                 lookup_cells = cell_nums[visible] // (parent_mesh.layers - 1)
             else:
                 lookup_cells = cell_nums[visible]
-            owner_ranks[visible] = visible_ranks[lookup_cells]
+            owner_ranks[visible] = parent_mesh._visible_ranks[lookup_cells]
         return owner_ranks
 
     gdim = parent_mesh.geometric_dimension
@@ -4635,15 +4635,7 @@ def _parent_mesh_embedding(
     # Candidate leaves are those that are visible and have the minimum L1 distance.
     is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
-    # Determine the owning rank for each candidate leaf. First we need to determine which ranks are currently visible.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-    )
-    owning_ranks = _owning_ranks(parent_cell_nums, visible_ranks)
+    owning_ranks = _owning_ranks(parent_cell_nums)
 
     # Tie-break among candidates by highest owner rank.
     rank_candidates = np.full(nleaves, -1, dtype=IntType)
@@ -4681,7 +4673,7 @@ def _parent_mesh_embedding(
             locally_visible[retry_leaf_indices] = retry_cells != -1
 
             # Get new owner ranks for the retrying leaves and update owning_ranks.
-            new_owner_ranks = _owning_ranks(retry_cells, visible_ranks)
+            new_owner_ranks = _owning_ranks(retry_cells)
             owning_ranks[retry_leaf_indices] = new_owner_ranks
 
             winners_local = winner_ranks_on_leaves[retry_leaf_indices]
