@@ -247,9 +247,12 @@ class AssignExprBuilder(DAGTraverser):
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Abs, a):
-        raise NotImplementedError("TODO")
-        # Only valid if a is a scalar
-        return ((Constant(abs(self._as_scalar(a))), 1),)
+        a_expr, is_scalar, is_vector = a
+        if self.loop_indices:
+            expr = tuple(abs(a_expr_) for a_expr_ in a_expr)
+        else:
+            expr = abs(a_expr)
+        return expr, is_scalar, is_vector
 
     @process.register
     def _(self, _: ufl.classes.MultiIndex):
@@ -345,7 +348,7 @@ class Assigner:
                 # assignee_expr = op3.expr.NonlinearDatBufferExpression(self._assignee.dat.buffer, layouts)
                 assignee_expr = op3.expr.LinearDatBufferExpression(self._assignee.dat.buffer, utils.just_one(layouts.values()))
                 shape = op3.axis_tree.merge_axis_trees([
-                    axis_tree,
+                    axis_tree.regionless(),
                     op3.expr.visitors.get_shape(expr)[0]
                 ])
 
@@ -400,6 +403,7 @@ class Assigner:
                         linear_assignee_expr.assign(linear_expr),
                         ),
                     eager=True,
+                    # FIXME: This should be needed if we correctly mask things (intersect meshes)
                     compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
                 )
 
