@@ -2487,6 +2487,8 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
+        # `cached_property_until` stores the cached rtree in self._rtree_cache
+        # setting it to None will force the rtree to be rebuilt on next access.
         self._rtree_cache = None
 
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
