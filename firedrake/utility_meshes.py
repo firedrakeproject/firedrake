@@ -683,7 +683,7 @@ def UnitTriangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
-        use_fuse=False,
+        use_fuse=use_fuse,
     )
 
 
@@ -869,7 +869,7 @@ def TensorRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
-        use_fuse=False
+        use_fuse=use_fuse
     )
 
 
@@ -1143,7 +1143,7 @@ def PeriodicRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
-        use_fuse=False
+        use_fuse=use_fuse
     )
 
 
