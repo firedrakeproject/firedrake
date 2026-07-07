@@ -323,13 +323,6 @@ class Dat(Tensor):
     def size(self):
         return self.axes.size
 
-    @property
-    def kernel_dtype(self):
-        assert False, "old"
-        # TODO Think about the fact that the dtype refers to either to dtype of the
-        # array entries (e.g. double), or the dtype of the whole thing (double*)
-        return self.dtype
-
     @classmethod
     def _get_count_data(cls, data):
         # recurse if list of lists

@@ -697,10 +697,6 @@ class heavy_caches:
     def __init__(self, objs: Any) -> None:
         objs = utils.as_tuple(objs)
 
-        # debugging
-        if len(_alive_heavy_caches) > 100:
-            LOGGER.warn(f"WARNING MANY ALIVE CACHES: {len(_alive_heavy_caches)}")
-
         for obj in objs:
             _alive_heavy_caches.add(obj)
 
