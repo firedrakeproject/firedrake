@@ -73,9 +73,3 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
-
-
-class EmptyNodeEnvelopeError(FiredrakeException):
-    """Raised when attempting to compute the envelope of an Rtree node which has
-    no envelope (i.e. an empty node).
-    """
