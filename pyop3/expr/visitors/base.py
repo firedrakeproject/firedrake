@@ -65,6 +65,12 @@ class OverloadedExpressionEvaluator(ExpressionVisitor):
 
     @process.register
     @pyop3.node.postorder
+    def _(self, _: pyop3.expr.Pow, visited, /, *args, **kwargs) -> Any:
+        a, b = visited.values()
+        return a ** b
+
+    @process.register
+    @pyop3.node.postorder
     def _(self, _: pyop3.expr.Modulo, visited, /, *args, **kwargs) -> Any:
         a, b = visited.values()
         return a % b
@@ -74,3 +80,9 @@ class OverloadedExpressionEvaluator(ExpressionVisitor):
     def _(self, _: pyop3.expr.Neg, visited, /, *args, **kwargs) -> Any:
         a = utils.just_one(visited.values())
         return -a
+
+    @process.register
+    @pyop3.node.postorder
+    def _(self, _: pyop3.expr.Abs, visited, /, *args, **kwargs) -> Any:
+        a = utils.just_one(visited.values())
+        return abs(a)

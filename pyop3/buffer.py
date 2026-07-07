@@ -670,7 +670,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_method()
     def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
         block_size = np.prod(block_shape, dtype=int)
-        return PETSc.Vec().createWithArray(self._lazy_data, self.size, block_size, comm=self.comm)
+        # FIXME: Only allowing host data here
+        return PETSc.Vec().createWithArray(self._host_data, self.size, block_size, comm=self.comm)
 
     def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", block_shape)

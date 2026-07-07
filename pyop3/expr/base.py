@@ -40,6 +40,8 @@ class Expression(Node, abc.ABC):
     def __str__(self) -> str:
         return self._full_str
 
+    # {{{ arithmetic
+
     def __add__(self, other: ExpressionT, /) -> Expression:
         if other == 0:
             return self
@@ -110,6 +112,16 @@ class Expression(Node, abc.ABC):
         else:
             return Neg(self)
 
+    def __pow__(self, other, /) -> Pow:
+        return Pow(self, other)
+
+    def __abs__(self) -> Abs:
+        if isinstance(self, Abs):
+            # Abs(Abs(obj)) == Abs(obj)
+            return self.operand
+        else:
+            return Abs(self)
+
     def __lt__(self, other):
         return LessThan(self, other)
 
@@ -127,6 +139,8 @@ class Expression(Node, abc.ABC):
 
     def __ror__(self, other) -> Or | bool:
         return self._maybe_eager_or(other, self)
+
+    # }}}
 
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
@@ -237,6 +251,20 @@ class Neg(UnaryOperator):
     @property
     def local_min(self) -> numbers.Number:
         return -self.a.local_max
+
+
+class Abs(UnaryOperator):
+    @property
+    def symbol(self) -> str:
+        return "abs."
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
 
 @pyop3.record.frozenrecord()
@@ -368,6 +396,20 @@ class Modulo(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "%"
+
+
+class Pow(BinaryOperator):
+    @property
+    def _symbol(self) -> str:
+        return "**"
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
 
 class Comparison(BinaryOperator, metaclass=abc.ABCMeta):

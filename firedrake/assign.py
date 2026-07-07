@@ -228,10 +228,21 @@ class AssignExprBuilder(DAGTraverser):
 
     @process.register
     @DAGTraverser.postorder
-    def _(self, o: ufl.classes.Power, a, b):
-        raise NotImplementedError("TODO")
+    def _(self, _: ufl.classes.Power, a, b):
+        a_expr, a_is_scalar, a_is_vector = a
+        b_expr, b_is_scalar, b_is_vector = b
+
+        is_scalar = a_is_scalar and b_is_scalar
+        is_vector = a_is_vector or b_is_vector
+
         # Only valid if a and b are scalars
-        return ((Constant(self._as_scalar(a) ** self._as_scalar(b)), 1),)
+        assert is_scalar
+
+        if self.loop_indices:
+            expr = tuple(a_expr_ ** b_expr_ for a_expr_, b_expr_ in zip(a_expr, b_expr, strict=True))
+        else:
+            expr = a_expr ** b_expr
+        return expr, is_scalar, is_vector
 
     @process.register
     @DAGTraverser.postorder

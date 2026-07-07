@@ -6760,11 +6760,24 @@ def get_iteration_spec(
         else:
             intersect_mesh, = intersect_meshes
 
-        if intersect_mesh.submesh_parent is not mesh:
-            raise NotImplementedError
+        # To get the indices in the current mesh we need to figure out what
+        # the indices of the intersection mesh are in the common ancestor and
+        # then map them down to the mesh.
+        common_ancestor = mesh.submesh_youngest_common_ancestor(intersect_mesh)
 
-        valid_plex_indices = dmcommon.intersect_is(
-            valid_plex_indices, intersect_mesh.topology_dm.getSubpointIS()
+        intersect_indices = np.arange(*intersect_mesh.topology_dm.getChart(), dtype=IntType)
+        aa = intersect_mesh.submesh_ancestors
+        for a in aa[:aa.index(common_ancestor)]:
+            intersect_indices = a._submesh_to_parent_plex_index_map[intersect_indices]
+
+        # Now we have the indices at the common ancestor, work back down to give us
+        # the indices of the target mesh.
+        bb = mesh.submesh_ancestors
+        for b in reversed(bb[:bb.index(common_ancestor)]):
+            intersect_indices = b._parent_to_submesh_plex_index_map[intersect_indices]
+
+        valid_plex_indices = PETSc.IS().createGeneral(
+            np.intersect1d(valid_plex_indices.indices, intersect_indices), comm=MPI.COMM_SELF
         )
 
     if subdomain_id == "everywhere":
@@ -6822,80 +6835,6 @@ def get_iteration_spec(
     mesh_ref = weakref.proxy(mesh.topology)
 
     return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering, needs_subset=needs_subset)
-
-
-# NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think
-# it's still a good general approach.
-# @cachedmethod(cache=lambda plex: getattr(plex, "_firedrake_cache"))
-# TODO: Make this return an IS
-def memoize_supports(plex: PETSc.DMPlex, dim: int):
-    return _memoize_map_ragged(plex, dim, plex.getSupport)
-
-
-def _memoize_map_ragged(plex: PETSc.DMPlex, dim, map_func):
-    strata = tuple(plex.getDepthStratum(d) for d in range(plex.getDimension()+1))
-    def get_dim(_pt):
-        for _d, (_start, _end) in enumerate(strata):
-            if _start <= _pt < _end:
-                return _d
-        assert False
-
-    p_start, p_end = plex.getDepthStratum(dim)
-    npoints = p_end - p_start
-
-    # Store arities
-    sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
-    for stratum_pt, pt in enumerate(range(p_start, p_end)):
-        for map_pt in map_func(pt):
-            map_dim = get_dim(map_pt)
-            sizes[map_dim][stratum_pt] += 1
-
-    # Now store map data
-    map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
-    offsets = tuple(op3.utils.steps(sizes[d]) for d in range(plex.getDimension()+1))
-    plex_pt_offsets = np.empty(plex.getDimension()+1, dtype=IntType)
-    for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):
-        plex_pt_offsets[...] = 0
-        for map_pt in map_func(plex_pt):
-            map_dim = get_dim(map_pt)
-            map_pts[map_dim][offsets[map_dim][stratum_pt] + plex_pt_offsets[map_dim]] = map_pt
-            plex_pt_offsets[map_dim] += 1
-    return map_pts, sizes
-
-
-# def memoize_supports_new(plex: PETSc.DMPlex, dim: int) -> tuple[PETSc.IS, PETSc.Section]:
-#     return _memoize_map_ragged_new(plex, dim, plex.getSupport)
-#
-#
-# def _memoize_map_ragged_new(plex: PETSc.DMPlex, dim, map_func) -> tuple[PETSc.IS, PETSc.Section]:
-#     strata = tuple(plex.getDepthStratum(d) for d in range(plex.dimension+1))
-#     def get_dim(_pt):
-#         for _d, (_start, _end) in enumerate(strata):
-#             if _start <= _pt < _end:
-#                 return _d
-#         assert False
-#
-#     p_start, p_end = plex.getDepthStratum(dim)
-#     npoints = p_end - p_start
-#
-#     # Store arities
-#     sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(plex.dimension+1)}
-#     for stratum_pt, pt in enumerate(range(p_start, p_end)):
-#         for map_pt in map_func(pt):
-#             map_dim = get_dim(map_pt)
-#             sizes[map_dim][stratum_pt] += 1
-#
-#     # Now store map data
-#     map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(plex.dimension+1)}
-#     offsets = tuple(op3.utils.steps(sizes[d]) for d in range(plex.dimension+1))
-#     plex_pt_offsets = np.empty(plex.dimension+1, dtype=IntType)
-#     for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):
-#         plex_pt_offsets[...] = 0
-#         for map_pt in map_func(plex_pt):
-#             map_dim = get_dim(map_pt)
-#             map_pts[map_dim][offsets[map_dim][stratum_pt] + plex_pt_offsets[map_dim]] = map_pt
-#             plex_pt_offsets[map_dim] += 1
-#     return map_pts, sizes
 
 
 def _memoize_facet_supports(

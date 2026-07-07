@@ -102,6 +102,8 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
 
     # }}}
 
+    # {{{ arithmetic
+
     def __iadd__(self, other: ExpressionT, /) -> Self:
         if other != 0:
             self.iassign(other, eager=True)
@@ -121,6 +123,8 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
         if other != 1:
             self.assign(self//other, eager=True)
         return self
+
+    # }}}
 
     @property
     def dtype(self) -> np.dtype:
