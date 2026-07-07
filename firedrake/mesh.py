@@ -2760,7 +2760,7 @@ class MeshTopology(AbstractMeshTopology):
         visible_ranks[self.cells.owned.local_size:] = -1
         # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
         dmcommon.exchange_cell_orientations(
-            self.topology_dm, self._old_to_new_cell_numbering, visible_ranks
+            self, self._old_to_new_cell_numbering, visible_ranks
         )
         return visible_ranks
 

@@ -2474,12 +2474,12 @@ class RealFunctionSpace(FunctionSpace):
             axis_targets = utils.just_one(axis_targetss)
             if mode == "plex":
                 if path.keys() == {self._mesh.name}:
-                    continue
-
-                for axis_target in axis_targets:
-                    if axis_target.axis.startswith("dof"):
-                        axis_target = op3.AxisTarget("dof", None, 0)
-                    new_axis_targets.append(axis_target)
+                    new_axis_targets = []
+                else:
+                    for axis_target in axis_targets:
+                        if axis_target.axis.startswith("dof"):
+                            axis_target = op3.AxisTarget("dof", None, 0)
+                        new_axis_targets.append(axis_target)
             else:
                 assert mode == "nodal"
                 for axis_target in axis_targets:
