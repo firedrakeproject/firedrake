@@ -1442,13 +1442,8 @@ class FunctionSpace(AbstractFunctionSpace):
         if self._is_real_tensor_product:
             return self._make_plex_axes_real_tensor_product("nodal")
 
-        # TODO: get the labeling right then do it this way
-        # return self.nodal_layout_axes
-        axes = self._nodes_axis.__record_init__(_label="nodes").as_tree()
-        for i, dim in enumerate(self.shape):
-            axes = axes.add_axis(None, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
-        assert axes.sf == self.dm_axes.sf
-        return axes
+        relabeling_slice = op3.Slice("layoutnodes", [op3.AffineSliceComponent(None, label=None)], label="nodes")
+        return self.nodal_layout_axes[relabeling_slice]
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.

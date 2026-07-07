@@ -1196,7 +1196,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     is_full = all(
         isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
         for s in slice_.components
+    ) and slice_.axis == slice_.label
+    is_full_old = all(
+        isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
+        for s in slice_.components
     )
+    # if not is_full and is_full_old:
+    #     breakpoint()
     # NOTE: We should be able to eagerly return here?
 
     if is_full:

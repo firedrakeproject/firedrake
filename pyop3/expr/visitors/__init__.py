@@ -902,7 +902,7 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
         orig_axis = loop_var.axis
         new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
 
-        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
+        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)], label=new_axis.label)
         loop_slices.append(loop_slice)
 
     to_skip = set()
@@ -912,7 +912,8 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
 
         myslices = []
         for axis, component in leaf_path.items():
-            myslice = Slice(axis, [AffineSliceComponent(component)])
+            # full slice
+            myslice = Slice(axis, [AffineSliceComponent(component)], label=axis)
             myslices.append(myslice)
         iforest = IndexTree.from_iterable((*loop_slices, *myslices))
 

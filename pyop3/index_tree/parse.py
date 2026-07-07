@@ -447,7 +447,8 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
     if len(matching_target_paths) == 0:
         # axis not found, need to emit a slice
         slice_ = Slice(
-            axis.label, [AffineSliceComponent(c.label) for c in axis.components]
+            axis.label, [AffineSliceComponent(c.label) for c in axis.components],
+            label=axis.label,
         )
         index_tree = IndexTree(slice_)
 
