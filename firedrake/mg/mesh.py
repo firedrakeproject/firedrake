@@ -10,10 +10,15 @@ import firedrake
 from functools import cached_property
 
 from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.redist import (
+    RedistributedMeshTransfer,
+    dm_has_empty_rank,
+    make_unoverlapped_dm,
+    redistribute_dm,
+)
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
-from .utils import (RedistributedMeshTransfer, dm_has_empty_rank, make_unoverlapped_dm,
-                    redistribute_dm, set_level, set_dm_refine_level)
+from .utils import set_level, set_dm_refine_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")

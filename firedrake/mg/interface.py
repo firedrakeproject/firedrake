@@ -274,10 +274,22 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
 
-        # FIXME
-        from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
-        adaptive = isinstance(hierarchy, AdaptiveMeshHierarchy)
-        if adaptive and (dg or Vc.mesh().comm.size > 1):
+        # `coarse_node_to_fine_node_map`/`coarse_cell_to_fine_node_map` (used
+        # below) look up, for each coarse cell, a *list* of candidate fine
+        # cells via `coarse_to_fine_cells`. For an adaptively refined level
+        # that was redistributed, that list was built against the
+        # parent-owned (`redist.orig`) mesh's own partition; `redist2orig`
+        # above only brings the *data* back to that layout; it doesn't
+        # guarantee every candidate fine cell in the list is still one this
+        # rank can locally see with the right geometry (unlike
+        # `fine_to_coarse_cells`, used by `prolong`/`restrict`, which always
+        # has exactly one candidate -- the true parent -- so it is immune to
+        # this). Confirmed experimentally: without this fallback, both the
+        # "not dg" (native node-based) and "dg" (native cell-based) native
+        # paths give wrong answers (or fail to locate a cell) specifically
+        # when `redist is not None`; parallel adaptive levels that were
+        # *not* redistributed transfer correctly through the native paths.
+        if redist is not None:
             return coarsest.interpolate(fine)
 
         if not dg:

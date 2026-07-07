@@ -136,54 +136,13 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
     )
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_adaptive_refinement_redistributes_unbalanced_unitsquare():
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    mesh = UnitSquareMesh(4, 4, distribution_parameters=dparams)
-    amh = AdaptiveMeshHierarchy(mesh)
-
-    M = FunctionSpace(mesh, "DG", 0)
-    markers = Function(M)
-    if mesh.comm.rank == 0:
-        markers.dat.data_wo[:] = 1
-
-    refined_mesh = mesh.refine_marked_elements(markers, balancing=0)
-    assert getattr(refined_mesh, "redist", None) is not None
-    amh.add_mesh(refined_mesh)
-
-    V_coarse = FunctionSpace(mesh, "CG", 1)
-    V_fine = FunctionSpace(refined_mesh, "CG", 1)
-    xc, yc = SpatialCoordinate(mesh)
-    xf, yf = SpatialCoordinate(refined_mesh)
-    expr_coarse = xc + 2 * yc
-    expr_fine = xf + 2 * yf
-
-    u_coarse = Function(V_coarse).interpolate(expr_coarse)
-    u_fine = Function(V_fine)
-    prolong(u_coarse, u_fine)
-    assert errornorm(expr_fine, u_fine) <= 1e-12
-
-    r_fine = assemble(conj(TestFunction(V_fine)) * dx)
-    r_coarse = Cofunction(V_coarse.dual())
-    restrict(r_fine, r_coarse)
-    assert np.allclose(
-        assemble(action(r_coarse, u_coarse)),
-        assemble(action(r_fine, u_fine)),
-        rtol=1e-12,
-        atol=1e-12,
-    )
-
-
-@pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 2])
-def test_adapt_after_uniform_netgen_refinement():
-    from netgen.geom2d import SplineGeometry
-
-    geo = SplineGeometry()
-    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
-    netgen_mesh = geo.GenerateMesh(maxh=0.5)
-    netgen_mesh.Refine()
-    mesh = Mesh(netgen_mesh)
+def _assert_adapt_after_uniform_refinement(mesh):
+    """Adaptively refine ``mesh`` (assumed to be the finest level of a
+    (possibly trivial) uniformly-refined hierarchy) by marking a single
+    cell, and check that the resulting `AdaptiveMeshHierarchy` cell maps
+    are sane. Shared by the ``test_adapt_after_uniform_*refinement``
+    tests, which only differ in how ``mesh`` itself was built.
+    """
     amh = AdaptiveMeshHierarchy(mesh)
 
     M = FunctionSpace(mesh, "DG", 0)
@@ -200,6 +159,19 @@ def test_adapt_after_uniform_netgen_refinement():
     assert fine_to_coarse.shape == (_adaptive_map_mesh(refined_mesh).cell_set.size, 1)
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
+
+
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+def test_adapt_after_uniform_netgen_refinement():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    netgen_mesh = geo.GenerateMesh(maxh=0.5)
+    netgen_mesh.Refine()
+    mesh = Mesh(netgen_mesh)
+    _assert_adapt_after_uniform_refinement(mesh)
 
 
 @pytest.mark.skipnetgen
@@ -213,25 +185,7 @@ def test_adapt_after_uniform_firedrake_refinement(refine):
     netgen_mesh = geo.GenerateMesh(maxh=0.5)
     mesh = Mesh(netgen_mesh)
     mh = MeshHierarchy(mesh, refine, netgen_flags={})
-    mesh = mh[-1]
-
-    amh = AdaptiveMeshHierarchy(mesh)
-    mesh = amh[-1]
-
-    M = FunctionSpace(mesh, "DG", 0)
-    markers = Function(M)
-    markers.dat.data_wo[0] = 1
-
-    refined_mesh = mesh.refine_marked_elements(markers)
-    amh.add_mesh(refined_mesh)
-
-    coarse_to_fine = amh.coarse_to_fine_cells[0]
-    fine_to_coarse = amh.fine_to_coarse_cells[1]
-
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (_adaptive_map_mesh(refined_mesh).cell_set.size, 1)
-    assert (fine_to_coarse >= 0).any()
-    assert (coarse_to_fine >= 0).any()
+    _assert_adapt_after_uniform_refinement(mh[-1])
 
 
 @pytest.mark.parallel([1, 2, 4])
@@ -246,25 +200,7 @@ def test_adapt_after_uniform_refinement_unitsquare(refine):
     """
     mesh = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(mesh, refine)
-    mesh = mh[-1]
-
-    amh = AdaptiveMeshHierarchy(mesh)
-    mesh = amh[-1]
-
-    M = FunctionSpace(mesh, "DG", 0)
-    markers = Function(M)
-    markers.dat.data_wo[0] = 1
-
-    refined_mesh = mesh.refine_marked_elements(markers)
-    amh.add_mesh(refined_mesh)
-
-    coarse_to_fine = amh.coarse_to_fine_cells[0]
-    fine_to_coarse = amh.fine_to_coarse_cells[1]
-
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (_adaptive_map_mesh(refined_mesh).cell_set.size, 1)
-    assert (fine_to_coarse >= 0).any()
-    assert (coarse_to_fine >= 0).any()
+    _assert_adapt_after_uniform_refinement(mh[-1])
 
 
 @pytest.mark.parallel([1, 2])

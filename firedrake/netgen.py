@@ -132,6 +132,73 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     return permutation
 
 
+def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
+    """Re-curve ``fine_mesh`` to match the geometry of a Netgen ``coarse_mesh``.
+
+    `firedrake.adapt._refine_marked_elements_once` only ever produces
+    straight-sided (degree 1) geometry: it works purely on the DMPlex,
+    which has no notion of the curved CAD/geometry description backing
+    a Netgen mesh. When the mesh being refined came from Netgen and had
+    a higher-order (curved) coordinate field, this snaps a mesh sharing
+    ``fine_mesh``'s topology back onto that geometry via the existing
+    Netgen-based `MeshGeometry.curve_field` machinery, using a Netgen
+    mesh view built directly from its DMPlex (so it is not held to
+    Netgen's own refinement/parent tracking at all).
+
+    Note
+    ----
+    `curve_field` assumes its mesh's Netgen mesh has elements in the
+    same order as the mesh's own `_cell_numbering`. `ngsPETSc`'s
+    ``createNetgenMesh`` (DMPlex -> Netgen) only guarantees that
+    if it is built *before* the DMPlex is wrapped into a `MeshGeometry`
+    (i.e. before `_mark_entity_classes`/renumbering can run) -- this is
+    exactly the order `firedrake.mg.netgen.NetgenHierarchy` follows for
+    each uniformly-refined level. So this clones ``fine_mesh``'s DMPlex,
+    builds the Netgen mesh view from the *clone* first, and only then
+    wraps the clone in a `MeshGeometry` -- rather than building the
+    Netgen view from ``fine_mesh`` itself, which has already been
+    wrapped (and is missing high-order coordinates besides).
+
+    ``coarse_mesh`` need not be the coarsest (global) level of a
+    hierarchy: ``createNetgenMesh``'s ``geo`` argument is only ever used
+    for the CAD/geometry description it carries (``GetGeometry()``,
+    edge/face descriptors) -- never for its element connectivity -- and
+    that description is the same shared object at every level of a
+    `firedrake.mg.netgen.NetgenHierarchy` or chain of adaptive
+    refinements. We do still require ``coarse_mesh.netgen_mesh`` to
+    carry a real geometry, since re-curving is meaningless otherwise.
+    """
+    from ngsPETSc import createNetgenMesh
+
+    if coarse_mesh.netgen_mesh.GetGeometry() is None:
+        raise ValueError(
+            "Cannot re-curve: coarse_mesh.netgen_mesh has no CAD/geometry "
+            "description attached (GetGeometry() returned None)."
+        )
+
+    dm_clone = fine_mesh.topology_dm.clone()
+    fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
+    straight_mesh = firedrake.Mesh(
+        dm_clone,
+        dim=fine_mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
+        comm=fine_mesh.comm,
+        tolerance=fine_mesh.tolerance,
+    )
+    straight_mesh.netgen_mesh = fresh_ngmesh
+    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
+    curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
+    curved_mesh.netgen_mesh = fresh_ngmesh
+    curved_mesh.netgen_flags = straight_mesh.netgen_flags
+    curved_mesh._distribution_parameters = dict(fine_mesh._distribution_parameters)
+    curved_mesh._did_reordering = fine_mesh._did_reordering
+    curved_mesh._tolerance = fine_mesh.tolerance
+    return curved_mesh
+
+
 def splitToQuads(plex, dim, comm):
     """Split a Netgen mesh into quads using a PETSc transform."""
     # TODO: Improve support quad meshing.
