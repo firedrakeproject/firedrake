@@ -191,12 +191,6 @@ class WithGeometryBase:
     #     dm = self._dm()
     #     dmhooks.set_function_space(dm, self)
     #     return dm
-
-    @property
-    def dm(self):
-        dm = self.topological.dm
-        dmhooks.set_function_space(dm, self)
-        return dm
     
     @property
     def dm(self):
@@ -620,11 +614,13 @@ class FunctionSpace:
     def _shared_data(self):
         if hasattr(self, "_vom_topology_version") \
             and self._vom_topology_version != self._mesh._topology_version:
-            self._refresh_shared_data()
+            self.refresh_shared_data()
         return self.__shared_data
 
 
-    def _refresh_shared_data(self):
+    def refresh_shared_data(self):
+        if getattr(self, "_vom_topology_version", None) == self._mesh._topology_version:
+            return
         sdata = get_shared_data(self._mesh, self.ufl_element())
         self.__shared_data = sdata
         self._vom_topology_version = self._mesh._topology_version
@@ -698,8 +694,12 @@ class FunctionSpace:
         # return dm
 
         # Trigger version check every time this property is accessed which may delete 
-        # the cache and force a rebuild with updated shared data
-        _ = self._shared_data
+        # the cache and force a rebuild with updated shared data (provided one exists)
+        try:
+            _ = self._shared_data
+        except AttributeError:
+            # Some FS such as RealFunctionSpace don't have shared data
+            pass
         try:
             return self._dm_cache
         except AttributeError:
@@ -707,6 +707,7 @@ class FunctionSpace:
             dmhooks.set_function_space(dm, self)
             self._dm_cache = dm
             return self._dm_cache
+        
 
     def _dm(self):
         from firedrake.mg.utils import get_level

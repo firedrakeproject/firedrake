@@ -361,7 +361,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             )
         
         # Refresh the FS to align with the new topology
-        _ = FS_topo._refresh_shared_data()
+        _ = FS_topo.refresh_shared_data()
 
         # Allocate new dat on the refreshed FS
         new_data = CoordinatelessFunction(
