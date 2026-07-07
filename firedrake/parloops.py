@@ -23,7 +23,8 @@ from pyop3.utils import readonly
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from firedrake import constant, utils
+from firedrake import utils
+from firedrake.constant import Constant
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
 from firedrake.mesh import get_iteration_spec
@@ -69,21 +70,20 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
     for var, (func, intent) in args.items():
         is_input = intent in [INC, READ, RW]
         is_output = intent in [INC, RW, WRITE]
-        if isinstance(func, constant.Constant):
+        if isinstance(func, Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
-            ndof = func.function_space().block_size
+            ndof = func.dat.axes.block_size
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                ndof = c.function_space()[idx].finat_element.space_dimension()
-                cdim = c.function_space()[idx].block_size
-                dtype = c.dat[idx].dtype
+                func = _extract_subfunction(func)
+                ndof = func.function_space().finat_element.space_dimension()
+                cdim = func.function_space().block_size
+                dtype = func.dat.dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim()  # == 1
@@ -105,20 +105,25 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
+    key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+    # Add shape, dtype and intent to the cache key
+    for func, intent in args.values():
+        if isinstance(func, Indexed):
+            func = _extract_subfunction(func)
+        key += (func.dat.axes, func.dat.dtype, intent)
     try:
-        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
-        # Add shape, dtype and intent to the cache key
-        for func, intent in args.values():
-            if isinstance(func, Indexed):
-                for dat in func.ufl_operands[0].dat.split:
-                    key += (dat.axes, dat.dtype, intent)
-            else:
-                key += (func.dat.axes, func.dat.dtype, intent)
         return kernel_cache[key]
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_kernel(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
-                                  seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+        knl = loopy.make_kernel(
+            kernel_domains,
+            instructions,
+            kargs,
+            name="par_loop_kernel",
+            target=target,
+            seq_dependencies=True,
+            silenced_warnings=["summing_if_branches_ops"],
+        )
         knl = op3.Function(knl, intents)
         return kernel_cache.setdefault(key, knl)
 
@@ -239,76 +244,63 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
-    warnings.warn("par_loop is no longer necessary - prefer to use pyop3 directly", FutureWarning)
-
-    # catch deprecated C-string parloops
-    if isinstance(kernel, str):
-        raise TypeError("C-string kernels are no longer supported by Firedrake parloops")
-    if "is_loopy_kernel" in kwargs:
-        if kwargs.pop("is_loopy_kernel"):
-            warnings.warn(
-                "is_loopy_kernel does not need to be specified", FutureWarning)
-        else:
-            raise ValueError(
-                "Support for C-string kernels has been dropped, firedrake.parloop "
-                "will only work with loopy parloops.")
-
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
-    # Ensure that the dict args passed in are consistently ordered
-    # (sorted by the string key).
-    sorted_args = collections.OrderedDict()
-    for k in sorted(args.keys()):
-        sorted_args[k] = args[k]
-    args = sorted_args
+    meshes = []
+    for func, _ in args.values():
+        meshes.extend(extract_domains(func))
+    # Assume only one domain
+    mesh, = join_domains(meshes)
 
-    if measure is direct:
-        mesh = None
-        for (func, intent) in args.values():
-            if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                if mesh and c.node_set[idx] is not mesh:
-                    raise ValueError("Cannot mix sets in direct loop.")
-                mesh = c.node_set[idx]
-            else:
-                try:
-                    if mesh and func.node_set is not mesh:
-                        raise ValueError("Cannot mix sets in direct loop.")
-                    mesh = func.node_set
-                except AttributeError:
-                    # Argument was a Global.
-                    pass
-        if not mesh:
-            raise TypeError("No Functions passed to direct par_loop")
-    else:
-        domains = []
-        for func, _ in args.values():
-            domains.extend(extract_domains(func))
-        domains = join_domains(domains)
-        # Assume only one domain
-        domain, = domains
-        mesh = domain
+    kernel_domains, instructions = kernel
+    function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 
     with heavy_caches([mesh.topology]):
-        kernel_domains, instructions = kernel
-        function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
-
         if measure is direct:
-            raise NotImplementedError("Need to loop over nodes...")
+            iterset = None
+            for (func, _) in args.values():
+                func = _extract_subfunction(func)
+
+                if (
+                    isinstance(func, Constant)
+                    or func.function_space().ufl_element().family() == "Real"
+                ):
+                    continue
+
+                if iterset is None:
+                    iterset = func.function_space().nodal_axes
+                else:
+                    if func.function_space().nodal_axes != iterset:
+                        raise ValueError("Cannot mix node sets in direct loop")
+            if iterset is None:
+                raise TypeError("No functions passed to direct loop")
+
+            loop_index = iterset.iter()
+            packed_args = []
+            for (func, _) in args.values():
+                func = _extract_subfunction(func)
+                if isinstance(func, Constant):
+                    packed_args.append(func.dat)
+                else:
+                    packed_args.append(func.dat[loop_index])
+
         else:
-            iter_spec = get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
+            iter_spec = get_iteration_spec(
+                mesh, measure.integral_type(), measure.subdomain_id()
+            )
+            loop_index = iter_spec.loop_index
+            packed_args = []
+            for func, _ in args.values():
+                func = _extract_subfunction(func)
+                packed_args.append(pack(func, iter_spec))
 
-        packed_args = []
-        for arg, _ in args.values():
-            if isinstance(arg, Indexed):
-                raise NotImplementedError("TODO")
+        op3.loop(loop_index, function(*packed_args), eager=True)
 
-            if measure is direct:
-                packed_arg = arg[iter_spec.loop_index]
-            else:
-                packed_arg = pack(arg, iter_spec)
-            packed_args.append(packed_arg)
 
-        op3.loop(iter_spec.loop_index, function(*packed_args), eager=True)
+def _extract_subfunction(func):
+    if isinstance(func, Indexed):
+        c, i = func.ufl_operands
+        return c.subfunctions[i._indices[0]._value]
+    else:
+        return func

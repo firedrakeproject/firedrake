@@ -6873,6 +6873,37 @@ def _memoize_facet_supports(
     return op3.Dat(axes, data=support_cells_renum.flatten())
 
 
+def _memoize_map_ragged(plex: PETSc.DMPlex, dim, map_func):
+    strata = tuple(plex.getDepthStratum(d) for d in range(plex.getDimension()+1))
+    def get_dim(_pt):
+        for _d, (_start, _end) in enumerate(strata):
+            if _start <= _pt < _end:
+                return _d
+        assert False
+
+    p_start, p_end = plex.getDepthStratum(dim)
+    npoints = p_end - p_start
+
+    # Store arities
+    sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
+    for stratum_pt, pt in enumerate(range(p_start, p_end)):
+        for map_pt in map_func(pt):
+            map_dim = get_dim(map_pt)
+            sizes[map_dim][stratum_pt] += 1
+
+    # Now store map data
+    map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
+    offsets = tuple(op3.utils.steps(sizes[d]) for d in range(plex.getDimension()+1))
+    plex_pt_offsets = np.empty(plex.getDimension()+1, dtype=IntType)
+    for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):
+        plex_pt_offsets[...] = 0
+        for map_pt in map_func(plex_pt):
+            map_dim = get_dim(map_pt)
+            map_pts[map_dim][offsets[map_dim][stratum_pt] + plex_pt_offsets[map_dim]] = map_pt
+            plex_pt_offsets[map_dim] += 1
+    return map_pts, sizes
+
+
 def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
     """Convert DMPlex coordinates into Firedrake coordinates.
 

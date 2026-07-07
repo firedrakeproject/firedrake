@@ -76,7 +76,8 @@ def test_mixed_direct_par_loop_components(f_mixed, idx):
     """
     par_loop((domain, instructions), direct, {'c': (f_mixed[idx], WRITE)})
 
-    assert np.allclose(f_mixed.dat[idx].data, 1.0)
+    label = f_mixed.function_space()._labels[idx]
+    assert np.allclose(f_mixed.dat[label].data_ro, 1.0)
 
 
 def test_direct_par_loop_read_const(f, const):
@@ -164,7 +165,8 @@ def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     """
     par_loop((domain, instructions), dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
 
-    assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
+    label = f_mixed.function_space()._labels[idx]
+    assert np.allclose(f_mixed.dat[label].data, const.dat.data)
 
 
 def test_par_loop_const_write_error(f, const):

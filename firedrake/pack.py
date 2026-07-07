@@ -10,6 +10,7 @@ import finat
 import ufl
 from immutabledict import immutabledict as idict
 
+import firedrake.constant
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
@@ -22,6 +23,11 @@ from firedrake.mesh import IterationSpec
 def pack(tensor: Any, loop_info: IterationSpec, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
+
+
+@pack.register
+def _(const: firedrake.constant.Constant, loop_info: IterationSpec, **kwargs) -> op3.Dat:
+    return const.dat
 
 
 @pack.register(Function)
