@@ -11,6 +11,7 @@ from typing import Any
 from immutabledict import immutabledict as idict
 
 import pyop3.exceptions
+import pyop3.index_tree.tree
 from pyop3 import utils
 from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType
@@ -18,7 +19,7 @@ from pyop3.expr.tensor.dat import Dat
 from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
+from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice, as_slice
 from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 
@@ -252,16 +253,12 @@ def _(ellipsis: EllipsisType, /, *, axes, path) -> Index:
     except KeyError:
         raise InvalidIndexTargetException
 
-    return Slice(
-        axis.label,
-        [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
-        label=axis.label,
-    )
+    return Slice(axis.label, [as_slice(c.label) for c in axis.components])
 
 
-@_desugar_index.register(UnparsedSlice)
+@_desugar_index.register
 def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
-    return _desugar_index(unparsed.wrappee, axes=axes, path=path)
+    return _desugar_index_label(unparsed.wrappee, axes=axes, path=path)
 
 
 @_desugar_index.register(numbers.Integral)
@@ -288,7 +285,7 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
-            index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
+            index = Slice(axis.label, as_slice(component.label))
 
     return index
 
@@ -306,23 +303,11 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
 
     if len(axis.components) == 1:
         if slice_is_full:
-            return Slice(
-                axis.label,
-                [AffineSliceComponent(axis.component.label, label=axis.component.label)],
-                label=axis.label,
-            )
+            return Slice(axis.label, as_slice(axis.component.label))
         else:
-            return Slice(
-                axis.label,
-                [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
-            )
+            return Slice(axis.label, {axis.component.label: slice_})
     elif slice_is_full:
-        # just take everything, keep the labels around (for now, eventually want a special type for this)
-        return Slice(
-            axis.label,
-            [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
-            label=axis.label,
-        )
+        return Slice(axis.label, [as_slice(c.label) for c in axis.components])
     else:
         # badindexexception?
         # NOTE: We could in principle match multi-component things if the component
@@ -346,14 +331,7 @@ def _(list_: list, /, *, axes, path) -> Slice:
         dat = Dat.from_sequence(list_, IntType)
         return _desugar_index(dat, axes=axes, path=path)
     else:
-        return Slice(
-            axis.label,
-            [
-                AffineSliceComponent(component_label, label=component_label)
-                for component_label in list_
-            ],
-            label=axis.label,
-        )
+        return Slice(axis.label, list_)
 
 @_desugar_index.register(Dat)
 def _(dat: Dat, /, *, axes, path) -> Slice:
@@ -372,9 +350,12 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
 
-@_desugar_index.register(str)
-@_desugar_index.register(tuple)
+@_desugar_index.register
 def _(label: str, /, *, axes, path) -> Index:
+    return _desugar_index_label(label, axes=axes, path=path)
+
+
+def _desugar_index_label(label, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
     component = just_one(c for c in axis.components if c.label == label)
@@ -382,7 +363,7 @@ def _(label: str, /, *, axes, path) -> Index:
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
     else:
-        return Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
+        return Slice(axis.label, as_slice(component.label))
 
 
 # TODO: This function needs overhauling to work in more cases.
@@ -446,10 +427,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
 
     if len(matching_target_paths) == 0:
         # axis not found, need to emit a slice
-        slice_ = Slice(
-            axis.label, [AffineSliceComponent(c.label) for c in axis.components],
-            label=axis.label,
-        )
+        slice_ = Slice(axis.label, [UnparsedSlice(c.label) for c in axis.components])
         index_tree = IndexTree(slice_)
 
         for axis_component, slice_component_label in zip(

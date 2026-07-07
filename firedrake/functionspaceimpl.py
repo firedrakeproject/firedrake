@@ -1306,18 +1306,25 @@ class FunctionSpace(AbstractFunctionSpace):
 
             dim = slice_component.label
             ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
-            subslice = op3.Slice("dof", [op3.AffineSliceComponent(None, stop=ndofs, label=None)], label=f"dof{slice_component.label}")
+            subslice = op3.Slice(
+                "dof",
+                op3.AffineSliceComponent(None, stop=ndofs),
+                label=f"dof{slice_component.label}"
+            )
             index_tree = index_tree.add_node(path, subslice)
 
             # same as in parloops.py
             if self.shape:
                 shape_slices = op3.IndexTree.from_iterable([
-                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent(None, label=None)], label=f"dim{i}")
+                    op3.Slice(f"dim{i}", None)
                     for i, dim in enumerate(self.shape)
                 ])
 
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
-        return self.dm_axes[index_tree]
+        retval = self.dm_axes[index_tree]
+        assert retval.local_size == self.dm_axes.local_size
+        breakpoint()
+        return retval
 
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except
@@ -1438,11 +1445,14 @@ class FunctionSpace(AbstractFunctionSpace):
         return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
     @cached_property
-    def nodal_axes(self) -> op3.AxisTree:
+    def nodal_axes(self) -> op3.IndexedAxisTree:
         if self._is_real_tensor_product:
             return self._make_plex_axes_real_tensor_product("nodal")
 
-        relabeling_slice = op3.Slice("layoutnodes", [op3.AffineSliceComponent(None, label=None)], label="nodes")
+        # 'nodal_axes' is always an indexed axis tree mapping to 'layout_nodal_axes'
+        # here we account for the different labeling
+        # relabeling_slice = op3.Slice("layoutnodes", [op3.AffineSliceComponent(None, label=None)], label="nodes")
+        relabeling_slice = op3.Slice("layoutnodes", None, label="nodes")
         return self.nodal_layout_axes[relabeling_slice]
 
     # These properties are overridden in ProxyFunctionSpaces, but are

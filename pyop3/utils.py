@@ -22,7 +22,7 @@ from mpi4py import MPI
 import pyop3.config
 import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
-from pyop3.collections import unique
+from pyop3.collections import unique, as_tuple
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
@@ -165,13 +165,6 @@ class Labelled(abc.ABC):
     @classmethod
     def unique_label(cls) -> str:
         return unique_name(f"_label_{cls.__name__}")
-
-
-def as_tuple(item: Any) -> tuple[Any, ...]:
-    if isinstance(item, collections.abc.Iterable):
-        return tuple(item)
-    else:
-        return (item,)
 
 
 def split_at(iterable, index):

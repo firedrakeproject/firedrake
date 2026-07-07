@@ -2151,8 +2151,7 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     @with_self_heavy_cache
     def cells(self) -> op3.IndexedAxisTree:
-        # TODO: Implement and use 'FullComponentSlice' (or similar)
-        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)], label=self.name)
+        cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
         return self.points[cell_slice]
 
     @cached_property
@@ -3782,7 +3781,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Need to be more verbose as we don't want to consume the axis
         # return self.points[self.cell_label]
         # This may no longer be needed
-        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label)])
+        cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
         return self.points[cell_slice]
 
     @cached_property  # TODO: Recalculate if mesh moves

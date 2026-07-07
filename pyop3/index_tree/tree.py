@@ -9,6 +9,8 @@ import itertools
 import functools
 import math
 import numbers
+import types
+import typing
 import sys
 from collections import defaultdict
 from functools import cached_property
@@ -115,51 +117,58 @@ class SliceComponent(LabelledNodeComponent, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         pass
 
 
 @pyop3.record.frozenrecord()
 class AffineSliceComponent(SliceComponent):
 
-    _component: Any
-    start: Any
-    stop: Any
-    step: Any
-    _label: Any
-    label_was_none: bool  # old
+    # {{{ instance attrs
 
-    # use None for the default args here since that agrees with Python slices
-    def __init__(
-        self,
-        component,
-        start: IntType | None = None,
-        stop: IntType | None = None,
-        step: IntType | None = None,
-        *,
-        label=utils.PYOP3_DECIDE,
-        label_was_none=None,
-        **kwargs
-    ):
-        label_was_none = label_was_none or label is utils.PYOP3_DECIDE
-
-        object.__setattr__(self, "_component", component)
-        object.__setattr__(self, "_label", label)
-
-        # TODO: make None here and parse with `with_size()`
-        object.__setattr__(self, "start", start if start is not None else 0)
-        object.__setattr__(self, "stop", stop)
-        # could be None here
-        object.__setattr__(self, "step", step if step is not None else 1)
-
-        # hack to force a relabelling
-        object.__setattr__(self, "label_was_none", label_was_none)
-
-    # {{{ interface impls
+    _component: ComponentLabelT
+    start: numbers.Integral
+    stop: numbers.Integral | None
+    step: numbers.Integral
+    _label: ComponentLabelT
 
     @property
     def comm(self):
         return MPI.COMM_SELF
+
+    def __init__(
+        self,
+        component: ComponentLabelT,
+        start: numbers.Integral = 0,
+        stop: numbers.Integral | None = None,
+        step: numbers.Integral = 1,
+        label: ComponentLabelT = PYOP3_DECIDE,
+    ) -> None:
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "stop", stop)
+        object.__setattr__(self, "step", step)
+        object.__setattr__(self, "_label", label)
+
+    def __post_init__(self) -> None:
+        # old API
+        assert self.start is not None
+        assert self.step is not None
+
+    # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def from_slice(cls, component: ComponentLabelT, slice_: slice) -> Self:
+        start = slice_.start if slice_.start is not None else 0
+        stop = slice_.stop
+        step = slice_.step if slice_.step is not None else 1
+        return cls(component, start, stop, step)
+
+    # }}}
+
+    # {{{ interface impls
 
     @property
     def component(self):
@@ -170,7 +179,7 @@ class AffineSliceComponent(SliceComponent):
         return self._label
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return self.start == 0 and self.stop is None and self.step == 1
 
     # }}}
@@ -219,7 +228,7 @@ class SubsetSliceComponent(SliceComponent):
         return self._component
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return False
 
     # }}}
@@ -263,7 +272,7 @@ class RegionSliceComponent(SliceComponent):
     label = pyop3.record.attr("_label")
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return False
 
     # }}}
@@ -328,7 +337,7 @@ class TabulatedMapComponent(MapComponent):
     _arity: Any
     _label: Any
 
-    def __init__(self, target_axis, target_component, array, *, arity=None, label=utils.PYOP3_DECIDE):
+    def __init__(self, target_axis, target_component, array, *, arity=None, label=PYOP3_DECIDE):
         from pyop3.expr import as_linear_buffer_expression
 
         # determine the arity from the provided array
@@ -405,8 +414,8 @@ class LoopIndex(Index):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.get_comm(self.iterset)
 
-    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=utils.PYOP3_DECIDE):
-        id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
+    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=PYOP3_DECIDE):
+        id = id if id is not PYOP3_DECIDE else self.unique_label()
 
         object.__setattr__(self, "iterset", iterset)
         object.__setattr__(self, "id", id)
@@ -498,6 +507,70 @@ class ScalarIndex(Index):
         return ("0",)
 
 
+@functools.singledispatch
+def _parse_slice_components(components):
+    raise TypeError
+
+
+@_parse_slice_components.register
+def _(components: tuple | list) -> tuple[SliceComponent]:
+    return tuple(map(_parse_slice_component, components))
+
+
+@_parse_slice_components.register
+def _(component: SliceComponent, /) -> tuple[SliceComponent]:
+    return (component,)
+
+
+@_parse_slice_components.register
+def _(components: collections.abc.Mapping) -> tuple[SliceComponent]:
+    new_components = []
+    for label, slice_info in components.items():
+        if isinstance(slice_info, slice):
+            new_component = AffineSliceComponent.from_slice(label, slice_info)
+        else:
+            raise NotImplementedError
+        new_components.append(new_component)
+    return tuple(new_components)
+
+
+@_parse_slice_components.register
+def _(
+    label: str | numbers.Number | types.NoneType | UnparsedSlice,
+    /,
+) -> tuple[AffineSliceComponent]:
+    return (_parse_slice_component(label),)
+
+
+@functools.singledispatch
+def _parse_slice_component(obj: Any, /) -> SliceComponent:
+    raise TypeError
+
+
+@_parse_slice_component.register
+def _(component: SliceComponent, /) -> SliceComponent:
+    return component
+
+
+@_parse_slice_component.register
+def _(component: UnparsedSlice, /) -> AffineSliceComponent:
+    return AffineSliceComponent(component.wrappee)
+
+
+@_parse_slice_component.register
+def _(label: str | numbers.Number | types.NoneType, /) -> AffineSliceComponent:
+    return AffineSliceComponent(label)
+
+
+if typing.TYPE_CHECKING:
+    SliceComponentsT = (
+        Sequence[SliceComponent]
+        | SliceComponent
+        | Mapping[ComponentLabelT, Any]
+        | ComponentLabelT
+    )
+
+
 @pyop3.record.frozenrecord()
 class Slice(Index):
     """
@@ -509,24 +582,71 @@ class Slice(Index):
 
     """
 
-    axis: Any
-    components: Any
-    _label: Any
+    # {{{ instance attrs
 
-    def __init__(self, axis, components, *, label=utils.PYOP3_DECIDE):
-        components = as_tuple(components)
-        if any(c.label is utils.PYOP3_DECIDE for c in components):
-            if not all(c.label is utils.PYOP3_DECIDE for c in components):
-                raise ValueError("Cannot have only some as PYOP3_DECIDE")
-            components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
+    axis: AxisLabelT
+    components: SliceComponentsT
+    _label: AxisLabelT
 
-        label = label if label is not utils.PYOP3_DECIDE else self.unique_label()
+    def __init__(
+        self,
+        axis: AxisLabelT,
+        components: SliceComponentsT,
+        *,
+        label=PYOP3_DECIDE,
+    ):
+        if label == axis:
+            raise ValueError("The axis and slice labels should not match")
+
+        components = _parse_slice_components(components)
+        # Detect a full slice and relabel accordingly
+        if (
+            label is PYOP3_DECIDE
+            and all(
+                c.is_full_slice and c.label is PYOP3_DECIDE
+                for c in components
+            )
+        ):
+            label = axis
+            components = tuple(
+                c.__record_init__(_label=c.component)
+                for c in components
+            )
+        else:
+            if label is PYOP3_DECIDE:
+                label = self.unique_label()
+            if any(c.label is PYOP3_DECIDE for c in components):
+                if not all(c.label is PYOP3_DECIDE for c in components):
+                    raise ValueError(
+                        "Either none or all slice components can be labeled "
+                        "PYOP3_DECIDE"
+                    )
+
+                if len(components) == 1:
+                    component_labels = [None]
+                else:
+                    component_labels = range(len(components))
+                components = tuple(
+                    c.__record_init__(_label=l)
+                    for c, l in zip(components, component_labels, strict=True)
+                )
 
         object.__setattr__(self, "axis", axis)
         object.__setattr__(self, "components", components)
         object.__setattr__(self, "_label", label)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert self.label is not PYOP3_DECIDE
+        assert all(c.label is not PYOP3_DECIDE for c in self.components)
+
+    # }}}
+
+    # {{{ interface impls
 
     label = pyop3.record.attr("_label")
+
+    # }}}
 
     @property
     def component_labels(self) -> tuple:
@@ -1188,27 +1308,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     # facet numbering. The labels are the same so identifying this is really difficult.
     #
     # We fix this here by requiring that non-full slices perform a relabelling and
-    # full slices do not. A full slice is defined to be a slice where all of the
-    # components are affine with start 0, stop None and step 1. The components must
-    # also not already have a label since that would take precedence.
-    #
-    # TODO: Just have a special type for this!
-    is_full = all(
-        isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
-        for s in slice_.components
-    ) and slice_.axis == slice_.label
-    is_full_old = all(
-        isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
-        for s in slice_.components
-    )
-    # if not is_full and is_full_old:
-    #     breakpoint()
-    # NOTE: We should be able to eagerly return here?
-
-    if is_full:
-        axis_label = slice_.axis
-    else:
-        axis_label = slice_.label
+    # full slices do not.
 
     components = []
     for slice_component in slice_.components:
@@ -1270,15 +1370,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         else:
             sf = None
 
-        if is_full:
-            component_label = slice_component.component
-        else:
-            # TODO: Ideally the default labels here would be integers if not
-            # somehow provided. Perhaps the issue stems from the fact that the label
-            # attribute is used for two things: identifying paths in the index tree
-            # and labelling the resultant axis component.
-            component_label = slice_component.label
-
         # TODO: Add handling for the other types of slices
         component_size = None
         if target_component._size is not None:
@@ -1293,10 +1384,10 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             if component_size is not None:
                 component_size = replace_terminals(component_size, seen_target_exprs)
 
-        component = AxisComponent(indexed_regions, label=component_label, sf=sf, size=component_size)
+        component = AxisComponent(indexed_regions, label=slice_component.label, sf=sf, size=component_size)
         components.append(component)
 
-    axis = Axis(components, label=axis_label)
+    axis = Axis(components, label=slice_.label)
 
     # now do target expressions
     targets = {}
@@ -2001,7 +2092,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     from pyop3.expr import conditional
     from pyop3.expr.visitors import replace_terminals as expr_replace, min_
 
-    if affine_component.is_full:
+    if affine_component.is_full_slice:
         indexed_regions = []
         for region in regions:
             size = expr_replace(region.size, parent_exprs)

@@ -17,6 +17,7 @@ import pyop3.axis_tree
 import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
+import pyop3.index_tree
 from pyop3 import utils
 from pyop3.cache import memory_cache
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
@@ -902,7 +903,7 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
         orig_axis = loop_var.axis
         new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
 
-        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)], label=new_axis.label)
+        loop_slice = Slice(new_axis.label, pyop3.index_tree.as_slice(orig_axis.component.label))
         loop_slices.append(loop_slice)
 
     to_skip = set()
@@ -910,12 +911,11 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
         expr = composite_dat.exprs[leaf_path]
         expr = replace(expr, loop_var_replace_map)
 
-        myslices = []
-        for axis, component in leaf_path.items():
-            # full slice
-            myslice = Slice(axis, [AffineSliceComponent(component)], label=axis)
-            myslices.append(myslice)
-        iforest = IndexTree.from_iterable((*loop_slices, *myslices))
+        slices = [
+            Slice(axis, pyop3.index_tree.as_slice(component))
+            for axis, component in leaf_path.items()
+        ]
+        iforest = IndexTree.from_iterable((*loop_slices, *slices))
 
         assignee_ = assignee[iforest]
 

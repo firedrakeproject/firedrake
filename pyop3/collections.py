@@ -164,6 +164,13 @@ _ordered_sequence_types = (
 )
 
 
+def as_tuple(item: Any) -> tuple[Any, ...]:
+    if isinstance(item, _ordered_sequence_types):
+        return tuple(item)
+    else:
+        return (item,)
+
+
 def is_ordered_mapping(obj: Mapping) -> bool:
     return isinstance(obj, _ordered_mapping_types)
 

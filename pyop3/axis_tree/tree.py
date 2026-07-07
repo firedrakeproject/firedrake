@@ -1197,7 +1197,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
                 slice_component = RegionSliceComponent(component.label, matching_labels, label=new_label)
             else:
                 region_label_matches_all_components = False
-                slice_component = AffineSliceComponent(component.label, label=component.label)
+                slice_component = AffineSliceComponent(component.label)
             slice_components.append(slice_component)
 
         # do not change axis label if nothing changes
@@ -1210,10 +1210,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
             # match some, generate something
             axis_label = None
 
-        # NOTE: Ultimately I don't think that this step will be necessary. When axes are reused more we can
-        # start to think about keying certain things on the axis itself, rather than its label.
-        # slice_ = Slice(axis.label, slice_components, label=axis.label)
-        slice_ = Slice(axis.label, slice_components, label=axis_label)
+        slice_ = Slice(axis.label, slice_components)
 
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_.components, strict=True):
