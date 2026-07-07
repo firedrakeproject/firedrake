@@ -68,6 +68,8 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
     intents = []
     kargs = []
     for var, (func, intent) in args.items():
+        intents.append(intent)
+
         is_input = intent in [INC, READ, RW]
         is_output = intent in [INC, RW, WRITE]
         if isinstance(func, Constant):
@@ -100,8 +102,6 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
             # FIXME: shape for facets [2][ndof]?
             kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), is_input=is_input, is_output=is_output))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
-
-        intents.append(intent)
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"

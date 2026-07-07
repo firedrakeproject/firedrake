@@ -756,6 +756,14 @@ class AbstractFunctionSpace:
         else:
             return False
 
+    # TODO: not yet used, needed if we have repeated Real
+    @property
+    def _real_factors(self):
+        return tuple(
+            e.family() == "Real"
+            for e in scalar_element(self.ufl_element()).factor_elements
+        )
+
     # }}}
 
     # {{{ PETSc

@@ -1335,30 +1335,6 @@ class AbstractMeshTopology(abc.ABC):
             supports.append({map_dim: support_dat})
         return tuple(supports)
 
-
-    # delete?
-    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
-        """Create a PETSc Section describing a function space.
-
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
-        :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
-            to get the true data layout.
-        :arg boundary_set: A set of boundary markers, indicating the subdomains
-            a boundary condition is specified on.
-        :returns: a new PETSc Section.
-        """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
-
-    # delete?
-    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
-        """Compute node classes given nodes per entity.
-
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in each of core, owned, and ghost classes.
-        """
-        return tuple(np.dot(nodes_per_entity, self._entity_classes))
-
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
         i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
@@ -3540,25 +3516,6 @@ class ExtrudedMeshTopology(MeshTopology):
             tuple(int(d_) for d_ in d)
             for d in dofs_per_entity
         )
-
-    @PETSc.Log.EventDecorator()
-    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
-        """Compute node classes given nodes per entity.
-
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in each of core, owned, and ghost classes.
-        """
-        if real_tensorproduct:
-            nodes = np.asarray(nodes_per_entity)
-            nodes_per_entity = sum(nodes[:, i] for i in range(2))
-            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
-        else:
-            nodes = np.asarray(nodes_per_entity)
-            if self.extruded_periodic:
-                nodes_per_entity = sum(nodes[:, i]*(self.layers - 1) for i in range(2))
-            else:
-                nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
-            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
     def entity_layers(self, height, label=None):
         """Return the number of layers on each entity of a given plex
