@@ -311,12 +311,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                        comm=comm)
         mesh.netgen_mesh = ngmesh
         mesh.netgen_flags = flags
-        # Unlike a mesh built directly from a user-supplied Netgen mesh
-        # (which is replicated and only meaningful on rank 0), `ngmesh`
-        # here was mapped from `rdm`, i.e. it only holds the cells owned
-        # by *this* rank.  Downstream adaptive refinement needs to know
-        # this to avoid re-partitioning data that is already local.
-        mesh._netgen_mesh_is_distributed = True
 
         no = impl.create_lgmap(rdm)
         o = impl.create_lgmap(mesh.topology_dm)
@@ -363,5 +357,4 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh.netgen_flags = mesh.netgen_flags
     tmesh.sfBC = mesh.sfBC
     tmesh.sfBC_orig = mesh.sfBC_orig
-    tmesh._netgen_mesh_is_distributed = getattr(mesh, "_netgen_mesh_is_distributed", False)
     return tmesh

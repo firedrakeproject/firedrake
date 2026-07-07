@@ -6,8 +6,6 @@ from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mg.mesh import HierarchyBase
 from firedrake.mg.utils import set_level, set_dm_refine_level
-from firedrake.netgen import (adaptive_cell_maps, adaptive_parent_cell_numbers,
-                              make_adaptive_refined_mesh)
 
 __all__ = ["AdaptiveMeshHierarchy"]
 
@@ -23,12 +21,11 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     nested: bool
         A flag to indicate whether the meshes are nested.
     redistribute: bool
-        If ``True``, keep adaptively refined meshes redistributed when
-        this is needed to avoid empty ranks and use an internal
-        parent-owned mesh for transfer operators.
+        Accepted for signature compatibility; load rebalancing across
+        ranks is not implemented for adaptive refinement.
     balancing: float
-        Relative load imbalance above which to redistribute when
-        ``redistribute`` is true.
+        Accepted for signature compatibility; load rebalancing across
+        ranks is not implemented for adaptive refinement.
 
     """
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
@@ -63,33 +60,11 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         """
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
-            redist = getattr(mesh, "redist", None)
-            mesh_orig = redist.orig if redist is not None else mesh
-            precomputed = getattr(mesh_orig, "_adaptive_cell_maps", None)
-            if precomputed is not None:
-                # Set by `_refine_marked_elements_dmplex` for meshes refined
-                # via DMPlex's own (Netgen-free) adaptive refinement: the
-                # maps are already known, no Netgen bookkeeping involved.
-                coarse_to_fine_cells, fine_to_coarse_cells = precomputed
-            else:
-                parent_cell_numbers = getattr(mesh_orig, "_adaptive_parent_cell_numbers", None)
-                if parent_cell_numbers is None:
-                    parent_cell_numbers = adaptive_parent_cell_numbers(self.meshes[-1], mesh)
-
-                if parent_cell_numbers is not None:
-                    if not getattr(mesh_orig, "_adaptive_parent_owned", False):
-                        mesh = make_adaptive_refined_mesh(
-                            self.meshes[-1], mesh.netgen_mesh, mesh.netgen_flags,
-                            parent_cell_numbers, self.redistribute,
-                            self.balancing,
-                        )
-                        redist = getattr(mesh, "redist", None)
-                        mesh_orig = redist.orig if redist is not None else mesh
-                        parent_cell_numbers = mesh_orig._adaptive_parent_cell_numbers
-
-                    coarse_to_fine_cells, fine_to_coarse_cells = adaptive_cell_maps(
-                        self.meshes[-1], mesh_orig, parent_cell_numbers
-                    )
+            # Set by `firedrake.mesh.refine_marked_elements` when `mesh`
+            # was produced by adaptively refining `self.meshes[-1]`.
+            coarse_to_fine_cells, fine_to_coarse_cells = getattr(
+                mesh, "_adaptive_cell_maps", (None, None)
+            )
 
         self._meshes.append(mesh)
         self.meshes.append(mesh)
@@ -103,8 +78,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     def adapt(self, eta: Function | Cofunction, theta: float):
         """
         Adds a new mesh to the hierarchy by locally refining the finest mesh
-        with a simplified variant of Dorfler marking. The finest mesh must
-        come from a netgen mesh.
+        with a simplified variant of Dorfler marking.
 
         Parameters
         ----------

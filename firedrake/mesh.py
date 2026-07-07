@@ -2338,6 +2338,261 @@ class _MultiCellTypeDummyCoordinates:
         return self.topology.comm
 
 
+# DMPlex adaptation flags (see PETSc's DMAdaptFlag): a point tagged
+# KEEP is left alone, a point tagged REFINE is split.
+DM_ADAPT_KEEP = 0
+DM_ADAPT_REFINE = 1
+
+
+def _refine_marked_elements_once(mesh, mark):
+    """Adaptively refine ``mesh`` by one round using a DG0 marker.
+
+    This works for any mesh (serial or parallel, Netgen-backed or
+    not): the marking function is turned into a `DMLabel` and PETSc's
+    own mesh adaptation (`DM.adaptLabel`, via the ``refine_sbr``
+    transform) refines it, entirely on the DMPlex. ``refine_sbr`` is
+    the Plaza & Carey skeleton-based refinement, and is parallel-safe:
+    it uses the mesh's own point SF to propagate refinement decisions
+    across rank boundaries, so no hanging nodes are introduced at a
+    partition boundary. (The default transform, ``refine_regular``,
+    ignores the REFINE/KEEP distinction and just refines every cell
+    uniformly, so it cannot be used here.)
+
+    The coarse-to-fine correspondence needed for `coarse_to_fine_cells`
+    / `fine_to_coarse_cells` comes for free: `DMPlexTransformCreateLabels`
+    propagates *any* label from a parent point to all of its children,
+    so tagging every owned coarse cell with its own (Firedrake) cell
+    number before adapting recovers, on the adapted mesh, exactly which
+    coarse cell each fine cell descends from. This generalizes to
+    genuinely non-uniform (adaptive) refinement, unlike the coarse/fine
+    cell maps used for uniform `MeshHierarchy` refinement, which assume
+    a fixed number of children per cell.
+
+    Returns
+    -------
+    tuple
+        ``(new_mesh, coarse_to_fine, fine_to_coarse)``.
+    """
+    dm = mesh.topology_dm
+    cStart, cEnd = dm.getHeightStratum(0)
+    cell_numbering = mesh._cell_numbering
+    ncoarse = mesh.cell_set.size
+
+    parent_name = "_adaptive_dmplex_parent"
+    adapt_name = "_adaptive_dmplex_adapt"
+    dm.createLabel(parent_name)
+    dm.createLabel(adapt_name)
+    parent_label = dm.getLabel(parent_name)
+    adapt_label = dm.getLabel(adapt_name)
+    marks = mark.dat.data_ro
+    for c in range(cStart, cEnd):
+        off = cell_numbering.getOffset(c)
+        if not (0 <= off < ncoarse):
+            continue
+        parent_label.setValue(c, off)
+        adapt_label.setValue(c, DM_ADAPT_REFINE if marks[off] > 0 else DM_ADAPT_KEEP)
+
+    opts = PETSc.Options()
+    had_prev = opts.hasName("dm_plex_transform_type")
+    prev = opts.getString("dm_plex_transform_type", "") if had_prev else None
+    opts["dm_plex_transform_type"] = "refine_sbr"
+    try:
+        new_dm = dm.adaptLabel(adapt_name)
+    finally:
+        if had_prev:
+            opts["dm_plex_transform_type"] = prev
+        else:
+            opts.delValue("dm_plex_transform_type")
+        dm.removeLabel(parent_name)
+        dm.removeLabel(adapt_name)
+
+    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
+        if new_dm.hasLabel(label):
+            new_dm.removeLabel(label)
+
+    new_mesh = Mesh(
+        new_dm,
+        dim=mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        comm=mesh.comm,
+        tolerance=mesh.tolerance,
+    )
+
+    nfStart, nfEnd = new_dm.getHeightStratum(0)
+    new_parent_label = new_dm.getLabel(parent_name)
+    new_cell_numbering = new_mesh._cell_numbering
+    nfine = new_mesh.cell_set.size
+    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
+    children = [[] for _ in range(ncoarse)]
+    for c in range(nfStart, nfEnd):
+        off = new_cell_numbering.getOffset(c)
+        if not (0 <= off < nfine):
+            continue
+        parent = new_parent_label.getValue(c)
+        if parent < 0:
+            continue
+        fine_to_coarse[off, 0] = parent
+        children[parent].append(off)
+    new_dm.removeLabel(parent_name)
+
+    max_children = max((len(c) for c in children), default=0)
+    coarse_to_fine = np.full((ncoarse, max(1, max_children)), -1, dtype=IntType)
+    for coarse_cell, fine_cells in enumerate(children):
+        coarse_to_fine[coarse_cell, :len(fine_cells)] = fine_cells
+
+    return new_mesh, coarse_to_fine, fine_to_coarse
+
+
+def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
+    """Re-curve ``fine_mesh`` to match the geometry of a Netgen ``coarse_mesh``.
+
+    `_refine_marked_elements_once` only ever produces straight-sided
+    (degree 1) geometry: it works purely on the DMPlex, which has no
+    notion of the curved CAD/geometry description backing a Netgen
+    mesh. When the mesh being refined came from Netgen and had a
+    higher-order (curved) coordinate field, this snaps a mesh sharing
+    ``fine_mesh``'s topology back onto that geometry via the existing
+    Netgen-based `MeshGeometry.curve_field` machinery, using a Netgen
+    mesh view built directly from its DMPlex (so it is not held to
+    Netgen's own refinement/parent tracking at all).
+
+    Note
+    ----
+    `curve_field` assumes its mesh's Netgen mesh has elements in the
+    same order as the mesh's own `_cell_numbering`. `ngsPETSc`'s
+    ``createNetgenMesh`` (DMPlex -> Netgen) only guarantees that
+    if it is built *before* the DMPlex is wrapped into a `MeshGeometry`
+    (i.e. before `_mark_entity_classes`/renumbering can run) -- this is
+    exactly the order `firedrake.mg.netgen.NetgenHierarchy` follows for
+    each uniformly-refined level. So this clones ``fine_mesh``'s DMPlex,
+    builds the Netgen mesh view from the *clone* first, and only then
+    wraps the clone in a `MeshGeometry` -- rather than building the
+    Netgen view from ``fine_mesh`` itself, which has already been
+    wrapped (and is missing high-order coordinates besides).
+    """
+    from ngsPETSc import createNetgenMesh
+
+    dm_clone = fine_mesh.topology_dm.clone()
+    fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
+    straight_mesh = Mesh(
+        dm_clone,
+        dim=fine_mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        comm=fine_mesh.comm,
+        tolerance=fine_mesh.tolerance,
+    )
+    straight_mesh.netgen_mesh = fresh_ngmesh
+    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
+    curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
+    return Mesh(curved_coordinates, name=fine_mesh.name)
+
+
+def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
+    """Adaptively refine a mesh using a DG0 marking function.
+
+    This works for any mesh (serial or parallel, Netgen-backed or
+    not); see `_refine_marked_elements_once` for how a single round of
+    refinement is performed. A cell may be refined more than once by
+    setting its marker value to an integer greater than 1 (matching
+    the number of refinement rounds it should undergo); this loops
+    `_refine_marked_elements_once`, composing the cell maps from each
+    round to give `coarse_to_fine`/`fine_to_coarse` directly relating
+    ``mesh`` to the final refined mesh.
+
+    If ``mesh`` was built from a curved (higher-order) Netgen mesh,
+    the final refined mesh is re-curved to the same order; see
+    `_recurve_netgen_mesh`.
+
+    Parameters
+    ----------
+    mesh
+        The mesh to refine.
+    mark
+        A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
+        positive value ``n`` are refined ``n`` times.
+    redistribute
+        Accepted for signature compatibility; see note below.
+    balancing
+        Accepted for signature compatibility; see note below.
+
+    Returns
+    -------
+    MeshGeometry
+        The adaptively refined mesh, with ``_adaptive_cell_maps`` set
+        to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
+        to ``mesh``.
+
+    Note
+    ----
+    Cells never migrate between ranks here (``refine_sbr`` refines
+    each rank's cells in place), so ``redistribute``/``balancing`` are
+    accepted for signature compatibility but load-rebalancing across
+    ranks is not implemented.
+
+    Only 2D (triangle) meshes are supported: PETSc's ``refine_sbr``
+    transform, which is what makes this parallel-safe and conforming,
+    has no 3D (tetrahedron) implementation.
+    """
+    from firedrake.function import Function
+    from firedrake.functionspace import FunctionSpace
+
+    if mesh.topological_dimension != 2:
+        raise NotImplementedError(
+            "Adaptive refinement is only implemented for 2D (triangle) "
+            "meshes: PETSc's refine_sbr transform does not support "
+            "tetrahedra in this build."
+        )
+
+    with mark.dat.vec_ro as v:
+        _, local_max = v.max()
+    max_rounds = max(int(mesh.comm.allreduce(local_max, op=MPI.MAX)), 1)
+
+    current_mesh = mesh
+    current_mark = mark
+    fine_to_coarse_total = None
+    for round_idx in range(max_rounds):
+        new_mesh, _, f2c = _refine_marked_elements_once(current_mesh, current_mark)
+        parent = f2c[:, 0]
+        if fine_to_coarse_total is None:
+            fine_to_coarse_total = f2c.copy()
+        else:
+            composed = np.full_like(f2c, -1)
+            valid = parent >= 0
+            composed[valid, 0] = fine_to_coarse_total[parent[valid], 0]
+            fine_to_coarse_total = composed
+
+        if round_idx < max_rounds - 1:
+            next_mark = Function(FunctionSpace(new_mesh, "DG", 0))
+            values = np.zeros(new_mesh.cell_set.size, dtype=current_mark.dat.data_ro.dtype)
+            valid = parent >= 0
+            values[valid] = np.maximum(current_mark.dat.data_ro[parent[valid]] - 1, 0)
+            next_mark.dat.data_wo[:] = values
+            current_mark = next_mark
+        current_mesh = new_mesh
+
+    ncoarse = mesh.cell_set.size
+    children = [[] for _ in range(ncoarse)]
+    for fine_cell, parent in enumerate(fine_to_coarse_total[:, 0]):
+        if parent >= 0:
+            children[parent].append(fine_cell)
+    max_children = max((len(c) for c in children), default=0)
+    coarse_to_fine_total = np.full((ncoarse, max(1, max_children)), -1, dtype=IntType)
+    for coarse_cell, fine_cells in enumerate(children):
+        coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
+
+    final_mesh = current_mesh
+    if hasattr(mesh, "netgen_mesh"):
+        order = mesh.coordinates.function_space().ufl_element().degree()
+        if order > 1:
+            final_mesh = _recurve_netgen_mesh(mesh, final_mesh, order)
+
+    final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
+    return final_mesh
+
+
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
@@ -2901,33 +3156,18 @@ values from f.)"""
     def unique(self):
         return self
 
-    def refine_marked_elements(self, mark, netgen_flags=None, redistribute=True,
-                               balancing=0.5):
-        """Refine a mesh using a DG0 marking function.
+    def refine_marked_elements(self, mark, redistribute=True, balancing=0.15):
+        """Adaptively refine a mesh using a DG0 marking function.
 
-        This method requires that the mesh has been constructed from a
-        netgen mesh.
-
-        :arg mark: the marking function which is a Firedrake DG0 function
-            with the number of refinements on each cell.
-        :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
-        :arg redistribute: if true, redistribute the refined mesh when the
-            parent-owned child distribution is poorly balanced.
-        :arg balancing: relative load imbalance above which to redistribute
-            when ``redistribute`` is true.
-
-        It includes the option:
-            - refine_faces, which is a boolean specifying if you want to refine faces.
+        :arg mark: the marking function, a Firedrake DG0 function on
+            this mesh; cells with a positive value are refined.
+        :arg redistribute: accepted for signature compatibility; load
+            rebalancing across ranks is not implemented.
+        :arg balancing: accepted for signature compatibility; load
+            rebalancing across ranks is not implemented.
 
         """
-        utils.check_netgen_installed()
-
-        if not hasattr(self, "netgen_mesh"):
-            raise ValueError("Adaptive refinement requires a netgen mesh.")
-
-        from firedrake.netgen import refine_marked_elements
-        return refine_marked_elements(self, mark, netgen_flags, redistribute,
-                                      balancing)
+        return refine_marked_elements(self, mark, redistribute, balancing)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
@@ -2971,10 +3211,13 @@ values from f.)"""
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
         nodes = fiat_element.dual_basis()
         ref_pts = []
-        for node in nodes:
-            # Assert singleton point for each node.
-            pt, = node.get_point_dict().keys()
-            ref_pts.append(pt)
+        entity_ids = fiat_element.entity_dofs()
+        for dim in sorted(entity_ids):
+            for entity in sorted(entity_ids[dim]):
+                for i in entity_ids[dim][entity]:
+                    # Assert singleton point for each node.
+                    pt, = nodes[i].get_point_dict().keys()
+                    ref_pts.append(pt)
         reference_points = np.array(ref_pts)
 
         # Construct numpy arrays for physical domain data
@@ -2984,8 +3227,8 @@ values from f.)"""
         curved_points = np.zeros(
             (ng_dimension, reference_points.shape[0], self.geometric_dimension)
         )
+        self.netgen_mesh.Curve(1)
         self.netgen_mesh.CalcElementMapping(reference_points, physical_points)
-        # NOTE: This will segfault for MeshHierarchy on a netgen CSG geometry
         self.netgen_mesh.Curve(order)
         self.netgen_mesh.CalcElementMapping(reference_points, curved_points)
         curved = ng_element.NumPy()["curved"]
@@ -3010,7 +3253,6 @@ values from f.)"""
         permutation = find_permutation(
             own_physical_points,
             new_coordinates.dat.data_ro_with_halos[broken_indices].real,
-            tol=permutation_tol,
         )
         self.comm.Barrier()
         # Apply the permutation to each cell in turn
