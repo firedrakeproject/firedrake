@@ -349,8 +349,127 @@ def make_adaptive_refined_mesh(coarse_mesh, netgen_mesh, netgen_flags,
     return refined_mesh
 
 
+# DMPlex adaptation flags (see PETSc's DMAdaptFlag): a point tagged
+# KEEP is left alone, a point tagged REFINE is split.
+DM_ADAPT_KEEP = 0
+DM_ADAPT_REFINE = 1
+
+
+def _refine_marked_elements_dmplex(mesh, mark, redistribute=True, balancing=0.15):
+    """Adaptively refine a distributed (per-rank-local) mesh via DMPlex.
+
+    A mesh built by uniformly refining a `MeshHierarchy` in parallel
+    (flagged via ``mesh._netgen_mesh_is_distributed``) has a
+    ``netgen_mesh`` that only holds the cells owned by *this* rank,
+    with no relation to the cells held by any other rank. Netgen's own
+    adaptive refinement (``Refine(adaptive=True)``) has no notion of
+    an inter-rank partition boundary, so refining each rank's piece
+    independently with it can produce a non-conforming mesh there.
+
+    Instead, this mirrors the *uniform* refinement done by
+    `NetgenHierarchy` (see ``firedrake/mg/netgen.py``): it stays
+    entirely on the DMPlex, using PETSc's own (parallel-safe) labelled
+    mesh adaptation (``DM.adaptLabel``, via the ``refine_sbr``
+    transform) instead of Netgen's. Netgen is not involved at all.
+
+    The coarse-to-fine correspondence needed for `coarse_to_fine_cells`
+    / `fine_to_coarse_cells` comes for free: `DMPlexTransformCreateLabels`
+    propagates *any* label from a parent point to all of its children,
+    so tagging every owned coarse cell with its own (Firedrake) cell
+    number before adapting recovers, on the adapted mesh, exactly which
+    coarse cell each fine cell descends from.
+
+    Note
+    ----
+    Cells never migrate between ranks here (``refine_sbr`` refines
+    each rank's cells in place), so ``redistribute``/``balancing`` are
+    accepted for signature compatibility but load-rebalancing across
+    ranks is not implemented for this path.
+    """
+    dm = mesh.topology_dm
+    cStart, cEnd = dm.getHeightStratum(0)
+    cell_numbering = mesh._cell_numbering
+    ncoarse = mesh.cell_set.size
+
+    parent_name = "_adaptive_dmplex_parent"
+    adapt_name = "_adaptive_dmplex_adapt"
+    dm.createLabel(parent_name)
+    dm.createLabel(adapt_name)
+    parent_label = dm.getLabel(parent_name)
+    adapt_label = dm.getLabel(adapt_name)
+    marks = mark.dat.data_ro
+    for c in range(cStart, cEnd):
+        off = cell_numbering.getOffset(c)
+        if not (0 <= off < ncoarse):
+            continue
+        parent_label.setValue(c, off)
+        adapt_label.setValue(c, DM_ADAPT_REFINE if marks[off] > 0 else DM_ADAPT_KEEP)
+
+    opts = PETSc.Options()
+    had_prev = opts.hasName("dm_plex_transform_type")
+    prev = opts.getString("dm_plex_transform_type", "") if had_prev else None
+    opts["dm_plex_transform_type"] = "refine_sbr"
+    try:
+        new_dm = dm.adaptLabel(adapt_name)
+    finally:
+        if had_prev:
+            opts["dm_plex_transform_type"] = prev
+        else:
+            opts.delValue("dm_plex_transform_type")
+        dm.removeLabel(parent_name)
+        dm.removeLabel(adapt_name)
+
+    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
+        if new_dm.hasLabel(label):
+            new_dm.removeLabel(label)
+
+    new_mesh = Mesh(
+        new_dm,
+        dim=mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        comm=mesh.comm,
+        tolerance=mesh.tolerance,
+    )
+    # Not used by this (Netgen-free) refinement path, but kept around
+    # so that `mesh.refine_marked_elements` (which requires a
+    # `netgen_mesh` attribute) and any code inspecting it keep working
+    # on meshes further refined from `new_mesh`.
+    new_mesh.netgen_mesh = mesh.netgen_mesh
+    new_mesh.netgen_flags = mesh.netgen_flags
+    new_mesh._netgen_mesh_is_distributed = True
+
+    nfStart, nfEnd = new_dm.getHeightStratum(0)
+    new_parent_label = new_dm.getLabel(parent_name)
+    new_cell_numbering = new_mesh._cell_numbering
+    nfine = new_mesh.cell_set.size
+    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
+    children = [[] for _ in range(ncoarse)]
+    for c in range(nfStart, nfEnd):
+        off = new_cell_numbering.getOffset(c)
+        if not (0 <= off < nfine):
+            continue
+        parent = new_parent_label.getValue(c)
+        if parent < 0:
+            continue
+        fine_to_coarse[off, 0] = parent
+        children[parent].append(off)
+    new_dm.removeLabel(parent_name)
+
+    max_children = max((len(c) for c in children), default=0)
+    coarse_to_fine = np.full((ncoarse, max(1, max_children)), -1, dtype=IntType)
+    for coarse_cell, fine_cells in enumerate(children):
+        coarse_to_fine[coarse_cell, :len(fine_cells)] = fine_cells
+
+    new_mesh._adaptive_parent_owned = True
+    new_mesh._adaptive_cell_maps = (coarse_to_fine, fine_to_coarse)
+    return new_mesh
+
+
 def refine_marked_elements(mesh, mark, netgen_flags=None, redistribute=True,
                            balancing=0.15):
+    if getattr(mesh, "_netgen_mesh_is_distributed", False):
+        return _refine_marked_elements_dmplex(mesh, mark, redistribute, balancing)
     if netgen_flags is None:
         netgen_flags = mesh.netgen_flags
     tdim = mesh.topological_dimension

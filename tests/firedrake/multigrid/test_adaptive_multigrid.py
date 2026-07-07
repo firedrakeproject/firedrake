@@ -184,18 +184,20 @@ def test_adapt_after_uniform_netgen_refinement():
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 2])
-def test_adapt_after_uniform_firedrake_refinement():
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("refine", [1, 2])
+def test_adapt_after_uniform_firedrake_refinement(refine):
     from netgen.geom2d import SplineGeometry
 
     geo = SplineGeometry()
     geo.AddRectangle((0, 0), (1, 1), bc="boundary")
     netgen_mesh = geo.GenerateMesh(maxh=0.5)
     mesh = Mesh(netgen_mesh)
-    mh = MeshHierarchy(mesh, 1, netgen_flags={})
+    mh = MeshHierarchy(mesh, refine, netgen_flags={})
     mesh = mh[-1]
 
     amh = AdaptiveMeshHierarchy(mesh)
+    mesh = amh[-1]
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
