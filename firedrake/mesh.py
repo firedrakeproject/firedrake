@@ -2887,7 +2887,7 @@ values from f.)"""
                         }}
                     }}
                     rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
-                    rtree_free_ids(candidate_offsets, npoints + 1);
+                    rtree_free_offsets(candidate_offsets, npoints + 1);
                     return 0;
                 }}
             """)

@@ -181,8 +181,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
     int cells_ignore[1] = {-1};
     RTreeError err;
-    size_t *ids = NULL;
-    int64_t nids = 0;
+    int64_t *ids = NULL;
+    size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
     if (err != Success) {
         fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
