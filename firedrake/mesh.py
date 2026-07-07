@@ -6453,7 +6453,6 @@ def SubDomainData(geometric_expr):
         assemble(f*dx(subdomain_data=sd))
 
     """
-    raise NotImplementedError
     import firedrake.functionspace as functionspace
     import firedrake.projection as projection
 
@@ -6464,9 +6463,11 @@ def SubDomainData(geometric_expr):
     fs = functionspace.FunctionSpace(m, 'DG', 0)
     f = projection.project(ufl.conditional(geometric_expr, 1, 0), fs)
 
+    # FIXME: This is nearly there, expecting a mesh IterationSpec
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
-    return op2.Subset(m.cell_set, indices)
+    subset_dat = op3.Dat.from_array(indices, prefix="subset")
+    return m.cells.owned[subset_dat]
 
 
 def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
