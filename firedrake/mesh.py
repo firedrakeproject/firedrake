@@ -3051,6 +3051,24 @@ class ExtrudedMeshTopology(MeshTopology):
             2*(self.layers-1) + 1,
         )
 
+    # TODO: implement for regular meshes too
+    def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
+        if len(dim) != 2:
+            raise NotImplementedError
+
+        base_dim, extr_dim = dim
+
+        # Get all points up each column that match the base dimension
+        column_plex_indices = utils.safe_is(
+            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
+        )
+
+        # Drop indices up the column that do not match the required dimension
+        return dmcommon.filter_is(
+            column_plex_indices,
+            *self.topology_dm.getDepthStratum(base_dim+extr_dim),
+        )
+
     # {{{ facet iteration
 
     @cached_property
@@ -3159,15 +3177,16 @@ class ExtrudedMeshTopology(MeshTopology):
         #     x--H--x--H--x
         #
         # The horizontal facets are those generated from base cells.
-        base_cell_plex_indices = utils.safe_is(
-            self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension)
-        )
-
-        # Drop non-facet indices (i.e. the extruded cells)
-        return dmcommon.filter_is(
-            base_cell_plex_indices,
-            *self.topology_dm.getDepthStratum(self.dimension-1),
-        )
+        return self._plex_indices_for_dim((self.dimension-1, 0))
+        # base_cell_plex_indices = utils.safe_is(
+        #     self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension)
+        # )
+        #
+        # # Drop non-facet indices (i.e. the extruded cells)
+        # return dmcommon.filter_is(
+        #     base_cell_plex_indices,
+        #     *self.topology_dm.getDepthStratum(self.dimension-1),
+        # )
 
     @cached_property
     def _facet_vert_plex_indices(self) -> PETSc.IS:
@@ -3188,15 +3207,16 @@ class ExtrudedMeshTopology(MeshTopology):
         #     x-----x-----x
         #
         # The vertical facets are those generated from base facets.
-        base_facet_plex_indices = utils.safe_is(
-            self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension-1)
-        )
-
-        # Drop non-facet indices (i.e. the extruded vertices)
-        return dmcommon.filter_is(
-            base_facet_plex_indices,
-            *self.topology_dm.getDepthStratum(self.dimension-1),
-        )
+        return self._plex_indices_for_dim((self.dimension-2, 1))
+        # base_facet_plex_indices = utils.safe_is(
+        #     self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension-1)
+        # )
+        #
+        # # Drop non-facet indices (i.e. the extruded vertices)
+        # return dmcommon.filter_is(
+        #     base_facet_plex_indices,
+        #     *self.topology_dm.getDepthStratum(self.dimension-1),
+        # )
 
     # TODO: Prefer '_is' over '_indices'
     @cached_property
