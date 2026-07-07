@@ -21,11 +21,12 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     nested: bool
         A flag to indicate whether the meshes are nested.
     redistribute: bool
-        Accepted for signature compatibility; load rebalancing across
-        ranks is not implemented for adaptive refinement.
+        If ``True``, keep adaptively refined meshes redistributed when
+        this is needed to avoid load imbalance and use an internal
+        parent-owned mesh for transfer operators.
     balancing: float
-        Accepted for signature compatibility; load rebalancing across
-        ranks is not implemented for adaptive refinement.
+        Relative load imbalance above which to redistribute when
+        ``redistribute`` is true.
 
     """
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
@@ -61,9 +62,13 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
             # Set by `firedrake.mesh.refine_marked_elements` when `mesh`
-            # was produced by adaptively refining `self.meshes[-1]`.
+            # was produced by adaptively refining `self.meshes[-1]`.  If
+            # the public mesh was redistributed, the maps are numbered on
+            # the parent-owned transfer mesh used by the transfer manager.
+            redist = getattr(mesh, "redist", None)
+            map_mesh = redist.orig if redist is not None else mesh
             coarse_to_fine_cells, fine_to_coarse_cells = getattr(
-                mesh, "_adaptive_cell_maps", (None, None)
+                map_mesh, "_adaptive_cell_maps", (None, None)
             )
 
         self._meshes.append(mesh)

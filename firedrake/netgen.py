@@ -194,4 +194,3 @@ class FiredrakeMesh:
             self.meshMap = MeshMapping(mesh)
         else:
             raise ValueError("Mesh format not recognised.")
-

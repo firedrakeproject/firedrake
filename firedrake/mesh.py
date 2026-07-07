@@ -2487,7 +2487,76 @@ def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
     straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
     cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
     curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
-    return Mesh(curved_coordinates, name=fine_mesh.name)
+    curved_mesh = Mesh(curved_coordinates, name=fine_mesh.name)
+    curved_mesh.netgen_mesh = fresh_ngmesh
+    curved_mesh.netgen_flags = straight_mesh.netgen_flags
+    curved_mesh._distribution_parameters = dict(fine_mesh._distribution_parameters)
+    curved_mesh._did_reordering = fine_mesh._did_reordering
+    curved_mesh._tolerance = fine_mesh.tolerance
+    return curved_mesh
+
+
+def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
+    target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
+    target_mesh._did_reordering = source_mesh._did_reordering
+    target_mesh._tolerance = source_mesh.tolerance
+    if hasattr(source_mesh, "netgen_mesh") and not hasattr(target_mesh, "netgen_mesh"):
+        target_mesh.netgen_mesh = source_mesh.netgen_mesh
+    if hasattr(source_mesh, "netgen_flags") and not hasattr(target_mesh, "netgen_flags"):
+        target_mesh.netgen_flags = source_mesh.netgen_flags
+
+
+def _needs_adaptive_redistribution(mesh, balancing):
+    num_cells = mesh.cell_set.size
+    avg_cells = mesh.comm.allreduce(num_cells, op=MPI.SUM) / mesh.comm.size
+    if avg_cells == 0:
+        return False
+    max_cells = mesh.comm.allreduce(num_cells, op=MPI.MAX)
+    return max_cells > (1 + balancing) * avg_cells
+
+
+def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
+                                        redistribute=True, balancing=0.15):
+    """Redistribute an adaptively refined mesh if its cell load is imbalanced."""
+    _copy_adaptive_refinement_metadata(coarse_mesh, transfer_mesh)
+
+    needs_redist = (redistribute and coarse_mesh.comm.size > 1
+                    and _needs_adaptive_redistribution(transfer_mesh, balancing))
+    if not needs_redist:
+        return transfer_mesh
+
+    from firedrake.function import Function
+    from firedrake.mg.utils import RedistributedMeshTransfer, redistribute_dm
+
+    redist_parameters = dict(coarse_mesh._distribution_parameters)
+    redist_parameters["partition"] = True
+    redist_dm = transfer_mesh.topology_dm.clone()
+    _, point_sf = redistribute_dm(redist_dm, redist_parameters)
+
+    redist_topology_mesh = Mesh(
+        redist_dm,
+        dim=transfer_mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        comm=transfer_mesh.comm,
+        tolerance=transfer_mesh.tolerance,
+    )
+    _copy_adaptive_refinement_metadata(transfer_mesh, redist_topology_mesh)
+
+    redist_transfer = RedistributedMeshTransfer(
+        transfer_mesh, redist_topology_mesh, point_sf
+    )
+    Vredist = transfer_mesh.coordinates.function_space().reconstruct(
+        mesh=redist_topology_mesh
+    )
+    redist_coordinates = Function(Vredist)
+    redist_transfer.orig2redist(transfer_mesh.coordinates, redist_coordinates)
+    redist_mesh = Mesh(redist_coordinates, name=transfer_mesh.name)
+    _copy_adaptive_refinement_metadata(redist_topology_mesh, redist_mesh)
+    redist_mesh.redist = RedistributedMeshTransfer(
+        transfer_mesh, redist_mesh, point_sf
+    )
+    return redist_mesh
 
 
 def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
@@ -2514,9 +2583,11 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times.
     redistribute
-        Accepted for signature compatibility; see note below.
+        If ``True``, redistribute the refined mesh when adaptive
+        refinement leaves the owned cell counts imbalanced across ranks.
     balancing
-        Accepted for signature compatibility; see note below.
+        Relative load imbalance above which to redistribute when
+        ``redistribute`` is true.
 
     Returns
     -------
@@ -2524,13 +2595,6 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
         The adaptively refined mesh, with ``_adaptive_cell_maps`` set
         to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
         to ``mesh``.
-
-    Note
-    ----
-    Cells never migrate between ranks here (``refine_sbr`` refines
-    each rank's cells in place), so ``redistribute``/``balancing`` are
-    accepted for signature compatibility but load-rebalancing across
-    ranks is not implemented.
 
     Only 2D (triangle) meshes are supported: PETSc's ``refine_sbr``
     transform, which is what makes this parallel-safe and conforming,
@@ -2590,6 +2654,13 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
             final_mesh = _recurve_netgen_mesh(mesh, final_mesh, order)
 
     final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
+    final_mesh = _redistribute_adaptive_refined_mesh(
+        mesh, final_mesh, redistribute=redistribute, balancing=balancing
+    )
+    final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
+    redist = getattr(final_mesh, "redist", None)
+    if redist is not None:
+        redist.orig._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
     return final_mesh
 
 
@@ -3161,10 +3232,11 @@ values from f.)"""
 
         :arg mark: the marking function, a Firedrake DG0 function on
             this mesh; cells with a positive value are refined.
-        :arg redistribute: accepted for signature compatibility; load
-            rebalancing across ranks is not implemented.
-        :arg balancing: accepted for signature compatibility; load
-            rebalancing across ranks is not implemented.
+        :arg redistribute: if ``True``, redistribute the refined mesh
+            when adaptive refinement leaves the owned cell counts imbalanced
+            across ranks.
+        :arg balancing: relative load imbalance above which to redistribute
+            when ``redistribute`` is true.
 
         """
         return refine_marked_elements(self, mark, redistribute, balancing)
