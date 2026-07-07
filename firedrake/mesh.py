@@ -2752,6 +2752,18 @@ class MeshTopology(AbstractMeshTopology):
             map_ = map2(map_)
         return map_, integral_type
 
+    @cached_property
+    def _visible_ranks(self):
+        # Get parent mesh rank ownership information.
+        visible_ranks = np.empty(self.cells.local_size, dtype=IntType)
+        visible_ranks[:self.cells.owned.local_size] = self.comm.rank
+        visible_ranks[self.cells.owned.local_size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            self.topology_dm, self._old_to_new_cell_numbering, visible_ranks
+        )
+        return visible_ranks
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -6022,13 +6034,7 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    visible_ranks = np.empty(parent_mesh.cells.local_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cells.owned.local_size] = parent_mesh.comm.rank
-    visible_ranks[parent_mesh.cells.owned.local_size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology, parent_mesh.topology._old_to_new_cell_numbering, visible_ranks
-    )
+    visible_ranks = parent_mesh._visible_ranks
     locally_visible = parent_cell_nums != -1
 
     locally_visible_cell_nums = parent_cell_nums[locally_visible]
