@@ -159,6 +159,9 @@ def MeshHierarchy(mesh, refinement_levels,
     fine_to_coarse_cells = [None]
     cmesh = mesh
     for i in range(refinement_levels*refinements_per_level):
+        # cmesh is the previous iteration's fine_mesh, built with the caller's
+        # (typically overlapping) distribution_parameters, so its overlap must
+        # be stripped again before it can be refined.
         cdm = make_unoverlapped_dm(cmesh)
         clgmaps = (impl.create_lgmap(cdm), impl.create_lgmap(cmesh.topology_dm))
 

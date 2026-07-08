@@ -198,7 +198,7 @@ def _assert_adapt_after_uniform_refinement(mesh):
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 2])
+@pytest.mark.parallel([1, 2, 4])
 def test_adapt_after_uniform_netgen_refinement():
     from netgen.geom2d import SplineGeometry
 

@@ -5,13 +5,6 @@ from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
-from firedrake.redist import (
-    RedistributedMeshTransfer,
-    distribute_overlap,
-    make_unoverlapped_dm,
-    redistribute_dm,
-    dm_has_empty_rank,
-)
 from firedrake.cython import mgimpl as impl
 
 

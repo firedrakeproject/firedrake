@@ -12,6 +12,8 @@ import numpy as np
 from pyop2.mpi import MPI
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.redist import RedistributedMeshTransfer, redistribute_dm
 
@@ -25,26 +27,10 @@ DM_ADAPT_REFINE = 1
 def _refine_marked_elements_once(mesh, mark):
     """Adaptively refine ``mesh`` by one round using a DG0 marker.
 
-    This works for any mesh (serial or parallel, Netgen-backed or
-    not): the marking function is turned into a `DMLabel` and PETSc's
-    own mesh adaptation (`DM.adaptLabel`, via the ``refine_sbr``
-    transform) refines it, entirely on the DMPlex. ``refine_sbr`` is
-    the Plaza & Carey skeleton-based refinement, and is parallel-safe:
-    it uses the mesh's own point SF to propagate refinement decisions
-    across rank boundaries, so no hanging nodes are introduced at a
-    partition boundary. (The default transform, ``refine_regular``,
-    ignores the REFINE/KEEP distinction and just refines every cell
-    uniformly, so it cannot be used here.)
-
-    The coarse-to-fine correspondence needed for `coarse_to_fine_cells`
-    / `fine_to_coarse_cells` comes for free: `DMPlexTransformCreateLabels`
-    propagates *any* label from a parent point to all of its children,
-    so tagging every owned coarse cell with its own (Firedrake) cell
-    number before adapting recovers, on the adapted mesh, exactly which
-    coarse cell each fine cell descends from. This generalizes to
-    genuinely non-uniform (adaptive) refinement, unlike the coarse/fine
-    cell maps used for uniform `MeshHierarchy` refinement, which assume
-    a fixed number of children per cell.
+    Turns ``mark`` into a `DMLabel` and lets PETSc's ``refine_sbr``
+    transform (`DM.adaptLabel`) do the refinement on the DMPlex,
+    which is parallel-safe and gives the coarse-to-fine/fine-to-coarse
+    cell maps for free via label propagation to child cells.
 
     Returns
     -------
@@ -155,8 +141,6 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
     if not needs_redist:
         return transfer_mesh
 
-    from firedrake.function import Function
-
     redist_parameters = dict(coarse_mesh._distribution_parameters)
     redist_parameters["partition"] = True
     redist_dm = transfer_mesh.topology_dm.clone()
@@ -230,9 +214,6 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
     and conforming, implements Plaza & Carey skeleton-based refinement
     in both dimensions.
     """
-    from firedrake.function import Function
-    from firedrake.functionspace import FunctionSpace
-
     with mark.dat.vec_ro as v:
         _, local_max = v.max()
     max_rounds = max(int(mesh.comm.allreduce(local_max, op=MPI.MAX)), 1)
