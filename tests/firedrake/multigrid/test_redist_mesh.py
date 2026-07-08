@@ -4,7 +4,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_redistributed_hierarchy():
     m = UnitIntervalMesh(1)
     mh = MeshHierarchy(m, 1)
@@ -12,8 +12,8 @@ def test_redistributed_hierarchy():
     assert mh[1].cell_set.size > 0
 
 
-@pytest.mark.parallel(nprocs=4)
-def test_redistributed_hierarchy_transfers_no_empty_ranks():
+@pytest.mark.parallel(4)
+def test_uniform_hierarchy_no_empty_ranks():
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     base = UnitSquareMesh(1, 1, distribution_parameters=dparams)
     mh = MeshHierarchy(base, 2)
@@ -31,11 +31,13 @@ def test_redistributed_hierarchy_transfers_no_empty_ranks():
         coarse_expr = xc + 2*yc
         fine_expr = xf + 2*yf
 
+        # test prolong CG1
         coarse = Function(Vc).interpolate(coarse_expr)
         fine = Function(Vf)
         prolong(coarse, fine)
         assert errornorm(fine_expr, fine) < 1e-12
 
+        # test restrict CG1
         one_coarse = Function(Vc).assign(1)
         one_fine = Function(Vf)
         prolong(one_coarse, one_fine)
@@ -43,7 +45,6 @@ def test_redistributed_hierarchy_transfers_no_empty_ranks():
         fine_dual = assemble(conj(TestFunction(Vf))*dx)
         coarse_dual = Cofunction(Vc.dual())
         restrict(fine_dual, coarse_dual)
-
         assert np.allclose(
             assemble(action(coarse_dual, one_coarse)),
             assemble(action(fine_dual, one_fine)),
@@ -51,28 +52,30 @@ def test_redistributed_hierarchy_transfers_no_empty_ranks():
             atol=1e-12,
         )
 
-        # inject uses coarse_to_fine_cells (a list of candidate fine cells
-        # per coarse cell), unlike prolong/restrict which use
-        # fine_to_coarse_cells (always exactly one candidate, the true
-        # parent, so immune to redistribution moving cells across ranks).
+        # test inject CG1
         coarse_injected = Function(Vc)
         inject(fine, coarse_injected)
         assert errornorm(coarse_expr, coarse_injected) < 1e-12
 
-        # DG0 injection of a linear field is inherently lossy (a constant
-        # can't represent it exactly); this only checks that native
-        # transfer runs to completion on a redistributed level, which used
-        # to raise an IndexError / hang.
-        Vf0 = FunctionSpace(mh[l+1], "DG", 0)
-        Vc0 = FunctionSpace(mh[l], "DG", 0)
-        fine0 = Function(Vf0).interpolate(fine_expr)
-        coarse0 = Function(Vc0)
-        inject(fine0, coarse0)
-        assert np.all(np.isfinite(coarse0.dat.data_ro))
+        # test inject DG0
+        Qc = FunctionSpace(mh[l], "DG", 0)
+        Qf = FunctionSpace(mh[l+1], "DG", 0)
+        fine_expr = conditional(xf > 1, 1, 0)
+        coarse_expr = conditional(xc > 1, 1, 0)
+        fine = Function(Qf).interpolate(fine_expr)
+        coarse_injected = Function(Qc)
+        inject(fine, coarse_injected)
+        assert np.allclose(
+            assemble(coarse_expr * dx),
+            assemble(coarse_injected * dx),
+            rtol=1e-12,
+            atol=1e-12,
+        )
+        assert l == 0 or errornorm(coarse_expr, coarse_injected) < 1e-12
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_adaptive_refinement_redistributes_unbalanced_unitsquare():
+@pytest.mark.parallel(2)
+def test_adaptive_hierarchy_redistributes_unbalanced_unitsquare():
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesh = UnitSquareMesh(4, 4, distribution_parameters=dparams)
     amh = AdaptiveMeshHierarchy(mesh)
@@ -108,9 +111,6 @@ def test_adaptive_refinement_redistributes_unbalanced_unitsquare():
         atol=1e-12,
     )
 
-    # See test_redistributed_hierarchy_transfers_no_empty_ranks: inject
-    # uses coarse_to_fine_cells, whose candidate fine cells are relative
-    # to the parent-owned (pre-redistribution) mesh.
     u_coarse_injected = Function(V_coarse)
     inject(u_fine, u_coarse_injected)
     assert errornorm(expr_coarse, u_coarse_injected) <= 1e-12
