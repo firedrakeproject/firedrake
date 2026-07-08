@@ -65,14 +65,14 @@ def distribute_overlap(dm, parameters):
         raise ValueError("Unknown overlap type %r" % (overlap_type,))
 
 
-def make_unoverlapped_dm(mesh):
+def make_unoverlapped_dm(dm):
     """Effectively invert addOverlap().
 
     The resulting plex has the identical data structure as the one before
     addOverlap(). This is algorithmically guaranteed.
     """
-    tdim = mesh.topology_dm.getDimension()
-    dm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
+    tdim = dm.getDimension()
+    dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, True)
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")

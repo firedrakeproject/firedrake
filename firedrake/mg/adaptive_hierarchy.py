@@ -61,10 +61,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         """
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
-            # Set by `firedrake.adapt.refine_marked_elements` when `mesh`
-            # was produced by adaptively refining `self.meshes[-1]`.  If
-            # the public mesh was redistributed, the maps are numbered on
-            # the parent-owned transfer mesh used by the transfer manager.
+            # Adaptive maps live on the parent-owned transfer mesh when redistributed.
             redist = getattr(mesh, "redist", None)
             map_mesh = redist.orig if redist is not None else mesh
             coarse_to_fine_cells, fine_to_coarse_cells = getattr(

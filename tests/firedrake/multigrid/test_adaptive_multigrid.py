@@ -16,25 +16,20 @@ def _linear_expr(mesh):
     return dot(weights, x)
 
 
-# FIXME
-_XFAIL_3D_PARTIAL_SBR = pytest.mark.xfail(
-    reason="PETSc's 3D refine_sbr does not yet implement partial "
-           "(2-5 marked edges) tetrahedron splits, only the uniform "
-           "(all 6 edges) and single-edge cases",
-    raises=PETSc.Error,
-)
-
-
 @pytest.fixture(params=[
     "firedrake-square",
-    pytest.param("netgen-square", marks=pytest.mark.skipnetgen),
-    # pytest.param("firedrake-cube", marks=_XFAIL_3D_PARTIAL_SBR),
-    # pytest.param("netgen-cube", marks=[pytest.mark.skipnetgen, _XFAIL_3D_PARTIAL_SBR]),
+    "firedrake-cube",
+    # pytest.param("netgen-square", marks=pytest.mark.skipnetgen),
+    # pytest.param("netgen-cube", marks=pytest.mark.skipnetgen),
 ])
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
-    if mesher == "netgen-square":
+    if mesher == "firedrake-square":
+        return UnitSquareMesh(1, 1, distribution_parameters=dparams)
+    elif mesher == "firedrake-cube":
+        return UnitCubeMesh(1, 1, 1, distribution_parameters=dparams)
+    elif mesher == "netgen-square":
         from netgen.occ import WorkPlane, OCCGeometry
         wp = WorkPlane()
         wp.Rectangle(1, 1)
@@ -48,10 +43,6 @@ def coarse_mesh(request):
         geo = OCCGeometry(cube, dim=3)
         ngmesh = geo.GenerateMesh(maxh=0.5)
         return Mesh(ngmesh, distribution_parameters=dparams)
-    elif mesher == "firedrake-square":
-        return UnitSquareMesh(1, 1, distribution_parameters=dparams)
-    elif mesher == "firedrake-cube":
-        return UnitCubeMesh(1, 1, 1, distribution_parameters=dparams)
     else:
         raise NotImplementedError(f"Unrecognized mesher {mesher}")
 

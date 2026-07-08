@@ -1,12 +1,4 @@
-"""Adaptive (non-uniform) mesh refinement.
-
-This works for any 2D (triangle) or 3D (tetrahedron) mesh, serial or
-parallel, Netgen-backed or not: see `_refine_marked_elements_once` for how a
-single round of refinement is performed on the DMPlex, and
-`refine_marked_elements` for how rounds are composed, curving
-(Netgen-backed meshes only) is reapplied, and the result is
-redistributed if needed.
-"""
+"""Adaptive mesh refinement helpers."""
 import numpy as np
 
 from pyop2.mpi import MPI
@@ -15,28 +7,17 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.netgen import _recurve_netgen_mesh
 from firedrake.redist import RedistributedMeshTransfer, redistribute_dm
 
 
-# DMPlex adaptation flags (see PETSc's DMAdaptFlag): a point tagged
-# KEEP is left alone, a point tagged REFINE is split.
+# PETSc DMAdaptFlag values used by refine_sbr.
 DM_ADAPT_KEEP = 0
 DM_ADAPT_REFINE = 1
 
 
 def _refine_marked_elements_once(mesh, mark):
-    """Adaptively refine ``mesh`` by one round using a DG0 marker.
-
-    Turns ``mark`` into a `DMLabel` and lets PETSc's ``refine_sbr``
-    transform (`DM.adaptLabel`) do the refinement on the DMPlex,
-    which is parallel-safe and gives the coarse-to-fine/fine-to-coarse
-    cell maps for free via label propagation to child cells.
-
-    Returns
-    -------
-    tuple
-        ``(new_mesh, coarse_to_fine, fine_to_coarse)``.
-    """
+    """Refine marked cells once and return parent-child cell maps."""
     dm = mesh.topology_dm
     cell_numbering = mesh._cell_numbering
     ncoarse = mesh.cell_set.size
@@ -69,10 +50,7 @@ def _refine_marked_elements_once(mesh, mark):
         dm.removeLabel(parent_name)
         dm.removeLabel(adapt_name)
 
-    # adapt_name rides along with parent_name onto new_dm too (DMPlexTransformCreateLabels
-    # propagates every label, not just the one we want); left behind, it silently poisons
-    # the *next* round's dm.createLabel(adapt_name), which then returns this stale label
-    # instead of a fresh one.
+    # The transform propagates every label, including the temporary adapt label.
     for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", adapt_name):
         if new_dm.hasLabel(label):
             new_dm.removeLabel(label)
@@ -177,18 +155,9 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
 def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
     """Adaptively refine a mesh using a DG0 marking function.
 
-    This works for any mesh (serial or parallel, Netgen-backed or
-    not); see `_refine_marked_elements_once` for how a single round of
-    refinement is performed. A cell may be refined more than once by
-    setting its marker value to an integer greater than 1 (matching
-    the number of refinement rounds it should undergo); this loops
-    `_refine_marked_elements_once`, composing the cell maps from each
-    round to give `coarse_to_fine`/`fine_to_coarse` directly relating
-    ``mesh`` to the final refined mesh.
-
-    If ``mesh`` was built from a curved (higher-order) Netgen mesh,
-    the final refined mesh is re-curved to the same order; see
-    `firedrake.netgen._recurve_netgen_mesh`.
+    Positive integer marker values request repeated refinement of the
+    corresponding cells. Curved Netgen meshes are re-curved to the
+    original coordinate degree after refinement.
 
     Parameters
     ----------
@@ -210,11 +179,6 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
         The adaptively refined mesh, with ``_adaptive_cell_maps`` set
         to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
         to ``mesh``.
-
-    Works for both 2D (triangle) and 3D (tetrahedron) meshes: PETSc's
-    ``refine_sbr`` transform, which is what makes this parallel-safe
-    and conforming, implements Plaza & Carey skeleton-based refinement
-    in both dimensions.
     """
     with mark.dat.vec_ro as v:
         _, local_max = v.max()
@@ -258,7 +222,6 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
     if hasattr(mesh, "netgen_mesh"):
         order = mesh.coordinates.function_space().ufl_element().degree()
         if order > 1:
-            from firedrake.netgen import _recurve_netgen_mesh
             final_mesh = _recurve_netgen_mesh(mesh, final_mesh, order)
 
     final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)

@@ -49,7 +49,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
     """
     netgen_data = np.asarray(netgen_data)
     mesh = V.mesh()
-    sf = mesh.sfBC
+    sf = mesh.sfBC_orig
     if sf is None:
         # This mesh was not redistributed at construction.
         # This means that the underlying netgen mesh represents
@@ -94,11 +94,7 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     if points_a.shape != points_b.shape:
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
-    # Map each cell's points onto its own affine (barycentric-like)
-    # reference frame, using vertex 0 as the origin: this makes the
-    # matching scale- and deformation-invariant, so points can be
-    # matched by nearest neighbour instead of an absolute tolerance
-    # (which breaks down once curving has moved points significantly).
+    # Match in each cell's affine reference frame, avoiding scale-dependent tolerances.
     dim = points_a.shape[-1]
     vids = list(range(dim + 1))
 
@@ -133,16 +129,8 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
 
 
 def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
-    """Re-curve ``fine_mesh`` to match the geometry of a Netgen ``coarse_mesh``.
-
-    `firedrake.adapt._refine_marked_elements_once` only produces
-    straight-sided (degree 1) geometry, since it works purely on the
-    DMPlex; this snaps ``fine_mesh`` back onto ``coarse_mesh``'s curved
-    CAD/geometry description via `MeshGeometry.curve_field`.
-    """
-    # createNetgenMesh must run before the clone is wrapped into a MeshGeometry
-    # (which renumbers it): curve_field assumes its mesh's Netgen elements are
-    # in the same order as the mesh's own _cell_numbering.
+    """Re-curve ``fine_mesh`` using ``coarse_mesh``'s Netgen geometry."""
+    # Run createNetgenMesh before Mesh construction renumbers the plex.
     dm_clone = fine_mesh.topology_dm.clone()
     fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
     straight_mesh = firedrake.Mesh(
