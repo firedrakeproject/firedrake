@@ -3,6 +3,25 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.mark.parallel([1, 2, 4])
+def test_adapt_basic():
+    nx = 1
+    base = UnitCubeMesh(nx, nx, nx)
+
+    refine = 6
+    mh = AdaptiveMeshHierarchy(base)
+    for l in range(refine):
+        mesh = mh[-1]
+        x = SpatialCoordinate(mesh)
+        M = FunctionSpace(mesh, "DG", 0)
+        m = Function(M, name="marker")
+        m.interpolate(conditional(sum(x) < 2**(-l+1), 1, 0))
+        mh.add_mesh(mesh.refine_marked_elements(m))
+
+    mesh = mh[-1]
+    assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
+
+
 def _adaptive_map_mesh(mesh):
     redist = getattr(mesh, "redist", None)
     return redist.orig if redist is not None else mesh

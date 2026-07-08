@@ -30,7 +30,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
     """
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
-                 redistribute: bool = True, balancing: float = 0.15):
+                 redistribute: bool = True, balancing: float = 1.0):
         self.meshes = []
         self._meshes = []
         self.coarse_to_fine_cells = {}

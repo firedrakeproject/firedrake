@@ -2901,7 +2901,8 @@ values from f.)"""
     def unique(self):
         return self
 
-    def refine_marked_elements(self, mark, redistribute=True, balancing=0.15):
+    @PETSc.Log.EventDecorator()
+    def refine_marked_elements(self, mark, redistribute=True, balancing=1.0):
         """Adaptively refine a mesh using a DG0 marking function.
 
         :arg mark: the marking function, a Firedrake DG0 function on

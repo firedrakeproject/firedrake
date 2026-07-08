@@ -112,7 +112,7 @@ def _needs_adaptive_redistribution(mesh, balancing):
 
 
 def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
-                                        redistribute=True, balancing=0.15):
+                                        redistribute=True, balancing=1.0):
     """Redistribute an adaptively refined mesh if its cell load is imbalanced."""
     _copy_adaptive_refinement_metadata(coarse_mesh, transfer_mesh)
 
@@ -152,7 +152,7 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
     return redist_mesh
 
 
-def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
+def refine_marked_elements(mesh, mark, redistribute=True, balancing=1.0):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
