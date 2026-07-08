@@ -78,7 +78,7 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
         this system or None
 
     """
-    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse", "HIP": "aijhipsparse"}
     dev_type = get_device_type()
     if dev_type is None:
         if warn:
