@@ -624,6 +624,68 @@ class WithGeometryBase:
             V = V.sub(i)
         return V
 
+    # {{{ submesh
+
+    @cached_property
+    def submesh_parent_to_child_map(self) -> op3.Map:
+        """Return the map between parent and child meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
+        )
+
+    @cached_property
+    def submesh_child_to_parent_map(self) -> op3.Map:
+        """Return the map between child and parent meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",
+        )
+
+    def _make_submesh_node_to_node_map(
+        self, direction: Literal["parent_to_child", "child_to_parent"]
+    ) -> dict:
+        parent_space = self.reconstruct(mesh=self.mesh().submesh_parent)
+
+        if direction == "parent_to_child":
+            plex_indices = self.mesh()._parent_to_submesh_plex_index_map
+            from_section = parent_space.local_section
+            to_section = self.local_section
+            nodes_axis = parent_space.nodes
+        else:
+            plex_indices = self.mesh()._submesh_to_parent_plex_index_map
+            from_section = self.local_section
+            to_section = parent_space.local_section
+            nodes_axis = self.nodes
+
+        node_to_node_map_array = dmcommon.make_node_to_node_map(
+            plex_indices, from_section, to_section, self.block_size
+        )
+        node_to_node_map_dat = op3.Dat(nodes_axis, data=node_to_node_map_array)
+        return {
+            idict({"nodes": None}): [
+                op3.TabulatedMapComponent("nodes", None, node_to_node_map_dat, label=None)
+            ]
+        }
+
+    # }}}
+
 
 class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 
@@ -661,6 +723,10 @@ class AbstractFunctionSpace:
     @abc.abstractmethod
     def nodal_axes(self) -> op3.AxisTree | op3.IndexedAxisTree:
         pass
+
+    @property
+    def nodes(self) -> op3.Axis:
+        return self.nodal_axes.root
 
     @cached_property
     @_mesh_cached
@@ -867,7 +933,7 @@ class AbstractFunctionSpace:
     # }}}
 
 
-    # {{{ entity->node/offset maps
+    # {{{ maps
 
     @cached_property
     def cell_node_map(self) -> op3.Map:

@@ -28,13 +28,14 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.exceptions
 import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
 from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
-from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
+from pyop3.exceptions import Pyop3Exception
 from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
@@ -1008,6 +1009,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
                 indexed_axes = index_axes(restricted_index_tree, idict(), self)
                 indexed_axess.append(indexed_axes)
 
+            assert len(indexed_axess) > 0, "no match found at all!"
             if len(indexed_axess) > 1:
                 return AxisForest(indexed_axess)
             else:
@@ -2116,7 +2118,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
         if utils.is_ellipsis_type(indices):
             return self
         else:
-            raise InvalidIndexTargetException
+            raise pyop3.exceptions.InvalidIndexTargetException
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
@@ -2272,7 +2274,6 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
     return utils.freeze(matching_target)
 
 
-# TODO: Make a __new__ that returns the single thing if only one tree provided
 @pyop3.record.frozenrecord()
 class AxisForest(AbstractAxisTreeLike):
     """A collection of equivalent axis trees.
@@ -2403,7 +2404,7 @@ class AxisForest(AbstractAxisTreeLike):
             try:
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
-            except InvalidIndexTargetException:
+            except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
                 pass
 
         if not indexed_trees:

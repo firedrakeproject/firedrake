@@ -1290,6 +1290,27 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         raise ValueError(f"Unknown cell type: {dm.getCellType(p)}")
 
 
+def make_node_to_node_map(
+    pt_to_pt_map: np.ndarray,
+    from_sec: PETSc.Section,
+    to_sec: PETSc.Section,
+    block_size: numbers.Integral,
+):
+    start, end = from_sec.getOffsetRange()
+    assert start == 0
+
+    node_to_node_map = np.full(end//block_size, -1, dtype=IntType)
+    for from_pt, to_pt in enumerate(pt_to_pt_map):
+        if to_pt == -1:
+            continue
+
+        from_offset = from_sec.getOffset(from_pt) // block_size
+        to_offset = to_sec.getOffset(to_pt) // block_size
+        for ni in range(from_sec.getDof(from_pt) // block_size):
+            node_to_node_map[from_offset+ni] = to_offset+ni
+    return node_to_node_map
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)

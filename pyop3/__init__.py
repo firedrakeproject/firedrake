@@ -61,6 +61,7 @@ from pyop3.index_tree import (  # noqa: F401
     IndexTree,
     LoopIndex,
     Map,
+    ScalarMap,
     Slice,
     SliceComponent,
     Subset,

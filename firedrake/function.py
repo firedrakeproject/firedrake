@@ -487,7 +487,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2'):

@@ -7,6 +7,8 @@ from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import ClassVar
 
+import numpy as np
+
 import pyop3.axis_tree
 import pyop3.record
 from pyop3 import utils
@@ -412,10 +414,6 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 def as_linear_buffer_expression(obj):
     return _as_linear_buffer_expression(obj)
 
-    # can't do this as it affects assignees
-    # if expr.min_value == expr.max_value:
-    #     return expr.min_value
-
 
 @functools.singledispatch
 def _as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
@@ -450,3 +448,8 @@ def _(dat: Dat) -> LinearDatBufferExpression:
 def _(scalar: Scalar) -> ScalarBufferExpression:
     assert scalar.transform is None
     return ScalarBufferExpression(scalar.buffer)
+
+
+@_as_linear_buffer_expression.register
+def _(array: np.ndarray) -> LinearDatBufferExpression:
+    return _as_linear_buffer_expression(Dat.from_array(array))

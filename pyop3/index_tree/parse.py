@@ -27,9 +27,6 @@ class IncompletelyIndexedException(Pyop3Exception):
     """Exception raised when an axis tree is incompletely indexed by an index tree/forest."""
 
 
-# NOTE: Now really should be plural: 'forests'
-# NOTE: Is this definitely the case? I think at the moment I always return just a single
-# tree per context.
 def as_index_forests(forest: Any, /, axes: AbstractNonUnitAxisTree | None = None, *, strict: bool = False) -> idict:
     """Return a collection of index trees, split by loop context.
 
@@ -136,8 +133,8 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
         (loop_index.id, loop_index.iterset.leaf_paths)})
 
 
-@collect_loop_contexts.register(CalledMap)
-def _(called_map: CalledMap, /) -> OrderedSet:
+@collect_loop_contexts.register
+def _(called_map: pyop3.index_tree.tree.AbstractCalledMap, /) -> OrderedSet:
     return collect_loop_contexts(called_map.index)
 
 
@@ -368,11 +365,20 @@ def _desugar_index_label(label, /, *, axes, path) -> Index:
 
 # TODO: This function needs overhauling to work in more cases.
 def complete_index_tree(index_tree: IndexTree, axes: AxisTree) -> IndexTree:
-    return _complete_index_tree_rec(index_tree=index_tree, axes=axes, path=idict(), possible_target_paths_acc=(idict(),))
+    return _complete_index_tree_rec(
+        index_tree=index_tree,
+        axes=axes,
+        path=idict(),
+        possible_target_paths_acc=(idict(),),
+    )
 
 
 def _complete_index_tree_rec(
-    *, index_tree: IndexTree, axes: AxisTree, path: ConcretePathT, possible_target_paths_acc,
+    *,
+    index_tree: IndexTree,
+    axes: AxisTree,
+    path: ConcretePathT,
+    possible_target_paths_acc,
 ) -> IndexTree:
     """Add extra slices to the index tree to match the axes.
 
@@ -521,8 +527,13 @@ def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
         return (loop_index.__record_init__(iterset=linear_iterset),)
 
 
-@_as_context_free_indices.register(CalledMap)
-def _(called_map, /, loop_context, **kwargs):
+@_as_context_free_indices.register
+def _(
+    called_map: pyop3.index_tree.tree.AbstractCalledMap,
+    /,
+    loop_context,
+    **kwargs,
+):
     cf_maps = []
     cf_indices = _as_context_free_indices(called_map.index, loop_context)
 
@@ -564,7 +575,7 @@ def _(called_map, /, loop_context, **kwargs):
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = {input_path: (output_spec,)}
-            restricted_map = Map(restricted_connectivity, called_map.name)(cf_index)
+            restricted_map = called_map.map.__record_init__(_connectivity=restricted_connectivity)(cf_index)
             cf_maps.append(restricted_map)
     return tuple(cf_maps)
 

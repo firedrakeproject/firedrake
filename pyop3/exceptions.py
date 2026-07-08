@@ -44,6 +44,7 @@ class ExpressionUnchangedException(Pyop3Exception):
 
 # {{{ axis trees
 
+# NOTE: the same idea as InvalidIndexTargetException
 class IncompatibleAxisTargetException(Pyop3Exception):
     pass
 
