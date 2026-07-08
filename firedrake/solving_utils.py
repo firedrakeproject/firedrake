@@ -529,7 +529,10 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         A = ctx._jac.petscmat
-        P = A if ctx.Jp is None else ctx._pjac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
         return A, P
 
     @staticmethod
