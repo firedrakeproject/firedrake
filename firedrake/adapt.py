@@ -1,7 +1,7 @@
 """Adaptive (non-uniform) mesh refinement.
 
-This works for any 2D (triangle) mesh, serial or parallel,
-Netgen-backed or not: see `_refine_marked_elements_once` for how a
+This works for any 2D (triangle) or 3D (tetrahedron) mesh, serial or
+parallel, Netgen-backed or not: see `_refine_marked_elements_once` for how a
 single round of refinement is performed on the DMPlex, and
 `refine_marked_elements` for how rounds are composed, curving
 (Netgen-backed meshes only) is reapplied, and the result is
@@ -221,19 +221,13 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
         to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
         to ``mesh``.
 
-    Only 2D (triangle) meshes are supported: PETSc's ``refine_sbr``
-    transform, which is what makes this parallel-safe and conforming,
-    has no 3D (tetrahedron) implementation.
+    Works for both 2D (triangle) and 3D (tetrahedron) meshes: PETSc's
+    ``refine_sbr`` transform, which is what makes this parallel-safe
+    and conforming, implements Plaza & Carey skeleton-based refinement
+    in both dimensions.
     """
     from firedrake.function import Function
     from firedrake.functionspace import FunctionSpace
-
-    if mesh.topological_dimension != 2:
-        raise NotImplementedError(
-            "Adaptive refinement is only implemented for 2D (triangle) "
-            "meshes: PETSc's refine_sbr transform does not support "
-            "tetrahedra in this build."
-        )
 
     with mark.dat.vec_ro as v:
         _, local_max = v.max()

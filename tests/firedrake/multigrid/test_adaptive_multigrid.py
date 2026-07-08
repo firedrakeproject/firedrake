@@ -13,6 +13,14 @@ def _adaptive_map_mesh(mesh):
     return redist.orig if redist is not None else mesh
 
 
+def _linear_expr(mesh):
+    """A linear expression in the mesh's spatial coordinates, generalizing
+    ``x + 2*y`` to any dimension (``x + 2*y + 3*z`` in 3D, etc.)."""
+    x = SpatialCoordinate(mesh)
+    weights = Constant(list(range(1, mesh.geometric_dimension + 1)))
+    return dot(weights, x)
+
+
 def _random_adaptive_hierarchy(base, nlevels=2):
     """Build an AdaptiveMeshHierarchy from ``base`` by randomly marking
     roughly half of the cells for refinement at each of ``nlevels``
@@ -33,14 +41,40 @@ def _random_adaptive_hierarchy(base, nlevels=2):
     return amh_test
 
 
+# PETSc's refine_sbr only implements the two extremes of 3D (tetrahedron)
+# refinement: no marked edges (identity) and all 6 edges marked (uniform
+# bisection), plus single-edge bisection. Any other marking pattern -- which
+# is exactly what the Plaza & Carey closure step produces once neighbouring
+# cells propagate a marked edge across a shared face, so essentially any
+# genuinely *adaptive* (non-uniform) marking -- hits an explicit
+# PETSC_ERR_SUP in DMPlexTransformCellTransform_SBR ("Partial 3D SBR
+# refinement of a tetrahedron with N marked edges is not yet implemented").
+# Tests that build a 3D coarse_mesh but only ever mark it uniformly are
+# unaffected; those exercising non-uniform marking are xfailed below so they
+# start passing automatically once PETSc grows the remaining cases.
+_XFAIL_3D_PARTIAL_SBR = pytest.mark.xfail(
+    reason="PETSc's 3D refine_sbr does not yet implement partial "
+           "(2-5 marked edges) tetrahedron splits, only the uniform "
+           "(all 6 edges) and single-edge cases",
+    raises=PETSc.Error,
+)
+
+
 @pytest.fixture(params=[
     "firedrake",
+    pytest.param("firedrake3d", marks=_XFAIL_3D_PARTIAL_SBR),
     pytest.param("netgen", marks=pytest.mark.skipnetgen),
+    pytest.param("netgen3d", marks=[pytest.mark.skipnetgen, _XFAIL_3D_PARTIAL_SBR]),
 ])
 def coarse_mesh(request):
     """
-    A coarse mesh, either built-in (`UnitSquareMesh`) or Netgen-backed,
-    to exercise adaptive refinement being mesh-agnostic.
+    A coarse mesh, either built-in (`UnitSquareMesh`/`UnitCubeMesh`) or
+    Netgen-backed, in 2D or 3D, to exercise adaptive refinement being
+    both mesh-agnostic and dimension-agnostic: PETSc's ``refine_sbr``
+    transform, which backs `~firedrake.mesh.MeshGeometry.refine_marked_elements`,
+    implements Plaza & Carey skeleton-based refinement for both triangles
+    and tetrahedra. The 3D cases are marked `xfail`: see
+    `_XFAIL_3D_PARTIAL_SBR`.
     """
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
@@ -52,8 +86,16 @@ def coarse_mesh(request):
         geo = OCCGeometry(face, dim=2)
         ngmesh = geo.GenerateMesh(maxh=0.5)
         return Mesh(ngmesh, distribution_parameters=dparams)
+    elif mesher == "netgen3d":
+        from netgen.occ import Box, OCCGeometry, Pnt
+        cube = Box(Pnt(0, 0, 0), Pnt(1, 1, 1))
+        geo = OCCGeometry(cube, dim=3)
+        ngmesh = geo.GenerateMesh(maxh=0.5)
+        return Mesh(ngmesh, distribution_parameters=dparams)
     elif mesher == "firedrake":
         return UnitSquareMesh(2, 2, distribution_parameters=dparams)
+    elif mesher == "firedrake3d":
+        return UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
     else:
         raise NotImplementedError(f"Unrecognized mesher {mesher}")
 
@@ -63,10 +105,6 @@ def amh(coarse_mesh):
     """
     Generate an AdaptiveMeshHierarchy with a couple of randomly-marked
     adaptive refinement levels on top of ``coarse_mesh``.
-
-    Only 2D: PETSc's ``refine_sbr`` transform, which backs
-    `~firedrake.mesh.MeshGeometry.refine_marked_elements`, has no 3D
-    (tetrahedron) implementation.
     """
     return _random_adaptive_hierarchy(coarse_mesh)
 
@@ -110,10 +148,8 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
 
     V_coarse = FunctionSpace(mesh, "CG", 1)
     V_fine = FunctionSpace(refined_mesh, "CG", 1)
-    xc, yc = SpatialCoordinate(mesh)
-    xf, yf = SpatialCoordinate(refined_mesh)
-    expr_coarse = xc + 2 * yc
-    expr_fine = xf + 2 * yf
+    expr_coarse = _linear_expr(mesh)
+    expr_fine = _linear_expr(refined_mesh)
 
     u_coarse = Function(V_coarse).interpolate(expr_coarse)
     u_fine = Function(V_fine)
