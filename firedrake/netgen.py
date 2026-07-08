@@ -15,7 +15,7 @@ import firedrake
 try:
     import netgen.meshing as ngm
     from netgen.meshing import MeshingParameters
-    from ngsPETSc import MeshMapping
+    from ngsPETSc import MeshMapping, createNetgenMesh
 except ImportError:
     pass
 
@@ -140,14 +140,6 @@ def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
     DMPlex; this snaps ``fine_mesh`` back onto ``coarse_mesh``'s curved
     CAD/geometry description via `MeshGeometry.curve_field`.
     """
-    from ngsPETSc import createNetgenMesh
-
-    if coarse_mesh.netgen_mesh.GetGeometry() is None:
-        raise ValueError(
-            "Cannot re-curve: coarse_mesh.netgen_mesh has no CAD/geometry "
-            "description attached (GetGeometry() returned None)."
-        )
-
     # createNetgenMesh must run before the clone is wrapped into a MeshGeometry
     # (which renumbers it): curve_field assumes its mesh's Netgen elements are
     # in the same order as the mesh's own _cell_numbering.
@@ -162,7 +154,7 @@ def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
         tolerance=fine_mesh.tolerance,
     )
     straight_mesh.netgen_mesh = fresh_ngmesh
-    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    straight_mesh.netgen_flags = getattr(fine_mesh, "netgen_flags", {})
     cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
     curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
     curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)

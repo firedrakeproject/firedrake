@@ -1,8 +1,3 @@
-"""
-Tests for AdaptiveMeshHierarchy
-and TransferManager
-"""
-
 import pytest
 import numpy as np
 from firedrake import *
@@ -21,12 +16,54 @@ def _linear_expr(mesh):
     return dot(weights, x)
 
 
-def _random_adaptive_hierarchy(base, nlevels=2):
+# FIXME
+_XFAIL_3D_PARTIAL_SBR = pytest.mark.xfail(
+    reason="PETSc's 3D refine_sbr does not yet implement partial "
+           "(2-5 marked edges) tetrahedron splits, only the uniform "
+           "(all 6 edges) and single-edge cases",
+    raises=PETSc.Error,
+)
+
+
+@pytest.fixture(params=[
+    "firedrake-square",
+    pytest.param("netgen-square", marks=pytest.mark.skipnetgen),
+    # pytest.param("firedrake-cube", marks=_XFAIL_3D_PARTIAL_SBR),
+    # pytest.param("netgen-cube", marks=[pytest.mark.skipnetgen, _XFAIL_3D_PARTIAL_SBR]),
+])
+def coarse_mesh(request):
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesher = request.param
+    if mesher == "netgen-square":
+        from netgen.occ import WorkPlane, OCCGeometry
+        wp = WorkPlane()
+        wp.Rectangle(1, 1)
+        face = wp.Face()
+        geo = OCCGeometry(face, dim=2)
+        ngmesh = geo.GenerateMesh(maxh=0.5)
+        return Mesh(ngmesh, distribution_parameters=dparams)
+    elif mesher == "netgen-cube":
+        from netgen.occ import Box, OCCGeometry, Pnt
+        cube = Box(Pnt(0, 0, 0), Pnt(1, 1, 1))
+        geo = OCCGeometry(cube, dim=3)
+        ngmesh = geo.GenerateMesh(maxh=0.5)
+        return Mesh(ngmesh, distribution_parameters=dparams)
+    elif mesher == "firedrake-square":
+        return UnitSquareMesh(2, 2, distribution_parameters=dparams)
+    elif mesher == "firedrake-cube":
+        return UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
+    else:
+        raise NotImplementedError(f"Unrecognized mesher {mesher}")
+
+
+@pytest.fixture
+def amh(coarse_mesh):
     """Build an AdaptiveMeshHierarchy from ``base`` by randomly marking
     roughly half of the cells for refinement at each of ``nlevels``
     levels, via `~firedrake.mesh.MeshGeometry.refine_marked_elements`.
     """
-    amh_test = AdaptiveMeshHierarchy(base)
+    nlevels = 2
+    amh_test = AdaptiveMeshHierarchy(coarse_mesh)
 
     rg = RandomGenerator(PCG64(seed=0))
     for _ in range(nlevels):
@@ -39,74 +76,6 @@ def _random_adaptive_hierarchy(base, nlevels=2):
         refined_mesh = mesh.refine_marked_elements(markers)
         amh_test.add_mesh(refined_mesh)
     return amh_test
-
-
-# PETSc's refine_sbr only implements the two extremes of 3D (tetrahedron)
-# refinement: no marked edges (identity) and all 6 edges marked (uniform
-# bisection), plus single-edge bisection. Any other marking pattern -- which
-# is exactly what the Plaza & Carey closure step produces once neighbouring
-# cells propagate a marked edge across a shared face, so essentially any
-# genuinely *adaptive* (non-uniform) marking -- hits an explicit
-# PETSC_ERR_SUP in DMPlexTransformCellTransform_SBR ("Partial 3D SBR
-# refinement of a tetrahedron with N marked edges is not yet implemented").
-# Tests that build a 3D coarse_mesh but only ever mark it uniformly are
-# unaffected; those exercising non-uniform marking are xfailed below so they
-# start passing automatically once PETSc grows the remaining cases.
-_XFAIL_3D_PARTIAL_SBR = pytest.mark.xfail(
-    reason="PETSc's 3D refine_sbr does not yet implement partial "
-           "(2-5 marked edges) tetrahedron splits, only the uniform "
-           "(all 6 edges) and single-edge cases",
-    raises=PETSc.Error,
-)
-
-
-@pytest.fixture(params=[
-    "firedrake",
-    pytest.param("firedrake3d", marks=_XFAIL_3D_PARTIAL_SBR),
-    pytest.param("netgen", marks=pytest.mark.skipnetgen),
-    pytest.param("netgen3d", marks=[pytest.mark.skipnetgen, _XFAIL_3D_PARTIAL_SBR]),
-])
-def coarse_mesh(request):
-    """
-    A coarse mesh, either built-in (`UnitSquareMesh`/`UnitCubeMesh`) or
-    Netgen-backed, in 2D or 3D, to exercise adaptive refinement being
-    both mesh-agnostic and dimension-agnostic: PETSc's ``refine_sbr``
-    transform, which backs `~firedrake.mesh.MeshGeometry.refine_marked_elements`,
-    implements Plaza & Carey skeleton-based refinement for both triangles
-    and tetrahedra. The 3D cases are marked `xfail`: see
-    `_XFAIL_3D_PARTIAL_SBR`.
-    """
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    mesher = request.param
-    if mesher == "netgen":
-        from netgen.occ import WorkPlane, OCCGeometry
-        wp = WorkPlane()
-        wp.Rectangle(1, 1)
-        face = wp.Face()
-        geo = OCCGeometry(face, dim=2)
-        ngmesh = geo.GenerateMesh(maxh=0.5)
-        return Mesh(ngmesh, distribution_parameters=dparams)
-    elif mesher == "netgen3d":
-        from netgen.occ import Box, OCCGeometry, Pnt
-        cube = Box(Pnt(0, 0, 0), Pnt(1, 1, 1))
-        geo = OCCGeometry(cube, dim=3)
-        ngmesh = geo.GenerateMesh(maxh=0.5)
-        return Mesh(ngmesh, distribution_parameters=dparams)
-    elif mesher == "firedrake":
-        return UnitSquareMesh(2, 2, distribution_parameters=dparams)
-    elif mesher == "firedrake3d":
-        return UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
-    else:
-        raise NotImplementedError(f"Unrecognized mesher {mesher}")
-
-
-@pytest.fixture
-def amh(coarse_mesh):
-    """
-    Generate an AdaptiveMeshHierarchy with a couple of randomly-marked
-    adaptive refinement levels on top of ``coarse_mesh``.
-    """
-    return _random_adaptive_hierarchy(coarse_mesh)
 
 
 def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
@@ -210,41 +179,19 @@ def test_adapt_after_uniform_netgen_refinement():
     _assert_adapt_after_uniform_refinement(mesh)
 
 
-@pytest.mark.skipnetgen
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("refine", [1, 2])
-def test_adapt_after_uniform_firedrake_refinement(refine):
-    from netgen.geom2d import SplineGeometry
-
-    geo = SplineGeometry()
-    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
-    netgen_mesh = geo.GenerateMesh(maxh=0.5)
-    mesh = Mesh(netgen_mesh)
-    mh = MeshHierarchy(mesh, refine, netgen_flags={})
-    _assert_adapt_after_uniform_refinement(mh[-1])
-
-
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("refine", [1, 2])
-def test_adapt_after_uniform_refinement_unitsquare(refine):
-    """
-    Same as `test_adapt_after_uniform_firedrake_refinement`, but using
-    a built-in `MeshHierarchy` (not `NetgenHierarchy`) over a
-    `UnitSquareMesh` as the coarse mesh, to check that adaptively
-    refining a uniformly-refined mesh works regardless of whether
-    either hierarchy involves Netgen.
-    """
-    mesh = UnitSquareMesh(2, 2)
-    mh = MeshHierarchy(mesh, refine)
-    _assert_adapt_after_uniform_refinement(mh[-1])
+def test_adapt_after_uniform_refinement(coarse_mesh, refine):
+    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
+    mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
+    base = mh[-1]
+    _assert_adapt_after_uniform_refinement(base)
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_DG0(amh, operator):
-    """
-    Prolongation & Injection test for DG0
-    """
+    """Prolongation & Injection test for DG0"""
     V_coarse = FunctionSpace(amh[0], "DG", 0)
     V_fine = FunctionSpace(amh[-1], "DG", 0)
     u_coarse = Function(V_coarse)
@@ -271,9 +218,7 @@ def test_DG0(amh, operator):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_CG1(amh, operator):
-    """
-    Prolongation & Injection test for CG1
-    """
+    """Prolongation & Injection test for CG1"""
     V_coarse = FunctionSpace(amh[0], "CG", 1)
     V_fine = FunctionSpace(amh[-1], "CG", 1)
     u_coarse = Function(V_coarse)
@@ -297,9 +242,7 @@ def test_CG1(amh, operator):
 
 @pytest.mark.parallel([1, 2])
 def test_restrict_CG1(amh):
-    """
-    Test restriction with CG1
-    """
+    """Test restriction with CG1"""
     V_coarse = FunctionSpace(amh[0], "CG", 1)
     V_fine = FunctionSpace(amh[-1], "CG", 1)
     u_coarse = Function(V_coarse)
@@ -322,9 +265,7 @@ def test_restrict_CG1(amh):
 
 @pytest.mark.parallel([1, 2])
 def test_restrict_DG0(amh):
-    """
-    Test restriction with DG0
-    """
+    """Test restriction with DG0"""
     V_coarse = FunctionSpace(amh[0], "DG", 0)
     V_fine = FunctionSpace(amh[-1], "DG", 0)
     u_coarse = Function(V_coarse)
@@ -347,9 +288,7 @@ def test_restrict_DG0(amh):
 
 @pytest.mark.parallel([1, 2])
 def test_mg_jacobi(amh):
-    """
-    Test multigrid with jacobi smoothers
-    """
+    """Test multigrid with jacobi smoothers"""
     V = FunctionSpace(amh[-1], "CG", 1)
     x = SpatialCoordinate(amh[-1])
     u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
@@ -381,12 +320,10 @@ def test_mg_jacobi(amh):
 
 
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("params", ["jacobi", "asm", "patch"])
-def test_mg_patch(amh, params):
-    """
-    Test multigrid with patch relaxation
-    """
-    if params == "jacobi":
+@pytest.mark.parametrize("backend", ["jacobi", "patch", "tinyasm"])
+def test_mg_patch(amh, backend):
+    """Test multigrid with patch relaxation"""
+    if backend == "jacobi":
         solver_params = {
             "mat_type": "matfree",
             "ksp_type": "cg",
@@ -402,7 +339,7 @@ def test_mg_patch(amh, params):
                 "pc_type": "lu",
             },
         }
-    elif params == "patch":
+    elif backend == "patch":
         solver_params = {
             "mat_type": "matfree",
             "ksp_type": "cg",
@@ -441,13 +378,14 @@ def test_mg_patch(amh, params):
                 "ksp_max_it": 1,
                 "pc_type": "python",
                 "pc_python_type": "firedrake.ASMStarPC",
-                "pc_star_backend": "tinyasm",
+                "pc_star_backend": backend,
             },
             "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
         }
 
-    V = FunctionSpace(amh[-1], "CG", 1)
-    x = SpatialCoordinate(amh[-1])
+    mesh = amh[-1]
+    V = FunctionSpace(mesh, "CG", 1)
+    x = SpatialCoordinate(mesh)
     u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
     u = Function(V)
     v = TestFunction(V)
@@ -458,4 +396,7 @@ def test_mg_patch(amh, params):
     solver = NonlinearVariationalSolver(problem,
                                         solver_parameters=solver_params)
     solver.solve()
+    pc = solver.snes.ksp.pc
+    assert pc.getType() == "mg"
+    assert pc.getMGLevels() == len(amh)
     assert errornorm(u_ex, u) <= 1e-8
