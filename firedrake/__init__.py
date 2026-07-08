@@ -60,7 +60,7 @@ from firedrake.petsc import PETSc  # noqa: F401
 from firedrake.assemble import assemble  # noqa: F401
 from firedrake.bcs import DirichletBC, homogenize, EquationBC  # noqa: F401
 from firedrake.checkpointing import (  # noqa: F401
-    DumbCheckpoint, HDF5File, FILE_READ, FILE_CREATE,
+    HDF5File, FILE_READ, FILE_CREATE,
     FILE_UPDATE, CheckpointFile
 )
 from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
