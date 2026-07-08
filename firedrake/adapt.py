@@ -38,7 +38,6 @@ def _refine_marked_elements_once(mesh, mark):
         ``(new_mesh, coarse_to_fine, fine_to_coarse)``.
     """
     dm = mesh.topology_dm
-    cStart, cEnd = dm.getHeightStratum(0)
     cell_numbering = mesh._cell_numbering
     ncoarse = mesh.cell_set.size
 
@@ -49,7 +48,7 @@ def _refine_marked_elements_once(mesh, mark):
     parent_label = dm.getLabel(parent_name)
     adapt_label = dm.getLabel(adapt_name)
     marks = mark.dat.data_ro
-    for c in range(cStart, cEnd):
+    for c in range(*dm.getHeightStratum(0)):
         off = cell_numbering.getOffset(c)
         if not (0 <= off < ncoarse):
             continue
@@ -87,13 +86,12 @@ def _refine_marked_elements_once(mesh, mark):
         tolerance=mesh.tolerance,
     )
 
-    nfStart, nfEnd = new_dm.getHeightStratum(0)
     new_parent_label = new_dm.getLabel(parent_name)
     new_cell_numbering = new_mesh._cell_numbering
     nfine = new_mesh.cell_set.size
     fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
     children = [[] for _ in range(ncoarse)]
-    for c in range(nfStart, nfEnd):
+    for c in range(*new_dm.getHeightStratum(0)):
         off = new_cell_numbering.getOffset(c)
         if not (0 <= off < nfine):
             continue
@@ -128,6 +126,9 @@ def _needs_adaptive_redistribution(mesh, balancing):
     avg_cells = mesh.comm.allreduce(num_cells, op=MPI.SUM) / mesh.comm.size
     if avg_cells == 0:
         return False
+    min_cells = mesh.comm.allreduce(num_cells, op=MPI.MIN)
+    if min_cells == 0:
+        return True
     max_cells = mesh.comm.allreduce(num_cells, op=MPI.MAX)
     return max_cells > (1 + balancing) * avg_cells
 

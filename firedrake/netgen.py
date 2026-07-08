@@ -154,7 +154,7 @@ def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
         tolerance=fine_mesh.tolerance,
     )
     straight_mesh.netgen_mesh = fresh_ngmesh
-    straight_mesh.netgen_flags = getattr(fine_mesh, "netgen_flags", {})
+    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
     cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
     curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
     curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
