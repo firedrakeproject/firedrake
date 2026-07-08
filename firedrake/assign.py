@@ -3,6 +3,7 @@ import functools
 import numbers
 import operator
 import types
+import warnings
 from functools import cached_property
 from typing import Any, Literal, Callable
 
@@ -99,21 +100,6 @@ class AssignExprBuilder(DAGTraverser):
         # NOTE: Is it really valid to consider Real a scalar type here?
         is_scalar = func.ufl_element().family() == "Real"
         is_vector = not is_scalar
-
-        #
-        #     # convert to expressions
-        #     new_dat_expr = []
-        #     for dat_expr_ in dat_expr:
-        #         axis_tree = dat_expr_.axes
-        #         layouts = idict({
-        #             leaf_path: axis_tree.subst_layouts()[leaf_path]
-        #             for leaf_path in axis_tree.leaf_paths
-        #         })
-        #         # new_dat_expr.append(op3.expr.NonlinearDatBufferExpression(func.dat.buffer, layouts))
-        #         new_dat_expr.append(op3.expr.LinearDatBufferExpression(func.dat.buffer, utils.just_one(layouts.values())))
-        #     dat_expr = tuple(new_dat_expr)
-        # else:
-        #     dat_expr = func.dat
 
         return op3_expr, is_scalar, is_vector
 
@@ -249,6 +235,7 @@ class Assigner:
         self.expression = as_ufl(expression)
         self.subset = parse_subset(subset)
         self.mode = mode
+        # NOTE: We now don't do anything with this option
         self.allow_missing_dofs = allow_missing_dofs
 
     @PETSc.Log.EventDecorator()
@@ -287,178 +274,103 @@ class Assigner:
 
     @cached_property
     def _assign_op(self) -> Callable[[], None]:
-        # match self._mode:
-        #     case AssignmentMode.STANDARD:
-        #         expr = self._assign_expr
-        #     case AssignmentMode.IADD:
-        #         expr = self._assignee.dat + self._assign_expr
-        #     case AssignmentMode.ISUB:
-        #         expr = self._assignee.dat - self._assign_expr
-        #     case AssignmentMode.IMUL:
-        #         assert self._expr_is_scalar
-        #         expr = self._assignee.dat * self._assign_expr
-        #     case AssignmentMode.IDIV:
-        #         assert self._expr_is_scalar
-        #         expr = self._assignee.dat / self._assign_expr
-        #     case _:
-        #         raise NotImplementedError
-        op3_assignee = self.assignee.dat[self.subset]
-
         if self._cross_mesh:
-            if self.mode != AssignmentMode.STANDARD:
-                raise NotImplementedError
-
             # If we are assigning between submeshes then we have to generate a
             # full parloop in order to be able to include maps. For example:
             #
             #     for i
             #       dat1[i] <- dat2[g(f(i))]
             loop_index = self.assignee.function_space().nodes[self.subset].iter()
+            op3_assignee = self.assignee.dat[self.subset][loop_index]
         else:
             loop_index = None
+            op3_assignee = self.assignee.dat[self.subset]
 
         expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
-        op3_expr, _, _ = expr_builder(self.expression)
+        op3_expr, is_scalar, _ = expr_builder(self.expression)
+
+        match self.mode:
+            case AssignmentMode.STANDARD:
+                pass
+            case AssignmentMode.IADD:
+                op3_expr = op3_assignee + op3_expr
+            case AssignmentMode.ISUB:
+                op3_expr = op3_assignee - op3_expr
+            case AssignmentMode.IMUL:
+                assert is_scalar
+                op3_expr = op3_assignee * op3_expr
+            case AssignmentMode.IDIV:
+                assert is_scalar
+                op3_expr = op3_assignee / op3_expr
+            case _:
+                raise NotImplementedError
 
         if self._cross_mesh:
-            loop = op3.loop(loop_index, self.assignee.dat[loop_index].assign(op3_expr))
-            return functools.partial(
-                loop,
-                # FIXME: This should be needed if we correctly mask things (intersect meshes)
-                compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
-            )
+            # We use an intermediate buffer array to make sure that owned DoFs are
+            # updated upon assigning. This is because the point ownership is not
+            # guaranteed to be the same between target and source meshes (see
+            # 'sanitizeSubMesh' kwarg for DMPlex.filter).
+            #
+            # The following example illustrates the issue that a naive assignment would cause.
+            #
+            # Consider the following target/source meshes distributed over 2 processes
+            # with no partition overlap:
+            #
+            #                0----0----0----1----1
+            #                |         |         |
+            # target         0    0    0    1    1
+            # (parent mesh)  |         |         |
+            #                0----0----0----1----1  (owning ranks are shown)
+            #
+            #                          1----1----1
+            #                          |         |
+            # source                   1    1    1
+            # (submesh)                |         |
+            #                          1----1----1  (owning ranks are shown)
+            #
+            # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
+            # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
+            # only be updated on rank 1, which sees those DoFs as ghost, and those
+            # updated values on rank 1 would be overridden by the old values on rank 0
+            # upon a halo exchange.
+            #
+            # NOTE: I believe that this limitation only exists because if we don't
+            # have enough overlap then we can get orphaned subpoints (i.e. edges or
+            # vertices) on one rank with no available cell. I think a much more
+            # sensible thing to do here is make sure that we have an appropriate
+            # overlap from the outset.
+
+            # create a persistent loop object so we can reuse it
+            loop = op3.loop(loop_index, op3_assignee.assign(op3_expr))
+
+            def assign_op() -> None:
+                # swap out another buffer for the computation
+                assignee_buffer = self.assignee.dat.buffer
+                orig_assignee_data = assignee_buffer._host_data.copy()
+
+                fmin = np.finfo(assignee_buffer.dtype).min
+                assignee_buffer._host_data[...] = fmin
+
+                # FIXME: These parameters shouldn't be needed if we correctly
+                # mask things (by intersecting meshes)
+                loop(compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True})
+
+                # now write back only the values that were touched
+                assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
+                unchanged_idxs = np.flatnonzero(np.isclose(assignee_buffer._host_data, fmin))
+                assignee_buffer._host_data[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
 
         # If possible try to do the assignment by operating on numpy arrays
         elif self.subset is Ellipsis and expr_builder.array_assign_safe:
             # TODO: This is technically less efficient than the compile strategy
             # for repeated use. This should be exposed to the user.
-            def op() -> None:
+            def assign_op() -> None:
                 op3_assignee.assign(op3_expr, eager=True, eager_strategy="array")
-            return op
 
         else:
-            return op3_assignee.assign(op3_expr)
+            assign_op = op3_assignee.assign(op3_expr)
 
-        # if self._assign_type == "loop":
-        #     if self._mode != AssignmentMode.STANDARD:
-        #         raise NotImplementedError
-        #
-        #     assignee_buffer = self._assignee.dat.buffer
-        #     orig_data = assignee_buffer._host_data.copy()
-        #
-        #     fmin = np.finfo(assignee_buffer.dtype).min
-        #     assignee_buffer._host_data[...] = fmin
-        #
-        #     for loop_index, expr in zip(self._expr_builder.loop_indices, self._assign_expr, strict=True):
-        #         # Convert things from dats into dat expressions. This gives us more
-        #         # flexibility to build the loops that we want.
-        #         axis_tree = self._assignee.dat[subset][loop_index].axes
-        #         layouts = idict({
-        #             leaf_path: axis_tree.subst_layouts()[leaf_path]
-        #             for leaf_path in axis_tree.leaf_paths
-        #         })
-        #         # assignee_expr = op3.expr.NonlinearDatBufferExpression(self._assignee.dat.buffer, layouts)
-        #         assignee_expr = op3.expr.LinearDatBufferExpression(self._assignee.dat.buffer, utils.just_one(layouts.values()))
-        #
-        #         op3.loop(
-        #             loop_index,
-        #             assignee_expr.assign(expr),
-        #             eager=True,
-        #             # FIXME: This should be needed if we correctly mask things (intersect meshes)
-        #             compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
-        #         )
-        #
-        #         # shape = op3.axis_tree.merge_axis_trees([
-        #         #     axis_tree.regionless(),
-        #         #     op3.expr.visitors.get_shape(expr)[0]
-        #         # ])
-        #         #
-        #         # # lets assume linear shape for now
-        #         # if not shape.is_linear:
-        #         #     raise NotImplementedError
-        #         # # for leaf_path in shape.leaf_paths:
-        #         # #     linear_shape = shape.linearize(leaf_path)
-        #         # #     shape_index = linear_shape.iter()
-        #         # #
-        #         # #     loop_var_replace_map = {
-        #         # #         axis.label: op3.expr.LoopIndexVar(shape_index, axis)
-        #         # #         for axis in linear_shape.axes
-        #         # #     }
-        #         # #
-        #         # #     # linear_assignee_expr = op3.replace_terminals(
-        #         # #     #     assignee_expr.linearize(leaf_path, allow_partial=True), loop_var_replace_map
-        #         # #     # )
-        #         # #     # linear_expr = op3.replace_terminals(
-        #         # #     #     expr.linearize(leaf_path, allow_partial=True), loop_var_replace_map
-        #         # #     # )
-        #         # #
-        #         # #     op3.loop(
-        #         # #         loop_index,
-        #         # #         op3.loop(
-        #         # #             shape_index,
-        #         # #             # linear_assignee_expr.assign(linear_expr),
-        #         # #             assignee_expr.assign(expr),
-        #         # #             ),
-        #         # #         eager=True,
-        #         # #     )
-        #         #
-        #         # shape_index = shape.iter()
-        #         #
-        #         # loop_var_replace_map = {
-        #         #     axis.label: op3.expr.LoopIndexVar(shape_index, axis)
-        #         #     for axis in shape.axes
-        #         # }
-        #         #
-        #         # linear_assignee_expr = op3.replace_terminals(
-        #         #     assignee_expr, loop_var_replace_map
-        #         # )
-        #         # linear_expr = op3.replace_terminals(
-        #         #     expr, loop_var_replace_map
-        #         # )
-        #         # # import pyop3.debug
-        #         # # pyop3.debug.enable_conditional_breakpoints()
-        #         # op3.loop(
-        #         #     loop_index,
-        #         #     op3.loop(
-        #         #         shape_index,
-        #         #         linear_assignee_expr.assign(linear_expr),
-        #         #         ),
-        #         #     eager=True,
-        #         #     # FIXME: This should be needed if we correctly mask things (intersect meshes)
-        #         #     compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True},
-        #         # )
-        #
-        #     assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
-        #
-        #     unchanged_idxs = np.where(np.isclose(assignee_buffer._host_data, fmin))
-        #     assignee_buffer._host_data[unchanged_idxs] = orig_data[unchanged_idxs]
-        #
-        #     return
-        #
-        # match self._mode:
-        #     case AssignmentMode.STANDARD:
-        #         expr = self._assign_expr
-        #     case AssignmentMode.IADD:
-        #         expr = self._assignee.dat + self._assign_expr
-        #     case AssignmentMode.ISUB:
-        #         expr = self._assignee.dat - self._assign_expr
-        #     case AssignmentMode.IMUL:
-        #         assert self._expr_is_scalar
-        #         expr = self._assignee.dat * self._assign_expr
-        #     case AssignmentMode.IDIV:
-        #         assert self._expr_is_scalar
-        #         expr = self._assignee.dat / self._assign_expr
-        #     case _:
-        #         raise NotImplementedError
-        #
-        # assignee = self._assignee.dat[self._subset]
-        # if self._subset is Ellipsis:
-        #     # TODO: This is technically less efficient than the compile strategy
-        #     # for repeated use. This should be exposed to the user.
-        #     assignee.assign(expr, eager=True, eager_strategy="array")
-        # else:
-        #     # TODO: cache the expression for faster reuse of the assembler
-        #     assignee.assign(expr, eager=True, eager_strategy="compile")
+        return assign_op
 
 
 @functools.singledispatch

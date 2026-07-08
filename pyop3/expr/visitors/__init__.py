@@ -999,41 +999,29 @@ def _(op: pyop3.expr.Operator, /) -> tuple[AxisTree, ...]:
     )
 
 
-@get_shape.register(pyop3.expr.AxisVar)
+@get_shape.register
 def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
     return (axis_var.axis.as_tree(),)
 
 
-@get_shape.register(pyop3.expr.Dat)
-def _(dat: pyop3.expr.Dat, /) -> tuple[AxisTree, ...]:
-    # I think that having axis forests here is just going to cause a lot of confusion.
-    # To start with we assume that the final entry in the axis forest is the one that
-    # we want. This is likely to cause a mismatch at some point and we should really
-    # try to select the tree that matches some outer context/shape.
-    if isinstance(dat.axes, pyop3.axis_tree.AxisForest):
-        return (dat.axes.trees[-1],)
-    else:
-        return (dat.axes,)
+@get_shape.register
+def _(dat: pyop3.expr.Dat, /) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike]:
+    return (dat.axes,)
 
 
-@get_shape.register(pyop3.expr.Mat)
-def _(mat: pyop3.expr.Mat, /) -> tuple[AxisTree, ...]:
-    # same process as dats
-    row_axes = mat.row_axes
-    if isinstance(row_axes, pyop3.axis_tree.AxisForest):
-        row_axes = row_axes.trees[-1]
-    column_axes = mat.column_axes
-    if isinstance(column_axes, pyop3.axis_tree.AxisForest):
-        column_axes = column_axes.trees[-1]
-    return (row_axes, column_axes)
+@get_shape.register
+def _(
+    mat: pyop3.expr.Mat, /
+) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike, pyop3.axis_tree.AbstractAxisTreeLike]:
+    return (mat.row_axes, mat.column_axes)
 
 
-@get_shape.register(pyop3.expr.CompositeDat)
-def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree, ...]:
+@get_shape.register
+def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree]:
     return (cdat.axis_tree,)
 
 
-@get_shape.register(pyop3.expr.LinearDatBufferExpression)
+@get_shape.register
 def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
     return get_shape(dat_expr.layout)
 

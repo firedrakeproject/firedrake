@@ -803,6 +803,11 @@ class CompilerOptionsCollector(NodeVisitor):
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
 
     @process.register
+    @postorder
+    def _(self, insn: pyop3.insn.InstructionList, /, visited) -> pyop3.compile.CompilerOptions:
+        return sum(visited["instructions"], pyop3.compile.CompilerOptions())
+
+    @process.register
     def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:
         return insn.compiler_options
 

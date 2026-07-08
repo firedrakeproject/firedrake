@@ -731,6 +731,10 @@ class AbstractFunctionSpace:
     @cached_property
     @_mesh_cached
     def axes(self) -> op3.AxisForest:
+        # TODO: The nodal axis tree for restricted function spaces is wrong
+        # because it doesn't respect the new ordering. I haven't seen where
+        # this becomes an issue though yet. The solution is to fake it using
+        # an indexed axis tree.
         return op3.AxisForest([self.plex_axes, self.nodal_axes])
 
     @property
@@ -1934,32 +1938,6 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.function_space = function_space
         self.topological = self
         self.name = name or function_space.name
-
-    # def set_shared_data(self):
-    #     sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
-    #     self._shared_data = sdata
-    #     self.node_set = sdata.node_set
-    #     r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-    #     self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-    #                                 name="%s_nodes_dset" % self.name,
-    #                                 apply_local_global_filter=sdata.extruded)
-    #     r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-    #     degrees of freedom."""
-    #
-    #     # check not all degrees of freedom are constrained
-    #     unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
-    #     if self.comm.allreduce(unconstrained_dofs) == 0:
-    #         raise ValueError("All degrees of freedom are constrained.")
-    #     self.finat_element = create_element(self.ufl_element())
-    #     # Used for reconstruction of mixed/component spaces.
-    #     # sdata carries real_tensorproduct.
-    #     self.real_tensorproduct = sdata.real_tensorproduct
-    #     self.extruded = sdata.extruded
-    #     self.offset = sdata.offset
-    #     self.offset_quotient = sdata.offset_quotient
-    #     self.cell_boundary_masks = sdata.cell_boundary_masks
-    #     self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-    #     self.global_numbering = sdata.global_numbering
 
     def __eq__(self, other):
         if not isinstance(other, RestrictedFunctionSpace):

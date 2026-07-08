@@ -489,7 +489,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "expression" in str(self):
+        # if "1.  2.  3.  4." in str(self):
         #     breakpoint()
         # import pyop3.debug
         # pyop3.debug.maybe_breakpoint()

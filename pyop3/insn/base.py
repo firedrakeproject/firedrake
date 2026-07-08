@@ -697,16 +697,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
     # }}}
 
-
-    # {{{ Dunders
-
-    # def __init__(self, assignee, expression, assignment_type, **kwargs):
-    #     arguments = (assignee, expression)
-    #     assignment_type = AssignmentType(assignment_type)
-    #
-    #     object.__setattr__(self, "assignment_type", assignment_type)
-    #     super().__init__(arguments, **kwargs)
-
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
             operator = "="
@@ -740,8 +730,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
                 ))
             else:
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
-
-    # }}}
 
     @property
     def assignee(self):
@@ -794,7 +782,7 @@ class Assignment(AbstractAssignment):
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
 
     # NOTE: Wrong type here...
-    @property
+    @cached_property
     def shape(self) -> tuple[AxisTree, ...]:
         return pyop3.expr.visitors.get_shape(self.assignee)
 
