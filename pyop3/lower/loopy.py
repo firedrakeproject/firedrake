@@ -71,7 +71,6 @@ LOOPY_LANG_VERSION = (2018, 2)
 class CodegenContext(abc.ABC):
     pass
 
-
 class LoopyCodegenContext(CodegenContext):
     def __init__(self, *, check_negatives):
         self.check_negatives = check_negatives
@@ -114,6 +113,13 @@ class LoopyCodegenContext(CodegenContext):
     @property
     def subkernels(self) -> tuple:
         return tuple(self._subkernels)
+
+    def __str__(self) -> str:
+        ctx = f"Domain: {str(self.domains)}\n\n"
+        ctx += f"Instructions: {str(self.instructions)}\n\n"
+        ctx += f"Arguments: {str(self.arguments)}\n\n"
+        ctx += f"Subkernels: {str(self.subkernels)}\n\n"
+        return ctx 
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -444,6 +450,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         cs_expr = (insn,)
 
     context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
+    breakpoint()
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -458,6 +465,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
+            breakpoint()
 
     if not context.global_buffers:
         raise pyop3.exceptions.EffectlessComputationException(

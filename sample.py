@@ -20,10 +20,10 @@ from xdsl.dialects.builtin import (
     AffineDimExpr,
     UnitAttr
 )
-from xdsl.dialects.linalg import (
-    IteratorTypeAttr,
-    YieldOp
-)
+
+
+from xdsl.dialects.linalg.attrs import IteratorTypeAttr 
+from xdsl.dialects.linalg.ops import YieldOp, GenericOp
 
 from xdsl.ir import Block, Region
 from xdsl.context import Context
@@ -51,7 +51,7 @@ def build_array_add(n: int) -> ModuleOp:
  
     body_block.add_op(YieldOp(add.result))  
  
-    generic = linalg.GenericOp(
+    generic = GenericOp(
         inputs=[a, b],
         outputs=[out],
         body=Region([body_block]),
