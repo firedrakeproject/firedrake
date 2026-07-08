@@ -105,7 +105,8 @@ def _refine_marked_elements_once(mesh, mark):
     new_dm.removeLabel(parent_name)
 
     max_children = max((len(c) for c in children), default=0)
-    coarse_to_fine = np.full((ncoarse, max(1, max_children)), -1, dtype=IntType)
+    max_children = mesh.comm.allreduce(max_children, MPI.MAX)
+    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
     for coarse_cell, fine_cells in enumerate(children):
         coarse_to_fine[coarse_cell, :len(fine_cells)] = fine_cells
 
@@ -247,7 +248,8 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=0.15):
         if parent >= 0:
             children[parent].append(fine_cell)
     max_children = max((len(c) for c in children), default=0)
-    coarse_to_fine_total = np.full((ncoarse, max(1, max_children)), -1, dtype=IntType)
+    max_children = mesh.comm.allreduce(max_children, MPI.MAX)
+    coarse_to_fine_total = np.full((ncoarse, max_children), -1, dtype=IntType)
     for coarse_cell, fine_cells in enumerate(children):
         coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
 

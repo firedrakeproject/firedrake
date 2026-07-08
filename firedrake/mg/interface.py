@@ -114,6 +114,7 @@ def prolong(coarse, fine):
                         else Function(Vfinest.reconstruct(mesh=target_mesh)))
             fine = new_fine.interpolate(fine)
         if redist is not None:
+            # Move from original mesh into the distributed one
             target = (finest if j == repeat - 1
                       else Function(Vfinest.reconstruct(mesh=fine_mesh)))
             redist.orig2redist(fine, target)
@@ -158,11 +159,11 @@ def restrict(fine_dual, coarse_dual):
         fine_mesh = meshes[next_level]
         redist = getattr(fine_mesh, "redist", None)
         if redist is not None:
-            fine_dual_transfer = Cofunction(
-                fine_dual.function_space().reconstruct(mesh=redist.orig)
-            )
-            redist.redist2orig(fine_dual, fine_dual_transfer)
-            fine_dual = fine_dual_transfer
+            # Move from redist mesh to original one, so we can restrict
+            Vf_orig = fine_dual.function_space().reconstruct(mesh=redist.orig)
+            fine_dual_orig = Function(Vf_orig)
+            redist.redist2orig(fine_dual, fine_dual_orig)
+            fine_dual = fine_dual_orig
         if needs_quadrature:
             # Transfer to the quadrature source space
             fine_dual = Function(
@@ -261,11 +262,11 @@ def inject(fine, coarse):
         fine_mesh = meshes[next_level]
         redist = getattr(fine_mesh, "redist", None)
         if redist is not None:
-            fine_transfer = Function(
-                fine.function_space().reconstruct(mesh=redist.orig)
-            )
-            redist.redist2orig(fine, fine_transfer)
-            fine = fine_transfer
+            # Move from redist mesh to original one, so we can inject
+            Vf_orig = fine.function_space().reconstruct(mesh=redist.orig)
+            fine_orig = Function(Vf_orig)
+            redist.redist2orig(fine, fine_orig)
+            fine = fine_orig
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
@@ -273,24 +274,6 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-
-        # `coarse_node_to_fine_node_map`/`coarse_cell_to_fine_node_map` (used
-        # below) look up, for each coarse cell, a *list* of candidate fine
-        # cells via `coarse_to_fine_cells`. For an adaptively refined level
-        # that was redistributed, that list was built against the
-        # parent-owned (`redist.orig`) mesh's own partition; `redist2orig`
-        # above only brings the *data* back to that layout; it doesn't
-        # guarantee every candidate fine cell in the list is still one this
-        # rank can locally see with the right geometry (unlike
-        # `fine_to_coarse_cells`, used by `prolong`/`restrict`, which always
-        # has exactly one candidate -- the true parent -- so it is immune to
-        # this). Confirmed experimentally: without this fallback, both the
-        # "not dg" (native node-based) and "dg" (native cell-based) native
-        # paths give wrong answers (or fail to locate a cell) specifically
-        # when `redist is not None`; parallel adaptive levels that were
-        # *not* redistributed transfer correctly through the native paths.
-        if redist is not None:
-            return coarsest.interpolate(fine)
 
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())

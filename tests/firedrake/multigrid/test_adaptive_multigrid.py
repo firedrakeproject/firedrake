@@ -49,9 +49,9 @@ def coarse_mesh(request):
         ngmesh = geo.GenerateMesh(maxh=0.5)
         return Mesh(ngmesh, distribution_parameters=dparams)
     elif mesher == "firedrake-square":
-        return UnitSquareMesh(2, 2, distribution_parameters=dparams)
+        return UnitSquareMesh(1, 1, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":
-        return UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
+        return UnitCubeMesh(1, 1, 1, distribution_parameters=dparams)
     else:
         raise NotImplementedError(f"Unrecognized mesher {mesher}")
 
@@ -72,6 +72,7 @@ def amh(coarse_mesh):
         should_refine = rg.uniform(DG, 0, 1)
         markers = Function(DG)
         markers.dat.data_wo[:] = should_refine.dat.data_ro < 0.5
+        markers.dat.data_wo[:] = 1
 
         refined_mesh = mesh.refine_marked_elements(markers)
         amh_test.add_mesh(refined_mesh)
@@ -188,7 +189,7 @@ def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     _assert_adapt_after_uniform_refinement(base)
 
 
-@pytest.mark.parallel([1, 2])
+@pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_DG0(amh, operator):
     """Prolongation & Injection test for DG0"""
@@ -215,7 +216,7 @@ def test_DG0(amh, operator):
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
-@pytest.mark.parallel([1, 2])
+@pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_CG1(amh, operator):
     """Prolongation & Injection test for CG1"""
@@ -240,7 +241,7 @@ def test_CG1(amh, operator):
         assert errornorm(xc, u_coarse) <= 1e-12
 
 
-@pytest.mark.parallel([1, 2])
+@pytest.mark.parallel([1, 2, 4])
 def test_restrict_CG1(amh):
     """Test restriction with CG1"""
     V_coarse = FunctionSpace(amh[0], "CG", 1)
@@ -263,7 +264,7 @@ def test_restrict_CG1(amh):
     )
 
 
-@pytest.mark.parallel([1, 2])
+@pytest.mark.parallel([1, 2, 4])
 def test_restrict_DG0(amh):
     """Test restriction with DG0"""
     V_coarse = FunctionSpace(amh[0], "DG", 0)
