@@ -84,7 +84,11 @@ def _refine_marked_elements_once(mesh, mark):
         dm.removeLabel(parent_name)
         dm.removeLabel(adapt_name)
 
-    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
+    # adapt_name rides along with parent_name onto new_dm too (DMPlexTransformCreateLabels
+    # propagates every label, not just the one we want); left behind, it silently poisons
+    # the *next* round's dm.createLabel(adapt_name), which then returns this stale label
+    # instead of a fresh one.
+    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", adapt_name):
         if new_dm.hasLabel(label):
             new_dm.removeLabel(label)
 
