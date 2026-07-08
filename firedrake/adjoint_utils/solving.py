@@ -11,6 +11,6 @@ def get_solve_blocks():
     return [
         block
         for block in get_working_tape().get_blocks()
-        if issubclass(type(block), GenericSolveBlock)
+        if issubclass(type(block), (CachedSolverBlock, GenericSolveBlock))
         and not issubclass(type(block), ProjectBlock)
     ]
