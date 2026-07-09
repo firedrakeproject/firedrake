@@ -375,6 +375,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
+    evaluation, = gem.optimise.cancel_reciprocals([evaluation])
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)])
     impero_c = impero_utils.compile_gem(pairs, return_indices)
