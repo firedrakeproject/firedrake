@@ -697,7 +697,7 @@ class FuseMatrixApplyBuilder(object):
         return string, args, var_list
 
     def debug(self) -> tuple[lp.CInstruction]:
-        if (self.ns[0] == 30) and len(ns) == 1:
+        if (self.ns[0] == 30) and len(self.ns) == 1:
             if self.ns[0] == 84:
                 print_range = range(37,43)
             elif self.ns[0] == 35:
