@@ -92,6 +92,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
+        if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
+            assert function_space._labels == self.dat.axes.trees[0].root.component_labels
+
     @property
     def topological(self):
         r"""The underlying coordinateless function."""

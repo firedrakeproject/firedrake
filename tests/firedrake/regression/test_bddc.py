@@ -5,7 +5,7 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-pytest.skip(reason="pyop3 TODO")
+pytest.skip(reason="pyop3 TODO", allow_module_level=True)
 
 
 @pytest.fixture

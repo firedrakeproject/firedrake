@@ -8,6 +8,8 @@ from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry, FiredrakeDualSpace, MixedFunctionSpace
+from firedrake.mesh import MeshSequenceGeometry
 from firedrake.norms import norm
 
 
@@ -74,22 +76,27 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         The (co)functions on the local ensemble member.
         """
         def local_function(i):
-            V = self._fs.local_spaces[i]
-            cidxs = self._fs._component_indices(i)
-            if isinstance(cidxs, str):
-                subdat = self._full_local_function.dat[cidxs]
+            subspaces = []
+            labels = []
+            for j in range(*self._fs._component_indices(i)):
+                subspaces.append(self._fs._full_local_space._orig_spaces[j])
+                labels.append(self._fs._full_local_space._labels[j])
+
+            # Here we have to do a bit of a dance to create a new non-topological
+            # function space
+            if len(subspaces) == 1:
+                mesh = self._fs.mesh().unique()
+                tV = subspaces[0]
+                subdat = self._full_local_function.dat[labels[0]]
             else:
-                # assert len(cidxs) > 1
-                # slice_ = op3.Slice(
-                #     "field",
-                #     [
-                #         op3.AffineSliceComponent(idx, label=idx)
-                #         for idx in cidxs
-                #     ],
-                #     label="field",
-                # )
-                subdat = self._full_local_function.dat[list(cidxs)]
-            subdat.data
+                mesh = MeshSequenceGeometry([self._fs.mesh().unique()] * len(subspaces))
+                tV = MixedFunctionSpace(subspaces, mesh.topological, _labels=labels)
+                subdat = self._full_local_function.dat[labels]
+            if isinstance(self, EnsembleFunction):
+                V = WithGeometry(tV, mesh)
+            else:
+                assert isinstance(self, EnsembleCofunction)
+                V = FiredrakeDualSpace(tV, mesh)
             return Function(V, val=subdat)
 
         return tuple(local_function(i)

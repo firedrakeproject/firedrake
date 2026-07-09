@@ -735,6 +735,10 @@ class AbstractFunctionSpace:
         # because it doesn't respect the new ordering. I haven't seen where
         # this becomes an issue though yet. The solution is to fake it using
         # an indexed axis tree.
+        # In general we need to revisit the code for all combinations of
+        # restricted, mixed, Real, and Real tensor product spaces. All data
+        # layouts are in principle expressible, but the composition isn't
+        # currently right.
         return op3.AxisForest([self.plex_axes, self.nodal_axes])
 
     @property
