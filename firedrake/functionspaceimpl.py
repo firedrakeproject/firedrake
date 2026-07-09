@@ -731,6 +731,7 @@ class FunctionSpace:
             self._ises_cache = self.dof_dset.field_ises
             return self._ises_cache
 
+    # TODO: use cache property then invalidate using Python's mechanism
     # @cached_property
     @property
     def cell_node_list(self):

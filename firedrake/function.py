@@ -285,8 +285,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._mesh_geom = self._function_space.mesh() # MeshGeometry
 
         # Store the VOM topology version to detect topology changes
+        # Register Function on the VOM
         if isinstance(self._mesh_topo, VertexOnlyMeshTopology):
             self._mesh_topology_version = self._mesh_topo._topology_version
+            self._mesh_topo._live_functions[next(self._mesh_topo._function_counter)] = self
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -376,9 +378,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             return
 
         # Save old function values
+        dim = FS_topo.value_size
         old_func_vals = self._data.dat.data_ro.copy()
-        old_func_vals_normalized = old_func_vals.reshape((old_func_vals.shape[0], -1)) # (N, dim)
-        dim = old_func_vals_normalized.shape[1]
+        old_func_vals_normalized = old_func_vals.reshape((-1, dim)) # (N, dim)
         
         # Migrate the Function data using the SF mapping
         # Get the SF mapping from current mesh to the mesh at the time the Function was created
@@ -405,28 +407,49 @@ class Function(ufl.Coefficient, FunctionMixin):
         # SF maps new VOM (leaves) -> old VOM (roots)
         # The old function values are defined at the roots so we use a bcast operation 
         # to move them to the dofs at the leaves
-        new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype) 
-        for c in range(dim):
-            root_c = np.ascontiguousarray(old_func_vals_normalized[:, c])
-            leaf_c = np.empty(nleaves, dtype=root_c.dtype)
+        new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype)
 
-            # Get the MPI data type associated with each node in the SF 
-            unit = MPI._typedict[np.dtype(root_c.dtype).char]
+        # for c in range(dim):
+        #     root_c = np.ascontiguousarray(old_func_vals_normalized[:, c])
+        #     leaf_c = np.empty(nleaves, dtype=root_c.dtype)
 
-            # Bcast old (root) values into new (leaf) positions
-            # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
-            # and (input_rank, input_index) an offset into the root buffer
-            # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
-            latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
-            latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
+        #     # Get the MPI data type associated with each node in the SF 
+        #     unit = MPI._typedict[np.dtype(root_c.dtype).char]
 
-            new_func_vals[:, c] = leaf_c
+        #     # Bcast old (root) values into new (leaf) positions
+        #     # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
+        #     # and (input_rank, input_index) an offset into the root buffer
+        #     # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
+        #     latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
+        #     latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
+
+        #     new_func_vals[:, c] = leaf_c
+
+        root = np.ascontiguousarray(old_func_vals_normalized) # (nroots, dim)
+        leaf = np.empty((nleaves, dim), dtype=root.dtype)
+
+        scalar = MPI._typedict[np.dtype(root.dtype).char]
+        unit = scalar.Create_contiguous(dim).Commit()
+
+        # Bcast old (root) values into new (leaf) positions
+        #     # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
+        #     # and (input_rank, input_index) an offset into the root buffer
+        #     # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
+        latest_topology_step_sf.bcastBegin(unit, root, leaf, MPI.REPLACE)
+        latest_topology_step_sf.bcastEnd(unit, root, leaf, MPI.REPLACE)
+        unit.Free()
+
+        new_func_vals = leaf
+
 
         # Write the values into the new dat using the cell node list
-        cnl = FS_topo.cell_node_list
-        new_dofs = cnl[:, 0] # NOTE: this only works for DG0 that defines one dof per cell
-        new_data_vals_normalized = new_data.dat.data.reshape((new_data.dat.data.shape[0], -1))
-        new_data_vals_normalized[new_dofs, :] = new_func_vals
+        # XXX: CNL is the identity for DG0 on VOM and new_func_vals is already in new cell order
+        # cnl = FS_topo.cell_node_list
+        # new_dofs = cnl[:, 0]
+        # new_data_vals = new_data.dat.data_with_halos.reshape((-1, dim))
+        # new_data_vals[new_dofs, :] = new_func_vals
+        
+        new_data.dat.data_with_halos.reshape((-1, dim))[:] = new_func_vals
 
         # Swap the data object
         self._data = new_data
