@@ -293,11 +293,17 @@ def facet_numbering(PETSc.DM plex, kind,
     :arg cell_closures: 2D array of ordered cell closures
     """
     cdef:
-        PetscInt f, fStart, fEnd, fi, cell
+        PetscInt f, fStart, fEnd, fi, cell, c
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         const PetscInt *cells = NULL
         np.ndarray facet_cells
         np.ndarray facet_local_num
+        # typed memoryviews so the ~O(nfacets*nclosure) inner scan indexes in C
+        # instead of via np.ndarray (Python-level) element access.
+        PetscInt[::1] facets_mv = facets
+        PetscInt[:, ::1] cc_mv = cell_closures
+        PetscInt[:, ::1] fcells_mv
+        PetscInt[:, ::1] flocal_mv
 
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     nfacets = facets.shape[0]
@@ -310,45 +316,47 @@ def facet_numbering(PETSc.DM plex, kind,
         cells_per_facet = 1
     facet_local_num = np.empty((nfacets, cells_per_facet), dtype=IntType)
     facet_cells = np.empty((nfacets, cells_per_facet), dtype=IntType)
+    fcells_mv = facet_cells
+    flocal_mv = facet_local_num
 
     # First determine the parent cell(s) for each facet
     for f in range(nfacets):
-        CHKERR(DMPlexGetSupport(plex.dm, facets[f], &cells))
-        CHKERR(DMPlexGetSupportSize(plex.dm, facets[f], &ncells))
+        CHKERR(DMPlexGetSupport(plex.dm, facets_mv[f], &cells))
+        CHKERR(DMPlexGetSupportSize(plex.dm, facets_mv[f], &ncells))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
-        facet_cells[f,0] = cell
+        fcells_mv[f,0] = cell
         if cells_per_facet > 1:
             if ncells > 1:
                 CHKERR(PetscSectionGetOffset(cell_numbering.sec,
                                              cells[1], &cell))
-                facet_cells[f,1] = cell
+                fcells_mv[f,1] = cell
             else:
-                facet_cells[f,1] = -1
+                fcells_mv[f,1] = -1
 
     # Run through the sorted closure to get the
     # local facet number within each parent cell
     for f in range(nfacets):
         # First cell
-        cell = facet_cells[f,0]
+        cell = fcells_mv[f,0]
         fi = 0
         for c in range(nclosure):
-            if cell_closures[cell, c] == facets[f]:
-                facet_local_num[f,0] = fi
-            if fStart <= cell_closures[cell, c] < fEnd:
+            if cc_mv[cell, c] == facets_mv[f]:
+                flocal_mv[f,0] = fi
+            if fStart <= cc_mv[cell, c] < fEnd:
                 fi += 1
 
         # Second cell
-        if facet_cells.shape[1] > 1:
-            cell = facet_cells[f,1]
+        if cells_per_facet > 1:
+            cell = fcells_mv[f,1]
             if cell >= 0:
                 fi = 0
                 for c in range(nclosure):
-                    if cell_closures[cell, c] == facets[f]:
-                        facet_local_num[f,1] = fi
-                    if fStart <= cell_closures[cell, c] < fEnd:
+                    if cc_mv[cell, c] == facets_mv[f]:
+                        flocal_mv[f,1] = fi
+                    if fStart <= cc_mv[cell, c] < fEnd:
                         fi += 1
             else:
-                facet_local_num[f,1] = -1
+                flocal_mv[f,1] = -1
     return facet_local_num, facet_cells
 
 
@@ -2536,12 +2544,15 @@ def get_facets_by_class(PETSc.DM plex, label,
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
         np.ndarray facets
+        PetscInt[::1] ordering_mv = ordering
+        PetscInt[::1] facets_mv
 
     dim = get_topological_dimension(plex)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
     nfacets = count_labelled_points(plex, label, fStart, fEnd)
     facets = np.empty(nfacets, dtype=IntType)
+    facets_mv = facets
     facet_classes = [0, 0, 0]
     fi = 0
 
@@ -2554,12 +2565,12 @@ def get_facets_by_class(PETSc.DM plex, label,
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
-            for o in range(ordering.shape[0]):
-                f = ordering[o]
+            for o in range(ordering_mv.shape[0]):
+                f = ordering_mv[o]
                 CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
                 CHKERR(DMLabelHasPoint(lbl_class, f, &is_class))
                 if has_point and is_class:
-                    facets[fi] = f
+                    facets_mv[fi] = f
                     fi += 1
         facet_classes[i] = fi
         CHKERR(DMLabelDestroyIndex(lbl_class))
