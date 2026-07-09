@@ -826,10 +826,6 @@ def check_ref_exists(component):
         # component is versioned, a GitHub release should already exist
         version = shas[component.name]["version"]
 
-        # PETSc prepend a 'v' to their releases
-        if component.name == "petsc":
-            version = "v" + version
-
         if not release_already_exists(component, version):
             msg = textwrap.dedent(
                 f"""\
@@ -964,11 +960,14 @@ def release_already_exists(component: Package, release_name: str) -> bool:
         return False
 
 
-def get_matching_release(component: Package, release_name: str) -> github3.Release:
+def get_matching_release(component: Package, version: str) -> github3.Release:
+    # PETSc prepend a 'v' to their releases
+    if component.name == "petsc":
+        version = "v" + version
     for release in get_component_repository(component).releases():
-        if release.tag_name == release_name:
+        if release.tag_name == version:
             return release
-    raise KeyError
+    raise KeyError(f"Release {version} for {component} could not be found, aborting")
 
 
 def commit_already_exists_in_release(component: Package, commit_id: str) -> bool:
