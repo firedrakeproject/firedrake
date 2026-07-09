@@ -164,8 +164,10 @@ class _SNESContext(object):
     post_function_callback
         User-defined function called immediately after residual assembly.
     marking_callback
-        User-defined function called after the nonlinear solve returning a DG0
-        Function with cells marked for adaptive refinement.
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager

@@ -451,8 +451,8 @@ def _adaptively_refine(dm, comm):
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
-    # DMAdaptorAdapt() unconditionally destroys its input DM, but
-    # AdaptiveMeshHierarchy keeps this level's DM alive as a coarse grid.
+    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
+    # adapted input DM remains a level in the AdaptiveMeshHierarchy.
     dm.incRef()
 
     ctx = get_appctx(dm)
@@ -468,8 +468,7 @@ def _adaptively_refine(dm, comm):
     if level == len(hierarchy) - 1:
         if ctx._marking_callback is None:
             raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
-        solver = None
-        markers = ctx._marking_callback(solver, current_solution)
+        markers = ctx._marking_callback(ctx, current_solution)
         if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
             raise TypeError(
                 f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
@@ -490,19 +489,19 @@ def _adaptively_refine(dm, comm):
     dms = [refined_ctx._problem.u_restrict.function_space().dm]
     for value in coefficient_mapping.values():
         if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            dm = value.function_space().dm
-            if dm not in dms:
-                dms.append(dm)
+            value_dm = value.function_space().dm
+            if value_dm not in dms:
+                dms.append(value_dm)
     # Attach refined context
-    for dm in dms:
-        add_hook(parent, setup=partial(push_parent, dm, parent),
-                 teardown=partial(pop_parent, dm, parent),
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
                  call_setup=True)
-        add_hook(parent, setup=partial(push_ctx_coarsener, dm, coarsener),
-                 teardown=partial(pop_ctx_coarsener, dm, coarsener),
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
                  call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, dm, refined_ctx),
-                 teardown=partial(pop_appctx, dm, refined_ctx),
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
                  call_setup=True)
     return refined_ctx._problem.dm
 
@@ -515,7 +514,7 @@ def refine(dm, comm):
     :arg comm: The communicator for the new DM (ignored)
     """
     ctx = get_appctx(dm)
-    if ctx._marking_callback is not None:
+    if ctx is not None and ctx._marking_callback is not None:
         return _adaptively_refine(dm, comm)
 
     from firedrake.mg.ufl_utils import get_cache, set_cache
