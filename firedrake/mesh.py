@@ -21,6 +21,7 @@ from textwrap import dedent
 from pathlib import Path
 import typing
 import warnings
+import itertools
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -2315,6 +2316,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         self._topology_version = 0
         self._topology_step_sfs = {}
+
+        self._live_functions = weakref.WeakValueDictionary()
+        self._function_counter = itertools.count()
+
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
 
     # @property
