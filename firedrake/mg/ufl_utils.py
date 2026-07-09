@@ -14,7 +14,7 @@ from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, po
 from . import utils
 
 
-__all__ = ["coarsen", "refine"]
+__all__ = ["coarsen", "refine", "reconstruct"]
 
 
 class CoarseningError(Exception):
@@ -22,55 +22,85 @@ class CoarseningError(Exception):
     pass
 
 
+# `coarsen`/`refine` results are memoized directly on the reconstructed
+# object as `_coarse`/`_fine` attributes, so that walking a mesh hierarchy
+# by hand (`obj._coarse`, `obj._fine`) keeps working. These two helpers are
+# the only place that needs to know the attribute names; a custom `direction`
+# dispatcher (i.e. anything other than the `coarsen`/`refine` singledispatch
+# functions themselves) is not memoized, matching the pre-existing behaviour.
+def get_cache(direction, old):
+    """Return the previously reconstructed `direction` (`coarsen` or
+    `refine`) counterpart of `old`, or ``None`` if there isn't one yet."""
+    if direction is coarsen:
+        return getattr(old, "_coarse", None)
+    elif direction is refine:
+        return getattr(old, "_fine", None)
+    return None
+
+
+def set_cache(direction, old, new):
+    """Remember `new` as the `direction` counterpart of `old`."""
+    if direction is coarsen:
+        old._coarse = new
+    elif direction is refine:
+        old._fine = new
+    return new
+
+
 class CoarsenIntegrand(MultiFunction):
 
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
 
-    def __init__(self, coarsen, coefficient_mapping=None):
+    def __init__(self, dispatch, coefficient_mapping=None):
         if coefficient_mapping is None:
             coefficient_mapping = {}
         self.coefficient_mapping = coefficient_mapping
-        self.coarsen = coarsen
+        self.dispatch = dispatch
         super(CoarsenIntegrand, self).__init__()
 
     ufl_type = MultiFunction.reuse_if_untouched
 
     def argument(self, o):
-        V = self.coarsen(o.function_space(), self.coarsen)
+        V = self.dispatch(o.function_space(), self.dispatch)
         return o.reconstruct(V)
 
     def coefficient(self, o):
-        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
+        return self.dispatch(o, self.dispatch, coefficient_mapping=self.coefficient_mapping)
 
     def cofunction(self, o):
-        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
+        return self.dispatch(o, self.dispatch, coefficient_mapping=self.coefficient_mapping)
 
     def geometric_quantity(self, o):
-        return type(o)(self.coarsen(extract_unique_domain(o), self.coarsen))
+        return type(o)(self.dispatch(extract_unique_domain(o), self.dispatch))
 
     def circumradius(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.dispatch(extract_unique_domain(o), self.dispatch)
         return firedrake.Circumradius(mesh)
 
     def facet_normal(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.dispatch(extract_unique_domain(o), self.dispatch)
         return firedrake.FacetNormal(mesh)
 
 
 @singledispatch
-def coarsen(expr, self, coefficient_mapping=None):
-    # Default, just send it back
+def reconstruct(expr, self, coefficient_mapping=None):
+    # Default, just send it back. Handlers registered here are shared
+    # between `coarsen` and `refine`: they reconstruct the expression tree
+    # without caring which direction `self` ultimately came from. Both
+    # dispatchers fall back to this implementation for any type that does
+    # not need direction-specific handling.
     return expr
 
 
 @singledispatch
+def coarsen(expr, self, coefficient_mapping=None):
+    return reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
+
+
+@singledispatch
 def refine(expr, self, coefficient_mapping=None):
-    # Most coarsen handlers will simply reconstruct the expression tree.  And
-    # very few of them branch on coarsen vs refine to handle both directions.
-    # Delegating here lets those shared handlers do the right thing when called
-    # via `refine(...)`.
-    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)
+    return reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
 
 
 @coarsen.register(ufl.Mesh)
@@ -91,25 +121,25 @@ def refine_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level + 1]
 
 
-@coarsen.register(ufl.BaseForm)
-@coarsen.register(ufl.classes.Expr)
-def coarsen_expr(expr, self, coefficient_mapping=None):
+@reconstruct.register(ufl.BaseForm)
+@reconstruct.register(ufl.classes.Expr)
+def reconstruct_expr(expr, self, coefficient_mapping=None):
     if expr is None:
         return None
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     return map_expr_dag(mapper, expr)
 
 
-@coarsen.register(ufl.Form)
-def coarsen_form(form, self, coefficient_mapping=None):
-    """Return a coarse mesh version of a form
+@reconstruct.register(ufl.Form)
+def reconstruct_form(form, self, coefficient_mapping=None):
+    """Return a coarse or fine mesh version of a form.
 
-    :arg form: The :class:`~ufl.classes.Form` to coarsen.
-    :kwarg mapping: an optional map from coefficients to their
-        coarsened equivalents.
+    :arg form: The :class:`~ufl.classes.Form` to reconstruct.
+    :kwarg coefficient_mapping: an optional map from coefficients to their
+        reconstructed equivalents.
 
     This maps over the form and replaces coefficients and arguments
-    with their coarse mesh equivalents."""
+    with their coarse/fine mesh equivalents."""
     if form is None:
         return None
 
@@ -134,15 +164,15 @@ def coarsen_form(form, self, coefficient_mapping=None):
     return form
 
 
-@coarsen.register(ufl.FormSum)
-def coarsen_formsum(form, self, coefficient_mapping=None):
+@reconstruct.register(ufl.FormSum)
+def reconstruct_formsum(form, self, coefficient_mapping=None):
     return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
                          self(wi, self, coefficient_mapping=coefficient_mapping))
                         for ci, wi in zip(form.components(), form.weights())])
 
 
-@coarsen.register(firedrake.DirichletBC)
-def coarsen_bc(bc, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.DirichletBC)
+def reconstruct_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
     val = self(bc._original_arg, self, coefficient_mapping=coefficient_mapping)
     subdomain = bc.sub_domain
@@ -150,8 +180,8 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
-@coarsen.register(firedrake.EquationBC)
-def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.EquationBC)
+def reconstruct_equation_bc(ebc, self, coefficient_mapping=None):
     J = self(ebc._J.f, self, coefficient_mapping=coefficient_mapping)
     Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
@@ -170,20 +200,21 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
-    if hasattr(V, "_coarse") and V._coarse.mesh() == new_mesh:
-        return V._coarse
+    cached = get_cache(coarsen, V)
+    if cached is not None and cached.mesh() == new_mesh:
+        return cached
     # Get the parent name
     V_parent = V
-    while hasattr(V_parent, "_fine") and V_parent._fine:
-        V_parent = V_parent._fine
+    while get_cache(refine, V_parent) is not None:
+        V_parent = get_cache(refine, V_parent)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     # Reconstruct the space
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    V_new._fine = V
-    V._coarse = V_new
+    set_cache(refine, V_new, V)
+    set_cache(coarsen, V, V_new)
     return V_new
 
 
@@ -192,20 +223,21 @@ def refine_function_space(V, self, coefficient_mapping=None):
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
-    if hasattr(V, "_fine") and V._fine.mesh() == new_mesh:
-        return V._fine
+    cached = get_cache(refine, V)
+    if cached is not None and cached.mesh() == new_mesh:
+        return cached
     # Get the parent name
     V_parent = V
-    while hasattr(V_parent, "_coarse") and V_parent._coarse:
-        V_parent = V_parent._coarse
+    while get_cache(coarsen, V_parent) is not None:
+        V_parent = get_cache(coarsen, V_parent)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     # Reconstruct the space
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    V_new._coarse = V
-    V._fine = V_new
+    set_cache(coarsen, V_new, V)
+    set_cache(refine, V, V_new)
     return V_new
 
 
@@ -261,16 +293,13 @@ def refine_function(expr, self, coefficient_mapping=None):
     return new
 
 
-@coarsen.register(firedrake.NonlinearVariationalProblem)
-def coarsen_nlvp(problem, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.NonlinearVariationalProblem)
+def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     # Have we done this already?
     mh, _ = utils.get_level(problem.u.function_space().mesh())
-    if self == coarsen and hasattr(problem, "_coarse"):
-        if mh is utils.get_level(problem._coarse.u.function_space().mesh())[0]:
-            return problem._coarse
-    elif self == refine and hasattr(problem, "_fine"):
-        if mh is utils.get_level(problem._fine.u.function_space().mesh())[0]:
-            return problem._fine
+    cached = get_cache(self, problem)
+    if cached is not None and mh is utils.get_level(cached.u.function_space().mesh())[0]:
+        return cached
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
@@ -318,45 +347,34 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
     u = coefficient_mapping[problem.u_restrict]
 
-    orig = problem
-    problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
-                                                    form_compiler_parameters=problem.form_compiler_parameters)
-    if self == coarsen:
-        orig._coarse = problem
-    elif self == refine:
-        orig._fine = problem
-    return problem
+    new_problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
+                                                         form_compiler_parameters=problem.form_compiler_parameters)
+    set_cache(self, problem, new_problem)
+    return new_problem
 
 
-@coarsen.register(firedrake.LinearEigenproblem)
-def coarsen_eigenproblem(problem, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.LinearEigenproblem)
+def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
     # Have we done this already?
-    mh, _ = utils.get_level(problem.output_space().mesh())
-    if self == coarsen and hasattr(problem, "_coarse"):
-        if mh is utils.get_level(problem._coarse.output_space.mesh())[0]:
-            return problem._coarse
-    elif self == refine and hasattr(problem, "_fine"):
-        if mh is utils.get_level(problem._fine.output_space.mesh())[0]:
-            return problem._fine
+    mh, _ = utils.get_level(problem.output_space.mesh())
+    cached = get_cache(self, problem)
+    if cached is not None and mh is utils.get_level(cached.output_space.mesh())[0]:
+        return cached
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
     bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
-           for bc in problem._original_bcs]
-    A = self(problem._original_A, self, coefficient_mapping=coefficient_mapping)
-    M = self(problem._original_M, self, coefficient_mapping=coefficient_mapping)
-    orig = problem
-    problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
-                                           bc_shift=orig.bc_shift, restrict=orig.restrict)
-    if self == coarsen:
-        orig._coarse = problem
-    elif self == refine:
-        orig._fine = problem
-    return problem
+           for bc in problem.bcs]
+    A = self(problem.A, self, coefficient_mapping=coefficient_mapping)
+    M = self(problem.M, self, coefficient_mapping=coefficient_mapping)
+    new_problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
+                                               bc_shift=problem.bc_shift, restrict=problem.restrict)
+    set_cache(self, problem, new_problem)
+    return new_problem
 
 
-@coarsen.register(firedrake.VectorSpaceBasis)
-def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.VectorSpaceBasis)
+def reconstruct_vectorspacebasis(basis, self, coefficient_mapping=None):
     # Do not add basis._vecs to the coefficient_mapping,
     # as they need to be normalized, and are not meant to be reinjected
     coarse_vecs = [self(vec, self) for vec in basis._vecs]
@@ -365,8 +383,8 @@ def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
     return vsb
 
 
-@coarsen.register(firedrake.MixedVectorSpaceBasis)
-def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.MixedVectorSpaceBasis)
+def reconstruct_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     coarse_V = self(mspbasis._function_space, self, coefficient_mapping=coefficient_mapping)
     coarse_bases = []
 
@@ -381,8 +399,8 @@ def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     return firedrake.MixedVectorSpaceBasis(coarse_V, coarse_bases)
 
 
-@coarsen.register(_SNESContext)
-def coarsen_snescontext(context, self, coefficient_mapping=None):
+@reconstruct.register(_SNESContext)
+def reconstruct_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
@@ -481,39 +499,39 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     return new_context
 
 
-@coarsen.register(firedrake.slate.AssembledVector)
-def coarsen_slate_assembled_vector(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.AssembledVector)
+def reconstruct_slate_assembled_vector(tensor, self, coefficient_mapping=None):
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
     return type(tensor)(form)
 
 
-@coarsen.register(firedrake.slate.BlockAssembledVector)
-def coarsen_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.BlockAssembledVector)
+def reconstruct_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
     block = self(tensor.block, self, coefficient_mapping=coefficient_mapping)
     return type(tensor)(form, *block.children, block.indices)
 
 
-@coarsen.register(firedrake.slate.Block)
-def coarsen_slate_block(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.Block)
+def reconstruct_slate_block(tensor, self, coefficient_mapping=None):
     children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
     return type(tensor)(*children, indices=tensor._indices)
 
 
-@coarsen.register(firedrake.slate.Factorization)
-def coarsen_slate_factorization(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.Factorization)
+def reconstruct_slate_factorization(tensor, self, coefficient_mapping=None):
     children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
     return type(tensor)(*children, decomposition=tensor.decomposition)
 
 
-@coarsen.register(firedrake.slate.Tensor)
-def coarsen_slate_tensor(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.Tensor)
+def reconstruct_slate_tensor(tensor, self, coefficient_mapping=None):
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
     return type(tensor)(form, diagonal=tensor.diagonal)
 
 
-@coarsen.register(firedrake.slate.TensorOp)
-def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
+@reconstruct.register(firedrake.slate.TensorOp)
+def reconstruct_slate_tensor_op(tensor, self, coefficient_mapping=None):
     children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
     return type(tensor)(*children)
 

@@ -451,6 +451,10 @@ def _adaptively_refine(dm, comm):
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
+    # DMAdaptorAdapt() unconditionally destroys its input DM, but
+    # AdaptiveMeshHierarchy keeps this level's DM alive as a coarse grid.
+    dm.incRef()
+
     ctx = get_appctx(dm)
     current_solution = ctx._x
     mesh = current_solution.function_space().mesh()
@@ -514,6 +518,8 @@ def refine(dm, comm):
     if ctx._marking_callback is not None:
         return _adaptively_refine(dm, comm)
 
+    from firedrake.mg.ufl_utils import get_cache, set_cache
+    from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen, refine as symbolic_refine
     from firedrake.mg.utils import get_level
     V = get_function_space(dm)
     if V is None:
@@ -523,13 +529,12 @@ def refine(dm, comm):
         raise RuntimeError("No mesh hierarchy available")
     if level >= len(hierarchy) - 1:
         raise RuntimeError("Cannot refine finest DM")
-    if hasattr(V, "_fine"):
-        fdm = V._fine.dm
-    else:
-        V._fine = V.reconstruct(mesh=hierarchy[level + 1])
-        fdm = V._fine.dm
-    V._fine._coarse = V
-    return fdm
+    Vfine = get_cache(symbolic_refine, V)
+    if Vfine is None:
+        Vfine = V.reconstruct(mesh=hierarchy[level + 1])
+        set_cache(symbolic_refine, V, Vfine)
+        set_cache(symbolic_coarsen, Vfine, V)
+    return Vfine.dm
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
