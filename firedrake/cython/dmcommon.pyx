@@ -628,7 +628,9 @@ def closure_ordering(PETSc.DM dm,
         PetscInt *face_indices = NULL
         const PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
+        PetscInt incident
         np.ndarray cell_closure
+        PetscInt[:, ::1] cc_mv
 
     dim = get_topological_dimension(dm)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -653,6 +655,7 @@ def closure_ordering(PETSc.DM dm,
         CHKERR(PetscMalloc1(f_per_cell, &faces))
         CHKERR(PetscMalloc1(f_per_cell, &face_indices))
     cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
+    cc_mv = cell_closure
 
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -677,9 +680,9 @@ def closure_ordering(PETSc.DM dm,
         for vi in range(v_per_cell):
             if dim == 1:
                 # Correct 1D edge numbering
-                cell_closure[cell, vi] = vertices[v_per_cell-vi-1]
+                cc_mv[cell, vi] = vertices[v_per_cell-vi-1]
             else:
-                cell_closure[cell, vi] = vertices[vi]
+                cc_mv[cell, vi] = vertices[vi]
         offset = v_per_cell
 
         # Find all edges (dim=1) (only relevant for `DMPlex`)
@@ -705,7 +708,7 @@ def closure_ordering(PETSc.DM dm,
                     for v in range(v_per_cell):
                         incident = 0
                         for vi in range(nface_vertices):
-                            if cell_closure[cell,v] == face_vertices[vi]:
+                            if cc_mv[cell,v] == face_vertices[vi]:
                                 incident = 1
                                 break
                         if incident == 0:
@@ -717,7 +720,7 @@ def closure_ordering(PETSc.DM dm,
             CHKERR(PetscSortIntWithArray(f_per_cell,
                                          face_indices, faces))
             for fi in range(nfaces):
-                cell_closure[cell, offset+fi] = faces[fi]
+                cc_mv[cell, offset+fi] = faces[fi]
             offset += nfaces
 
         # Calling get_transitive_closure() again invalidates the
@@ -732,7 +735,7 @@ def closure_ordering(PETSc.DM dm,
                 nfacets += 1
 
         # The cell itself is always the first entry in the Plex closure
-        cell_closure[cell, cell_offset] = closure[0]
+        cc_mv[cell, cell_offset] = closure[0]
 
         # Now we can deal with facets (only relevant for `DMPlex`)
         if dim > 1:
@@ -752,13 +755,13 @@ def closure_ordering(PETSc.DM dm,
                 for v in range(v_per_cell):
                     incident = 0
                     for vi in range(v_per_cell-1):
-                        if cell_closure[cell,v] == facet_vertices[vi]:
+                        if cc_mv[cell,v] == facet_vertices[vi]:
                             incident = 1
                             break
                     # Only one non-incident vertex per facet, so
                     # local facet no. = non-incident vertex no.
                     if incident == 0:
-                        cell_closure[cell,offset+v] = facets[f]
+                        cc_mv[cell,offset+v] = facets[f]
                         break
 
             offset += nfacets
@@ -1528,6 +1531,11 @@ def get_cell_nodes(mesh,
         np.ndarray cell_closures
         np.ndarray entity_orientations
         bint is_swarm, variable, extruded_periodic_1_layer
+        PetscInt[:, ::1] cc_mv
+        PetscInt[:, ::1] eo_mv
+        PetscInt[:, ::1] cn_mv
+        PetscInt[::1] eperm_mv
+        PetscInt[::1] norient_mv
 
     dm = mesh.topology_dm
     is_swarm = isinstance(dm, PETSc.DMSwarm)
@@ -1536,6 +1544,9 @@ def get_cell_nodes(mesh,
     entity_orientations = mesh.entity_orientations
     if not is_swarm and entity_orientations is None:
         raise ValueError("entity_orientations can only be None for swarm meshes")
+    cc_mv = cell_closures
+    if not is_swarm:
+        eo_mv = entity_orientations
     if variable:
         layer_extents = mesh.layer_extents
         if offset is None:
@@ -1565,17 +1576,20 @@ def get_cell_nodes(mesh,
     # Preprocess entity_permutations
     if entity_permutations is not None:
         entity_permutations_c, num_orientations_c = _make_entity_permutations_c(entity_dofs, entity_permutations)
+        eperm_mv = entity_permutations_c
+        norient_mv = num_orientations_c
     # Fill cell nodes
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
+    cn_mv = cell_nodes
     cell_numbering = mesh._cell_numbering
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         k = 0
         perm_offset = 0
         for i in range(nclosure):
-            entity = cell_closures[cell, i]
-            orient = 0 if is_swarm else entity_orientations[cell, i]
+            entity = cc_mv[cell, i]
+            orient = 0 if is_swarm else eo_mv[cell, i]
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
@@ -1587,22 +1601,22 @@ def get_cell_nodes(mesh,
                 if entity_permutations is not None:
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
+                            cn_mv[cell, flat_index[k]] = off + eperm_mv[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
                             k += 1
                     else:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j]
+                            cn_mv[cell, flat_index[k]] = off + eperm_mv[perm_offset + ceil_ndofs[i] * orient + j]
                             k += 1
-                    perm_offset += ceil_ndofs[i] * num_orientations_c[i]
+                    perm_offset += ceil_ndofs[i] * norient_mv[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + j % offset[flat_index[k]]
+                            cn_mv[cell, flat_index[k]] = off + j % offset[flat_index[k]]
                             k += 1
                     else:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + j
+                            cn_mv[cell, flat_index[k]] = off + j
                             k += 1
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
