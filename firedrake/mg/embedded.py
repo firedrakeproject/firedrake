@@ -384,10 +384,12 @@ class TransferManager(object):
         Vc = uc.function_space()
         Vf = uf.function_space()
         P = self.prolongation_matrix(Vc, Vf)
-        return firedrake.assemble(firedrake.action(P, uc), tensor=uf)
+        with uc.dat.vec_ro as x, uf.dat.vec_wo as y:
+            P.petscmat.mult(x, y)
 
     def restrict_aij(self, rf, rc):
         Vc = rc.function_space().dual()
         Vf = rf.function_space().dual()
         P = self.prolongation_matrix(Vc, Vf)
-        return firedrake.assemble(firedrake.action(rf, P), tensor=rc)
+        with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
+            P.petscmat.multTranspose(x, y)

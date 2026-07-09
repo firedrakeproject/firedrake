@@ -9,7 +9,7 @@ def rg():
     return RandomGenerator(PCG64(seed=1234))
 
 
-@pytest.mark.parallel([1])
+@pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("family, degree, variant, vector", [
     ("CG", 2, None, False),
     ("CG", 2, None, True),
@@ -77,6 +77,7 @@ def test_poisson_gmg_aij_transfer():
     w = TrialFunction(V)
     a = inner(grad(w), grad(v)) * dx
     L = a(v, exact)
+    F = inner(grad(u), grad(v)) * dx - L
     bc = DirichletBC(V, 0, "on_boundary")
     params = {
         "snes_type": "ksponly",
@@ -92,5 +93,8 @@ def test_poisson_gmg_aij_transfer():
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
     }
-    solve(a == L, u, bcs=bc, solver_parameters=params)
+    problem = NonlinearVariationalProblem(F, u, bcs=bc, J=a)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    assert solver._ctx.transfer_manager.mat_type == "aij"
     assert errornorm(exact, u) < 1.0e-3

@@ -1,4 +1,3 @@
-from functools import partial
 from itertools import chain
 
 import numpy
@@ -313,18 +312,29 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
+            opts = PETSc.Options()
             prefix = self.options_prefix or ""
-            opts = PETSc.Options(prefix)
 
-            def get_first_option(opts, prefixes, default=""):
-                return next((s for s in map(partial(opts.getString, default=""), prefixes) if s), default)
+            def get_transfer_option(mg_name, fas_name, default=None):
+                mg_name = prefix + mg_name
+                fas_name = prefix + fas_name
+                has_mg = opts.hasName(mg_name)
+                has_fas = opts.hasName(fas_name)
+                if has_mg and has_fas:
+                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
+                            f"ignoring '{fas_name}'.")
+                if has_mg:
+                    return opts[mg_name]
+                elif has_fas:
+                    return opts[fas_name]
+                else:
+                    return default
 
-            manager_prefixes = ("mg_transfer_manager", "fas_transfer_manager")
-            managername = get_first_option(opts, manager_prefixes, default=None)
+            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
             if managername is None:
                 from firedrake import TransferManager
-                mat_type_prefixes = ("mg_transfer_mat_type", "fas_transfer_mat_type")
-                mat_type = get_first_option(opts, mat_type_prefixes, default="matfree")
+                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
+                                               default="matfree")
                 transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
