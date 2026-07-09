@@ -224,7 +224,7 @@ class ExtractSubBlock(MultiFunction):
             if bc_temp is not None:
                 bcs.append(bc_temp)
 
-        return AssembledMatrix(form or tuple(args), tuple(bcs), submat)
+        return AssembledMatrix(form or tuple(args), submat, tuple(bcs))
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
