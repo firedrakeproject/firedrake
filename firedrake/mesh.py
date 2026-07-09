@@ -2171,6 +2171,102 @@ class MeshTopology(AbstractMeshTopology):
 
     # submesh
 
+    @cached_property
+    def submesh_ancestors(self):
+        """Tuple of submesh ancestors."""
+        if self.submesh_parent:
+            return (self, ) + self.submesh_parent.submesh_ancestors
+        else:
+            return (self, )
+
+    def submesh_youngest_common_ancestor(self, other):
+        """Return the youngest common ancestor of self and other.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            The other mesh.
+
+        Returns
+        -------
+        AbstractMeshTopology or None
+            Youngest common ancestor or None if not found.
+
+        """
+        # self --- ... --- m --- common --- common --- common
+        #                          /
+        #       other --- ... --- m
+        self_ancestors = list(self.submesh_ancestors)
+        other_ancestors = list(other.submesh_ancestors)
+        c = None
+        while self_ancestors and other_ancestors:
+            a = self_ancestors.pop()
+            b = other_ancestors.pop()
+            if a is b:
+                c = a
+            else:
+                break
+        return c
+
+    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
+        """Return the map from submesh child entities to submesh parent entities or its reverse.
+
+        Parameters
+        ----------
+        source_integral_type : str
+            Integral type on the source mesh.
+        source_subset_points : numpy.ndarray
+            Subset points on the source mesh.
+        reverse : bool
+            If True, return the map from parent entities to child entities.
+
+        Returns
+        -------
+        tuple
+           (map from source to target, integral type on the target mesh, subset points on the target mesh).
+
+        """
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
+    def submesh_map_composed(self, other, other_integral_type, other_subset_points):
+        """Create entity-entity map from ``other`` to `self`.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            Base mesh topology.
+        other_integral_type : str
+            Integral type on ``other``.
+        other_subset_points : numpy.ndarray
+            Subset points on ``other``; only used to identify (facet) integral_type on ``self``.
+
+        Returns
+        -------
+        tuple
+            Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
+
+        """
+        common = self.submesh_youngest_common_ancestor(other)
+        if common is None:
+            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
+        maps = []
+        integral_type = other_integral_type
+        subset_points = other_subset_points
+        # child -> parent
+        aa = other.submesh_ancestors
+        for a in aa[:aa.index(common)]:
+            m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
+            maps.append(m)
+        # parent -> child
+        bb = self.submesh_ancestors
+        for b in reversed(bb[:bb.index(common)]):
+            m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
+            maps.append(m)
+
+        return tuple(maps), integral_type, subset_points
+
+    # }}}
+
     def _submesh_make_entity_entity_map(
         self,
         from_set: op3.Axis,
@@ -2200,10 +2296,7 @@ class MeshTopology(AbstractMeshTopology):
         )
         map_name = f"{self.name}_submesh_map_{from_set.label}_{to_set.label}"
         to_label = to_set.component.label
-        map_axes = op3.AxisTree.from_iterable([
-            from_set, op3.Axis([op3.AxisComponent(1, to_label)], map_name)
-        ])
-        map_dat = op3.Dat(map_axes, data=values.flatten())
+        map_dat = op3.Dat(from_set, data=values.flatten())
         return op3.ScalarMap(
             {
                 idict({from_set.label: from_set.component.label}): [
@@ -3729,10 +3822,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         dest_axis = self._parent_mesh.name
         dest_stratum = self._parent_mesh.cell_label
 
-        map_axes = op3.AxisTree.from_iterable([self.points.root, op3.Axis(1, "cell_parent_cell")])
-        dat = op3.Dat(map_axes, data=self.cell_parent_cell_list)
-
-        return op3.Map(
+        dat = op3.Dat(self.points, data=self.cell_parent_cell_list)
+        return op3.ScalarMap(
             {
                 idict({self.name: self.cell_label}): [[
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
@@ -4574,6 +4665,9 @@ values from f.)"""
         new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
+    # NOTE: I have copied this code here to avoid reimplementing .reconstruct for
+    # function space topologies.
+
     # {{{ submesh
 
     @cached_property
@@ -4613,64 +4707,7 @@ values from f.)"""
                 break
         return c
 
-    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
-        """Return the map from submesh child entities to submesh parent entities or its reverse.
 
-        Parameters
-        ----------
-        source_integral_type : str
-            Integral type on the source mesh.
-        source_subset_points : numpy.ndarray
-            Subset points on the source mesh.
-        reverse : bool
-            If True, return the map from parent entities to child entities.
-
-        Returns
-        -------
-        tuple
-           (map from source to target, integral type on the target mesh, subset points on the target mesh).
-
-        """
-        raise NotImplementedError(f"Not implemented for {type(self)}")
-
-    def submesh_map_composed(self, other, other_integral_type, other_subset_points):
-        """Create entity-entity map from ``other`` to `self`.
-
-        Parameters
-        ----------
-        other : AbstractMeshTopology
-            Base mesh topology.
-        other_integral_type : str
-            Integral type on ``other``.
-        other_subset_points : numpy.ndarray
-            Subset points on ``other``; only used to identify (facet) integral_type on ``self``.
-
-        Returns
-        -------
-        tuple
-            Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
-
-        """
-        common = self.submesh_youngest_common_ancestor(other)
-        if common is None:
-            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
-        maps = []
-        integral_type = other_integral_type
-        subset_points = other_subset_points
-        # child -> parent
-        aa = other.submesh_ancestors
-        for a in aa[:aa.index(common)]:
-            m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
-            maps.append(m)
-        # parent -> child
-        bb = self.submesh_ancestors
-        for b in reversed(bb[:bb.index(common)]):
-            m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
-            maps.append(m)
-
-        return tuple(maps), integral_type, subset_points
-
-    # }}}
 
 
 @PETSc.Log.EventDecorator()
@@ -6793,7 +6830,7 @@ def get_iteration_spec(
     # Use a weakref for the mesh here because otherwise we would store a
     # reference to the mesh in the cache and, since the lifetime of the cache
     # is tied to the mesh, things will never be cleaned up.
-    mesh_ref = weakref.proxy(mesh)
+    mesh_ref = weakref.proxy(mesh.topology)
 
     return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering, needs_subset=needs_subset)
 

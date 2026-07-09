@@ -884,11 +884,15 @@ class ScalarMap(AbstractMap):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        from pyop3.expr import AxisVar
+
         # Make sure that 'connectivity' contains the right things
         for entries in self.connectivity.values():
             for entry in entries:
                 assert isinstance(entry, MapComponent)
                 assert entry.arity == 1
+                # hacky way to catch if we are passing in something flat or not
+                assert isinstance(entry.array.layout, AxisVar)
 
     # {{{ interface impls
 
