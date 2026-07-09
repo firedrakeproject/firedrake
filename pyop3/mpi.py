@@ -578,7 +578,6 @@ def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
     return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
 
 
-@collective
 def common_comm(*comms: Iterable[MPI.Comm]) -> MPI.Comm:
     """Return a communicator valid for all objects.
 

@@ -669,9 +669,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @cached_method()
     def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
+        size = self.sf.num_owned
         block_size = np.prod(block_shape, dtype=int)
         # FIXME: Only allowing host data here
-        return PETSc.Vec().createWithArray(self._host_data, self.size, block_size, comm=self.comm)
+        return PETSc.Vec().createWithArray(self._host_data[:size], (size, None), block_size, comm=self.comm)
 
     def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", block_shape)
@@ -946,12 +947,12 @@ class PetscMatBuffer(ConcreteBuffer):
             if mat_type == "rvec":
                 mode = "row"
                 # a row vec (horizontal) has #columns entries
-                size = column_axes.buffer_size(include_ghosts=False)
+                sf = column_axes.sf
             else:
                 mode = "column"
                 # a column vec (vertical) has #rows entries
-                size = row_axes.buffer_size(include_ghosts=False)
-            mat_context = DensePythonMatContext.empty(mode, size, comm)
+                sf = row_axes.sf
+            mat_context = DensePythonMatContext.empty(mode, sf)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
@@ -1047,74 +1048,70 @@ class DensePythonMatContext:
         self.buffer = buffer
 
     @classmethod
-    def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:
+    def empty(cls, mode: Literal["row", "column"], sf: pyop3.sf.StarForest) -> Self:
         if mode == "row":
-            shape = (1, size)
+            shape = (1, sf.size)
         else:
             assert mode == "column"
-            shape = (size, 1)
-        # There is no halo here so we use a local SF with no leaves
-        sf = pyop3.sf.local_sf(size, comm)
-        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType, **kwargs)
+            shape = (sf.size, 1)
+        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType)
         return cls(mode, buffer)
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         # TODO: if block size > 1 then the other size will need changing
         if self.mode == "row":
-            return ((None, 1), (self.buffer.size, None))
+            return ((None, 1), (self.buffer.sf.num_owned, None))
         else:
-            return ((self.buffer.size, None), (None, 1))
+            return ((self.buffer.sf.num_owned, None), (None, 1))
+
+    # {{{ Mat context routines
+
+    def __getitem__(self, key):
+        raise NotImplementedError
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
         """Set y = self @ x."""
         if self.mode == "row":
             # Example:
-            # * 'A' (self) has global size (5, 2)
-            # * 'x' has global size (5, 2)
-            # * 'y' has global size (2, 2)
+            # * 'A' (self) has global size (m, n)
+            # * 'x' has global size (n,)
+            # * 'y' has global size (m,)
+            #
+            # Where, because this is a row matrix, we know that 'm' must be 1:
             #
             #     A     ⊗  x  ➜  y
-            # ■ ■ ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■ ■ ■   ■ ■   ■ ■
-            #             ■ ■
-            #             ■ ■
-            #             ■ ■
-            with self.buffer.vec_ro() as vec:
-                y.setValue(0, vec.dot(x))
+            # ■ ■ ■ ■ ■    ■     ■
+            #              ■
+            #              ■
+            #              ■
+            #              ■
+            y_array = y.array_w
+            with self.buffer.vec_ro() as A:
+                result = A.dot(x)
+                if self.comm.rank == 0:
+                    y_array[...] = result
         else:
             # Example:
-            # * 'A' (self) has global size (5, 3)
-            # * 'x' has global size (3, 2)
-            # * 'y' has global size (5, 2)
+            # * 'A' (self) has global size (m, n)
+            # * 'x' has global size (n,)
+            # * 'y' has global size (m,)
             #
-            #   A   ⊗  x  ➜  y
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■         ■ ■
-            # ■ ■ ■         ■ ■
+            # Where, because this is a column matrix, we know that 'n' must be 1:
             #
-            # The algorithm is:
-            #
-            #     for i in range(5):
-            #       for j in range(2):
-            #         for k in range(3):
-            #           y[i,j] += A[i,k] * x[k,j]
-            #
-            # We can always assume that 'x' is small in both dimensions so
-            # those loops are safe to do explicitly (on the outside):
-            #
-            #     for j in range(2):
-            #       for k in range(3):
-            #         y[:,j] += A[:,k] * x[k,j]
-            #
-            # Which I know how to do efficiently using numpy.
-            nj = x.block_size
-            nk = self._vec.block_size
-            for j in range(nj):
-                for k in range(nk):
-                    y.buffer_w[:, j] += self._vec.buffer_r[:, k] * x.buffer_r[k, j]
+            #   A  ⊗  x  ➜  y
+            #   ■     ■     ■
+            #   ■           ■
+            #   ■           ■
+            #   ■           ■
+            #   ■           ■
+
+            # Send the single 'x' value to all ranks
+            with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
+                xval = icomm.bcast(x.array_r)
+
+            with self.buffer.vec_ro() as A:
+                y.array_w[...] = A.array_r * xval
 
     def multTranspose(self, mat, x, y):
         raise NotImplementedError
@@ -1181,6 +1178,22 @@ class DensePythonMatContext:
         #             else:
         #                 z.array[...]
 
+    def getDiagonal(self, mat: PETSc.Mat, result: PETSc.Vec | None = None) -> PETSc.Vec:
+        if result is None:
+            with self.buffer.vec_ro() as vec:
+                result = vec.duplicate()
+
+        result.array_w[...] = self.buffer.data_ro
+        return result
+
+    def zeroEntries(self, mat: PETSc.Mat) -> None:
+        self.buffer.zero()
+
+    def duplicate(self, *, copy: bool = False) -> Self:
+        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
+
+    # }}}
+
     @property
     def data_ro(self) -> np.ndarray:
         return self.buffer.data_ro
@@ -1189,12 +1202,6 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
-
-    def zeroEntries(self, mat):
-        self.buffer.zero()
-
-    def duplicate(self, *, copy=False):
-        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
 
     @property
     def comm(self) -> MPI.Comm:

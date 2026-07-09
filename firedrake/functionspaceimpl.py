@@ -661,6 +661,9 @@ class WithGeometryBase:
     def _make_submesh_node_to_node_map(
         self, direction: Literal["parent_to_child", "child_to_parent"]
     ) -> dict:
+        # NOTE: This is really a topological consideration and only here
+        # because topological function spaces don't have a reconstruct
+        # method.
         parent_space = self.reconstruct(mesh=self.mesh().submesh_parent)
 
         if direction == "parent_to_child":

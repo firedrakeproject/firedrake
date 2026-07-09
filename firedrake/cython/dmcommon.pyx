@@ -2058,66 +2058,6 @@ def mark_owned_points(PETSc.DM dm) -> None:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
-    """
-    Mark all points in a given Particle in Cell (PIC) DMSwarm according to the
-    PyOP2 entity classes (core, owned, ghost) using the markers of the parent
-    DMPlex or DMSwarm cells (i.e. the cells within which the swarm points are
-    located).
-    """
-    cdef:
-        PETSc.DM plex
-        PetscInt cStart, cEnd, c
-        PetscInt *plex_cell_classes = NULL, plex_cell_class
-        DMLabel swarm_labels[3], plex_label
-        PetscInt label_value = 1, op2class_size, i, ilabel
-        PETSc.PetscIS op2class_is = NULL
-        const PetscInt *class_indices = NULL
-        PetscInt nswarmCells, swarmCell, blocksize
-        PetscInt *swarmParentCells = NULL
-        PetscDataType ctype = PETSC_DATATYPE_UNKNOWN
-        const char *cellid = NULL
-        PETSc.PetscDMSwarmCellDM celldm
-
-    plex = swarm.getCellDM()
-    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
-    CHKERR(PetscMalloc1(cEnd - cStart, &plex_cell_classes))
-    for c in range(cStart, cEnd):
-        plex_cell_classes[c - cStart] = -1
-    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
-        CHKERR(DMGetLabel(plex.dm, op2class, &plex_label))
-        # Get number of plex points labeled as this op2class.
-        CHKERR(DMLabelGetStratumSize(plex_label, label_value, &op2class_size))
-        if op2class_size > 0:
-            # Get an IS containing the plex points labeled as this op2class.
-            CHKERR(DMLabelGetStratumIS(plex_label, label_value, &op2class_is))
-            CHKERR(ISGetIndices(op2class_is, &class_indices))
-            for i in range(op2class_size):
-                if cStart <= class_indices[i] < cEnd:  # plex cell points are in [cStart, cEnd)
-                    plex_cell_classes[class_indices[i] - cStart] = ilabel
-            CHKERR(ISRestoreIndices(op2class_is, &class_indices))
-            CHKERR(ISDestroy(&op2class_is))
-    for c in range(cStart, cEnd):
-        if plex_cell_classes[c - cStart] < 0:
-            raise RuntimeError("Cell point %d in the parent plex does not belong to any pyop2 class" % c)
-    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
-        CHKERR(DMCreateLabel(swarm.dm, op2class))
-        CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
-    CHKERR(DMSwarmGetCellDMActive(swarm.dm, &celldm))
-    CHKERR(DMSwarmCellDMGetCellID(celldm, &cellid))
-    CHKERR(DMSwarmGetField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
-    assert ctype == PETSC_INT
-    assert blocksize == 1
-    CHKERR(DMSwarmGetLocalSize(swarm.dm, &nswarmCells))
-    for swarmCell in range(nswarmCells):
-        plex_cell_class = plex_cell_classes[swarmParentCells[swarmCell] - cStart]
-        CHKERR(DMLabelSetValue(swarm_labels[plex_cell_class], swarmCell, label_value))
-    CHKERR(DMSwarmRestoreField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
-    CHKERR(PetscFree(plex_cell_classes))
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     """Builds a list of all facets ordered according to the given numbering.
 
@@ -2179,57 +2119,6 @@ def facets_with_label(mesh, label_name):
 
     CHKERR(DMLabelDestroyIndex(label))
     return facets
-
-
-# this can now go I think
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def get_facets_by_class(PETSc.DM plex, label,
-                        np.ndarray ordering):
-    """Builds a list of all facets ordered according to PyOP2 entity
-    classes and computes the respective class offsets.
-
-    :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg ordering: An array giving the global traversal order of facets
-    :arg label: Label string that marks the facets to order
-    """
-    cdef:
-        PetscInt dim, fi, ci, nfacets, nclass, lbl_val, o, f, fStart, fEnd
-        PetscInt pStart, pEnd, i, n
-        PetscInt *indices = NULL
-        PETSc.IS class_is = None
-        PetscBool has_point, is_class
-        DMLabel lbl_facets, lbl_class
-        np.ndarray facets
-
-    dim = get_topological_dimension(plex)
-    get_height_stratum(plex.dm, 1, &fStart, &fEnd)
-    get_chart(plex.dm, &pStart, &pEnd)
-    nfacets = count_labelled_points(plex, label, fStart, fEnd)
-    facets = np.empty(nfacets, dtype=IntType)
-    facet_classes = [0, 0, 0]
-    fi = 0
-
-    CHKERR(DMGetLabel(plex.dm, label.encode(), &lbl_facets))
-    CHKERR(DMLabelCreateIndex(lbl_facets, pStart, pEnd))
-    for i, op2class in enumerate([b"pyop2_core",
-                                  b"pyop2_owned",
-                                  b"pyop2_ghost"]):
-        CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
-        CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
-        nclass = plex.getStratumSize(op2class, 1)
-        if nclass > 0:
-            for o in range(ordering.shape[0]):
-                f = ordering[o]
-                CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
-                CHKERR(DMLabelHasPoint(lbl_class, f, &is_class))
-                if has_point and is_class:
-                    facets[fi] = f
-                    fi += 1
-        facet_classes[i] = fi
-        CHKERR(DMLabelDestroyIndex(lbl_class))
-    CHKERR(DMLabelDestroyIndex(lbl_facets))
-    return facets, facet_classes
 
 
 @cython.boundscheck(False)
@@ -2327,45 +2216,6 @@ def compute_dm_renumbering(
 
     CHKERR(PetscMalloc1(nPoints_c, &ordering))
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
-
-    # if boundary_set:
-    #     CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
-    # ncells = np.zeros(3, dtype=IntType)
-
-    # Get label pointers and label-specific array indices
-    # CHKERR(DMGetLabel(dm.dm, b"pyop2_core", &labels[0]))
-    # CHKERR(DMGetLabel(dm.dm, b"pyop2_owned", &labels[1]))
-    # CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &labels[2]))
-    # for idx in range(3):
-    #     CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
-
-    # Get boundary points (if the boundary_set exists) and count each type
-    # constrained_core = 0
-    # constrained_owned = 0
-    # if boundary_set:
-    #     for marker in boundary_set:
-    #         if marker == "on_boundary":
-    #             label = "exterior_facets"
-    #             marker = 1
-    #         else:
-    #             label = FACE_SETS_LABEL
-    #         n = dm.getStratumSize(label, marker)
-    #         if n == 0:
-    #             continue
-    #         points = dm.getStratumIS(label, marker).indices
-    #         for i in range(n):
-    #             p = points[i]
-    #             if not PetscBTLookup(seen_boundary, p):
-    #                 for idx in range(3):
-    #                     CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
-    #                     if has_point:
-    #                         PetscBTSet(seen_boundary, p)
-    #                         if idx == 1:
-    #                             constrained_owned += 1
-    #                         elif idx == 0:
-    #                             constrained_core += 1
-    #                         break
-
     ptr = 0
 
     for cell in range(cStart, cEnd):
@@ -2406,13 +2256,8 @@ def compute_dm_renumbering(
     ordering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
     ordering_is.setType("general")
     CHKERR(ISGeneralSetIndices(ordering_is.iset, mesh.num_points, ordering, PETSC_OWN_POINTER))
-    # renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
-    # renumbering_is.setType("general")
 
-    # return ordering_is.invertPermutation()
     return ordering_is
-    # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
-    # return renumbering_is
 
 
 def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -> PETSc.IS:

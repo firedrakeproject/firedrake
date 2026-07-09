@@ -1578,6 +1578,104 @@ class AbstractMeshTopology(abc.ABC):
     def unique(self):
         return self
 
+    # submesh
+
+    @cached_property
+    def submesh_ancestors(self):
+        """Tuple of submesh ancestors."""
+        if self.submesh_parent:
+            return (self, ) + self.submesh_parent.submesh_ancestors
+        else:
+            return (self, )
+
+    def submesh_youngest_common_ancestor(self, other):
+        """Return the youngest common ancestor of self and other.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            The other mesh.
+
+        Returns
+        -------
+        AbstractMeshTopology or None
+            Youngest common ancestor or None if not found.
+
+        """
+        # self --- ... --- m --- common --- common --- common
+        #                          /
+        #       other --- ... --- m
+        self_ancestors = list(self.submesh_ancestors)
+        other_ancestors = list(other.submesh_ancestors)
+        c = None
+        while self_ancestors and other_ancestors:
+            a = self_ancestors.pop()
+            b = other_ancestors.pop()
+            if a is b:
+                c = a
+            else:
+                break
+        return c
+
+    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
+        """Return the map from submesh child entities to submesh parent entities or its reverse.
+
+        Parameters
+        ----------
+        source_integral_type : str
+            Integral type on the source mesh.
+        source_subset_points : numpy.ndarray
+            Subset points on the source mesh.
+        reverse : bool
+            If True, return the map from parent entities to child entities.
+
+        Returns
+        -------
+        tuple
+           (map from source to target, integral type on the target mesh, subset points on the target mesh).
+
+        """
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
+    def submesh_map_composed(self, other, other_integral_type, other_subset_points):
+        """Create entity-entity map from ``other`` to `self`.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            Base mesh topology.
+        other_integral_type : str
+            Integral type on ``other``.
+        other_subset_points : numpy.ndarray
+            Subset points on ``other``; only used to identify (facet) integral_type on ``self``.
+
+        Returns
+        -------
+        tuple
+            Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
+
+        """
+        common = self.submesh_youngest_common_ancestor(other)
+        if common is None:
+            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
+        maps = []
+        integral_type = other_integral_type
+        subset_points = other_subset_points
+        # child -> parent
+        aa = other.submesh_ancestors
+        for a in aa[:aa.index(common)]:
+            m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
+            maps.append(m)
+        # parent -> child
+        bb = self.submesh_ancestors
+        for b in reversed(bb[:bb.index(common)]):
+            m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
+            maps.append(m)
+
+        return tuple(maps), integral_type, subset_points
+
+    # }}}
+
     # trans mesh
 
     def trans_mesh_entity_map(self, iteration_spec):
@@ -1760,9 +1858,6 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
-    def _mark_entity_classes(self):
-        dmcommon.mark_entity_classes(self.topology_dm)
-
     @cached_property
     def _ufl_cell(self):
         plex = self.topology_dm
@@ -1876,7 +1971,7 @@ class MeshTopology(AbstractMeshTopology):
         # a collective IS we must convert to COMM_WORLD before calling 'allGather'.
         local_facet_markers_is = self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL)
         global_facet_markers_is = PETSc.IS().createGeneral(
-            local_facet_markers_is.indices, comm=MPI.COMM_WORLD
+            local_facet_markers_is.indices, comm=self.comm
         ).allGather()
         return utils.readonly(np.unique(np.sort(global_facet_markers_is.indices)))
 
@@ -1914,29 +2009,6 @@ class MeshTopology(AbstractMeshTopology):
         indices_plex = dmcommon.facets_with_label(self, label_value)
         f_start, _ = self.topology_dm.getDepthStratum(self.dimension-1)
         return utils.readonly(indices_plex - f_start)
-
-    # def _facet_numbers_classes_set(self, kind):
-    #     if kind not in ["interior", "exterior"]:
-    #         raise ValueError("Unknown facet type '%s'" % kind)
-    #     # Can not call target.{interior, exterior}_facets.facets
-    #     # if target is a mixed cell mesh (cell_closure etc. can not be defined),
-    #     # so directly call dmcommon.get_facets_by_class.
-    #     _numbers, _classes = dmcommon.get_facets_by_class(self.topology_dm, (kind + "_facets"), self._facet_ordering)
-    #     _classes = as_tuple(_classes, int, 3)
-    #     _set = op2.Set(_classes, f"{kind.capitalize()[:3]}Facets", comm=self.comm)
-    #     return _numbers, _classes, _set
-
-    # @cached_property
-    # def _exterior_facet_numbers_classes_set(self):
-    #     return self._facet_numbers_classes_set("exterior")
-    #
-    # @cached_property
-    # def _interior_facet_numbers_classes_set(self):
-    #     return self._facet_numbers_classes_set("interior")
-    #
-    # @cached_property
-    # def _facet_ordering(self):
-    #     return dmcommon.get_facet_ordering(self.topology_dm, self._old_to_new_facet_numbering)
 
     @cached_property
     def cell_to_facets(self):
@@ -2169,103 +2241,6 @@ class MeshTopology(AbstractMeshTopology):
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
-    # submesh
-
-    @cached_property
-    def submesh_ancestors(self):
-        """Tuple of submesh ancestors."""
-        if self.submesh_parent:
-            return (self, ) + self.submesh_parent.submesh_ancestors
-        else:
-            return (self, )
-
-    def submesh_youngest_common_ancestor(self, other):
-        """Return the youngest common ancestor of self and other.
-
-        Parameters
-        ----------
-        other : AbstractMeshTopology
-            The other mesh.
-
-        Returns
-        -------
-        AbstractMeshTopology or None
-            Youngest common ancestor or None if not found.
-
-        """
-        # self --- ... --- m --- common --- common --- common
-        #                          /
-        #       other --- ... --- m
-        self_ancestors = list(self.submesh_ancestors)
-        other_ancestors = list(other.submesh_ancestors)
-        c = None
-        while self_ancestors and other_ancestors:
-            a = self_ancestors.pop()
-            b = other_ancestors.pop()
-            if a is b:
-                c = a
-            else:
-                break
-        return c
-
-    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
-        """Return the map from submesh child entities to submesh parent entities or its reverse.
-
-        Parameters
-        ----------
-        source_integral_type : str
-            Integral type on the source mesh.
-        source_subset_points : numpy.ndarray
-            Subset points on the source mesh.
-        reverse : bool
-            If True, return the map from parent entities to child entities.
-
-        Returns
-        -------
-        tuple
-           (map from source to target, integral type on the target mesh, subset points on the target mesh).
-
-        """
-        raise NotImplementedError(f"Not implemented for {type(self)}")
-
-    def submesh_map_composed(self, other, other_integral_type, other_subset_points):
-        """Create entity-entity map from ``other`` to `self`.
-
-        Parameters
-        ----------
-        other : AbstractMeshTopology
-            Base mesh topology.
-        other_integral_type : str
-            Integral type on ``other``.
-        other_subset_points : numpy.ndarray
-            Subset points on ``other``; only used to identify (facet) integral_type on ``self``.
-
-        Returns
-        -------
-        tuple
-            Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
-
-        """
-        common = self.submesh_youngest_common_ancestor(other)
-        if common is None:
-            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
-        maps = []
-        integral_type = other_integral_type
-        subset_points = other_subset_points
-        # child -> parent
-        aa = other.submesh_ancestors
-        for a in aa[:aa.index(common)]:
-            m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
-            maps.append(m)
-        # parent -> child
-        bb = self.submesh_ancestors
-        for b in reversed(bb[:bb.index(common)]):
-            m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
-            maps.append(m)
-
-        return tuple(maps), integral_type, subset_points
-
-    # }}}
 
     def _submesh_make_entity_entity_map(
         self,
@@ -3635,16 +3610,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def _add_overlap(self):
         pass
 
-    def _mark_entity_classes(self):
-        if self.input_ordering_swarm:
-            assert isinstance(self._parent_mesh, MeshTopology)
-            dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
-        else:
-            # Have an input-ordering vertex-only mesh. These should mark
-            # all entities as pyop2 core, which mark_entity_classes will do.
-            assert isinstance(self._parent_mesh, VertexOnlyMeshTopology)
-            dmcommon.mark_entity_classes(self.topology_dm)
-
     @cached_property
     def _ufl_cell(self):
         return ufl.Cell(_cells[0][0])
@@ -3825,9 +3790,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         dat = op3.Dat(self.points, data=self.cell_parent_cell_list)
         return op3.ScalarMap(
             {
-                idict({self.name: self.cell_label}): [[
+                idict({self.name: self.cell_label}): [
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
-                ]]
+                ]
             },
             name="cell_parent_cell",
         )

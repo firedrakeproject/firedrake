@@ -401,7 +401,11 @@ class Executable:
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __call__(self, *args: int) -> None:
+        # print("calling")
+        # print(self.code)
         self._callable(*args)
+        # print(self.code)
+        # print("done, didn't die")
 
     @cached_property
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
@@ -489,7 +493,8 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "1.  2.  3.  4." in str(self):
+        # print(self)
+        # if "form" in str(self):
         #     breakpoint()
         # import pyop3.debug
         # pyop3.debug.maybe_breakpoint()

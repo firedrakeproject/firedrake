@@ -1511,11 +1511,9 @@ class CheckpointFile:
             self.viewer.pushTimestepping()
             self.viewer.setTimestep(idx)
         if element.family() == "Real":
-            if tV.comm.size > 1:
-                raise NotImplementedError
             assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
-            tf.dat.data[...] = value
+            tf.dat.buffer._host_data[...] = value
         else:
             if path in self.h5pyfile:
                 timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")

@@ -389,7 +389,7 @@ def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
     return type(tensor)(*children)
 
 
-class Interpolation(object):
+class Interpolation:
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
         self.cprimal = firedrake.Function(Vcoarse)
         self.fprimal = firedrake.Function(Vfine)
@@ -438,7 +438,7 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
 
-class Injection(object):
+class Injection:
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None):
         self.cfn = firedrake.Function(Vcoarse)
         self.ffn = firedrake.Function(Vfine)
@@ -453,6 +453,7 @@ class Injection(object):
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
+        print(y.array_r)
 
 
 def create_interpolation(dmc, dmf):

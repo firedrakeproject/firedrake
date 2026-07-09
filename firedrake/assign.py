@@ -266,7 +266,7 @@ class Assigner:
         expr_meshes = firedrake.ufl_expr.extract_domains(self.expression)
         if (
             not expr_meshes
-            or len(expr_meshes) == 1 and expr_meshes[0] == self.assignee.function_space().mesh()
+            or len(expr_meshes) == 1 and expr_meshes[0] == self.assignee.function_space().mesh().unique()
         ):
             return False
         else:
@@ -306,6 +306,11 @@ class Assigner:
                 raise NotImplementedError
 
         if self._cross_mesh:
+            if self.mode != AssignmentMode.STANDARD:
+                raise NotImplementedError(
+                    "Currently a bug where iadd/isub/etc does not actually change the assignee"
+                )
+
             # We use an intermediate buffer array to make sure that owned DoFs are
             # updated upon assigning. This is because the point ownership is not
             # guaranteed to be the same between target and source meshes (see

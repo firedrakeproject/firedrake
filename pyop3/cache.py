@@ -545,14 +545,14 @@ def parallel_cache(
                             # not explode
                             # The keys of this dictionary are the lifetime objects
                             comm_caches[cache_id] = weakref.WeakKeyDictionary()
-                            # but this fixes a parallel bug...
+                            # but this fixes a parallel bug... somewhere...
                             # comm_caches[cache_id] = {}
 
                         caches = []
                         cache_type = None
                         for lifetime_obj in _heavy_caches:
                             # FIXME: This doesn't always hold, but it probably should
-                            # assert lifetime_obj.comm.size >= comm.size
+                            assert lifetime_obj.comm.size >= comm.size
                             if pyop3.config.spmd_strict:
                                 # cache access must be collective over lifetime objects
                                 lifetime_obj.comm.barrier()
