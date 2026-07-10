@@ -1685,11 +1685,13 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
             blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        isrows, iscols = (V.dof_dset.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,

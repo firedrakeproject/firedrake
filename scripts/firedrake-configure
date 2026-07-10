@@ -3,12 +3,9 @@
 """Script for preparing an environment to install Firedrake into."""
 
 # To avoid the pitfalls inherent in having executable configuration files
-# this script is intentionally extremely dumb. All configure options are computed
-# 'statically' (at import) and the only run-time logic that happens is dispatching
-# on the right package manager and arch.
-
-# As a matter of policy, new package managers and archs should only be added to
-# this file if they are *tested in CI*.
+# this script is intentionally extremely dumb. All configure options are set
+# in advance and the only run-time logic that happens is dispatching on the
+# right package manager and arch.
 
 import sys
 import time
@@ -81,16 +78,29 @@ def main():
     arch_key_str = f"{{{', '.join(f'{k.__class__.__name__}: {k.value}' for k in arch_key)}}}"
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
+    elif arch_key in RETIRED_ARCHS:
+        arch = RETIRED_ARCHS[arch_key]
+        warn(f"""\
+You have selected an older configuration of Firedrake that we no longer test:
+
+  {arch_key_str} (last modified {arch.last_modified})
+
+If you encounter issues please get in touch with the Firedrake team on GitHub or Slack.""")
     elif arch_key in COMMUNITY_ARCHS:
         arch = COMMUNITY_ARCHS[arch_key]
         warn(f"""\
-You have selected an untested, community-maintained Firedrake configuration
-(last modified {arch.last_modified}), if you encounter issues please
-contact {arch.maintainer} {arch.contact}""")
+You have selected an untested, community-maintained Firedrake configuration:
+
+  {arch_key_str} (last modified {arch.last_modified})
+
+If you encounter issues please contact {arch.maintainer} {arch.contact}.""")
     else:
         error(f"""\
-Firedrake configuration not found for option set '{arch_key_str}',
-please consider passing '--os unknown' or building manually""")
+Firedrake configuration not found for option set:
+
+  {arch_key_str}
+
+Please consider passing '--os unknown' or building manually.""")
 
     if args.show_system_packages:
         try:
@@ -244,6 +254,7 @@ class ScalarType(enum.Enum):
 class GPUPlatform(enum.Enum):
     NO_GPU = "none"
     CUDA = "cuda"
+    HIP = "hip"
 
 
 class InvalidConfigurationError(Exception):
@@ -343,6 +354,23 @@ class Arch:
 
         env_str = " ".join(f"{name}={replace_vars(value)}" for name, value in env.items())
         print_and_stop(env_str)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class RetiredArch(Arch):
+    """A configuration that Firedrake used to test but no longer does.
+
+    For example this includes older versions of Ubuntu.
+
+    """
+
+    last_modified: str
+    """Date the configuration was last modified (YYYY-MM-DD).
+
+    This is useful for judging the age, and hence likelihood to work, of
+    submitted configurations.
+
+    """
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -971,15 +999,14 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
     ),
 }
 
-# 'Best effort' configurations that are not tested in CI
-COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
+# Configurations that Firedrake used to support, these are considered
+# more reliable that community configs.
+RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
 
     # Ubuntu 24.04 x86
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
-        maintainer="the Firedrake team",
-        contact="on Slack",
         last_modified="2026-05-13",
         system_packages=[
             "bison",
@@ -1040,10 +1067,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
-        maintainer="the Firedrake team",
-        contact="on Slack",
         last_modified="2026-05-13",
         system_packages=[
             "bison",
@@ -1106,10 +1131,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     # Ubuntu 24.04 aarch64
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): CommunityArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
-        maintainer="the Firedrake team",
-        contact="on Slack",
         last_modified="2026-05-13",
         system_packages=[
             "bison",
@@ -1170,10 +1193,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): CommunityArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
-        maintainer="the Firedrake team",
-        contact="on Slack",
         last_modified="2026-05-13",
         system_packages=[
             "bison",
@@ -1234,7 +1255,99 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
         ],
     ),
 
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.HIP): CommunityArch(
+        name="default-hip",
+        maintainer="the G-ADOPT team",
+        contact="at help@gadopt.org",
+        last_modified="2026-07-07",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+
+            # HIP packages
+            "rocm-hip-libraries",
+            "rocm-hip-runtime",
+            "rocm-language-runtime",
+            "rocm-ml-libraries",
+            "rocm-opencl-runtime",
+            "rocm-developer-tools",
+            "rocm-hip-runtime-dev",
+            "rocm-hip-sdk",
+            "rocm-opencl-sdk",
+            "rocm-openmp-sdk"
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-zlib",
+            "--download-hypre",
+            "--download-suitesparse",
+            "--download-superlu_dist",
+
+            # HIP options
+            "--with-hip=1",
+            "--with-hip-dir=/opt/rocm",
+            "--with-hip-arch=gfx90a",
+            "--with-openmp=1",
+            "--with-cxx-dialect=c++17",
+            "--download-umpire",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+        # Note - must be set before PETSc install
+        extra_env_vars={
+            "CMAKE_PREFIX_PATH": "/opt/rocm/lib/cmake/hip:/opt/rocm/lib/cmake/hipblas:/opt/rocm/lib/cmake/hipblas-common:/opt/rocm/lib/cmake/rocsolver:/opt/rocm/lib/cmake/rocblas",
+        },
+        # See https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html for latest
+        # installer package URL.
+        # Must be installed with apt (not dpkg).
+        extra_url="https://repo.radeon.com/amdgpu-install/7.2.4/ubuntu/noble/amdgpu-install_7.2.4.70204-1_all.deb",
+    ),
 }
+
+# 'Best effort' configurations that are not tested in CI
+COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {}
+
 
 if __name__ == "__main__":
     main()
