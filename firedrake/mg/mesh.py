@@ -185,7 +185,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
     meshes = [mesh]
     mesh_origs = [mesh]
-    for rdm, rdm_orig, point_sf_orig in dm_entries[1:]:
+    for rdm, rdm_orig, point_sf in dm_entries[1:]:
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -193,7 +193,7 @@ def MeshHierarchy(mesh, refinement_levels,
             reorder=reorder,
             comm=mesh.comm,
         )
-        if point_sf_orig is not None:
+        if point_sf is not None:
             fmesh_orig = mesh_builder(
                 rdm_orig,
                 dim=mesh.geometric_dimension,
@@ -202,7 +202,8 @@ def MeshHierarchy(mesh, refinement_levels,
                 comm=mesh.comm,
             )
             overlap_sf = fmesh.topology.sfBC
-            point_sf = point_sf_orig.compose(overlap_sf) if overlap_sf is not None else point_sf_orig
+            if overlap_sf is not None:
+                point_sf = point_sf.compose(overlap_sf)
             fmesh.redist = RedistributedMeshTransfer(fmesh_orig, fmesh, point_sf)
         else:
             fmesh_orig = fmesh
