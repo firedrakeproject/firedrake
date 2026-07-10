@@ -3,20 +3,24 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.mark.parallel([1, 2, 4])
-def test_adapt_basic():
-    nx = 1
-    base = UnitCubeMesh(nx, nx, nx)
-
-    refine = 6
+def corner_adaptive_hierarchy(base, nlevels):
     mh = AdaptiveMeshHierarchy(base)
-    for l in range(refine):
+    for l in range(nlevels):
         mesh = mh[-1]
         x = SpatialCoordinate(mesh)
         M = FunctionSpace(mesh, "DG", 0)
         m = Function(M, name="marker")
         m.interpolate(conditional(sum(x) < 2**(-l+1), 1, 0))
         mh.add_mesh(mesh.refine_marked_elements(m))
+    return mh
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_adapt_basic():
+    nx = 1
+    base = UnitCubeMesh(nx, nx, nx)
+
+    mh = corner_adaptive_hierarchy(base, nlevels=6)
 
     mesh = mh[-1]
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
@@ -38,8 +42,8 @@ def _linear_expr(mesh):
 @pytest.fixture(params=[
     "firedrake-square",
     "firedrake-cube",
-    # pytest.param("netgen-square", marks=pytest.mark.skipnetgen),
-    # pytest.param("netgen-cube", marks=pytest.mark.skipnetgen),
+    pytest.param("netgen-square", marks=pytest.mark.skipnetgen),
+    pytest.param("netgen-cube", marks=pytest.mark.skipnetgen),
 ])
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
@@ -68,24 +72,7 @@ def coarse_mesh(request):
 
 @pytest.fixture
 def amh(coarse_mesh):
-    """Build an AdaptiveMeshHierarchy from ``base`` by randomly marking
-    roughly half of the cells for refinement at each of ``nlevels``
-    levels, via `~firedrake.mesh.MeshGeometry.refine_marked_elements`.
-    """
-    nlevels = 2
-    amh_test = AdaptiveMeshHierarchy(coarse_mesh)
-
-    rg = RandomGenerator(PCG64(seed=0))
-    for _ in range(nlevels):
-        mesh = amh_test[-1]
-        DG = FunctionSpace(mesh, "DG", 0)
-        should_refine = rg.uniform(DG, 0, 1)
-        markers = Function(DG)
-        markers.dat.data_wo[:] = should_refine.dat.data_ro < 0.5
-
-        refined_mesh = mesh.refine_marked_elements(markers)
-        amh_test.add_mesh(refined_mesh)
-    return amh_test
+    return corner_adaptive_hierarchy(coarse_mesh, nlevels=2)
 
 
 def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
