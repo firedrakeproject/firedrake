@@ -80,7 +80,7 @@ def make_unoverlapped_dm(dm):
     return dm
 
 
-def redistribute_dm(dm, parameters):
+def redistribute_dm(dm, parameters, grow_overlap=True):
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")
@@ -89,6 +89,8 @@ def redistribute_dm(dm, parameters):
     partitioner_type = parameters.get("partitioner_type")
     MeshTopology._set_partitioner(dm, distribute, partitioner_type)
     point_sf_orig = dm.distribute(overlap=0)
+    if not grow_overlap:
+        return point_sf_orig, point_sf_orig
     overlap_sf = distribute_overlap(dm, parameters)
     if overlap_sf is None:
         point_sf = point_sf_orig

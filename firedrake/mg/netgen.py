@@ -279,11 +279,8 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        # `rdm` is handed to `fd.Mesh` below, which mutates it in place
-        # (e.g. growing the halo via `_add_overlap`).  Keep a pristine,
-        # unoverlapped clone around so that the *next* level refines from
-        # a mesh with no ghost cells, rather than from whatever `rdm` grew
-        # into.
+        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
+        # it first to keep an unoverlapped dm for the next refinement.
         cdm = rdm.clone()
         if optMoves:
             # Optimises the mesh, for example smoothing
