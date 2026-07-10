@@ -170,8 +170,8 @@ def MeshHierarchy(mesh, refinement_levels,
                         and dm_has_empty_rank(rdm))
         if needs_redist:
             rdm = rdm.clone()
-            point_sf_orig, _ = redistribute_dm(rdm, {"partition": True}, grow_overlap=False)
-        dm_entries.append((rdm, rdm_orig, point_sf_orig))
+            point_sf, _ = redistribute_dm(rdm, {"partition": True}, grow_overlap=False)
+        dm_entries.append((rdm, rdm_orig, point_sf))
         cdm = rdm
 
     # Build a mesh for each level, adding overlap (and, where needed, the
