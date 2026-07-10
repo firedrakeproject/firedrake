@@ -415,6 +415,37 @@ def test_linear_problem_interpolate_rhs(use_solver, rg):
 
 
 @pytest.mark.skipcomplex
+def test_solve_rhs_and_solution_arguments(rg):
+    # Solve F == b with the initial guess and solution in x.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    X, Y = SpatialCoordinate(mesh)
+
+    u = Function(V)
+    v = TestFunction(V)
+    F = (inner(u, v) + inner(grad(u), grad(v)) + inner(u**3, v))*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
+    solver = NonlinearVariationalSolver(problem)
+
+    g = Function(V).interpolate(sin(pi*X)*sin(pi*Y))
+    x = Function(V)
+    for _ in range(2):
+        b = assemble(inner(g*g*(1 + x), v)*dx)
+        solver.solve(x=x, b=b)
+
+    # Evaluate the objective with the explicit solution buffer.
+    J = assemble(inner(x, x)*dx)
+    rf = ReducedFunctional(J, Control(g))
+
+    h = rg.uniform(V)
+    rates = taylor_to_dict(rf, g, h)
+    assert min(rates["R0"]["Rate"]) > 0.9
+    assert min(rates["R1"]["Rate"]) > 1.9
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
