@@ -217,9 +217,9 @@ def MeshHierarchy(mesh, refinement_levels,
         for (dm, _, _), m in zip(dm_entries, meshes)
     ]
     lgmap_origs = [
-        lgmaps[i] if point_sf_orig is None else
+        lgmap if point_sf_orig is None else
         (impl.create_lgmap(rdm_orig), impl.create_lgmap(mesh_orig.topology_dm))
-        for i, ((_, rdm_orig, point_sf_orig), mesh_orig) in enumerate(zip(dm_entries, mesh_origs))
+        for (lgmap, (_, rdm_orig, point_sf_orig), mesh_orig) in zip(lgmaps, dm_entries, mesh_origs)
     ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
