@@ -411,3 +411,99 @@ It is also possible to construct high-order meshes using the ``SplineGeometry``,
 .. figure:: Example7.png
    :align: center
    :alt: Example of a curved mesh of order 2 generated from a geometry described using Netgen CSG2d.
+
+Periodic Meshes
+---------------
+Netgen can identify pairs of vertices lying on opposite boundaries of a geometry as being *the same* point.
+When such a mesh is imported into Firedrake, the identified vertices are merged in the mesh topology, so that
+a continuous (CG) function space automatically shares its degrees of freedom across the seam: the mesh is
+genuinely **periodic**. This is exactly the representation Firedrake uses for its built-in
+``PeriodicRectangleMesh``/``PeriodicBoxMesh``, and it is now available for any Netgen geometry carrying
+periodic identifications.
+
+Identifications are declared on the geometry, before meshing, with the OCC ``Identify`` method::
+
+   shape_a.Identify(shape_b, name, IdentificationType.PERIODIC, transformation)
+
+where ``transformation`` is the rigid motion (typically a translation) that maps ``shape_a`` onto ``shape_b``.
+Netgen then meshes the two boundaries compatibly and records the vertex pairs; Firedrake consumes them
+automatically -- no extra flag on the ``Mesh`` constructor is required.
+
+As a physically motivated example we build the *periodic cylinder*, the classic reduced ("screw pinch") model
+of a tokamak plasma column. A tokamak is a torus, so the plasma is periodic in the toroidal direction; in the
+large-aspect-ratio limit one straightens a toroidal section into a cylinder and identifies its two circular
+ends, recovering periodicity along the axis. We take the axial (toroidal) coordinate to run over :math:`[0, 2\pi)`
+and identify the two end caps by a translation of :math:`2\pi` along ``Z``::
+
+   from netgen.occ import Cylinder, OCCGeometry, Pnt, Z, gp_Trsf, gp_Vec
+   from netgen.meshing import IdentificationType
+   from math import pi as PI
+
+   cyl = Cylinder(Pnt(0, 0, 0), Z, r=1.0, h=2 * PI)
+   # Label the lateral wall, then the two end caps that we will identify.
+   for face in cyl.faces:
+       face.name = "wall"
+   cyl.faces.Min(Z).name = "bottom"
+   cyl.faces.Max(Z).name = "top"
+   # Identify the bottom cap with the top cap: a translation of 2*pi along Z
+   # maps one onto the other, making the axial direction periodic.
+   cyl.faces.Min(Z).Identify(cyl.faces.Max(Z), "toroidal",
+                             IdentificationType.PERIODIC,
+                             gp_Trsf.Translation(gp_Vec(0, 0, 2 * PI)))
+   ngmsh = OCCGeometry(cyl).GenerateMesh(maxh=0.4)
+   msh = Mesh(ngmsh)
+   VTKFile("output/Tokamak.pvd").write(msh)
+
+.. warning::
+
+   The mesh must contain at least a handful of cells along each periodic direction. If a single cell spans a
+   whole period, its two ends are identified and the cell collapses; Firedrake then raises a ``ValueError``
+   asking you to refine along the periodic direction. Here the axis has length :math:`2\pi` and ``maxh=0.4``
+   gives roughly sixteen cells along it, which is ample. Only ``degree == 1`` periodic meshes are supported
+   for now.
+
+Because the two end caps have been identified, no boundary markers survive on them: the seam has become an
+*interior* set of facets, and the only labelled boundary that remains is the lateral wall. This is what makes
+a continuous field wrap around continuously in the axial direction. We can verify the geometry survived the
+merge intact -- the volume of the cylinder is :math:`\pi r^2 h = 2\pi^2` -- while the ends carry no exterior
+facets::
+
+   volume = assemble(Constant(1.0) * dx(domain=msh))
+   PETSc.Sys.Print(f"cylinder volume: {volume:.4f}  (exact 2*pi**2 = {2 * PI**2:.4f})")
+
+To show that the periodicity is doing real work, we solve a Helmholtz problem whose exact solution is periodic
+in the axial coordinate and vanishes on the lateral wall,
+
+.. math::
+
+   u_{\text{ex}}(x, y, z) = \cos(z)\,\bigl(1 - x^2 - y^2\bigr),
+
+so that we can impose a homogeneous Dirichlet condition on the wall while relying on the identified ends for
+continuity along the axis. We look up the id of the ``"wall"`` boundary with ``GetRegionNames`` (as in the
+Poisson example above) and manufacture the right-hand side :math:`f = u_{\text{ex}} - \Delta u_{\text{ex}}` for
+:math:`(I - \Delta)u = f`::
+
+   V = FunctionSpace(msh, "CG", 2)
+   x, y, z = SpatialCoordinate(msh)
+   uex = cos(z) * (1 - x**2 - y**2)
+   f = uex - div(grad(uex))
+
+   u = TrialFunction(V)
+   v = TestFunction(V)
+   a = (inner(u, v) + inner(grad(u), grad(v))) * dx
+   L = inner(f, v) * dx
+
+   labels = [i + 1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name == "wall"]
+   bc = DirichletBC(V, 0, labels)
+
+   sol = Function(V)
+   solve(a == L, sol, bcs=bc)
+   VTKFile("output/TokamakSolution.pvd").write(sol)
+
+   error = sqrt(assemble(inner(sol - uex, sol - uex) * dx))
+   PETSc.Sys.Print(f"L2 error: {error:.2e}")
+
+The recovered solution is continuous across the identified ends: opening ``output/TokamakSolution.pvd`` in
+ParaView, the field wraps seamlessly from the top cap back to the bottom, exactly as a toroidal mode should.
+Had the ends *not* been identified, the same computation would leave an artificial jump at the seam and the
+manufactured solution would not be recovered.

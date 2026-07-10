@@ -342,3 +342,92 @@ def test_netgen_occ_adaptivity():
             break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
+
+
+def _occ_periodic_square(maxh, directions="x"):
+    from netgen.occ import Rectangle, OCCGeometry, X, Y, gp_Trsf, gp_Vec
+    from netgen.meshing import IdentificationType
+    shape = Rectangle(1, 1).Face()
+    shape.edges.Min(X).name, shape.edges.Max(X).name = "left", "right"
+    shape.edges.Min(Y).name, shape.edges.Max(Y).name = "bottom", "top"
+    if "x" in directions:
+        shape.edges.Min(X).Identify(shape.edges.Max(X), "px",
+                                    IdentificationType.PERIODIC,
+                                    gp_Trsf.Translation(gp_Vec(1, 0, 0)))
+    if "y" in directions:
+        shape.edges.Min(Y).Identify(shape.edges.Max(Y), "py",
+                                    IdentificationType.PERIODIC,
+                                    gp_Trsf.Translation(gp_Vec(0, 1, 0)))
+    return OCCGeometry(shape, dim=2).GenerateMesh(maxh=maxh)
+
+
+def _solve_periodic_helmholtz(mesh, uex):
+    # Solve (I - div grad) u = f, where f is manufactured so the exact solution
+    # is the periodic field uex; return the L2 error.
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    f = uex - div(grad(uex))
+    a = (inner(u, v) + inner(grad(u), grad(v))) * dx
+    L = inner(f, v) * dx
+    uh = Function(V)
+    solve(a == L, uh)
+    return sqrt(assemble(inner(uh - uex, uh - uex) * dx))
+
+
+@pytest.mark.skipnetgen
+def test_netgen_periodic_square():
+    # A periodic netgen mesh identifies the seam DOFs, so the periodic boundary
+    # markers are absent and the geometry is recovered exactly.
+    mesh = Mesh(_occ_periodic_square(0.1, directions="x"))
+    assert abs(assemble(Constant(1.0) * dx(domain=mesh)) - 1.0) < 1e-10
+
+    x, y = SpatialCoordinate(mesh)
+    # exact solution periodic in x; the seam continuity is essential to recover it.
+    err = _solve_periodic_helmholtz(mesh, sin(2 * pi * x))
+    assert err < 5e-2
+
+
+@pytest.mark.skipnetgen
+def test_netgen_periodic_square_both_directions():
+    mesh = Mesh(_occ_periodic_square(0.1, directions="xy"))
+    assert abs(assemble(Constant(1.0) * dx(domain=mesh)) - 1.0) < 1e-10
+    # both pairs identified: no exterior facets remain (a torus).
+    assert mesh.exterior_facets.set.total_size == 0
+    x, y = SpatialCoordinate(mesh)
+    err = _solve_periodic_helmholtz(mesh, sin(2 * pi * x) * cos(2 * pi * y))
+    assert err < 5e-2
+
+
+@pytest.mark.skipnetgen
+def test_netgen_periodic_cylinder():
+    # Periodic along the axis of a cylinder: a curved-boundary periodic mesh.
+    from netgen.occ import Cylinder, OCCGeometry, Pnt, gp_Trsf, gp_Vec, Z
+    from netgen.meshing import IdentificationType
+    cyl = Cylinder(Pnt(0, 0, 0), Z, r=1.0, h=1.0)
+    cyl.faces.Min(Z).Identify(cyl.faces.Max(Z), "pz",
+                              IdentificationType.PERIODIC,
+                              gp_Trsf.Translation(gp_Vec(0, 0, 1)))
+    mesh = Mesh(OCCGeometry(cyl).GenerateMesh(maxh=0.15))
+    # Volume approaches pi as the polygonal boundary is refined.
+    assert abs(assemble(Constant(1.0) * dx(domain=mesh)) - pi) < 2e-2
+    x, y, z = SpatialCoordinate(mesh)
+    err = _solve_periodic_helmholtz(mesh, sin(2 * pi * z))
+    assert err < 2e-1
+
+
+@pytest.mark.skipnetgen
+def test_netgen_periodic_too_coarse():
+    # A mesh too coarse along the periodic direction produces seam-spanning cells
+    # that collapse on merging; this must raise a clear error rather than build a
+    # broken mesh.
+    from netgen.occ import Box, OCCGeometry, X, gp_Trsf, gp_Vec, Pnt
+    from netgen.meshing import IdentificationType
+    box = Box(Pnt(0, 0, 0), Pnt(1, 1, 1))
+    box.faces.Min(X).Identify(box.faces.Max(X), "px",
+                              IdentificationType.PERIODIC,
+                              gp_Trsf.Translation(gp_Vec(1, 0, 0)))
+    ngmesh = OCCGeometry(box).GenerateMesh(maxh=0.4)
+    with pytest.raises(ValueError, match="degenerate"):
+        Mesh(ngmesh)
+
+
