@@ -127,7 +127,6 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     }[V.ufl_element().sobolev_space]
     formdegree = V.finat_element.formdegree
 
-
     if elasticity:
         gamma = Constant(1E4)
         a = (inner(grad(u) + grad(u).T, grad(v)) * dx

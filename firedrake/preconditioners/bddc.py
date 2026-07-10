@@ -7,7 +7,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from functools import cached_property
@@ -15,7 +15,7 @@ from functools import cached_property
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, L2, H1, H2, JacobianDeterminant, div, dx, inner, replace
+from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import BrokenElement
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
