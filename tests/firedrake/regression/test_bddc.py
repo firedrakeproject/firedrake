@@ -10,7 +10,8 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False):
+def bddc_params(mat_type="is", cellwise=False, adaptive=False,
+                use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -23,13 +24,35 @@ def bddc_params(mat_type="is", cellwise=False):
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
+        "bddc_debug": debug,
     }
+    if use_gradient is not None:
+        # defaults to True for 3D H(curl) spaces
+        sp["bddc_use_discrete_gradient"] = use_gradient
+    if use_divergence is not None:
+        # defaults to True for 2D H(curl) and 2D/3D H(div) spaces
+        sp["bddc_use_divergence_mat"] = use_divergence
+    if corner_selection is not None:
+        # defaults to True for H1 spaces
+        sp["bddc_pc_bddc_corner_selection"] = corner_selection
+
+    if adaptive:
+        sp.update({
+            "bddc_pc_bddc_use_deluxe_scaling": None,
+            "bddc_pc_bddc_adaptive_userdefined": None,
+            "bddc_pc_bddc_deluxe_zerorows": False,
+            "bddc_pc_bddc_adaptive_threshold": 5,
+        })
+    # On MacOSX the distributed right-hand side is bugged!
+    if DEFAULT_DIRECT_SOLVER == "mumps":
+        sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
+
     return sp
 
 
-def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0):
+def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0, **kwargs):
     mat_type = "matfree" if cellwise and variant != "fdm" else "is"
-    sp_bddc = bddc_params(mat_type=mat_type, cellwise=cellwise)
+    sp_bddc = bddc_params(mat_type=mat_type, cellwise=cellwise, **kwargs)
     if variant != "fdm":
         assert not condense
         sp = sp_bddc
@@ -67,6 +90,8 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
         "ksp_max_it": 20,
         "ksp_norm_type": "natural",
         "ksp_converged_reason": None,
+        # "ksp_view": None,
+        # "ksp_monitor_singular_value": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
     })
@@ -75,7 +100,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -100,9 +125,13 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
         HCurl: curl,
         HDiv: div,
     }[V.ufl_element().sobolev_space]
-
     formdegree = V.finat_element.formdegree
-    if formdegree == 0:
+
+    if elasticity:
+        gamma = Constant(1E4)
+        a = (inner(grad(u) + grad(u).T, grad(v)) * dx
+             + inner(div(u) * gamma, div(v)) * dx)
+    elif formdegree == 0:
         a = inner(d(u), d(v)) * dx
     else:
         a = (inner(u, v) + inner(d(u), d(v))) * dx
@@ -110,8 +139,15 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     u_exact = rg.uniform(V, -1, 1)
     L = replace(a, {u: u_exact})
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
+
+    # Near nullspace
     nsp = None
-    if formdegree == 0:
+    adaptive = False
+    use_divergence = None
+    if elasticity:
+        adaptive = True
+        use_divergence = True  # use divergence mat trick to compute no-net flux coarse space
+    elif formdegree == 0:
         b = np.zeros(V.value_shape)
         expr = Constant(b)
         basis = []
@@ -131,7 +167,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
     rtol = 1E-8
-    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol)
+    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
+                           use_divergence=use_divergence, adaptive=adaptive)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
@@ -139,9 +176,11 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
-    ew = solver.snes.ksp.computeEigenvalues()
-    assert min(ew) >= 1.0
-    kappa = max(abs(ew)) / min(abs(ew))
+    ew = solver.snes.ksp.computeEigenvalues().real
+    kappa = 1.0
+    if len(ew):
+        assert np.isclose(min(ew), 1.0, rtol=1.e-2)
+        kappa = max(abs(ew)) / min(abs(ew))
     return kappa ** 0.5
 
 
@@ -252,6 +291,20 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     meshes = MeshHierarchy(base, 2)
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parallel(3)
+@pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
+def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
+    """Test h-dependence of condition number by measuring iteration counts"""
+    base = UnitSquareMesh(2, 2)
+    meshes = MeshHierarchy(base, 2)
+    dim = base.topological_dimension
+    vector = (family == "CG")
+    variant = "alfeld" if family == "CG" and degree < 2*dim else None
+    bcs = True
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
+    assert (np.diff(sqrt_kappa) <= 1.0).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel([1, 3])

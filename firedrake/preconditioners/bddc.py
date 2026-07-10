@@ -7,7 +7,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from functools import cached_property
@@ -15,7 +15,7 @@ from functools import cached_property
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
+from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import BrokenElement
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
@@ -87,11 +87,15 @@ class BDDCPC(PCBase):
         bddcpc.setOperators(A, P)
         self.assemblers = assemblers
 
+        # we may inject some options, we remove them after calling setFromOptions
+        rem_opts = []
+
         # Do not use CSR of local matrix to define dofs connectivity unless requested
         # Using the CSR only makes sense for H1/H2 problems
         is_h1h2 = V.ufl_element().sobolev_space in {H1, H2}
         if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not V.finat_element.has_pointwise_dual_basis):
             opts["pc_bddc_use_local_mat_graph"] = False
+            rem_opts.append("pc_bddc_use_local_mat_graph")
 
         # Get context from DM
         ctx = get_appctx(dm)
@@ -119,17 +123,24 @@ class BDDCPC(PCBase):
 
         appctx = self.get_appctx(pc)
 
-        # Set coordinates only if corner selection is requested
+        # Set coordinates if corner selection is requested or needed
         # There's no API to query from PC
-        if "pc_bddc_corner_selection" in opts:
-            degree = max(as_tuple(V.ufl_element().degree()))
-            variant = V.ufl_element().variant()
-            W = VectorFunctionSpace(mesh, "Lagrange", degree, variant=variant)
-            coords = Function(W).interpolate(mesh.coordinates)
-            bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
+        entity_dofs = V.finat_element.entity_dofs()
+        vdofs = entity_dofs[min(entity_dofs)]
+        has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
+        corner_selection = opts.getBool("pc_bddc_corner_selection") if "pc_bddc_corner_selection" in opts else has_vertex_dofs
+        if corner_selection:
+            if "pc_bddc_corner_selection" not in opts:
+                opts["pc_bddc_corner_selection"] = True
+                rem_opts.append("pc_bddc_corner_selection")
+            bddcpc.setCoordinates(get_entity_coordinates(V))
 
+        # Provide extra information for H(div) and H(curl) problems
         tdim = mesh.topological_dimension
-        if tdim >= 2 and V.finat_element.formdegree == tdim-1:
+        use_divergence = opts.getBool("use_divergence_mat", tdim >= 2 and V.finat_element.formdegree == tdim-1)
+        use_gradient = opts.getBool("use_discrete_gradient", tdim >= 3 and V.finat_element.formdegree == 1)
+
+        if use_divergence:
             allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
@@ -139,8 +150,7 @@ class BDDCPC(PCBase):
                 div_args = (divergence,)
                 div_kwargs = dict()
             bddcpc.setBDDCDivergenceMat(*div_args, **div_kwargs)
-
-        elif tdim >= 3 and V.finat_element.formdegree == 1:
+        if use_gradient:
             get_gradient = appctx.get("get_discrete_gradient", get_discrete_gradient)
             gradient = get_gradient(V)
             try:
@@ -157,7 +167,13 @@ class BDDCPC(PCBase):
             primal_is = PETSc.IS().createGeneral(primal_indices.astype(PETSc.IntType), comm=pc.comm)
             bddcpc.setBDDCPrimalVerticesIS(primal_is)
 
+        if "pc_bddc_check_level" not in opts and "debug" in opts:
+            opts.setValue("pc_bddc_check_level", opts["debug"])
+            rem_opts.append("pc_bddc_check_level")
         bddcpc.setFromOptions()
+        for opt in rem_opts:
+            del opts[opt]
+
         self.pc = bddcpc
 
     def view(self, pc, viewer=None):
@@ -189,7 +205,7 @@ class BrokenDirichletBC(DirichletBC):
         return numpy.flatnonzero(u.dat.data)
 
 
-def create_matis(Amat, local_mat_type, cellwise=False):
+def create_matis(a, local_mat_type, cellwise=False, bcs=()):
     from firedrake.assemble import get_assembler
 
     def local_mesh(mesh):
@@ -235,7 +251,8 @@ def create_matis(Amat, local_mat_type, cellwise=False):
 
     def local_to_global_map(V, cellwise):
         u = Function(V)
-        u.dat.data_wo[:] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+        shp = u.dat.data_ro.shape
+        u.dat.data_wo[...] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange()).reshape(shp)
 
         Vsub = local_space(V, False)
         usub = Function(Vsub).assign(u)
@@ -244,10 +261,18 @@ def create_matis(Amat, local_mat_type, cellwise=False):
         indices = usub.dat.data_ro.astype(PETSc.IntType)
         return PETSc.LGMap().create(indices, comm=V.comm)
 
-    assert Amat.type == "python"
-    ctx = Amat.getPythonContext()
-    form = ctx.a
-    bcs = ctx.bcs
+    if isinstance(a, Form):
+        form = a
+        args = a.arguments()
+        comm = args[0].function_space().comm
+        sizes = tuple(arg.function_space().dof_dset.layout_vec.getSizes() for arg in args)
+    elif isinstance(a, PETSc.Mat):
+        assert a.type == "python"
+        ctx = a.getPythonContext()
+        form = ctx.a
+        bcs = ctx.bcs
+        comm = a.comm
+        sizes = a.getSizes()
 
     local_form = replace(form, {arg: local_argument(arg, cellwise) for arg in form.arguments()})
     local_form = Form(list(map(local_integral, local_form.integrals())))
@@ -259,7 +284,7 @@ def create_matis(Amat, local_mat_type, cellwise=False):
     rmap = local_to_global_map(form.arguments()[0].function_space(), cellwise)
     cmap = local_to_global_map(form.arguments()[1].function_space(), cellwise)
 
-    Amatis = PETSc.Mat().createIS(Amat.getSizes(), comm=Amat.getComm())
+    Amatis = PETSc.Mat().createIS(sizes, comm=comm)
     Amatis.setISAllowRepeated(cellwise)
     Amatis.setLGMap(rmap, cmap)
     Amatis.setISLocalMat(tensor.petscmat)
@@ -283,12 +308,20 @@ def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     from firedrake import assemble
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
-    B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
 
-    Jdet = JacobianDeterminant(V.mesh())
-    s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
-    with s.dat.vec as svec:
-        B.diagonalScale(svec, None)
+    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
+        form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
+        if mat_type == "is" and allow_repeated:
+            B, _ = create_matis(form, "aij", allow_repeated)
+        else:
+            B = assemble(form, mat_type=mat_type).petscmat
+    else:
+        B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
+        Jdet = JacobianDeterminant(V.mesh())
+        s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
+        with s.dat.vec as svec:
+            B.diagonalScale(svec, None)
+
     return (B,), {}
 
 
@@ -338,3 +371,109 @@ def get_primal_indices(V, primal_markers):
     else:
         primal_indices = numpy.asarray(primal_markers, dtype=PETSc.IntType)
     return primal_indices
+
+
+def get_entity_coordinates(V):
+    """
+    Return a Function on fd.VectorFunctionSpace(mesh, V.ufl_element()) containing
+    the physical coordinates of the entity associated with each degree of freedom of V.
+    """
+    import firedrake as fd
+    from pyop2 import op2
+    import numpy as np
+
+    mesh = V.mesh()
+    gdim = mesh.geometric_dimension
+
+    V_target = fd.VectorFunctionSpace(mesh, V.ufl_element())
+    V_cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
+
+    out_coords = fd.Function(V_target)
+    cg1_coords = fd.Function(V_cg1_coord).interpolate(mesh.coordinates)
+
+    finat_element = V.finat_element
+    cg1_finat = V_cg1_coord.finat_element
+    active_entities = [
+        (dim, ent_num)
+        for dim, entities in finat_element.entity_dofs().items()
+        for ent_num, dofs in entities.items()
+        if dofs
+    ]
+    num_entities = len(active_entities)
+
+    def flatten_space_mapping(entities, query_map):
+        offsets = np.zeros(len(entities) + 1, dtype=np.int32)
+        flat_list = []
+
+        for idx, (dim, ent_num) in enumerate(entities):
+            offsets[idx] = len(flat_list)
+            flat_list.extend(query_map[dim][ent_num])
+
+        offsets[-1] = len(flat_list)
+        return offsets, np.array(flat_list, dtype=np.int32)
+
+    # Flatten both target (V) and source (CG1) layouts
+    target_dofs_map = finat_element.entity_dofs()
+    cg1_closure_map = cg1_finat.entity_closure_dofs()
+
+    v_offsets, v_flat = flatten_space_mapping(active_entities, target_dofs_map)
+    cg1_offsets, cg1_flat = flatten_space_mapping(active_entities, cg1_closure_map)
+
+    total_v_dofs = len(v_flat)
+    total_cg1_dofs = len(cg1_flat)
+
+    kernel_code = f"""
+    void compute_target_coords_loop(PetscScalar *out, PetscScalar *cg1_coords) {{
+
+        // Target space represented as a flattened pair of 1D arrays
+        const int v_offsets[{num_entities + 1}] = {{ {", ".join(map(str, v_offsets))} }};
+        const int v_flat_mapping[{total_v_dofs}] = {{ {", ".join(map(str, v_flat))} }};
+
+        // Source CG1 space represented as a flattened pair of 1D arrays
+        const int cg1_offsets[{num_entities + 1}] = {{ {", ".join(map(str, cg1_offsets))} }};
+        const int cg1_flat_mapping[{total_cg1_dofs}] = {{ {", ".join(map(str, cg1_flat))} }};
+
+        // Loop over the flat entity index
+        for (int e = 0; e < {num_entities}; ++e) {{
+            int v_start = v_offsets[e];
+            int v_end = v_offsets[e + 1];
+
+            int cg1_start = cg1_offsets[e];
+            int cg1_end = cg1_offsets[e + 1];
+            int num_cg1_dofs = cg1_end - cg1_start;
+
+            // Compute structural centroid tracking coordinates from CG1 vertices
+            PetscScalar ent_coord[{gdim}] = {{0.0}};
+
+            for (int j = cg1_start; j < cg1_end; ++j) {{
+                int src_dof = cg1_flat_mapping[j];
+                for (int c = 0; c < {gdim}; ++c) {{
+                    ent_coord[c] += cg1_coords[src_dof * {gdim} + c];
+                }}
+            }}
+
+            // Normalize physical coordinates for the specific entity space
+            for (int c = 0; c < {gdim}; ++c) {{
+                ent_coord[c] /= (PetscScalar)num_cg1_dofs;
+            }}
+
+            // Inner loop traversing the linear 1D slice for the target DoFs
+            for (int i = v_start; i < v_end; ++i) {{
+                int dest_dof = v_flat_mapping[i];
+
+                for (int c = 0; c < {gdim}; ++c) {{
+                    out[dest_dof * {gdim} + c] = ent_coord[c];
+                }}
+            }}
+        }}
+    }}
+    """
+
+    # 6. Parallel Loop over the full cell mapping set using op2.WRITE
+    kernel = op2.Kernel(kernel_code, "compute_target_coords_loop")
+
+    op2.par_loop(kernel, mesh.cell_set,
+                 out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
+                 cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
+
+    return out_coords.dat.data
