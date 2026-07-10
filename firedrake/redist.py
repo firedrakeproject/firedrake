@@ -76,7 +76,6 @@ def make_unoverlapped_dm(dm):
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")
-    dm.setRefinementUniform(True)
     return dm
 
 

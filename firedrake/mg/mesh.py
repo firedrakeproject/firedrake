@@ -181,8 +181,7 @@ def MeshHierarchy(mesh, refinement_levels,
         parameters.update(distribution_parameters)
     else:
         parameters.update(mesh._distribution_parameters)
-    mesh_parameters = dict(parameters)
-    mesh_parameters["partition"] = False
+    parameters["partition"] = False
 
     meshes = [mesh]
     mesh_origs = [mesh]
@@ -190,7 +189,7 @@ def MeshHierarchy(mesh, refinement_levels,
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
-            distribution_parameters=mesh_parameters,
+            distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,
         )
@@ -224,9 +223,9 @@ def MeshHierarchy(mesh, refinement_levels,
     ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
-    for i in range(1, len(dm_entries)):
-        c2f, f2c = impl.coarse_to_fine_cells(meshes[i - 1], mesh_origs[i],
-                                             lgmaps[i - 1], lgmap_origs[i])
+    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], mesh_origs[1:]), 
+                                              zip(lgmaps[:-1], lgmap_origs[1:])):
+        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
