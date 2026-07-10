@@ -1,13 +1,21 @@
 Coupled volume-surface reaction-diffusion on a torus with submesh
 =================================================================
 
+.. rst-class:: emphasis
+
+    Many problems couple PDEs posed in the volume with other PDEs on the
+    surface. This demo illustrates how such problems may be solved with
+    the :func:`~.Submesh` functionality in Firedrake.
+
+    The demo was contributed by `Patrick Farrell
+    <mailto:patrick.farrell@maths.ox.ac.uk>`__.
+
 In many biological and physical processes, chemical species diffuse through
 a volume and exchange with a surface species, coupled by an interfacial
 transfer mechanism.  A prototypical model of this class is the coupled
 volume-surface reaction-diffusion system analysed by :cite:`Egger:2018`, which
 we consider here on a solid torus :math:`\Omega \subset \mathbb{R}^3` with
-surface :math:`\Gamma = \partial\Omega`. This demo illustrates how such
-problems may be solved with the :func:`~.Submesh` functionality in Firedrake.
+surface :math:`\Gamma = \partial\Omega`. 
 
 The model
 ---------

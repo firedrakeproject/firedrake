@@ -37,3 +37,5 @@ element systems.
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
    Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>
    Coupled volume-surface reaction-diffusion on a torus using Submesh and geometric multigrid.<demos/submesh_reaction_diffusion.py>
+   Nonlinear preconditioning using an auxiliary SNES for the Allen-Cahn equation.<demos/nonlinear_pc_allen_cahn.py>
+   Reynolds-robust preconditioning of the stationary Navier-Stokes equations.<demos/reynolds_robust_navier_stokes_hdiv.py>
