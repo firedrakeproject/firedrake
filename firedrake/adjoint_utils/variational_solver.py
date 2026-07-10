@@ -64,6 +64,8 @@ class NonlinearVariationalSolverMixin:
             for the purposes of visualisation)."""
             from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
+            x = kwargs.pop("x", None)
+            b = kwargs.pop("b", None)
             if annotate:
                 bounds = kwargs.pop("bounds", None)
                 if bounds is not None:
@@ -75,7 +77,7 @@ class NonlinearVariationalSolverMixin:
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
                 sb_kwargs.update(kwargs)
 
-                block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
+                block = NonlinearVariationalSolveBlock(problem._ad_F == (0 if b is None else b),
                                                        problem._ad_u,
                                                        problem._ad_bcs,
                                                        adj_cache=self._ad_adj_cache,
@@ -105,10 +107,13 @@ class NonlinearVariationalSolverMixin:
                 tape.add_block(block)
 
             with stop_annotating():
-                out = solve(self, **kwargs)
+                out = solve(self, x=x, b=b, **kwargs)
 
             if annotate:
-                block.add_output(self._ad_problem._ad_u.create_block_variable())
+                # The solution is written into x when provided, so x
+                # supersedes problem.u as the block output.
+                u = x if x is not None else self._ad_problem._ad_u
+                block.add_output(u.create_block_variable())
 
             return out
 
