@@ -27,6 +27,27 @@ Participants may register for either part of the week, but we hope that many
 will take the opportunity to learn more about these two related projects by
 staying for the whole week.
 
+Programme
+---------
+
+`The programme is now available
+<https://easychair.org/smart-program/PETScFiredrake26/>`__.
+
+Firedrake Tutorials
+-------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   Introduction to Firedrake and PETSc solvers<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/00-firedrake-petsc-hello-world.ipynb>
+   Solver Composition<https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/08-composable-solvers.ipynb>
+   Using Irksome for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/01-irksome-heat-equation.ipynb>
+   Composable solvers for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/02-preconditioning-heat-eq.ipynb>
+   Exploring the TimeStepper options<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/03-stagetype-heat-eq.ipynb>
+   Using Irksome for the Navier Stokes equations<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/04-Navier-Stokes.ipynb>
+   Implicit-explicit steppers for the monodomain equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/05-IMEX-Monodomain.ipynb>
+   Variational data assimilation in Firedrake <https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/06-Data-assimilation-inverse-problem.ipynb>
+
 Venue & registration
 --------------------
 
@@ -46,7 +67,7 @@ Event               Dates                               Full    Student Full (no
 =================   =================================== ======  ======= ======================= ==========================
 PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170
 PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100
-Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100
+Firedrake only	    3 June (lunchtime) - 5 June (16:50) £550    £220    £250                    £100
 =================   =================================== ======  ======= ======================= ==========================
 
 International attendees will likely need to book a hotel for the night before
@@ -55,88 +76,6 @@ venue <https://mercureoxfordhawkwellhouse.com>`__ or booking a hotel by
 London Paddington, as it is a convenient midpoint between London Heathrow and
 Oxford.
 
-Programme
----------
-
-Abstract submissions are now closed. The full programme will be made available
-soon but the agenda for the week is as follows (note that timings may not be
-exact):
-
-**Monday**
-
-.. table::
-   :align: left
-
-   =========== ============
-   10:00-10:30 PETSc talks
-   10:30-11:00 coffee break
-   11:00-11:45 PETSc talks
-   11:45-13:30 lunch
-   13:30-14:45 PETSc talks
-   14:45-15:30 coffee break
-   15:30-16:45 PETSc talks
-   =========== ============
-
-**Tuesday**
-
-.. table::
-   :align: left
-
-   =========== ============
-   09:00-10:00 PETSc talks
-   10:00-10:45 coffee break
-   10:45-11:45 PETSc talks
-   11:45-13:30 lunch
-   13:30-14:45 PETSc talks
-   14:45-15:30 coffee break
-   15:30-16:45 PETSc talks
-   =========== ============
-
-**Wednesday**
-
-.. table::
-   :align: left
-
-   =========== ====================
-   09:00-10:15 PETSc tutorial 1
-   10:15-11:00 coffee break
-   11:00-12:15 PETSc tutorial 2
-   12:15-13:30 lunch
-   13:30-14:45 Firedrake tutorial 1
-   14:45-15:30 coffee break
-   15:30-16:45 Firedrake tutorial 2
-   16:45-17:30 poster session and drinks reception, sponsored by `Devito Codes <https://www.devitocodes.com>`__
-   =========== ====================
-
-**Thursday**
-
-.. table::
-   :align: left
-
-   =========== ===============
-   09:00-10:00 Firedrake talks
-   10:00-10:45 coffee break
-   10:45-11:45 Firedrake talks
-   11:45-13:30 lunch
-   13:30-14:45 Firedrake talks
-   14:45-15:30 coffee break
-   15:30-16:45 Firedrake talks
-   =========== ===============
-
-**Friday**
-
-.. table::
-   :align: left
-
-   =========== ===============
-   09:00-10:00 Firedrake talks
-   10:00-10:45 coffee break
-   10:45-11:45 Firedrake talks
-   11:45-13:30 lunch
-   13:30-14:15 Firedrake talks
-   14:15-15:00 coffee break
-   15:00-16:00 Firedrake talks
-   =========== ===============
 
 Travel
 ------

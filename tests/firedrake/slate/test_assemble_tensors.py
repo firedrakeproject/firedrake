@@ -321,8 +321,8 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     assert np.allclose(ref3, np.diag(res3), rtol=1e-14)
 
 
-@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
-def test_reciprocal(function_space):
+def test_reciprocal(mesh):
+    function_space = FunctionSpace(mesh, "DG", 0)
     # test reciprocal of vector built from diagonal
     # note: reciprocal does not commute with addition so one can only test DG
     u = TrialFunction(function_space)
@@ -340,3 +340,30 @@ def test_reciprocal(function_space):
     ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
     for r, d in zip(res, np.diag(ref)):
         assert np.allclose(r, d, rtol=1e-14)
+
+
+@pytest.mark.parametrize("degree", (0, 1))
+def test_nested_block(mesh, degree):
+    V = FunctionSpace(mesh, "CG", degree+1)
+    Q = FunctionSpace(mesh, "DG", degree, variant="integral")
+    Z = V * Q
+
+    v0, q0 = TestFunctions(Z)
+    v1, q1 = TrialFunctions(Z)
+    a = (inner(grad(v1), grad(v0)) * dx
+         + inner(q1, v0) * dx
+         + inner(v1, q0) * dx
+         - inner(q1, q0) * dx
+         )
+
+    b = inner(q1, v0) * dx
+    J = Tensor(a)
+    D = Block(J, (1, 1))
+    B = Block(Tensor(b), ((0, 1), 1))
+    Jp = J - B * Inverse(D) * B.T
+
+    expect = assemble(Jp, mat_type="nest").petscmat.getNestSubMatrix(0, 0)
+
+    result = assemble(Block(Jp, (0, 0))).petscmat
+
+    assert np.allclose(result[:, :], expect[:, :])
