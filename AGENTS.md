@@ -100,6 +100,12 @@ toolchain:
   mesh-bound data.
 * **Docstrings:** All public-facing APIs must include properly formatted `numpydoc`-style docstrings.
 * **Type Hints:** New code should include type hints on function/method signatures.
+* **Keep Annotation Out Of Plain Modules:** pyadjoint bookkeeping never appears inside a method body in
+  `firedrake/*.py`. Differentiable types instead have a `*Mixin` in `firedrake/adjoint_utils/` exposing
+  one `_ad_annotate_<name>` decorator per method that needs taping, applied where the method is defined
+  (`@SomeMixin._ad_annotate_foo` on `def foo`). The decorator wraps the whole method, so the real
+  implementation stays pyadjoint-agnostic. Add a new decorator to the `Mixin` rather than calling `_ad_*`
+  from `firedrake/*.py` directly.
 
 ## Testing Requirements
 
