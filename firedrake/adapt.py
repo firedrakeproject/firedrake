@@ -200,10 +200,8 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=1.0):
 
         if round_idx < max_rounds - 1:
             next_mark = Function(FunctionSpace(new_mesh, "DG", 0))
-            values = np.zeros(new_mesh.cell_set.size, dtype=current_mark.dat.data_ro.dtype)
-            valid = parent >= 0
-            values[valid] = np.maximum(current_mark.dat.data_ro[parent[valid]] - 1, 0)
-            next_mark.dat.data_wo[:] = values
+            valid = (parent >= 0)
+            next_mark.dat.data_wo[valid] = np.maximum(current_mark.dat.data_ro[parent[valid]] - 1, 0)
             current_mark = next_mark
         current_mesh = new_mesh
 

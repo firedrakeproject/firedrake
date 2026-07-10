@@ -66,10 +66,10 @@ def distribute_overlap(dm, parameters):
 
 
 def make_unoverlapped_dm(dm):
-    """Effectively invert addOverlap().
+    """Effectively invert dm.distributeOverlap().
 
     The resulting plex has the identical data structure as the one before
-    addOverlap(). This is algorithmically guaranteed.
+    distributeOverlap(). This is algorithmically guaranteed.
     """
     tdim = dm.getDimension()
     dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, True)

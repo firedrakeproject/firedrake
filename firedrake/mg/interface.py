@@ -115,10 +115,10 @@ def prolong(coarse, fine):
             fine = new_fine.interpolate(fine)
         if redist is not None:
             # Move from original mesh into the distributed one
-            target = (finest if j == repeat - 1
-                      else Function(Vfinest.reconstruct(mesh=fine_mesh)))
-            redist.orig2redist(fine, target)
-            fine = target
+            fine_orig = fine
+            fine = (finest if j == repeat - 1
+                    else Function(Vfinest.reconstruct(mesh=fine_mesh)))
+            redist.orig2redist(fine_orig, fine)
         coarse = fine
     return fine
 
@@ -274,7 +274,6 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
