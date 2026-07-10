@@ -264,7 +264,6 @@ def refine_function(expr, self, coefficient_mapping=None):
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
-        new.interpolate(expr)
         coefficient_mapping[expr] = new
     return new
 
@@ -290,12 +289,12 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
                 if is_dual(c):
                     if clevel > mlevel:
                         manager.restrict(c, mapped)
-                elif clevel > mlevel:
-                    manager.inject(c, mapped)
+                    else:
+                        mapped.interpolate(c)
                 elif clevel < mlevel:
                     manager.prolong(c, mapped)
                 else:
-                    mapped.assign(c)
+                    manager.inject(c, mapped)
             # Apply bcs
             if cctx.pre_apply_bcs:
                 for bc in cctx._problem.dirichlet_bcs():
