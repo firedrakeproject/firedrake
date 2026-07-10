@@ -198,47 +198,43 @@ toolchain:
 
 ### PyAdjoint / Differentiability
 
-Guiding principles for building and debugging taped operations, in the order they should be
-applied. They generalize to any record/replay system (caches, dependency graphs, memoization):
+Guiding principles for building and debugging taped operations with `firedrake.adjoint`, in the
+order they should be applied:
 
-* **Adjoints come from composition, not re-derivation.** If writing a block's
+* **Adjoints come from composition, not re-derivation.** If implementing a block's
   `evaluate_adj_component` has you calling `derivative`/`adjoint`/`action` on an operation
-  Firedrake already tapes (interpolation, assembly, a solve), the tape structure is wrong, not
-  incomplete: make the block depend on that operation's *output* and delete the hand-rolled
-  pullback — the operation's own block then supplies the adjoint, TLM, Hessian, and recompute.
-  Corollary: a block's dependency is the value the operation actually consumes (the interpolated
-  function a `DirichletBC` applies), never the raw user input it was derived from.
+  Firedrake already tapes (assembly, interpolation, projection, a solve), the tape structure is
+  wrong, not incomplete: make the block depend on that operation's *output*, and the operation's
+  own block supplies the adjoint, TLM, Hessian, and recompute. A block's dependency is the value
+  its operation actually consumes, never the raw user input that value was derived from.
 * **Tape derived state when its consumer is taped, not when it is computed.** A value lazily
-  re-derived from a mutable input (`DirichletBC.function_arg` re-interpolates after `g` changes in
-  place) must be re-annotated at the moment the consuming block is recorded, so the dependency
-  edge points at the input's *current* block variable. For a `FloatingType` — whose block is
-  rebuilt from `_ad_args` every time the object is added as a dependency — override
-  `_ad_will_add_as_dependency` to refresh (and thereby tape) the derived value before `super()`
-  tapes the block. Reuse in a time loop then records one correct chain per step with no extra
-  bookkeeping. Conversely, do not tape work nothing depends on: internal updates at
-  construction/`set_value` time belong under `stop_annotating()`, or every setter call leaves a
-  dangling block that recompute pays for.
-* **Prove the linchpin primitive in isolation before restructuring around it.** A five-line script
-  (e.g. `assemble(action(adjoint(derivative(interpolate(g, V), g)), cof))` for an `"R"`-space `g`)
-  finds hard boundaries early — no `Argument` on vector-valued `"R"` spaces — and exposes
-  special-case code that composition can subsume or that was already dead (a path calling the
-  nonexistent `firedrake.cpp` was never exercised by any test).
-* **Verify the structure before the numbers.** Print the DAG — each block in
+  re-derived from a mutable input must be re-annotated at the moment the consuming block is
+  recorded, so the dependency edge points at the input's *current* block variable; for a
+  `FloatingType`, override `_ad_will_add_as_dependency` to refresh (and thereby tape) the value
+  before `super()` tapes the block. Object reuse in a time loop then records one correct chain per
+  step with no extra bookkeeping. Conversely, run internal updates at construction/setter time
+  under `stop_annotating()`: taping work nothing depends on leaves dangling blocks that recompute
+  pays for.
+* **Prove the linchpin primitive in isolation before restructuring around it.** Check in a few
+  lines that the symbolic machinery you plan to rely on (e.g.
+  `assemble(action(adjoint(derivative(form, c)), cof))`) accepts every input class you must
+  handle. This surfaces hard limits early, and often shows that existing special-case code is
+  subsumed by the general path — or was already dead.
+* **Verify the structure before the numbers.** Print each block in
   `get_working_tape().get_blocks()` with the identities of its `.get_dependencies()` and
-  `.get_outputs()` — and check it is exactly the chain you designed, with no stale or dangling
-  block variables, for both the fresh and the reuse/time-loop paths. Only then run `taylor_test`
-  with a genuinely nonlinear control: rate ≈ 2 is a pass; residuals all ~1e-16 mean the functional
-  is accidentally linear in the control (square it); rate ≈ 1 means a stale value reached the
-  tape. When a gradient is zero, the warning `Adjoint value is None, is the functional independent
-  of the control variable?` names the missing dependency edge — the `ZeroDivisionError`/`nan` that
-  `taylor_test` raises afterwards is only its downstream echo.
+  `.get_outputs()`, and check the DAG is exactly the chain you designed — no stale or dangling
+  block variables — for both freshly-created and reused objects. Only then run `taylor_test` with
+  a genuinely nonlinear control: rate ≈ 2 is a pass; residuals all ~1e-16 mean the functional is
+  accidentally linear in the control (square it); rate ≈ 1 means a stale value reached the tape.
+  A zero gradient is named by the warning `Adjoint value is None, is the functional independent of
+  the control variable?` — any later `ZeroDivisionError`/`nan` is just its echo.
 * **Dependency discovery is structural, not conceptual.** `form.coefficients()` finds `Function`s
   (including on `"R"` spaces) but not `firedrake.Constant`, so a bare `Constant` silently records
-  no dependency — represent differentiable scalars as `Function` on an `"R"` space.
-* **A cache reused across recomputes must resync every axis that varies between reuses.**
-  `NonlinearVariationalSolveBlock`'s cached forward solver refreshes form coefficients
-  automatically but its problem's `DirichletBC`s must be swapped for the block's own checkpointed
-  ones in `_forward_solve`; each missed axis silently reuses stale data under a perturbed control.
+  no dependency — represent differentiable scalars as `Function`s on an `"R"` space.
+* **A cache reused across recomputes must resync every axis that varies between reuses.** A cached
+  solver refreshes some of its inputs automatically (form coefficients) but not others (its
+  problem's boundary conditions); each missed axis silently reuses stale data under a perturbed
+  control.
 
 ### Reproducible Environments
 
