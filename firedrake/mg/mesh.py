@@ -146,6 +146,7 @@ def MeshHierarchy(mesh, refinement_levels,
     # ranks.  Keeping every dm here unoverlapped means overlap only ever
     # needs to be added once, by mesh_builder below.
     cdm = make_unoverlapped_dm(mesh.topology_dm)
+    cdm.setRefinementUniform(True)
     dm_entries = [(cdm, cdm, None)]
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
