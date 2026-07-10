@@ -5,7 +5,7 @@ from firedrake.mg.utils import get_level
 
 
 def test_marking_callback_configures_refine_adaptor():
-    def mark_cells(solver, current_solution):
+    def mark_cells(ctx, current_solution):
         M = FunctionSpace(current_solution.mesh(), "DG", 0)
         return Function(M).assign(1)
 
@@ -25,7 +25,7 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     from netgen.geom2d import SplineGeometry
     seen = []
 
-    def mark_cells(solver, current_solution):
+    def mark_cells(ctx, current_solution):
         current_mesh = current_solution.function_space().mesh()
         seen.append(current_mesh)
         M = FunctionSpace(current_mesh, "DG", 0)
@@ -100,7 +100,7 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
 
     seen = []
 
-    def mark_cells(solver, current_solution):
+    def mark_cells(ctx, current_solution):
         current_mesh = current_solution.function_space().mesh()
         seen.append(current_mesh)
         eta = estimate_error(current_solution)

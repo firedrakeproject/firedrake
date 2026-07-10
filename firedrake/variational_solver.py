@@ -171,7 +171,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
+    DEFAULT_SNES_PARAMETERS = MappingProxyType({
+        **DEFAULT_SNES_PARAMETERS,
+        "adaptor_criterion": "refine",
+    })
 
     # Looser default tolerance for KSP inside SNES.
     # TODO: When we drop Python 3.8 replace this mess with
@@ -228,10 +231,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                Otherwise, the problem is linearised around the initial guess
                before imposing bcs, and the bcs are appended to the nonlinear system.
         :kwarg marking_callback: An optional callable of the form
-               ``callback(solver, u)`` for PETSc-driven adaptive refinement.
-               The callback receives this solver and the current Firedrake
-               solution, and must return a DG0 :class:`.Function` or
-               :class:`.Cofunction` with positive values on cells to refine.
+               ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
+               The callback receives the :class:`~.solving_utils._SNESContext`
+               and the current Firedrake solution, and must return a DG0
+               :class:`.Function` or :class:`.Cofunction` with positive
+               values on cells to refine.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -310,10 +314,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
-        self._marking_callback = None
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
-        ctx._adapt_marking_callback = self._marking_callback
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
@@ -342,14 +344,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     def set_marking_callback(self, callback):
         r"""Set the callback used by PETSc-driven adaptive refinement.
 
-        The callback is called as ``callback(solver, u)`` when PETSc asks the
-        solution DM to refine. It must return a DG0 :class:`.Function` or
-        :class:`.Cofunction` on the current solution mesh, with positive values
-        on cells to refine.
+        The callback is called as ``callback(ctx, u)`` when PETSc asks the
+        solution DM to refine, where ``ctx`` is the current
+        :class:`~.solving_utils._SNESContext`. It must return a DG0
+        :class:`.Function` or :class:`.Cofunction` on the current solution
+        mesh, with positive values on cells to refine.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
-        self.parameters.setdefault("adaptor_criterion", "refine")
         self._ctx._marking_callback = callback
 
     def get_adapted_solution(self):
@@ -514,7 +516,10 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     See also :class:`NonlinearVariationalSolver` for nonlinear problems.
     """
 
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
+    DEFAULT_SNES_PARAMETERS = MappingProxyType({
+        "snes_type": "ksponly",
+        "adaptor_criterion": "refine",
+    })
 
     # Tighter default tolerance for KSP only.
     DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS

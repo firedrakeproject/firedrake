@@ -164,8 +164,10 @@ class _SNESContext(object):
     post_function_callback
         User-defined function called immediately after residual assembly.
     marking_callback
-        User-defined function called after the nonlinear solve returning a DG0
-        Function with cells marked for adaptive refinement.
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -438,8 +440,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
