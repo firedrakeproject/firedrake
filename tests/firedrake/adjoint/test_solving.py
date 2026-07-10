@@ -291,14 +291,6 @@ def test_time_dependent():
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("reuse_bc", [False, True])
 def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
-    """DirichletBC data on a different FunctionSpace than the one it is
-    applied to is interpolated internally, and must remain differentiable.
-
-    Parametrized over whether the DirichletBC (and its solver) is
-    reconstructed fresh at each timestep (``reuse_bc=False``), or
-    constructed once and reused via ``NonlinearVariationalSolver`` +
-    ``Function.interpolate`` on the BC data (``reuse_bc=True``).
-    """
     mesh = UnitSquareMesh(4, 4)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
