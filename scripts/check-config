@@ -8,8 +8,10 @@ of hardcoded values (via CI).
 
 """
 
+import importlib.util
 import pathlib
 import re
+from importlib.machinery import SourceFileLoader
 
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -24,6 +26,7 @@ def main():
     check_petsc_version()
     check_slepc_version()
     check_petsc_version_spec()
+    check_zlib_declared()
 
 
 def check_min_python_version() -> None:
@@ -70,6 +73,50 @@ def check_petsc_version_spec() -> None:
         REPO_ROOT / "setup.py",
         f"petsctools.init\\(version_spec=\"{petsc_version_spec}\"\\)",
     )
+
+
+def check_zlib_declared() -> None:
+    """Check that archs linking the system zlib also declare its package.
+
+    If an arch passes ``--with-zlib`` to PETSc configure then it links against
+    the system zlib, so that library must appear in ``system_packages`` (as
+    ``zlib1g-dev``). Otherwise zlib is an undeclared dependency that only works
+    by being pulled in transitively by another package.
+
+    """
+    firedrake_configure = _load_firedrake_configure()
+    all_archs = {
+        **firedrake_configure.OFFICIAL_ARCHS,
+        **firedrake_configure.RETIRED_ARCHS,
+        **firedrake_configure.COMMUNITY_ARCHS,
+    }
+    offenders = [
+        ", ".join(key_part.value for key_part in arch_key)
+        for arch_key, arch in all_archs.items()
+        if "--with-zlib" in arch.extra_petsc_configure_options
+        and arch.system_packages is not None
+        and "zlib1g-dev" not in arch.system_packages
+    ]
+    if offenders:
+        raise InvalidConfigurationException(
+            "The following archs request '--with-zlib' but do not declare "
+            f"'zlib1g-dev' in their system packages: {offenders}"
+        )
+
+
+def _load_firedrake_configure():
+    """Import the 'firedrake-configure' script as a module.
+
+    The hyphen in the filename means it cannot be imported normally, so load it
+    directly from its path.
+
+    """
+    script_path = REPO_ROOT / "scripts" / "firedrake-configure"
+    loader = SourceFileLoader("firedrake_configure", str(script_path))
+    spec = importlib.util.spec_from_loader("firedrake_configure", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
 
 
 def check_file_contains_pattern(
