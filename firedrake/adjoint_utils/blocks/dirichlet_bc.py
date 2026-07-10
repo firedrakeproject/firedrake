@@ -82,8 +82,6 @@ class DirichletBCBlock(Block):
                                                 len(output))
                     r[:] = output
             elif isinstance(c, firedrake.Function):
-                # TODO: With `Function.set_allow_extrapolation(True)` you can
-                #       even use the Function outside its domain.
                 adj_value = firedrake.Function(self.parent_space)
                 adj_input.apply(adj_value)
                 if c.function_space() == self.parent_space:

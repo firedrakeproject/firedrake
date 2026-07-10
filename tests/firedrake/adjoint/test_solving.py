@@ -289,10 +289,15 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
-def test_time_dependent_dirichlet_bc_from_other_space():
+@pytest.mark.parametrize("reuse_bc", [False, True])
+def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
     """DirichletBC data on a different FunctionSpace than the one it is
-    applied to is interpolated internally; that interpolation must be
-    taped by pyadjoint like any other assembly, or the Taylor test fails.
+    applied to is interpolated internally, and must remain differentiable.
+
+    Parametrized over whether the DirichletBC (and its solver) is
+    reconstructed fresh at each timestep (``reuse_bc=False``), or
+    constructed once and reused via ``NonlinearVariationalSolver`` +
+    ``Function.interpolate`` on the BC data (``reuse_bc=True``).
     """
     mesh = UnitSquareMesh(4, 4)
     V1 = FunctionSpace(mesh, "CG", 1)
@@ -310,11 +315,22 @@ def test_time_dependent_dirichlet_bc_from_other_space():
 
         F = inner(u - u_old, v)*dx + dt*inner(grad(u), grad(v))*dx
 
+        if reuse_bc:
+            g = Function(V2)
+            bc = DirichletBC(V1, g, "on_boundary")
+            problem = NonlinearVariationalProblem(F, u, bcs=bc)
+            solver = NonlinearVariationalSolver(problem)
+
         for i in range(nsteps):
             t = (i + 1)*dt
-            g = Function(V2).interpolate(amp*amp*sin(2*pi*t)*(x + y))
-            bc = DirichletBC(V1, g, "on_boundary")
-            solve(F == 0, u, bcs=bc)
+            expr = amp*amp*sin(2*pi*t)*(x + y)
+            if reuse_bc:
+                g.interpolate(expr)
+                solver.solve()
+            else:
+                g = Function(V2).interpolate(expr)
+                bc = DirichletBC(V1, g, "on_boundary")
+                solve(F == 0, u, bcs=bc)
             u_old.assign(u)
 
         # Final H1 seminorm of u

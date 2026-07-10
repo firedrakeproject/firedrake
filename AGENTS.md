@@ -192,40 +192,70 @@ toolchain:
 
 ### PyAdjoint / Differentiability
 
-* **Bare `Constant` is invisible to a `Block`'s dependency extraction:** `firedrake.Constant` is a
-  `ufl.constantvalue.ConstantValue`/`Terminal`, not a `ufl.classes.Coefficient`. `AssembleBlock` (and
-  other blocks) find their dependencies by walking `form.coefficients()`, which silently skips bare
-  `Constant`s — an `assemble()`/`interpolate()` call built from one records **zero** dependencies, and a
-  `Control` wrapping a bare `Constant` looks differentiable but is disconnected from the tape (symptoms:
-  `taylor_test` residuals all at machine precision, or `Adjoint value is None`, see below). Use a
-  `Function` on a `"R"` (Real) space instead (`Function(FunctionSpace(mesh, "R", 0), val=...)`),
-  matching the idiom used throughout `tests/firedrake/adjoint/`; a `Function` is a genuine `Coefficient`
-  and is picked up correctly.
-* **Mutating an already-constructed object does not re-tape it:** `DirichletBC` is a pyadjoint
-  `FloatingType` whose single dependency is fixed once, at `__init__` (the `g` argument). Later calling
-  `bc.set_value(...)` or mutating `g` in place (e.g. `g.interpolate(new_expr)`) changes the BC's
-  *numeric* value — forward runs stay correct — but does **not** register a new tape dependency on that
-  mutation, so the adjoint never sees it. For time-dependent BC data (or any repeatedly-mutated
-  dependency), construct a fresh object (a new `DirichletBC` over a new `Function`) at each step, so
-  each step gets its own `Block` correctly wired to that step's data.
-* **A Taylor test with near-machine-precision residuals is a red flag, not a pass:** if
-  `taylor_test`'s reported residuals are all ~1e-16, or computing convergence rates raises
-  `ZeroDivisionError`/produces `nan`, don't read that as "the gradient is very accurate". Check whether
-  the functional is *exactly* linear in the control near the test point (e.g. a linear PDE with a linear
-  BC and zero initial condition makes the solution exactly proportional to a linear control) — the true
-  second-order Taylor remainder is then genuinely zero, and the reported "rate" is pure round-off noise.
-  Introduce real nonlinearity (e.g. square the control before it enters the problem) to get a meaningful
-  order-2 check.
-* **Diagnose taping gaps by inspecting the tape directly, not by guessing from the final error:**
-  `pyadjoint.get_working_tape().get_blocks()` gives the recorded `Block`s in order; each has
-  `.get_dependencies()`/`.get_outputs()`, whose `.saved_output` reveals exactly which step is missing an
-  expected dependency (e.g. an `AssembleBlock` with unexpectedly empty dependencies is the direct
-  evidence that a particular computation happened numerically but was never annotated).
-* **The warning that actually names the problem:** `Adjoint value is None, is the functional
-  independent of the control variable?` (from `pyadjoint/control.py`) means some step between the
-  control and the functional was not taped. It is the real symptom; the `ZeroDivisionError`/`nan` that
-  `taylor_test` often raises afterwards, while computing convergence rates from residuals that are all
-  ~0, is just the downstream consequence and is easy to mistake for the actual bug.
+These lessons come from pyadjoint debugging, but the underlying patterns recur in any system built on
+recording/replaying computation (caches, dependency graphs, serialization, memoization) — read the
+general claim first, the pyadjoint specifics are the illustrating case, not the whole of it.
+
+* **A mechanism that detects dependents/participants by structural type check, not by concept, will
+  silently miss anything that satisfies the concept without matching the check.** `firedrake.Constant`
+  *is* conceptually a differentiable input, but it is a `ufl.constantvalue.ConstantValue`/`Terminal`,
+  not a `ufl.classes.Coefficient` — and `AssembleBlock` (like other blocks) finds its dependencies by
+  walking `form.coefficients()`. A bare `Constant` is therefore invisible to it: an
+  `assemble()`/`interpolate()` built from one records **zero** dependencies, and a `Control` wrapping it
+  looks differentiable but is disconnected from the tape (symptoms: `taylor_test` residuals all at
+  machine precision, or `Adjoint value is None`, see below). Whenever something "should" participate in
+  a tracking/registration mechanism but doesn't show up, suspect a type check that's narrower than the
+  concept, not a logic bug — and look for the concept's "proper" incarnation (here, a `Function` on a
+  `"R"` Real space, `Function(FunctionSpace(mesh, "R", 0), val=...)`, which *is* a genuine `Coefficient`
+  and is picked up correctly, matching the idiom used throughout `tests/firedrake/adjoint/`).
+* **An object that gets re-derived lazily from stored construction-time state must update that state on
+  every mutation, or "reuse" silently means "stuck at the first value it ever had."** `DirichletBC` is a
+  pyadjoint `FloatingType`: each time it is passed to a new annotated `solve`, a fresh `DirichletBCBlock`
+  is (re)created from `self._ad_args`, captured once at `__init__`. If nothing keeps `_ad_args` current,
+  every later `bc.set_value(...)` or in-place mutation (e.g. `g.interpolate(new_expr)`) updates the
+  object's *numeric* value correctly, but every subsequent re-derivation still uses the *original*
+  snapshot — the adjoint silently converges at Taylor rate 1 (a wrong, not merely absent, gradient)
+  instead of 2. Whenever an object caches "how to reconstruct/re-derive myself" as of construction time,
+  audit every place that later mutates the object's live state and confirm that cache is refreshed too
+  (here, fixed by keeping `_ad_args` synced inside the `function_arg` setter itself).
+* **A cache introduced purely for performance must be invalidated/resynced on every axis that can
+  legitimately vary between reuses — refreshing only the "obvious" part of the state leaves the rest
+  silently stale.** `NonlinearVariationalSolveBlock` clones the user's problem into a `forward_nlvs`
+  solver once and reuses it across every recompute; the existing machinery
+  (`_ad_solver_replace_forms()`) refreshes the *form* coefficients from each recompute's own checkpoint,
+  but a `_forward_solve` override that forgets to also resync other embedded, non-form state (here, the
+  shared solver's own `DirichletBC` objects) will keep solving with whatever that live, mutable state
+  currently holds — not the value checkpointed for the specific step being recomputed. The giveaway:
+  forward values are correct in the *original*, uncached run (nothing is stale yet), but recomputation
+  under a perturbed control (exactly what `taylor_test` does) silently reuses the wrong per-step data.
+  When a class introduces a performance cache/clone of anything, enumerate everything that varies
+  between the cases it will be reused for, and check the refresh path covers all of it, not just
+  whichever piece happens to be visible in the form/expression being assembled.
+* **A verification check that "passes too perfectly," or fails with a numerically degenerate error
+  (division by zero, `nan`, all-residuals-near-zero), usually means the test itself exercises a
+  degenerate special case, not that the thing under test is unusually good.** A `taylor_test` with
+  residuals all ~1e-16, or a `ZeroDivisionError`/`nan` computing convergence rates, is not "the gradient
+  is very accurate" — check whether the functional is *exactly* linear in the control at the test point
+  (e.g. a linear PDE with a linear BC and zero initial condition makes the solution exactly proportional
+  to a linear control), which makes the true second-order remainder genuinely zero and the reported
+  "rate" pure round-off noise. This generalizes beyond Taylor tests: any finite-difference,
+  property-based, or regression check can be accidentally linear/trivial at its chosen inputs — introduce
+  real nonlinearity (e.g. square the control before it enters the problem) to get a meaningful check.
+* **When a black-box recording mechanism produces a wrong downstream result, inspect the recorded
+  structure directly instead of reasoning only from the symptom.**
+  `pyadjoint.get_working_tape().get_blocks()` gives every recorded `Block` in order, each with
+  `.get_dependencies()`/`.get_outputs()` whose
+  `.saved_output` reveals exactly which step is missing an expected dependency (e.g. an `AssembleBlock`
+  with unexpectedly empty dependencies is direct evidence that a computation happened numerically but
+  was never annotated). The same move applies to any other recorded graph/log/cache in this codebase (a
+  build/dependency graph, a kernel cache key, a PETSc `-log_view` trace): read the actual recorded state
+  before hypothesizing about what it should contain.
+* **The most informative diagnostic is often a warning logged well before the exception that actually
+  stops execution — read past the crash to what preceded it.** `Adjoint value is None, is the functional
+  independent of the control variable?` (from `pyadjoint/control.py`) directly names "some step between
+  the control and the functional was not taped." It is the real symptom; the `ZeroDivisionError`/`nan`
+  that `taylor_test` often raises afterwards, while computing convergence rates from residuals that are
+  all ~0, is just a downstream consequence of that same gap and is easy to mistake for the actual bug.
 
 ### Reproducible Environments
 

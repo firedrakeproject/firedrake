@@ -338,6 +338,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return type(self)(V, g, sub_domain)
 
     @function_arg.setter
+    @DirichletBCMixin._ad_annotate_function_arg
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
         try:

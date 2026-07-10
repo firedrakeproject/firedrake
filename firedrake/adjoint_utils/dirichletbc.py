@@ -33,6 +33,19 @@ class DirichletBCMixin(FloatingType):
             return ret
         return wrapper
 
+    @staticmethod
+    def _ad_annotate_function_arg(function_arg):
+        @wraps(function_arg)
+        def wrapper(self, g):
+            ret = function_arg(self, g)
+            # Keep the floating dependency in sync with the assigned value,
+            # so that reusing this DirichletBC (e.g. calling set_value in a
+            # time loop) tapes a fresh DirichletBCBlock against the current
+            # g, rather than the one originally passed to __init__.
+            self._ad_args = (self._ad_args[0], g, self._ad_args[2])
+            return ret
+        return wrapper
+
     def _ad_create_checkpoint(self):
         deps = self.block.get_dependencies()
         if len(deps) <= 0:
