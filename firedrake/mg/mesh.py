@@ -224,7 +224,7 @@ def MeshHierarchy(mesh, refinement_levels,
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], mesh_origs[1:]),
-                                              zip(lgmaps[:-1], lgmap_origs[1:])):
+                                                  zip(lgmaps[:-1], lgmap_origs[1:])):
         c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)

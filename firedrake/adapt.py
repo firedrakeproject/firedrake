@@ -182,6 +182,7 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True, balancing=1.0):
     """
     with cell_marker.dat.vec_ro as v:
         _, max_rounds = v.max()
+    max_rounds = int(np.rint(max_rounds))
 
     current_mesh = mesh
     current_mark = cell_marker
