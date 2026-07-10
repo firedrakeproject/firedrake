@@ -198,70 +198,32 @@ toolchain:
 
 ### PyAdjoint / Differentiability
 
-These lessons come from pyadjoint debugging, but the underlying patterns recur in any system built on
-recording/replaying computation (caches, dependency graphs, serialization, memoization) — read the
-general claim first, the pyadjoint specifics are the illustrating case, not the whole of it.
+Lessons from pyadjoint debugging that generalize to any record/replay system (caches, dependency
+graphs, memoization). Ordered from quick diagnostic wins to deeper architectural gotchas:
 
-* **A mechanism that detects dependents/participants by structural type check, not by concept, will
-  silently miss anything that satisfies the concept without matching the check.** `firedrake.Constant`
-  *is* conceptually a differentiable input, but it is a `ufl.constantvalue.ConstantValue`/`Terminal`,
-  not a `ufl.classes.Coefficient` — and `AssembleBlock` (like other blocks) finds its dependencies by
-  walking `form.coefficients()`. A bare `Constant` is therefore invisible to it: an
-  `assemble()`/`interpolate()` built from one records **zero** dependencies, and a `Control` wrapping it
-  looks differentiable but is disconnected from the tape (symptoms: `taylor_test` residuals all at
-  machine precision, or `Adjoint value is None`, see below). Whenever something "should" participate in
-  a tracking/registration mechanism but doesn't show up, suspect a type check that's narrower than the
-  concept, not a logic bug — and look for the concept's "proper" incarnation (here, a `Function` on a
-  `"R"` Real space, `Function(FunctionSpace(mesh, "R", 0), val=...)`, which *is* a genuine `Coefficient`
-  and is picked up correctly, matching the idiom used throughout `tests/firedrake/adjoint/`).
-* **An object that gets re-derived lazily from stored construction-time state must update that state on
-  every mutation, or "reuse" silently means "stuck at the first value it ever had."** `DirichletBC` is a
-  pyadjoint `FloatingType`: each time it is passed to a new annotated `solve`, a fresh `DirichletBCBlock`
-  is (re)created from `self._ad_args`, captured once at `__init__`. If nothing keeps `_ad_args` current,
-  every later `bc.set_value(...)` or in-place mutation (e.g. `g.interpolate(new_expr)`) updates the
-  object's *numeric* value correctly, but every subsequent re-derivation still uses the *original*
-  snapshot — the adjoint silently converges at Taylor rate 1 (a wrong, not merely absent, gradient)
-  instead of 2. Whenever an object caches "how to reconstruct/re-derive myself" as of construction time,
-  audit every place that later mutates the object's live state and confirm that cache is refreshed too
-  (here, fixed by keeping `_ad_args` synced inside the `function_arg` setter itself).
-* **A cache introduced purely for performance must be invalidated/resynced on every axis that can
-  legitimately vary between reuses — refreshing only the "obvious" part of the state leaves the rest
-  silently stale.** `NonlinearVariationalSolveBlock` clones the user's problem into a `forward_nlvs`
-  solver once and reuses it across every recompute; the existing machinery
-  (`_ad_solver_replace_forms()`) refreshes the *form* coefficients from each recompute's own checkpoint,
-  but a `_forward_solve` override that forgets to also resync other embedded, non-form state (here, the
-  shared solver's own `DirichletBC` objects) will keep solving with whatever that live, mutable state
-  currently holds — not the value checkpointed for the specific step being recomputed. The giveaway:
-  forward values are correct in the *original*, uncached run (nothing is stale yet), but recomputation
-  under a perturbed control (exactly what `taylor_test` does) silently reuses the wrong per-step data.
-  When a class introduces a performance cache/clone of anything, enumerate everything that varies
-  between the cases it will be reused for, and check the refresh path covers all of it, not just
-  whichever piece happens to be visible in the form/expression being assembled.
-* **A verification check that "passes too perfectly," or fails with a numerically degenerate error
-  (division by zero, `nan`, all-residuals-near-zero), usually means the test itself exercises a
-  degenerate special case, not that the thing under test is unusually good.** A `taylor_test` with
-  residuals all ~1e-16, or a `ZeroDivisionError`/`nan` computing convergence rates, is not "the gradient
-  is very accurate" — check whether the functional is *exactly* linear in the control at the test point
-  (e.g. a linear PDE with a linear BC and zero initial condition makes the solution exactly proportional
-  to a linear control), which makes the true second-order remainder genuinely zero and the reported
-  "rate" pure round-off noise. This generalizes beyond Taylor tests: any finite-difference,
-  property-based, or regression check can be accidentally linear/trivial at its chosen inputs — introduce
-  real nonlinearity (e.g. square the control before it enters the problem) to get a meaningful check.
-* **When a black-box recording mechanism produces a wrong downstream result, inspect the recorded
-  structure directly instead of reasoning only from the symptom.**
-  `pyadjoint.get_working_tape().get_blocks()` gives every recorded `Block` in order, each with
-  `.get_dependencies()`/`.get_outputs()` whose
-  `.saved_output` reveals exactly which step is missing an expected dependency (e.g. an `AssembleBlock`
-  with unexpectedly empty dependencies is direct evidence that a computation happened numerically but
-  was never annotated). The same move applies to any other recorded graph/log/cache in this codebase (a
-  build/dependency graph, a kernel cache key, a PETSc `-log_view` trace): read the actual recorded state
-  before hypothesizing about what it should contain.
-* **The most informative diagnostic is often a warning logged well before the exception that actually
-  stops execution — read past the crash to what preceded it.** `Adjoint value is None, is the functional
-  independent of the control variable?` (from `pyadjoint/control.py`) directly names "some step between
-  the control and the functional was not taped." It is the real symptom; the `ZeroDivisionError`/`nan`
-  that `taylor_test` often raises afterwards, while computing convergence rates from residuals that are
-  all ~0, is just a downstream consequence of that same gap and is easy to mistake for the actual bug.
+* **Read the warning before the crash.** `Adjoint value is None, is the functional independent of the
+  control variable?` (`pyadjoint/control.py`) names the actual gap; a `ZeroDivisionError`/`nan` that
+  `taylor_test` raises afterwards is usually just that gap's downstream consequence.
+* **Inspect the recorded structure directly instead of guessing from the symptom.**
+  `pyadjoint.get_working_tape().get_blocks()` lists every `Block` in order; each one's
+  `.get_dependencies()`/`.get_outputs()` `.saved_output` shows exactly which step is missing a
+  dependency it should have.
+* **A "too perfect" verification result is a red flag, not a pass.** `taylor_test` residuals all
+  ~1e-16 usually mean the functional is accidentally *exactly* linear in the control at that point
+  (e.g. linear PDE + linear BC + zero initial condition) — introduce real nonlinearity (square the
+  control) to get a meaningful check.
+* **A dependency check by structural type, not concept, silently skips conforming objects.**
+  `firedrake.Constant` is a `ufl.Terminal`, not a `Coefficient`; `AssembleBlock` finds dependencies via
+  `form.coefficients()`, so a bare `Constant` records **zero** dependencies. Use a `Function` on a
+  `"R"` space instead.
+* **State re-derived lazily from construction-time args must stay synced on every mutation.**
+  `DirichletBCBlock` rebuilds from `self._ad_args`, fixed at `__init__`; without keeping `_ad_args`
+  current on every `set_value`, reuse silently keeps re-deriving from the *original* value (Taylor
+  rate 1, a wrong gradient, not 2).
+* **A performance cache must resync every axis that varies between reuses, not just the obvious one.**
+  `NonlinearVariationalSolveBlock`'s cached solver refreshes form coefficients automatically but not
+  its own embedded `DirichletBC` objects — recomputation under a perturbed control silently reused
+  stale per-step BC data until `_forward_solve` was fixed to resync them too.
 
 ### Reproducible Environments
 
