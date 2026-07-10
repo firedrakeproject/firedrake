@@ -2422,6 +2422,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
     @coordinates.setter
     def coordinates(self, value):
+        if value is self.coordinates:
+            return
         message = """Cannot re-assign the coordinates.
 
 You are free to change the coordinate values, but if you need a
