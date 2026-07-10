@@ -179,7 +179,9 @@ def MeshHierarchy(mesh, refinement_levels,
 
         rdm_orig = rdm
         point_sf_orig = None
-        if redistribute and mesh.comm.size > 1 and dm_has_empty_rank(rdm):
+        needs_redist = (redistribute and mesh.comm.size > 1
+                        and dm_has_empty_rank(rdm))
+        if needs_redist:
             rdm = rdm.clone()
             point_sf_orig, _ = redistribute_dm(rdm, redist_parameters, grow_overlap=False)
         dm_entries.append((rdm, rdm_orig, point_sf_orig))
@@ -190,6 +192,13 @@ def MeshHierarchy(mesh, refinement_levels,
     meshes = [mesh]
     mesh_origs = [mesh]
     for rdm, rdm_orig, point_sf_orig in dm_entries[1:]:
+        fmesh = mesh_builder(
+            rdm,
+            dim=mesh.geometric_dimension,
+            distribution_parameters=mesh_parameters,
+            reorder=reorder,
+            comm=mesh.comm,
+        )
         if point_sf_orig is not None:
             fmesh_orig = mesh_builder(
                 rdm_orig,
@@ -198,24 +207,10 @@ def MeshHierarchy(mesh, refinement_levels,
                 reorder=reorder,
                 comm=mesh.comm,
             )
-            fmesh = mesh_builder(
-                rdm,
-                dim=mesh.geometric_dimension,
-                distribution_parameters=mesh_parameters,
-                reorder=reorder,
-                comm=mesh.comm,
-            )
             overlap_sf = fmesh.topology.sfBC
             point_sf = point_sf_orig.compose(overlap_sf) if overlap_sf is not None else point_sf_orig
             fmesh.redist = RedistributedMeshTransfer(fmesh_orig, fmesh, point_sf)
         else:
-            fmesh = mesh_builder(
-                rdm,
-                dim=mesh.geometric_dimension,
-                distribution_parameters=mesh_parameters,
-                reorder=reorder,
-                comm=mesh.comm,
-            )
             fmesh_orig = fmesh
         fmesh._distribution_parameters = parameters
         meshes.append(fmesh)
@@ -227,14 +222,16 @@ def MeshHierarchy(mesh, refinement_levels,
         (impl.create_lgmap(dm), impl.create_lgmap(m.topology_dm))
         for (dm, _, _), m in zip(dm_entries, meshes)
     ]
+    flgmaps = [
+        lgmaps[i] if point_sf_orig is None else
+        (impl.create_lgmap(rdm_orig), impl.create_lgmap(mesh_orig.topology_dm))
+        for i, ((_, rdm_orig, point_sf_orig), mesh_orig) in enumerate(zip(dm_entries, mesh_origs))
+    ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
     for i in range(1, len(dm_entries)):
-        _, rdm_orig, _ = dm_entries[i]
-        clgmaps = lgmaps[i - 1]
-        flgmaps = (impl.create_lgmap(rdm_orig), impl.create_lgmap(mesh_origs[i].topology_dm))
         c2f, f2c = impl.coarse_to_fine_cells(meshes[i - 1], mesh_origs[i],
-                                             clgmaps, flgmaps)
+                                             lgmaps[i - 1], flgmaps[i])
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
