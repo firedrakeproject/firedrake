@@ -16,7 +16,7 @@ DM_ADAPT_KEEP = 0
 DM_ADAPT_REFINE = 1
 
 
-def _refine_marked_elements_once(mesh, mark):
+def _refine_marked_elements_once(mesh, cell_marker):
     """Refine marked cells once and return parent-child cell maps."""
     dm = mesh.topology_dm
     cell_numbering = mesh._cell_numbering
@@ -28,7 +28,7 @@ def _refine_marked_elements_once(mesh, mark):
     dm.createLabel(adapt_name)
     parent_label = dm.getLabel(parent_name)
     adapt_label = dm.getLabel(adapt_name)
-    marks = mark.dat.data_ro
+    marks = cell_marker.dat.data_ro
     for c in range(*dm.getHeightStratum(0)):
         off = cell_numbering.getOffset(c)
         if not (0 <= off < ncoarse):
@@ -152,7 +152,7 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
     return redist_mesh
 
 
-def refine_marked_elements(mesh, mark, redistribute=True, balancing=1.0):
+def refine_marked_elements(mesh, cell_marker, redistribute=True, balancing=1.0):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
@@ -163,7 +163,7 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=1.0):
     ----------
     mesh
         The mesh to refine.
-    mark
+    cell_marker
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times.
     redistribute
@@ -180,12 +180,12 @@ def refine_marked_elements(mesh, mark, redistribute=True, balancing=1.0):
         to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
         to ``mesh``.
     """
-    with mark.dat.vec_ro as v:
+    with cell_marker.dat.vec_ro as v:
         _, local_max = v.max()
     max_rounds = max(int(mesh.comm.allreduce(local_max, op=MPI.MAX)), 1)
 
     current_mesh = mesh
-    current_mark = mark
+    current_mark = cell_marker
     fine_to_coarse_total = None
     for round_idx in range(max_rounds):
         new_mesh, _, f2c = _refine_marked_elements_once(current_mesh, current_mark)

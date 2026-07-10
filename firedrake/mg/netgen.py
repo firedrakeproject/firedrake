@@ -161,10 +161,9 @@ def uniformRefinementRoutine(ngmesh, cdm):
     logger.info(f"\t\t\t[{time.time()}]Mapping the mesh to Netgen mesh")
     tic = time.time()
     mapping = MeshMapping(rdm, geo=ngmesh)
-    ngmesh = mapping.ngMesh
     toc = time.time()
     logger.info(f"\t\t\t[{time.time()}]Mapped the mesh to Netgen. Time taken: {toc-tic}")
-    return (rdm, ngmesh)
+    return (rdm, mapping.ngMesh)
 
 
 def uniformMapRoutine(meshes, lgmaps):
