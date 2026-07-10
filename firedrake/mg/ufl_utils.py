@@ -88,6 +88,7 @@ class ReconstructIntegrand(DAGTraverser):
 
 @singledispatch
 def _reconstruct(expr, self, coefficient_mapping=None):
+    """Fallback case: leave an expression with no registered handler unchanged."""
     return expr
 
 
@@ -576,6 +577,14 @@ class Injection(object):
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
+
+    def multTranspose(self, mat, x, y):
+        # PETSc's MatRestrict() cannot distinguish an injection matrix from
+        # an interpolation matrix when the coarse and fine spaces happen to
+        # have equal size (e.g. a no-op adaptive refinement level), and may
+        # call MatMultTranspose() instead of MatMult(). Injection is only
+        # ever used in one direction (fine to coarse), so both must agree.
+        self.mult(mat, x, y)
 
 
 def create_interpolation(dmc, dmf):

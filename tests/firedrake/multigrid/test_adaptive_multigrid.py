@@ -82,7 +82,6 @@ def amh(coarse_mesh):
         should_refine = rg.uniform(DG, 0, 1)
         markers = Function(DG)
         markers.dat.data_wo[:] = should_refine.dat.data_ro < 0.5
-        markers.dat.data_wo[:] = 1
 
         refined_mesh = mesh.refine_marked_elements(markers)
         amh_test.add_mesh(refined_mesh)

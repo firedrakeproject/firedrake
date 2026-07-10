@@ -90,6 +90,7 @@ def _refine_marked_elements_once(mesh, cell_marker):
 
 
 def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
+    """Copy mesh-construction metadata from a mesh onto its adaptively-derived successor."""
     target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
     target_mesh._did_reordering = source_mesh._did_reordering
     target_mesh._tolerance = source_mesh.tolerance
@@ -100,6 +101,7 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
 
 
 def _needs_adaptive_redistribution(mesh, balancing):
+    """Return whether the owned cell counts of ``mesh`` are imbalanced enough to redistribute."""
     num_cells = mesh.cell_set.size
     avg_cells = mesh.comm.allreduce(num_cells, op=MPI.SUM) / mesh.comm.size
     if avg_cells == 0:
@@ -182,7 +184,9 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True, balancing=1.0):
     """
     with cell_marker.dat.vec_ro as v:
         _, max_rounds = v.max()
-    max_rounds = int(np.rint(max_rounds))
+    # Always run at least one adaptation pass, even when no cell is marked,
+    # so that a fresh mesh (with its own cell maps) is produced uniformly.
+    max_rounds = max(int(np.rint(max_rounds)), 1)
 
     current_mesh = mesh
     current_mark = cell_marker

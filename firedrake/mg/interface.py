@@ -251,10 +251,6 @@ def inject(fine, coarse):
         # Introduce an intermediate quadrature target space
         Vc = Vc.quadrature_space()
 
-    kernel, dg = kernels.inject_kernel(Vf, Vc)
-    if dg and not hierarchy.nested:
-        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
@@ -274,6 +270,9 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
+        kernel, dg = kernels.inject_kernel(Vf, Vc)
+        if dg and not hierarchy.nested:
+            raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
