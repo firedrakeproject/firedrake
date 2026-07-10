@@ -28,6 +28,9 @@ from pyop3.cache import cached_method, memory_cache
 from pyop3.insn.base import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 
 
+import pyop3.debug
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
 
@@ -494,10 +497,9 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form" in str(self):
-        #     breakpoint()
-        # import pyop3.debug
-        # pyop3.debug.maybe_breakpoint()
+        if "form" in str(self):
+            breakpoint()
+            # pyop3.debug.maybe_breakpoint()
 
         if not kwargs:  # shortcut for the most common case
             buffers = self._default_buffers
@@ -634,7 +636,7 @@ class CompiledCodeExecutor:
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer.get_array())
+        return f"({buffer.size})", str(buffer._current_device_array_sync)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -771,7 +773,7 @@ class CompiledCodeExecutor:
 
                 def _init_nil():
                     # Not modifying owned values so don't want to update state via intent
-                    buffer.get_array()[buffer.sf.ileaf] = nil
+                    buffer._current_device_array_sync[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 

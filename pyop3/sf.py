@@ -65,6 +65,13 @@ class AbstractStarForest(abc.ABC):
         self.broadcast_end(*args)
 
 
+def _check_poison(func):
+    def wrapper(self, *args):
+        assert not self._poisoned
+        return func(self, *args)
+    return wrapper
+
+
 @pyop3.record.record()
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
@@ -73,6 +80,9 @@ class StarForest(AbstractStarForest):
 
     sf: PETSc.SF
     _comm: MPI.Comm
+    _poisoned: bool = False
+    """Debugging attribute, turn exchanges into errors."""
+    # only for root values, bcasting is fine I think
 
     # }}}
 
@@ -139,21 +149,11 @@ class StarForest(AbstractStarForest):
         mask[self.ileaf] = False
         return utils.just_one(np.nonzero(mask))
 
-    # not useful
-    # @property
-    # def nroots(self):
-    #     return self.graph[0]
-
     @property
-    def nowned(self):
+    def num_owned(self):
         num_owned =  self.size - self.nleaves
         assert num_owned >= 0
         return num_owned
-
-    # better alias
-    @property
-    def num_owned(self):
-        return self.nowned
 
     @property
     def nleaves(self):
@@ -176,22 +176,32 @@ class StarForest(AbstractStarForest):
     def graph(self):
         return self.sf.getGraph()
 
+    # @_check_poison
+    def broadcast(self, *args):
+        self.broadcast_begin(*args)
+        self.broadcast_end(*args)
+
+    # @_check_poison
     def broadcast_begin(self, *args):
         bcast_args = self._prepare_args(*args)
         self.sf.bcastBegin(*bcast_args)
 
+    # @_check_poison
     def broadcast_end(self, *args):
         bcast_args = self._prepare_args(*args)
         self.sf.bcastEnd(*bcast_args)
 
+    @_check_poison
     def reduce(self, *args):
         self.reduce_begin(*args)
         self.reduce_end(*args)
 
+    @_check_poison
     def reduce_begin(self, *args):
         reduce_args = self._prepare_args(*args)
         self.sf.reduceBegin(*reduce_args)
 
+    @_check_poison
     def reduce_end(self, *args):
         reduce_args = self._prepare_args(*args)
         self.sf.reduceEnd(*reduce_args)

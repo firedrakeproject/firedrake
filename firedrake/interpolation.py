@@ -812,14 +812,14 @@ class SameMeshInterpolator(Interpolator):
             assignee_buffer = f.dat.buffer
             orig_data = assignee_buffer.data_ro.copy()
             fmin = numpy.finfo(assignee_buffer.dtype).min
-            assignee_buffer._host_data[...] = fmin
+            assignee_buffer._current_device_array_sync[...] = fmin
 
             def mywrite():
                 assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
-                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._host_data, fmin))
+                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array_sync, fmin))
                 # just debugging
                 assert len(unchanged_idxs) > 0
-                assignee_buffer._host_data[unchanged_idxs] = orig_data[unchanged_idxs]
+                assignee_buffer._current_device_array_sync[unchanged_idxs] = orig_data[unchanged_idxs]
 
             copyout += (mywrite,)
 

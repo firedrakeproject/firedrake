@@ -4,6 +4,7 @@ import abc
 import collections
 import contextlib
 import dataclasses
+import functools
 import numbers
 import weakref
 from collections.abc import Mapping
@@ -52,6 +53,7 @@ class BadOrderingException(Exception):
 def not_in_flight(func):
     """Ensure that a method cannot be called when a transfer is in progress."""
 
+    @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         if self._transfer_in_flight:
             raise DataTransferInFlightException(
@@ -247,21 +249,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ instance attrs
 
-    _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    _device_arrays_private: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    """
+
+    Note that this attribute is mega private to reduce the risk of correctness
+    issues in parallel and between devices. Device arrays should be accessed
+    via other methods.
+
+    """
+
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
-
-    # TODO: I don't think that this should be a defaultdict, key misses are meaningful
-    _state: collections.defaultdict[Device, int]
-    _max_value: np.number | None = None
-
-    # flags for tracking parallel correctness
-    _leaves_valid: bool = True
-    _pending_reduction: Callable | None = None
-    _finalizer: Callable | None = None
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -320,12 +321,30 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
-        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
+        self._device_arrays_private = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
 
         self.record_setup()
 
     def __post_init__(self) -> None:
+        # TODO: I don't think that this should be a defaultdict, key misses are meaningful
+        curr_dev = get_current_device()
+        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
+        self._max_value: np.number | None = None
+
+        # flags for tracking parallel correctness
+        self._leaves_valid: bool = True
+        self._pending_reduction: Callable | None = None
+        self._finalizer: Callable | None = None
+
+        # stack for tracking device correctness
+        self._device_locks = []
+
+        ####
+
+        # debugging
+        self._shape = self._host_data_nosync.shape
+        self._dtype = self._host_data_nosync.dtype
+
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size
@@ -333,11 +352,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self.rank_equal:
             assert self.constant
         if self.ordered:
-            utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
-        if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
-            self._lazy_data[curr_dev].flags.writeable = False
+            utils.debug_assert(lambda: utils.is_sorted(self._device_arrays_private))
+        if self.constant and isinstance(self._device_arrays_private[curr_dev], np.ndarray):
+            self._device_arrays_private[curr_dev].flags.writeable = False
 
         self._debug_is_poisoned = False
+
 
     # }}}
 
@@ -357,15 +377,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        return self._lazy_data[get_current_device()].shape
-
-    @property
-    def size(self) -> int:
-        return self._lazy_data[get_current_device()].size
+        # return self._device_arrays_private[get_current_device()].shape
+        return self._shape
 
     @property
     def dtype(self) -> np.dtype:
-        return self._lazy_data[get_current_device()].dtype
+        # return self._device_arrays_private[get_current_device()].dtype
+        return self._dtype
 
     @property
     def state(self) -> int:
@@ -383,22 +401,21 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         # TODO: Fix for first-assign, immediate duplicate bug
         # This can be removed once `compile` strategy works on device
-        if curr_dev not in self._lazy_data:
-            self.sync_devices()
+        self.sync_devices()
 
         if copy:
-            data = {curr_dev: self._lazy_data[curr_dev].copy()}
+            data = {curr_dev: self._current_device_array_sync.copy()}
         else:
-            data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
+            data = {curr_dev: curr_dev.zeros_like(self._current_device_array_sync)}
         if constant is None:
             constant = self.constant
-        return self.__record_init__(_name=name, _lazy_data=data, _constant=constant)
+        return self.__record_init__(_name=name, _device_arrays_private=data, _constant=constant)
 
     is_nested: ClassVar[bool] = False
 
     @property
     def handle(self) -> np.ndarray | cp.ndarray:
-        return self.get_array()
+        return self._current_device_array_nosync
 
     @property
     def comm(self) -> MPI.Comm:
@@ -445,39 +462,22 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
+    # {{{ data accessors
+
     @property
-    @not_in_flight
     @deprecated(".data_rw")
     def data(self):
         return self.data_rw
 
     @property
-    @not_in_flight
     def data_rw(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        if not self._leaves_valid:
-            self.broadcast_roots_to_leaves()
-
-        # modifying owned values invalidates ghosts
-        self._leaves_valid = False
         return self.get_array("rw")
 
-    # TODO: It would be good to be able to get data_ro but without updating the halos
-    # The issue with the previous approach is we would only return the owned data. This
-    # way we could maybe instead...
-    # IDEA: we can use the SF to get the indices to extract...
     @property
-    @not_in_flight
     def data_ro(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        if not self._leaves_valid:
-            self.broadcast_roots_to_leaves()
         return readonly(self.get_array("ro"))
 
     @property
-    @not_in_flight
     def data_wo(self):
         """
         Have to be careful. If not setting all values (i.e. subsets) should call
@@ -486,10 +486,63 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
         can be dropped.
         """
-        # pending writes can be dropped
-        self._pending_reduction = None
-        self._leaves_valid = False
         return self.get_array("wo")
+
+    # TODO: It would be good to be able to get data_ro but without updating the
+    # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
+    @not_in_flight
+    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+        match intent:
+            case "ro":
+                if not self._roots_valid:
+                    self.reduce_leaves_to_roots()
+                if not self._leaves_valid:
+                    self.broadcast_roots_to_leaves()
+            case "rw":
+                if not self._roots_valid:
+                    self.reduce_leaves_to_roots()
+                if not self._leaves_valid:
+                    self.broadcast_roots_to_leaves()
+
+                # modifying owned values invalidates ghosts
+                self._leaves_valid = False
+            case "wo":
+                # pending writes can be dropped, note that this has implications for subset assignment
+                self._pending_reduction = None
+                self._leaves_valid = False
+
+        if self._debug_is_poisoned:
+            breakpoint()
+
+        if intent in {"wo", "rw"}: 
+            self.inc_state() 
+
+        array = self._current_device_array_sync
+        return readonly(array) if intent == "ro" else array
+
+    @property
+    def _current_device_array_sync(self):
+        curr_dev = get_current_device() 
+        if not self._is_data_available_and_synced(curr_dev):
+            self.sync_devices()
+        return self._current_device_array_nosync
+
+    @property
+    def _current_device_array_nosync(self):
+        return self._device_arrays_private[get_current_device()]
+
+    def _lock_current_device(self):
+        """Raise an error if we try to change the current device."""
+        assert all(d == get_current_device() for d in self._device_locks)
+        self._device_locks.append(get_current_device())
+
+    def _unlock_current_device(self):
+        """Undo a device lock."""
+        self._device_locks.pop(-1)
+
+    # }}}
+
+    # {{{ parallel communication
 
     @not_in_flight
     def assemble(self) -> None:
@@ -498,20 +551,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def leaves_valid(self) -> bool:
         return self._leaves_valid
-
-    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
-        if self._debug_is_poisoned:
-            breakpoint()
-
-        curr_dev = get_current_device() 
-
-        if not self._is_data_available_and_synced(curr_dev):
-            self.sync_devices()
-
-        if intent in {"wo", "rw"}: 
-            self.inc_state() 
-
-        return self._lazy_data[curr_dev]
 
     @property
     def _last_updated_device(self) -> Device:
@@ -558,6 +597,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._reduce_leaves_to_roots_end(op)
 
     @not_in_flight
+    @on_host
     def reduce_leaves_to_roots_begin(self):
         if not self._roots_valid:
             self._reduce_leaves_to_roots_begin(self._reduction_ops[self._pending_reduction])
@@ -565,11 +605,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._finalizer = self.reduce_leaves_to_roots_end
 
     @not_in_flight
+    @on_host
     def _reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
-        self.sf.reduce_begin(self._lazy_data[get_current_device()], op)
+        self._lock_current_device()
+        self.sf.reduce_begin(self._current_device_array_sync, op)
 
+    @on_host
     def reduce_leaves_to_roots_end(self):
-        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _reduce_leaves_to_roots_end without first calling "
@@ -584,7 +626,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._finalizer = None
 
     def _reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
-        self.sf.reduce_end(self._lazy_data[get_current_device()], op)
+        self.sf.reduce_end(self._current_device_array_nosync, op)
+        self._unlock_current_device()
 
     @not_in_flight
     @on_host
@@ -594,16 +637,15 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @not_in_flight
     def broadcast_roots_to_leaves_begin(self):
-        curr_dev = get_current_device()
         if not self._roots_valid:
             raise RuntimeError("Cannot broadcast invalid roots")
 
+        self._lock_current_device()
         if not self._leaves_valid:
-            self.sf.broadcast_begin(self._lazy_data[curr_dev], MPI.REPLACE)
-        object.__setattr__(self, "_finalizer", self.broadcast_roots_to_leaves_end)
+            self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
+        self._finalizer = self.broadcast_roots_to_leaves_end
 
     def broadcast_roots_to_leaves_end(self):
-        curr_dev = get_current_device()
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _broadcast_roots_to_leaves_end without first "
@@ -613,9 +655,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._leaves_valid:
-            self.sf.broadcast_end(self._lazy_data[curr_dev], MPI.REPLACE)
+            self.sf.broadcast_end(self._current_device_array_sync, MPI.REPLACE)
         self._leaves_valid = True
         self._finalizer = None
+        self._unlock_current_device()
 
     @not_in_flight
     def _reduce_then_broadcast(self):
@@ -650,20 +693,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         last_updated_device = self._last_updated_device
         current_device = get_current_device()
 
-        self._lazy_data[current_device] = current_device.asarray(
-            self._lazy_data[last_updated_device], 
+        self._device_arrays_private[current_device] = current_device.asarray(
+            self._device_arrays_private[last_updated_device], 
             constant=self.constant
         )
         self._state[current_device] = self._state[last_updated_device]
 
     def _is_data_available_and_synced(self, device: Device) -> bool:
-        is_available = device in self._lazy_data
+        is_available = device in self._device_arrays_private
         is_synced = self._state[device] == max(self._state.values())
         return is_available and is_synced
 
     @property
-    def _host_data(self) -> np.ndarray:
-        return self._lazy_data[pyop3.device.HOST_DEVICE]
+    def _host_data_nosync(self) -> np.ndarray:
+        return self._device_arrays_private[pyop3.device.HOST_DEVICE]
 
     # {{{ PETSc interop
 
@@ -672,7 +715,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         size = self.sf.num_owned
         block_size = np.prod(block_shape, dtype=int)
         # FIXME: Only allowing host data here
-        return PETSc.Vec().createWithArray(self._host_data[:size], (size, None), block_size, comm=self.comm)
+        return PETSc.Vec().createWithArray(self._host_data_nosync[:size], (size, None), block_size, comm=self.comm)
 
     def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", block_shape)
@@ -708,9 +751,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ debugging helper methods
 
-    def _debug_poison_array(self):
+    def _debug_poison_array(self) -> None:
         """Turn the next array access into an error."""
+        return
+        if self._debug_is_poisoned:
+            return
+        self.olddata = self._device_arrays_private
         self._debug_is_poisoned = True
+        self._device_arrays_private = {pyop3.device.HOST_DEVICE: "NOTHING"}
+
+    def _debug_unpoison_array(self) -> None:
+        return
+        """Undo array poisoning."""
+        self._debug_is_poisoned = False
+        self._device_arrays_private = self.olddata
 
     # }}}
 

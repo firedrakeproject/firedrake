@@ -635,8 +635,10 @@ class WithGeometryBase:
 
         """
         mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
-        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
-        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        # debugging, think this fails in parallel!
+        # node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
+        # connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        connectivity = mesh_pt_to_pt_map.connectivity
         return op3.ScalarMap(
             connectivity,
             name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
@@ -651,8 +653,10 @@ class WithGeometryBase:
 
         """
         mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
-        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
-        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        # debugging, think this fails in parallel!
+        # node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
+        # connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        connectivity = mesh_pt_to_pt_map.connectivity
         return op3.ScalarMap(
             connectivity,
             name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",

@@ -476,7 +476,7 @@ class _SNESContext(object):
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
         if ctx._post_function_callback is not None:
-            with ctx._F.dat.vec_wo as F_:
+            with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
 
         # F may not be the same vector as self._F, so copy

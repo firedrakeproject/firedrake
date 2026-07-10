@@ -212,8 +212,15 @@ class Dat(Tensor):
         return cls.empty(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=None, **kwargs) -> Dat:
+        if buffer_kwargs is None:
+            buffer_kwargs = {}
+
         axes = as_axis_tree(axes)
+
+        if "name" in kwargs:
+            buffer_kwargs["name"] = kwargs["name"] + "_buffer"
+
         buffer = ArrayBuffer.zeros(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
@@ -495,13 +502,7 @@ class Dat(Tensor):
         mode: Literal["ro", "rw", "wo"],
         block_shape: collections.abc.Iterable[int, ...] | int = (),
     ) -> GeneratorType[PETSc.Vec]:
-        if self.dtype != PETSc.ScalarType:
-            raise RuntimeError(
-                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
-                f"must be '{PETSc.ScalarType}'"
-            )
-
-        # NOTE: We only return a vec containing the owned and unconstrained values
+        # print("as_vec for ", self.name, mode)
 
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
@@ -510,16 +511,34 @@ class Dat(Tensor):
         if not is_view:
             raise NotImplementedError("TODO")
 
+        # TODO: I would like to disallow this as it creates a lot of confusion
+        if self._vec_context_is_active:
+            # print("context active")
+            assert is_view
+            # NOTE: Have to be careful that we aren't violating any 'mode' contracts
+            # print(self._work_vec.array_r)
+            # print(self._work_vec.array_r.sum())
+            # debugging
+            if not self.buffer._debug_is_poisoned:
+                self.buffer._debug_poison_array()
+                yield self._work_vec
+                self.buffer._debug_unpoison_array()
+            else:
+                yield self._work_vec
+            return
+
+
+        if self.dtype != PETSc.ScalarType:
+            raise RuntimeError(
+                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+                f"must be '{PETSc.ScalarType}'"
+            )
+
+        # NOTE: We only return a vec containing the owned and unconstrained values
+
         # parallel correctness
         if not self.buffer._roots_valid:
             self.buffer.reduce_leaves_to_roots()
-
-        # TODO: I would like to disallow this as it creates a lot of confusion
-        if self._vec_context_is_active:
-            assert is_view
-            # NOTE: Have to be careful that we aren't violating any 'mode' contracts
-            yield self._work_vec
-            return
 
         # Prepare the work vec
         block_size = np.prod(block_shape, dtype=int) 
@@ -542,7 +561,15 @@ class Dat(Tensor):
                 # Buffer data has changed but PETSc doesn't know this
                 self._work_vec.stateIncrease()
             self._vec_context_is_active = True
-            yield self._work_vec
+            # print(self._work_vec.array_r)
+            # print(self._work_vec.array_r.sum())
+            # debugging
+            if not self.buffer._debug_is_poisoned:
+                self.buffer._debug_poison_array()
+                yield self._work_vec
+                self.buffer._debug_unpoison_array()
+            else:
+                yield self._work_vec
 
         else:
             # Not a view, need to copy in and out
@@ -566,6 +593,9 @@ class Dat(Tensor):
                 self._vec_context_is_active = True
                 yield self._work_vec
 
+        # print("leaving as vec for", self.name, mode)
+        # print(self._work_vec.array_r)
+        # print(self._work_vec.norm())
         # Record any state changes on the buffer
         if mode in {"rw", "wo"}:
             self.buffer.inc_state()
