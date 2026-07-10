@@ -37,14 +37,32 @@ class DirichletBCMixin(FloatingType):
     def _ad_annotate_function_arg(function_arg):
         @wraps(function_arg)
         def wrapper(self, g):
-            ret = function_arg(self, g)
-            # Keep the floating dependency in sync with the assigned value,
-            # so that reusing this DirichletBC (e.g. calling set_value in a
-            # time loop) tapes a fresh DirichletBCBlock against the current
-            # g, rather than the one originally passed to __init__.
-            self._ad_args = (self._ad_args[0], g, self._ad_args[2])
+            # The interpolation of the boundary value is only taped when
+            # this BC is added as a dependency of another block, in
+            # _ad_will_add_as_dependency; taping it here as well would
+            # leave a dangling duplicate block on the tape.
+            with stop_annotating():
+                ret = function_arg(self, g)
+            # The block's dependency is the boundary value this BC actually
+            # applies: g itself if it lives on this space, otherwise the
+            # Function that g is interpolated into by the annotated assemble
+            # call in the setter. Depending on the latter composes the
+            # DirichletBCBlock with the taped interpolation, whose own block
+            # provides the adjoint and tangent-linear of the boundary value.
+            self._ad_args = (self.function_space(), self._function_arg)
             return ret
         return wrapper
+
+    def _ad_will_add_as_dependency(self):
+        """Refresh the boundary value before this BC's block is taped.
+
+        Accessing ``function_arg`` re-assembles the interpolation of the
+        boundary value through the annotated ``assemble``, so the
+        `DirichletBCBlock` taped by `FloatingType` depends on the
+        interpolation output that is current at this point on the tape.
+        """
+        self.function_arg
+        super()._ad_will_add_as_dependency()
 
     def _ad_create_checkpoint(self):
         deps = self.block.get_dependencies()

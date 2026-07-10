@@ -368,7 +368,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg_update()
             except NotImplementedError:
                 # Element doesn't implement interpolation
-                self._function_arg_update = firedrake.Projector(g, self._function_arg).project
+                self._function_arg_update = partial(firedrake.project, g, self._function_arg)
                 self._function_arg_update()
             self._coefficients = tuple(extract_coefficients(g))
         else:
