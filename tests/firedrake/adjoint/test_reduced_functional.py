@@ -298,3 +298,61 @@ def test_ad_dot(riesz_representation):
     h.dat.data[:] = np.random.rand(V.dof_count)
     dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
     assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_fieldsplit():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = MixedFunctionSpace([V, Q])
+
+    bcs = [DirichletBC(W.sub(0), Constant((0, 0)), (1, 2, 3)),
+           DirichletBC(W.sub(0), Constant((1, 0)), 4)]
+
+    sp = {
+        'mat_type': 'nest',
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
+        'ksp_type': 'fgmres',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_schur_factorization_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            "pc_factor_mat_solver_type": 'mumps',
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'cg',
+            'ksp_rtol': 1e-9,
+            'ksp_atol': 1e-9,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_pc_type': 'lu',
+            'Mp_pc_factor_mat_solver_type': 'mumps',
+        },
+    }
+
+    constant_nsp = VectorSpaceBasis(constant=True, comm=Q.comm)
+    nsp = MixedVectorSpaceBasis(W, [W.sub(0), constant_nsp])
+
+    A = FunctionSpace(mesh, "CG", 1)
+    rho = Function(A).interpolate(Constant(1))
+
+    w = Function(W)
+    (u, p) = split(w)
+    z = TestFunction(W)
+    (v, q) = split(z)
+    F = (inner(sym(grad(u)) * rho, sym(grad(v))) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx
+         )
+    solve(F == 0, w, bcs, solver_parameters=sp, nullspace=nsp)
+
+    J = assemble(0.5*inner(sym(grad(u)) * rho, sym(grad(u))) * dx)
+    Jhat = ReducedFunctional(J, Control(rho))
+
+    rg = RandomGenerator(PCG64(seed=0))
+    h = rg.uniform(A)
+    assert taylor_test(Jhat, rho, h) > 1.9

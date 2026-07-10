@@ -532,7 +532,8 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install inkscape texlive-full
+          # pandoc is required by nbsphinx to render the tutorial notebooks
+          apt-get -y install inkscape texlive-full pandoc
 
       - uses: actions/checkout@v5
         with:
@@ -573,7 +574,7 @@ jobs:
         with:
           name: github-pages
           path: firedrake-repo/docs/build/html
-          retention-days: 1
+          retention-days: 5
 
       # Some files are automatically generated when we install or build the
       # docs (e.g. AUTHORS.rst). These files are committed to the repository
