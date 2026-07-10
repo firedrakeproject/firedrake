@@ -82,17 +82,32 @@ class DirichletBCBlock(Block):
                                                 len(output))
                     r[:] = output
             elif isinstance(c, firedrake.Function):
-                # TODO: This gets a little complicated.
-                #       The function may belong to a different space,
-                #       and with `Function.set_allow_extrapolation(True)`
-                #       you can even use the Function outside its domain.
-                # For now we will just assume the FunctionSpace is the same for
-                # the BC and the Function.
+                # TODO: With `Function.set_allow_extrapolation(True)` you can
+                #       even use the Function outside its domain.
                 adj_value = firedrake.Function(self.parent_space)
                 adj_input.apply(adj_value)
-                r = extract_bc_subvector(
-                    adj_value, c.function_space(), bc
-                ).riesz_representation("l2")
+                if c.function_space() == self.parent_space:
+                    r = extract_bc_subvector(
+                        adj_value, c.function_space(), bc
+                    ).riesz_representation("l2")
+                else:
+                    # The BC data lives on a different FunctionSpace than
+                    # the one it is applied to, and was interpolated into
+                    # it (see `DirichletBC.function_arg`). Transform the
+                    # adjoint value through the adjoint of that (linear)
+                    # interpolation operator.
+                    for idx in bc._indices:
+                        adj_value = adj_value.sub(idx)
+                    dc = firedrake.TrialFunction(c.function_space())
+                    dform = firedrake.derivative(
+                        firedrake.interpolate(c, adj_value.function_space()), c, dc
+                    )
+                    r = firedrake.assemble(
+                        firedrake.action(
+                            firedrake.adjoint(dform),
+                            adj_value.riesz_representation("l2"),
+                        )
+                    )
             if adj_output is None:
                 adj_output = r
             else:

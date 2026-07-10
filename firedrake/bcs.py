@@ -360,10 +360,10 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             self._function_arg = firedrake.Function(V)
             try:
-                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                interp = firedrake.interpolate(g, V)
                 # Call this here to check if the element supports interpolation
                 # TODO: It's probably better to have a more explicit way of checking this
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+                self._function_arg_update = partial(firedrake.assemble, interp, tensor=self._function_arg)
                 self._function_arg_update()
             except NotImplementedError:
                 # Element doesn't implement interpolation

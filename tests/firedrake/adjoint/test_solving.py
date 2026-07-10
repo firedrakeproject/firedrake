@@ -289,6 +289,44 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+def test_time_dependent_dirichlet_bc_from_other_space():
+    """DirichletBC data on a different FunctionSpace than the one it is
+    applied to is interpolated internally; that interpolation must be
+    taped by pyadjoint like any other assembly, or the Taylor test fails.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    dt = 0.1
+    nsteps = 2
+
+    def J(amp):
+        u = Function(V1)
+        u_old = Function(V1)
+        v = TestFunction(V1)
+
+        F = inner(u - u_old, v)*dx + dt*inner(grad(u), grad(v))*dx
+
+        for i in range(nsteps):
+            t = (i + 1)*dt
+            g = Function(V2).interpolate(amp*amp*sin(2*pi*t)*(x + y))
+            bc = DirichletBC(V1, g, "on_boundary")
+            solve(F == 0, u, bcs=bc)
+            u_old.assign(u)
+
+        # Final H1 seminorm of u
+        return assemble(inner(grad(u), grad(u))*dx) ** 0.5
+
+    amp = Function(R, val=1.0)
+    J0 = J(amp)
+    rf = ReducedFunctional(J0, Control(amp))
+    assert taylor_test(rf, amp, Constant(0.1)) > 1.95
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
