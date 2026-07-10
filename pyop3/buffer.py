@@ -529,6 +529,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def _current_device_array_nosync(self):
+        # if "function_28" in self.name:
+        #     breakpoint()
         return self._device_arrays_private[get_current_device()]
 
     def _lock_current_device(self):
@@ -640,10 +642,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if not self._roots_valid:
             raise RuntimeError("Cannot broadcast invalid roots")
 
-        self._lock_current_device()
         if not self._leaves_valid:
-            self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
+            self._broadcast_roots_to_leaves_begin()
         self._finalizer = self.broadcast_roots_to_leaves_end
+
+    def _broadcast_roots_to_leaves_begin(self):
+        self._lock_current_device()
+        self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
 
     def broadcast_roots_to_leaves_end(self):
         if self._finalizer is None:
@@ -655,9 +660,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._leaves_valid:
-            self.sf.broadcast_end(self._current_device_array_sync, MPI.REPLACE)
+            self._broadcast_roots_to_leaves_end()
         self._leaves_valid = True
         self._finalizer = None
+
+    def _broadcast_roots_to_leaves_end(self):
+        self.sf.broadcast_end(self._current_device_array_sync, MPI.REPLACE)
         self._unlock_current_device()
 
     @not_in_flight

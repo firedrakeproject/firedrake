@@ -1085,19 +1085,23 @@ class ParloopFormAssembler(FormAssembler):
 
         # print("LEN", len(self.parloops(tensor)))
 
-        if hasattr(tensor, "dat"):
-            tensor.dat.buffer.sf._poisoned = True
+        # if hasattr(tensor, "dat"):
+        #     tensor.dat.buffer.sf._poisoned = True
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
-            if (
-                subtensor.comm.rank == 0 and
-                isinstance(subtensor, op3.Dat) and "cofunction_31" in subtensor.name
-                and (subtensor.buffer._current_device_array_sync.sum() + 0.10593) < 1e-3
-            ):
-                import pyop3.debug
-                pyop3.debug.enable_conditional_breakpoints()
+            # if (
+            #     subtensor.comm.rank == 0 and
+            #     isinstance(subtensor, op3.Dat) and "cofunction_31" in subtensor.name
+            #     and (subtensor.buffer._current_device_array_sync.sum() + 0.10593) < 1e-3
+            # ):
+            #     import pyop3.debug
+            #     pyop3.debug.enable_conditional_breakpoints()
+            # if (
+            #     isinstance(subtensor, op3.Dat) and "function_28" in subtensor.name
+            # ):
+            #     breakpoint()
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
@@ -1105,14 +1109,14 @@ class ParloopFormAssembler(FormAssembler):
             else:
                 parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
-            # if isinstance(subtensor, op3.Dat) and "cofunction_31" in subtensor.name:
-            #     print(subtensor.buffer._current_device_array_sync.sum())
+            if isinstance(subtensor, op3.Dat) and "cofunction_31" in subtensor.name:
+                print(subtensor.buffer._current_device_array_sync.sum())
 
 
 
 
-        if hasattr(tensor, "dat"):
-            tensor.dat.buffer.sf._poisoned = False
+        # if hasattr(tensor, "dat"):
+        #     tensor.dat.buffer.sf._poisoned = False
 
         # we like this test, but not now
         # if hasattr(tensor, "dat"):

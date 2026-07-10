@@ -497,7 +497,7 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form" in str(self):
+        # if "form0_cell_integral" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
@@ -616,6 +616,10 @@ class CompiledCodeExecutor:
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
+        # does this fix things? nope, but it changes the answer!
+        # for buffer in buffers:
+        #     buffer.assemble()
+
     def __str__(self) -> str:
         sep = "*" * 80
         str_ = []
@@ -726,12 +730,15 @@ class CompiledCodeExecutor:
                     initializers.append(buffer.reduce_leaves_to_roots_begin)
                     reductions.extend([
                         buffer.reduce_leaves_to_roots_end,
-                        buffer.broadcast_roots_to_leaves_begin,
+                        buffer._broadcast_roots_to_leaves_begin,
                     ])
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
+                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                # elif not buffer._leaves_valid:
+                elif True:  # flags arent always correct
+                    initializers.append(buffer._broadcast_roots_to_leaves_begin)
+                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
                 else:
-                    initializers.append(buffer.broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
+                    pass
             else:
                 if not buffer._roots_valid:
                     initializers.append(buffer.reduce_leaves_to_roots_begin)

@@ -1202,26 +1202,44 @@ class AbstractMeshTopology(abc.ABC):
             # and then trying to materialise a ragged composite dat.
             for only_owned in [True, False]:
                 if facet_type == "exterior":
-                    facets_axes = self.exterior_facets
+                    facets_axes = self.exterior_facets.materialize()
+                    plex_indices_is = self._exterior_facet_plex_indices
+                    facet_numbering_sec = self._old_to_new_exterior_facet_numbering
                 else:
-                    facets_axes = self.interior_facets
-                if only_owned:
-                    facets_axes = facets_axes.owned
-                facets_axis = facets_axes.as_axis()
+                    facets_axes = self.interior_facets.materialize()
+                    plex_indices_is = self._interior_facet_plex_indices
+                    facet_numbering_sec = self._old_to_new_interior_facet_numbering
 
-                support_dat = self._facet_support_dat(facet_type, only_owned=only_owned)
+                # if only_owned:
+                #     # facets_axes = facets_axes.owned
+                #     facets_axis = facets_axes.as_axis()
+                # else:
+                #     facets_axis = facets_axes.as_axis()
+
+                # support_dat = self._facet_support_dat(facet_type, only_owned=only_owned)
+                support_dat = _memoize_facet_supports(
+                    self.topology_dm,
+                    facets_axes,
+                    plex_indices_is,
+                    facet_numbering_sec,
+                    self._old_to_new_cell_numbering,
+                    facet_type,
+                )
+
+                facets_axis = facets_axes.as_axis()  # just a labelling trick
+                if only_owned:
+                    facets_axis = facets_axis.owned
+                    support_dat = op3.Dat(support_dat.axes.owned.materialize(), data=support_dat.data_ro)
 
                 # 1-tuple here because in theory support(facet) could map to other valid things (like points)
-                supports[idict({facets_axis.label: facets_axis.component.label})] = (
-                    (
-                        op3.TabulatedMapComponent(
-                            self.name,
-                            self.cell_label,
-                            support_dat,
-                            label=0,
-                        ),
+                supports[idict({facets_axis.label: facets_axis.component.label})] = [[
+                    op3.TabulatedMapComponent(
+                        self.name,
+                        self.cell_label,
+                        support_dat,
+                        label=0,
                     ),
-                )
+                ]]
 
         return op3.Map(supports, name="support")
 
@@ -1293,6 +1311,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _support_dats(self):
+        breakpoint()
         def support_func(pt):
             return self.topology_dm.getSupport(pt)
 
@@ -1471,14 +1490,17 @@ class AbstractMeshTopology(abc.ABC):
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
-            return dmcommon.submesh_create_cell_closure(
+            # TODO: Can revert this to latest change, this wasn't the fix
+            retval = dmcommon.submesh_create_cell_closure(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
-                self._old_to_new_cell_numbering,  # not used
-                self.submesh_parent._old_to_new_cell_numbering,  # not used
-                self.submesh_parent._fiat_cell_closures,
+                self._old_to_new_cell_numbering,
+                self.submesh_parent._old_to_new_cell_numbering,
+                self.submesh_parent.cell_closure,
                 entity_per_cell,
-            )
+            )[self._old_to_new_cell_numbering_is.indices]
+            # breakpoint()
+            return retval
 
         elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
