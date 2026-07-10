@@ -165,7 +165,7 @@ def MeshHierarchy(mesh, refinement_levels,
             coords *= scale
 
         rdm_orig = rdm
-        point_sf_orig = None
+        point_sf = None
         needs_redist = (redistribute and mesh.comm.size > 1
                         and dm_has_empty_rank(rdm))
         if needs_redist:
