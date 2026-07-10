@@ -198,32 +198,47 @@ toolchain:
 
 ### PyAdjoint / Differentiability
 
-Lessons from pyadjoint debugging that generalize to any record/replay system (caches, dependency
-graphs, memoization). Ordered from quick diagnostic wins to deeper architectural gotchas:
+Guiding principles for building and debugging taped operations, in the order they should be
+applied. They generalize to any record/replay system (caches, dependency graphs, memoization):
 
-* **Read the warning before the crash.** `Adjoint value is None, is the functional independent of the
-  control variable?` (`pyadjoint/control.py`) names the actual gap; a `ZeroDivisionError`/`nan` that
-  `taylor_test` raises afterwards is usually just that gap's downstream consequence.
-* **Inspect the recorded structure directly instead of guessing from the symptom.**
-  `pyadjoint.get_working_tape().get_blocks()` lists every `Block` in order; each one's
-  `.get_dependencies()`/`.get_outputs()` `.saved_output` shows exactly which step is missing a
-  dependency it should have.
-* **A "too perfect" verification result is a red flag, not a pass.** `taylor_test` residuals all
-  ~1e-16 usually mean the functional is accidentally *exactly* linear in the control at that point
-  (e.g. linear PDE + linear BC + zero initial condition) — introduce real nonlinearity (square the
-  control) to get a meaningful check.
-* **A dependency check by structural type, not concept, silently skips conforming objects.**
-  `firedrake.Constant` is a `ufl.Terminal`, not a `Coefficient`; `AssembleBlock` finds dependencies via
-  `form.coefficients()`, so a bare `Constant` records **zero** dependencies. Use a `Function` on a
-  `"R"` space instead.
-* **State re-derived lazily from construction-time args must stay synced on every mutation.**
-  `DirichletBCBlock` rebuilds from `self._ad_args`, fixed at `__init__`; without keeping `_ad_args`
-  current on every `set_value`, reuse silently keeps re-deriving from the *original* value (Taylor
-  rate 1, a wrong gradient, not 2).
-* **A performance cache must resync every axis that varies between reuses, not just the obvious one.**
-  `NonlinearVariationalSolveBlock`'s cached solver refreshes form coefficients automatically but not
-  its own embedded `DirichletBC` objects — recomputation under a perturbed control silently reused
-  stale per-step BC data until `_forward_solve` was fixed to resync them too.
+* **Adjoints come from composition, not re-derivation.** If writing a block's
+  `evaluate_adj_component` has you calling `derivative`/`adjoint`/`action` on an operation
+  Firedrake already tapes (interpolation, assembly, a solve), the tape structure is wrong, not
+  incomplete: make the block depend on that operation's *output* and delete the hand-rolled
+  pullback — the operation's own block then supplies the adjoint, TLM, Hessian, and recompute.
+  Corollary: a block's dependency is the value the operation actually consumes (the interpolated
+  function a `DirichletBC` applies), never the raw user input it was derived from.
+* **Tape derived state when its consumer is taped, not when it is computed.** A value lazily
+  re-derived from a mutable input (`DirichletBC.function_arg` re-interpolates after `g` changes in
+  place) must be re-annotated at the moment the consuming block is recorded, so the dependency
+  edge points at the input's *current* block variable. For a `FloatingType` — whose block is
+  rebuilt from `_ad_args` every time the object is added as a dependency — override
+  `_ad_will_add_as_dependency` to refresh (and thereby tape) the derived value before `super()`
+  tapes the block. Reuse in a time loop then records one correct chain per step with no extra
+  bookkeeping. Conversely, do not tape work nothing depends on: internal updates at
+  construction/`set_value` time belong under `stop_annotating()`, or every setter call leaves a
+  dangling block that recompute pays for.
+* **Prove the linchpin primitive in isolation before restructuring around it.** A five-line script
+  (e.g. `assemble(action(adjoint(derivative(interpolate(g, V), g)), cof))` for an `"R"`-space `g`)
+  finds hard boundaries early — no `Argument` on vector-valued `"R"` spaces — and exposes
+  special-case code that composition can subsume or that was already dead (a path calling the
+  nonexistent `firedrake.cpp` was never exercised by any test).
+* **Verify the structure before the numbers.** Print the DAG — each block in
+  `get_working_tape().get_blocks()` with the identities of its `.get_dependencies()` and
+  `.get_outputs()` — and check it is exactly the chain you designed, with no stale or dangling
+  block variables, for both the fresh and the reuse/time-loop paths. Only then run `taylor_test`
+  with a genuinely nonlinear control: rate ≈ 2 is a pass; residuals all ~1e-16 mean the functional
+  is accidentally linear in the control (square it); rate ≈ 1 means a stale value reached the
+  tape. When a gradient is zero, the warning `Adjoint value is None, is the functional independent
+  of the control variable?` names the missing dependency edge — the `ZeroDivisionError`/`nan` that
+  `taylor_test` raises afterwards is only its downstream echo.
+* **Dependency discovery is structural, not conceptual.** `form.coefficients()` finds `Function`s
+  (including on `"R"` spaces) but not `firedrake.Constant`, so a bare `Constant` silently records
+  no dependency — represent differentiable scalars as `Function` on an `"R"` space.
+* **A cache reused across recomputes must resync every axis that varies between reuses.**
+  `NonlinearVariationalSolveBlock`'s cached forward solver refreshes form coefficients
+  automatically but its problem's `DirichletBC`s must be swapped for the block's own checkpointed
+  ones in `_forward_solve`; each missed axis silently reuses stale data under a perturbed control.
 
 ### Reproducible Environments
 
