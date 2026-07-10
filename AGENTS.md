@@ -4,6 +4,17 @@ Firedrake is an automated system for the portable solution of partial differenti
 the finite element method (FEM). The codebase is primarily Python, relying heavily on code generation
 and high-performance C backends to achieve scalability and speed.
 
+Two properties are treated as defining features of Firedrake, not optional extras: **composability**
+(function spaces, forms, boundary conditions, solvers, and preconditioners are expected to combine
+freely, without special-casing particular combinations) and **differentiability** (via `pyadjoint`,
+essentially any computation built from Firedrake's own operations — assembly, interpolation,
+variational solves, boundary condition application — can be taped and differentiated end-to-end).
+Differentiability is expected to fall out of composability: a new feature built from already-annotated
+Firedrake operations should be differentiable for free, with no extra work. A feature that instead
+reaches past those operations into a lower-level, unannotated API silently breaks this guarantee —
+forward runs stay numerically correct, but the adjoint quietly goes wrong, and nothing fails until
+pyadjoint is specifically exercised.
+
 Firedrake's full contribution process is documented at
 [Contributing to Firedrake](https://firedrakeproject.org/contribute.html). In short, for AI-assisted
 contributions: declare that AI was used and which tool; a human must lead the PR, understand every
@@ -30,6 +41,12 @@ toolchain:
   2. **Lowering to Loopy:** The GEM expressions are then lowered into **loopy** kernels.
 * **PyOP2:** Finally, the generated loopy kernels are wrapped and executed by PyOP2, which handles the
   parallel execution of loops over mesh cells and facets.
+* **pyadjoint:** Firedrake integrates with `pyadjoint` for algorithmic differentiation. Annotated
+  operations (assembly, interpolation, variational solves, boundary condition application, ...) are
+  recorded on a `Tape` as a DAG of `Block`s; a `ReducedFunctional` composed with one or more `Control`s
+  can then be evaluated, differentiated (adjoint or tangent-linear), and checked with a `taylor_test`.
+  Taping happens at the level of Firedrake's own operations, not the underlying numerics, so any new
+  feature assembled purely from already-annotated building blocks is differentiable automatically.
 
 ## Core Working Rules
 
@@ -56,6 +73,13 @@ toolchain:
   prose explaining what the removed, incorrect approach used to do or why it was wrong. Keep comments
   and documentation focused on the current, correct code; a reader should never need the history of
   what used to be there to understand why the present code is right.
+* **Composability And Differentiability:** New features are expected to compose with existing ones
+  without special-casing, and, via `pyadjoint`, to remain differentiable when built from already-taped
+  operations. Prefer the annotated, top-level API (e.g. `firedrake.assemble`) over a lower-level
+  equivalent that bypasses it (e.g. calling an `Interpolator`'s own `.assemble()` directly) even when
+  both give the same forward numbers — the lower-level call silently drops out of the tape, and no test
+  will notice unless it specifically exercises pyadjoint. When a change could plausibly sit on the tape,
+  verify differentiability explicitly with a `taylor_test`, not just a forward-value check.
 
 ## Coding Style And Conventions
 
@@ -145,7 +169,7 @@ toolchain:
 
 ### Debugging
 
-* **Generated kernels (niche, rarely needed):** By default, generated C is compiled optimized and
+* **Generated kernels:** By default, generated C is compiled optimized and
   without debug symbols, so a debugger attached to the Python process cannot meaningfully step through
   it. Set `PYOP2_DEBUG=1` to compile with `-O0 -g` instead, which is the prerequisite for using
   `gdb`/`cgdb` on the compiled kernel at all.
@@ -165,6 +189,43 @@ toolchain:
   standard PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`, `-log_view`, `-start_in_debugger`)
   can be passed through Firedrake's `solver_parameters` or the command line exactly as in a plain PETSc
   application.
+
+### PyAdjoint / Differentiability
+
+* **Bare `Constant` is invisible to a `Block`'s dependency extraction:** `firedrake.Constant` is a
+  `ufl.constantvalue.ConstantValue`/`Terminal`, not a `ufl.classes.Coefficient`. `AssembleBlock` (and
+  other blocks) find their dependencies by walking `form.coefficients()`, which silently skips bare
+  `Constant`s — an `assemble()`/`interpolate()` call built from one records **zero** dependencies, and a
+  `Control` wrapping a bare `Constant` looks differentiable but is disconnected from the tape (symptoms:
+  `taylor_test` residuals all at machine precision, or `Adjoint value is None`, see below). Use a
+  `Function` on a `"R"` (Real) space instead (`Function(FunctionSpace(mesh, "R", 0), val=...)`),
+  matching the idiom used throughout `tests/firedrake/adjoint/`; a `Function` is a genuine `Coefficient`
+  and is picked up correctly.
+* **Mutating an already-constructed object does not re-tape it:** `DirichletBC` is a pyadjoint
+  `FloatingType` whose single dependency is fixed once, at `__init__` (the `g` argument). Later calling
+  `bc.set_value(...)` or mutating `g` in place (e.g. `g.interpolate(new_expr)`) changes the BC's
+  *numeric* value — forward runs stay correct — but does **not** register a new tape dependency on that
+  mutation, so the adjoint never sees it. For time-dependent BC data (or any repeatedly-mutated
+  dependency), construct a fresh object (a new `DirichletBC` over a new `Function`) at each step, so
+  each step gets its own `Block` correctly wired to that step's data.
+* **A Taylor test with near-machine-precision residuals is a red flag, not a pass:** if
+  `taylor_test`'s reported residuals are all ~1e-16, or computing convergence rates raises
+  `ZeroDivisionError`/produces `nan`, don't read that as "the gradient is very accurate". Check whether
+  the functional is *exactly* linear in the control near the test point (e.g. a linear PDE with a linear
+  BC and zero initial condition makes the solution exactly proportional to a linear control) — the true
+  second-order Taylor remainder is then genuinely zero, and the reported "rate" is pure round-off noise.
+  Introduce real nonlinearity (e.g. square the control before it enters the problem) to get a meaningful
+  order-2 check.
+* **Diagnose taping gaps by inspecting the tape directly, not by guessing from the final error:**
+  `pyadjoint.get_working_tape().get_blocks()` gives the recorded `Block`s in order; each has
+  `.get_dependencies()`/`.get_outputs()`, whose `.saved_output` reveals exactly which step is missing an
+  expected dependency (e.g. an `AssembleBlock` with unexpectedly empty dependencies is the direct
+  evidence that a particular computation happened numerically but was never annotated).
+* **The warning that actually names the problem:** `Adjoint value is None, is the functional
+  independent of the control variable?` (from `pyadjoint/control.py`) means some step between the
+  control and the functional was not taped. It is the real symptom; the `ZeroDivisionError`/`nan` that
+  `taylor_test` often raises afterwards, while computing convergence rates from residuals that are all
+  ~0, is just the downstream consequence and is easy to mistake for the actual bug.
 
 ### Reproducible Environments
 
