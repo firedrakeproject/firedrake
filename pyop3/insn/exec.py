@@ -730,13 +730,13 @@ class CompiledCodeExecutor:
                     initializers.append(buffer.reduce_leaves_to_roots_begin)
                     reductions.extend([
                         buffer.reduce_leaves_to_roots_end,
-                        buffer._broadcast_roots_to_leaves_begin,
+                        buffer.broadcast_roots_to_leaves_begin,
                     ])
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
                 # elif not buffer._leaves_valid:
                 elif True:  # flags arent always correct
-                    initializers.append(buffer._broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                    initializers.append(buffer.broadcast_roots_to_leaves_begin)
+                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
                 else:
                     pass
             else:

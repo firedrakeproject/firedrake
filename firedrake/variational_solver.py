@@ -404,16 +404,19 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u_restrict.dat.vec_rw as u:
+        with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
-            with ExitStack() as stack:
-                # Ensure options database has full set of options (so monitors
-                # work right)
-                for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
-                    stack.enter_context(ctx)
-                self.snes.solve(None, work)
+
+        with ExitStack() as stack:
+            # Ensure options database has full set of options (so monitors
+            # work right)
+            for ctx in chain([self.inserted_options()],
+                             [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
+                             self._transfer_operators):
+                stack.enter_context(ctx)
+            self.snes.solve(None, work)
+
+        with problem.u_restrict.dat.vec_rw as u:
             work.copy(u)
         self._setup = True
         if problem.restrict:

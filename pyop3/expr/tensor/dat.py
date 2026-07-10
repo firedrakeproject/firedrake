@@ -513,6 +513,7 @@ class Dat(Tensor):
 
         # TODO: I would like to disallow this as it creates a lot of confusion
         if self._vec_context_is_active:
+            breakpoint()  # this is very very bad, have to set parallel things
             # print("context active")
             assert is_view
             # NOTE: Have to be careful that we aren't violating any 'mode' contracts
