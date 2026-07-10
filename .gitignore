@@ -27,6 +27,7 @@ __pycache__/
 /docs/source/teamgrid.rst
 /docs/source/teaminactive.rst
 /docs/source/demos
+/docs/source/notebooks
 /firedrake/cython/*.c
 /firedrake.egg-info
 /firedrake/_check/Makefile

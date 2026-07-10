@@ -1764,6 +1764,18 @@ class MeshTopology(AbstractMeshTopology):
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
             return composed_map, integral_type
 
+    @cached_property
+    def _visible_ranks(self):
+        # Get parent mesh rank ownership information.
+        visible_ranks = np.empty(self.cell_set.total_size, dtype=IntType)
+        visible_ranks[:self.cell_set.size] = self.comm.rank
+        visible_ranks[self.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            self.topology_dm, self._cell_numbering, visible_ranks
+        )
+        return visible_ranks
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -2410,6 +2422,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
     @coordinates.setter
     def coordinates(self, value):
+        if value is self.coordinates:
+            return
         message = """Cannot re-assign the coordinates.
 
 You are free to change the coordinate values, but if you need a
@@ -2930,10 +2944,13 @@ values from f.)"""
                 mark_np = mvec.getArray()[cellNum]
             else:
                 sfBCInv = self.sfBC_orig.createInverse()
-                _, mvec0 = self.topology_dm.distributeField(sfBCInv,
-                                                            self._cell_numbering,
-                                                            mvec)
-                mark_np = mvec0.getArray()
+                section0, mvec0 = self.topology_dm.distributeField(sfBCInv,
+                                                                   self._cell_numbering,
+                                                                   mvec)
+                mark_np = mvec0.getArray().copy()
+                sfBCInv.destroy()
+                section0.destroy()
+                mvec0.destroy()
         max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
         # Create a copy of the netgen mesh
         netgen_mesh = self.netgen_mesh.Copy()
@@ -4524,13 +4541,7 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-    )
+    visible_ranks = parent_mesh._visible_ranks
     locally_visible = parent_cell_nums != -1
 
     if parent_mesh.extruded:
