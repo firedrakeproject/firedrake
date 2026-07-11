@@ -154,7 +154,7 @@ runs:
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
-
+        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/deriv-recurrence
         firedrake-clean
         pip list
 
