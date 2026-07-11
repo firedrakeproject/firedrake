@@ -107,6 +107,29 @@ toolchain:
   implementation stays pyadjoint-agnostic. Add a new decorator to the `Mixin` rather than calling `_ad_*`
   from `firedrake/*.py` directly.
 
+## Design And Debugging Method
+
+How to spend effort on any feature or bug: the first three shape a design before writing code,
+the last two localize a failure before reading code.
+
+* **Design by nearest working neighbor.** Some existing feature already solves a structurally
+  identical problem. Grep for the invariant yours must satisfy (the type handled, the hook fired,
+  the kwarg accepted), read how the neighbor earns it, and implement only the delta.
+* **Write the state contract before the code.** For anything flowing through a cached, replayed,
+  or lazily-refreshed system, answer up front: who owns it, when is it refreshed, what happens on
+  reuse or in-place mutation, how does a replay recover it. Stale-state bugs fail far from their
+  cause and only under reuse.
+* **Classify the mathematical structure before choosing machinery.** Affine and linear
+  dependencies have closed-form contributions (identities, fixed operators, exact zeros for higher
+  derivatives); recognizing an exact zero lets you skip a code path instead of fixing it.
+* **Attribute before you analyze.** Shrink *where* with one-delta experiments — each ingredient
+  toggled in isolation against a known-good baseline, consecutive CI failure sets diffed, a single
+  hunk reverted, the merge base rerun — then read code for *why*.
+* **Census the consumers before changing a lifecycle.** Changing *when* or *how often* something
+  is computed (rather than its value) is safe only after grepping every access site: some consumer
+  calls it in a context you did not design for (per nonlinear iteration, inside a PETSc callback,
+  on every attribute read).
+
 ## Testing Requirements
 
 * **Pull Requests:** All PRs must include comprehensive tests demonstrating that the new feature works
