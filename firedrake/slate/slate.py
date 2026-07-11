@@ -14,7 +14,7 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
-from abc import ABCMeta, abstractproperty, abstractmethod
+from abc import abstractproperty, abstractmethod
 import functools
 from collections import OrderedDict, namedtuple, defaultdict
 
@@ -107,18 +107,7 @@ class BlockIndexer(object):
         return block
 
 
-class MockCellIntegral(object):
-    def integral_type(self):
-        return "cell"
-
-    def __iter__(self):
-        yield self
-
-    def __call__(self):
-        return self
-
-
-class TensorBase(object, metaclass=ABCMeta):
+class TensorBase(BaseForm):
     """An abstract Slate node class.
 
     .. warning::
@@ -127,10 +116,6 @@ class TensorBase(object, metaclass=ABCMeta):
        node class; is not meant to be worked with directly. Only use
        the appropriate subclasses.
     """
-
-    integrals = MockCellIntegral()
-    """A mock object that provides enough compatibility with ufl.Form
-    that one can assemble a tensor."""
 
     terminal = False
     assembled = False
@@ -156,6 +141,15 @@ class TensorBase(object, metaclass=ABCMeta):
     @property
     def children(self):
         return self.operands
+
+    @property
+    def ufl_operands(self):
+        return self.operands
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        if len(operands) == 0:
+            return self
+        return self.reconstruct(*operands)
 
     @cached_property
     def expression_hash(self):
@@ -440,10 +434,6 @@ class AssembledVector(TensorBase):
     :arg function: A firedrake function.
     """
 
-    @property
-    def integrals(self):
-        raise ValueError("AssembledVector has no integrals")
-
     operands = ()
     terminal = True
     assembled = True
@@ -458,6 +448,12 @@ class AssembledVector(TensorBase):
         else:
             raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
+
+    def reconstruct(self, form):
+        """Reconstructs this TensorBase with new operands."""
+        if form == 0:
+            form = Tensor(ZeroBaseForm(self.arg_function_spaces))
+        return as_slate(form)
 
     @cached_property
     def form(self):
@@ -482,7 +478,11 @@ class AssembledVector(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return (self._argument,)
+        tensor = self._function
+        if isinstance(tensor, BaseForm):
+            return tensor.arguments()
+        else:
+            return (self._argument,)
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -668,9 +668,14 @@ class Block(TensorBase):
     def __init__(self, tensor, indices):
         """Constructor for the Block class."""
         super(Block, self).__init__()
+        indices = tuple(map(as_tuple, indices))
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(map(as_tuple, indices)))
         self._indices = indices
+        self._blocks = dict(enumerate(indices))
+
+    def reconstruct(self, tensor, indices=None):
+        """Reconstructs this TensorBase with new operands."""
+        return Block(tensor, indices=indices or self._indices)
 
     @cached_property
     def terminal(self):
@@ -799,6 +804,10 @@ class Factorization(TensorBase):
         self.operands = (tensor,)
         self.decomposition = decomposition
 
+    def reconstruct(self, tensor, decomposition=None):
+        """Reconstructs this TensorBase with new operands."""
+        return Factorization(tensor, decomposition=decomposition or self.decomposition)
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
@@ -906,6 +915,10 @@ class Tensor(TensorBase):
         self.form = form
         self.diagonal = diagonal
 
+    def reconstruct(self, form, diagonal=None):
+        """Reconstructs this TensorBase with new operands."""
+        return Tensor(form, diagonal=diagonal or self.diagonal)
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
@@ -973,6 +986,10 @@ class TensorOp(TensorBase):
         """Constructor for the TensorOp class."""
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
+
+    def reconstruct(self, *operands):
+        """Reconstructs this TensorBase with new operands."""
+        return type(self)(*operands)
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""

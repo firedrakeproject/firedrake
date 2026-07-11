@@ -108,8 +108,8 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
             ctx = get_appctx(pc.getDM())
             a = ctx.Jp or ctx.J
             bcs = ctx.bcs_Jp
-        if len(args):
-            a = a(*args)
+        if args != a.arguments():
+            a = ufl.replace(a, dict(zip(a.arguments(), args)))
         return a, bcs
 
     @staticmethod

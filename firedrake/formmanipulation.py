@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake import slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -89,6 +90,10 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.slate.Block(form, (self.blocks[0], self.blocks[1]))
+
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():
