@@ -134,6 +134,12 @@ toolchain:
   in the install docs to get a component installed in editable mode so source edits take effect without
   reinstalling, and check which branch/commit of each component is actually active before assuming a
   fix belongs in Firedrake itself.
+* **Branch pairing across the stack:** Firedrake's `main` and `release` branches go hand in hand with
+  the `main` and `release` branches of its components (FIAT, UFL, ...). A CI failure may be
+  unreproducible locally simply because a component checkout in the venv sits on some other branch —
+  check `git -C $VIRTUAL_ENV/src/<pkg> branch`, switch to the branch matching the Firedrake branch
+  under test, run `firedrake-clean`, and reproduce again before hunting for the bug in Firedrake
+  itself.
 * **`petsc4py`/PETSc version skew:** `petsc4py` is a compiled extension built against one specific
   PETSc checkout. If you switch the PETSc branch/commit underneath an existing venv (e.g. to bisect a
   PETSc-side issue) without rebuilding `petsc4py` against it, `import firedrake` fails with a confusing
@@ -170,6 +176,11 @@ toolchain:
   conclude a parallel code path is untested just because a plain, unmarked `pytest` run was green.
 * **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI; look at
   it (and `.github/workflows/pr.yml`/`core.yml`) if a failure only reproduces in CI and not locally.
+* **CI triage:** `gh pr checks <PR#>` lists job statuses. When `gh run view --log` returns nothing
+  (it does for very large logs), download the log with
+  `gh api repos/<org>/<repo>/actions/jobs/<job-id>/logs` and grep for `FAILED`. Before debugging
+  anything, fetch the failure list of the *previous* run of the same PR: the difference between the
+  two failure sets attributes each failure to the commits pushed in between.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
   before the full module; the suite is large and full-module reruns are slow to iterate against.
 
@@ -195,6 +206,23 @@ toolchain:
   standard PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`, `-log_view`, `-start_in_debugger`)
   can be passed through Firedrake's `solver_parameters` or the command line exactly as in a plain PETSc
   application.
+* **Errors inside PETSc callbacks do not surface as their own traceback:** under pytest they often
+  appear as a bare `Segmentation fault` with no Firedrake frames; standalone they appear as
+  `petsc4py.PETSc.Error: error code 101` whose *first* chained traceback (e.g. a `TypeError` about
+  the callback context in `petscsnes.pxi`) describes the corrupted callback state, not the cause.
+  Rerun the failing test as a standalone script to expose the chained tracebacks, and read the PETSc
+  call stack inside the error (`PCSetUp_MG` → `SNESComputeFunction`, ...) to identify *which*
+  callback was executing.
+* **Construction-time code re-runs inside solver callbacks:** geometric multigrid coarsens the
+  entire problem lazily inside `PCSetUp`, through the `coarsen` singledispatch in
+  `firedrake/mg/ufl_utils.py` — whatever a feature does at construction time (e.g. `DirichletBC`
+  interpolating or projecting its boundary value into the space) is re-executed per level inside
+  that PETSc callback. Objects that carry solvers or attach DM hooks (a `Projector`, a variational
+  solver) must be built once and cached, never rebuilt on each call of an accessor that may fire
+  there: repeatedly constructing and garbage-collecting a solver stack inside `PCSetUp_MG` corrupts
+  the DM callback state and segfaults far from the allocation site. Extruded (hexahedral)
+  hierarchies are the stress test: tensor-product elements (NCE/NCF) have no dual-basis
+  interpolation, so paths that interpolate on simplices take the projection fallback there.
 
 ### PyAdjoint / Differentiability
 
@@ -220,6 +248,12 @@ order they should be applied:
   `assemble(action(adjoint(derivative(form, c)), cof))`) accepts every input class you must
   handle. This surfaces hard limits early, and often shows that existing special-case code is
   subsumed by the general path — or was already dead.
+* **Fix the block class that actually runs, not just the base.** Solves taped through solver
+  objects execute `NonlinearVariationalSolveBlock`, which overrides several `GenericSolveBlock`
+  methods (`prepare_evaluate_adj`, `evaluate_adj_component` with its own `_dFdm_cache`, and
+  `_ad_assign_map`, which refreshes its cached cloned solvers by matching coefficients across
+  clones via `.count()`); a case added only to the generic method silently never executes there.
+  Print `type(block)` from the tape and grep the subclass for overrides before editing the base.
 * **Verify the structure before the numbers.** Print each block in
   `get_working_tape().get_blocks()` with the identities of its `.get_dependencies()` and
   `.get_outputs()`, and check the DAG is exactly the chain you designed — no stale or dangling
@@ -227,7 +261,11 @@ order they should be applied:
   a genuinely nonlinear control: rate ≈ 2 is a pass; residuals all ~1e-16 mean the functional is
   accidentally linear in the control (square it); rate ≈ 1 means a stale value reached the tape.
   A zero gradient is named by the warning `Adjoint value is None, is the functional independent of
-  the control variable?` — any later `ZeroDivisionError`/`nan` is just its echo.
+  the control variable?` — any later `ZeroDivisionError`/`nan` is just its echo. In a
+  `taylor_to_dict` check, rates that start correct then collapse with residuals stuck at a small
+  floor mean a small absolute error in the highest-order term supplied (a nearly-right Hessian or
+  gradient); attribute it by re-running the same Taylor test over a matrix of feature toggles
+  (one new argument at a time) against a known-good baseline.
 * **Dependency discovery is structural, not conceptual.** `form.coefficients()` finds `Function`s
   (including on `"R"` spaces) but not `firedrake.Constant`, so a bare `Constant` silently records
   no dependency — represent differentiable scalars as `Function`s on an `"R"` space.
