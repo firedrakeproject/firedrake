@@ -1,12 +1,4 @@
 from .base import (  # noqa: F401
-    INC,
-    MAX_RW,
-    MAX_WRITE,
-    MIN_RW,
-    MIN_WRITE,
-    READ,
-    RW,
-    WRITE,
     Function,
     Loop,
     Assignment,

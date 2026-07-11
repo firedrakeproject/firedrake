@@ -815,7 +815,7 @@ class SameMeshInterpolator(Interpolator):
             assignee_buffer._current_device_array_sync[...] = fmin
 
             def mywrite():
-                assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
+                assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
                 unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array_sync, fmin))
                 # just debugging
                 assert len(unchanged_idxs) > 0

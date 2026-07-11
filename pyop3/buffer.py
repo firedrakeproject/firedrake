@@ -50,12 +50,12 @@ class BadOrderingException(Exception):
     pass
 
 
-def not_in_flight(func):
+def _not_in_flight(func):
     """Ensure that a method cannot be called when a transfer is in progress."""
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if self._transfer_in_flight:
+        if self._finalizer is not None:
             raise DataTransferInFlightException(
                 f"Not valid to call {func.__name__} with messages in-flight, "
                 f"please call {self._finalizer.__name__} first"
@@ -63,6 +63,18 @@ def not_in_flight(func):
         return func(self, *args, **kwargs)
 
     return wrapper
+
+
+def _check_finalizer(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if self._finalizer.__qualname__ != func.__qualname__:
+            raise DataTransferInFlightException("Wrong finalizer called")
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 
 class AbstractBuffer(pyop3.obj.Pyop3Object):
 
@@ -278,8 +290,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         )
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        # we can hit buffers in multiple places...
-        # on the outside these are allowed to differ but inside they aren't
+        # Consider the expression:
+        #
+        #     dat1[i] <- dat2[map1[map2[i]]]
+        #
+        # We may end up optimising the repeated indirections to give:
+        #
+        #     dat1[i] <- dat2[map3[i]]
+        #
+        # It would be really nice to cache this and reuse the result for different
+        # objects in place of dat1 and dat2. The cache key therefore can be somewhat
+        # generic for those arguments. However, *it cannot be for the dats that make
+        # up map1 and map2*. If those change then we need to recompute map3 from
+        # scratch. The cache key here therefore distinguishes between outermost buffers
+        # and inner ones.
         if visitor.outer:
             return (
                 type(self),
@@ -326,18 +350,18 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.record_setup()
 
     def __post_init__(self) -> None:
+        # state tracking attrs
         # TODO: I don't think that this should be a defaultdict, key misses are meaningful
         curr_dev = get_current_device()
         self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
-        self._max_value: np.number | None = None
-
-        # flags for tracking parallel correctness
-        self._leaves_valid: bool = True
-        self._pending_reduction: Callable | None = None
-        self._finalizer: Callable | None = None
-
-        # stack for tracking device correctness
+        self._state_locks = 0
         self._device_locks = []
+
+        # parallel semaphores
+        self._semaphore_locks = 0
+        self._leaves_valid_private = True
+        self._pending_reduction_private = None
+        self._finalizer_private: Callable | None = None
 
         ####
 
@@ -390,6 +414,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
          return max(self._state.values())
 
     def inc_state(self) -> None:
+        assert not self.is_frozen
+
         curr_dev = get_current_device() 
         self._state[curr_dev] = self.state + 1
 
@@ -462,6 +488,51 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
+    # {{{ semaphores
+
+    def _lock_semaphores(self) -> None:
+        self._semaphore_locks += 1
+
+    def _unlock_semaphores(self) -> None:
+        assert self._semaphore_locks > 0
+        self._semaphore_locks -= 1
+
+    def _semaphores_unlocked(self) -> bool:
+        return self._semaphore_locks == 0
+
+    @property
+    def _leaves_valid(self) -> bool:
+        return self._leaves_valid_private
+
+    @_leaves_valid.setter
+    def _leaves_valid(self, value: bool, /) -> None:
+        assert self._semaphores_unlocked
+        self._leaves_valid_private = value
+
+    @property
+    def _pending_reduction(self) -> pyop3.constant.Intent | None:
+        return self._pending_reduction_private
+
+    @_pending_reduction.setter
+    def _pending_reduction(self, value: pyop3.constant.Intent | None) -> None:
+        assert self._semaphores_unlocked
+        self._pending_reduction_private = value
+
+    @property
+    def _roots_valid(self) -> bool:
+        return self._pending_reduction is None
+
+    @property
+    def _finalizer(self) -> Callable[[], None] | None:
+        return self._finalizer_private
+
+    @_finalizer.setter
+    def _finalizer(self, value: Callable[[], None] | None) -> None:
+        assert self._semaphores_unlocked
+        self._finalizer_private = value
+
+    # }}}
+
     # {{{ data accessors
 
     @property
@@ -490,19 +561,19 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # TODO: It would be good to be able to get data_ro but without updating the
     # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
-    @not_in_flight
+    @_not_in_flight
     def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
         match intent:
             case "ro":
                 if not self._roots_valid:
-                    self.reduce_leaves_to_roots()
+                    self.sync_roots()
                 if not self._leaves_valid:
-                    self.broadcast_roots_to_leaves()
+                    self.sync_leaves()
             case "rw":
                 if not self._roots_valid:
-                    self.reduce_leaves_to_roots()
+                    self.sync_roots()
                 if not self._leaves_valid:
-                    self.broadcast_roots_to_leaves()
+                    self.sync_leaves()
 
                 # modifying owned values invalidates ghosts
                 self._leaves_valid = False
@@ -520,47 +591,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         array = self._current_device_array_sync
         return readonly(array) if intent == "ro" else array
 
-    @property
-    def _current_device_array_sync(self):
-        curr_dev = get_current_device() 
-        if not self._is_data_available_and_synced(curr_dev):
-            self.sync_devices()
-        return self._current_device_array_nosync
-
-    @property
-    def _current_device_array_nosync(self):
-        # if "function_28" in self.name:
-        #     breakpoint()
-        return self._device_arrays_private[get_current_device()]
-
-    def _lock_current_device(self):
-        """Raise an error if we try to change the current device."""
-        assert all(d == get_current_device() for d in self._device_locks)
-        self._device_locks.append(get_current_device())
-
-    def _unlock_current_device(self):
-        """Undo a device lock."""
-        self._device_locks.pop(-1)
-
-    # }}}
-
-    # {{{ parallel communication
-
-    @not_in_flight
-    def assemble(self) -> None:
-        self._reduce_then_broadcast()
-
-    @property
-    def leaves_valid(self) -> bool:
-        return self._leaves_valid
-
-    @property
-    def _last_updated_device(self) -> Device:
-        return max(self._state, key=self._state.get)
-
-    # TODO: I think the halo bits should only be handled at the Dat level via the
-    # axis tree. Here we can just consider the array. Ah, but maybe we want to
-    # avoid halo exchanges
+    # TODO: this would be nice to avoid halo exchanges
     # @property
     # def _owned_data(self):
     #     if self.sf and self.sf.nleaves > 0:
@@ -568,134 +599,221 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     #     else:
     #         return self._data
 
-    @property
-    def _roots_valid(self) -> bool:
-        return self._pending_reduction is None
+    def freeze(self) -> None:
+        """Freeze the buffer, turning any modifying accesses into errors."""
+        self._lock_state()
+
+    def unfreeze(self) -> None:
+        """Unfreeze the buffer."""
+        self._unlock_state()
 
     @property
-    def _transfer_in_flight(self) -> bool:
-        return self._finalizer is not None
+    def is_frozen(self) -> bool:
+        return self._state_is_locked
 
-    @cached_property
-    def _reduction_ops(self):
-        # TODO Move this import out, requires moving location of these intents
-        from pyop3.insn import INC, WRITE
+    def _lock_state(self) -> None:
+        """
+        Note that we have two methods for fixing the state: `freeze` and
+        `_lock_state`. Both methods exist to make it clear that locking the
+        state variable is not necessarily the same as 'freezing' the buffer.
+        For example, if we want to do the following:
 
-        return {
-            WRITE: MPI.REPLACE,
-            INC: MPI.SUM,
-        }
+            buffer.reduce_leaves_to_roots_begin()
+            # modify core values in 'buffer'
+            buffer.reduce_leaves_to_roots_end()
 
-    @not_in_flight
-    @on_host
-    def reduce_leaves_to_roots(self) -> None:
-        self.reduce_leaves_to_roots_begin()
-        self.reduce_leaves_to_roots_end()
+        Then we certainly want to modify the buffer data but we also want
+        to make sure that we don't change the state value - and hence mess
+        with host/device transfers - in the interim.
 
-    @not_in_flight
-    @on_host
-    def _reduce_leaves_to_roots(self, op: MPI.Op) -> None:
-        self._reduce_leaves_to_roots_begin(op)
-        self._reduce_leaves_to_roots_end(op)
+        For 'expert' buffer access patterns like this then the state should
+        be modified manually using `inc_state`.
 
-    @not_in_flight
-    @on_host
-    def reduce_leaves_to_roots_begin(self):
+        """
+        self._state_locks += 1
+
+    def _unlock_state(self) -> None:
+        assert self._state_locks > 0, "Buffer must be locked to unlock it"
+        self._state_locks -= 1
+
+    @property
+    def _state_is_locked(self) -> bool:
+        return self._state_locks > 0
+
+    # }}}
+
+    # {{{ parallel communication
+    def sync_roots(self) -> None:
+        """Update roots."""
+        self.sync_roots_begin()
+        self.sync_roots_end()
+
+    @_not_in_flight
+    def sync_roots_begin(self) -> None:
+        """Start updating roots."""
         if not self._roots_valid:
-            self._reduce_leaves_to_roots_begin(self._reduction_ops[self._pending_reduction])
+            self._reduce_leaves_to_roots_begin(pyop3.mpi.REDUCTION_OPS[self._pending_reduction])
             self._leaves_valid = False
-        self._finalizer = self.reduce_leaves_to_roots_end
+        self._finalizer = self.sync_roots_end
+        self._lock_semaphores()
 
-    @not_in_flight
+    @_check_finalizer
+    def sync_roots_end(self) -> None:
+        """Finish updating roots."""
+        self._unlock_semaphores()
+        if not self._roots_valid:
+            self._reduce_leaves_to_roots_end(pyop3.mpi.REDUCTION_OPS[self._pending_reduction])
+        self._pending_reduction = None
+        self._finalizer = None
+
+    def reduce_leaves_to_roots(self, op: MPI.Op) -> None:
+        """Unconditionally update roots.
+
+        This will overwrite any existing parallel state tracking.
+
+        Parameters
+        ----------
+        op
+            The MPI reduction operation to apply when pulling leaves onto roots.
+
+        """
+        self.reduce_leaves_to_roots_begin(op)
+        self.reduce_leaves_to_roots_end(op)
+
+    @_not_in_flight
+    def reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
+        """Start unconditionally updating roots."""
+        self._reduce_leaves_to_roots_begin(op)
+        self._leaves_valid = False
+        self._finalizer = self.reduce_leaves_to_roots_end
+        self._lock_semaphores()
+
+    @_check_finalizer
+    def reduce_leaves_to_roots_end(self) -> None:
+        """Finish unconditionally updating roots."""
+        self._unlock_semaphores()
+        self._reduce_leaves_to_roots_end(op)
+        self._pending_reduction = None
+        self._finalizer = None
+
     @on_host
     def _reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
+        """Start updating roots.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
         self._lock_current_device()
         self.sf.reduce_begin(self._current_device_array_sync, op)
 
     @on_host
-    def reduce_leaves_to_roots_end(self):
-        if self._finalizer is None:
-            raise BadOrderingException(
-                "Should not call _reduce_leaves_to_roots_end without first calling "
-                "_reduce_leaves_to_roots_begin"
-            )
-        if self._finalizer != self.reduce_leaves_to_roots_end:
-            raise DataTransferInFlightException("Wrong finalizer called")
-
-        if not self._roots_valid:
-            self._reduce_leaves_to_roots_end(self._reduction_ops[self._pending_reduction])
-        self._pending_reduction = None
-        self._finalizer = None
-
     def _reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
+        """Finish updating roots.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
         self.sf.reduce_end(self._current_device_array_nosync, op)
         self._unlock_current_device()
 
-    @not_in_flight
-    @on_host
-    def broadcast_roots_to_leaves(self):
-        self.broadcast_roots_to_leaves_begin()
-        self.broadcast_roots_to_leaves_end()
+    def sync_leaves(self) -> None:
+        """Update leaves."""
+        self.sync_leaves_begin()
+        self.sync_leaves_end()
 
-    @not_in_flight
-    def broadcast_roots_to_leaves_begin(self):
-        if not self._roots_valid:
-            raise RuntimeError("Cannot broadcast invalid roots")
-
+    @_not_in_flight
+    def sync_leaves_begin(self) -> None:
+        """Start updating leaves."""
+        assert self._roots_valid, "Must call sync_roots() beforehand"
         if not self._leaves_valid:
             self._broadcast_roots_to_leaves_begin()
-        self._finalizer = self.broadcast_roots_to_leaves_end
+        self._finalizer = self.sync_leaves_end
+        self._lock_semaphores()
 
-    def _broadcast_roots_to_leaves_begin(self):
-        self._lock_current_device()
-        self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
-
-    def broadcast_roots_to_leaves_end(self):
-        if self._finalizer is None:
-            raise BadOrderingException(
-                "Should not call _broadcast_roots_to_leaves_end without first "
-                "calling _broadcast_roots_to_leaves_begin"
-            )
-        if self._finalizer != self.broadcast_roots_to_leaves_end:
-            raise DataTransferInFlightException("Wrong finalizer called")
-
+    @_check_finalizer
+    def sync_leaves_end(self) -> None:
+        """Finish updating leaves."""
+        self._unlock_semaphores()
         if not self._leaves_valid:
             self._broadcast_roots_to_leaves_end()
         self._leaves_valid = True
         self._finalizer = None
 
+    def broadcast_roots_to_leaves(self) -> None:
+        """Unconditionally update leaves.
+
+        This will overwrite any existing parallel state tracking.
+
+        """
+        self.broadcast_roots_to_leaves_begin()
+        self.broadcast_roots_to_leaves_end()
+
+    @_not_in_flight
+    def broadcast_roots_to_leaves_begin(self) -> None:
+        """Start unconditionally updating leaves."""
+        self._pending_reduction = None  # claim this, otherwise broadcasting makes no sense
+        self._broadcast_roots_to_leaves_begin()
+        self._finalizer = self.broadcast_roots_to_leaves_end
+        self._lock_semaphores()
+
+    @_check_finalizer
+    def broadcast_roots_to_leaves_end(self) -> None:
+        self._unlock_semaphores()
+        self._broadcast_roots_to_leaves_end()
+        self._leaves_valid = True
+        self._finalizer = None
+
+    @on_host
+    def _broadcast_roots_to_leaves_begin(self):
+        """Start updating leaves.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
+        self._lock_current_device()
+        self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
+
+    @on_host
     def _broadcast_roots_to_leaves_end(self):
+        """Finish updating leaves.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
         self.sf.broadcast_end(self._current_device_array_sync, MPI.REPLACE)
         self._unlock_current_device()
 
-    @not_in_flight
-    def _reduce_then_broadcast(self):
-        self.reduce_then_broadcast_begin()
-        self.reduce_then_broadcast_end()
+    def assemble(self) -> None:
+        """Update roots and leaves."""
+        self.sync_roots()
+        self.sync_leaves()
 
-    @not_in_flight
-    def reduce_then_broadcast_begin(self):
-        # TODO: To make this non-blocking we can use Python's 'threading' library
-        #
-        # For example:
-        #
-        #   lock = threading.Lock()
-        #   with lock:
-        #       trigger nonblocking send/recvs
-        #
-        # For now do the dumb thing.
-        self.reduce_leaves_to_roots()
-        self.broadcast_roots_to_leaves_begin()
+    # TODO: This is a good idea, we just don't use it
+    # @not_in_flight
+    # def _reduce_then_broadcast(self):
+    #     self.reduce_then_broadcast_begin()
+    #     self.reduce_then_broadcast_end()
+    #
+    # @not_in_flight
+    # def reduce_then_broadcast_begin(self):
+    #     # TODO: To make this non-blocking we can use Python's 'threading' library
+    #     #
+    #     # For example:
+    #     #
+    #     #   lock = threading.Lock()
+    #     #   with lock:
+    #     #       trigger nonblocking send/recvs
+    #     #
+    #     # For now do the dumb thing.
+    #     self.reduce_leaves_to_roots()
+    #     self.broadcast_roots_to_leaves_begin()
+    #
+    # def reduce_then_broadcast_end(self):
+    #     self.broadcast_roots_to_leaves_end()
 
-    def reduce_then_broadcast_end(self):
-        self.broadcast_roots_to_leaves_end()
+    # }}}
 
-    def localize(self) -> ArrayBuffer:
-        return self._localized
-
-    @cached_property
-    def _localized(self) -> ArrayBuffer:
-        return self.__record_init__(sf=None)
+    # {{{ cross-device state tracking
 
     def sync_devices(self):
         last_updated_device = self._last_updated_device
@@ -716,6 +834,35 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _host_data_nosync(self) -> np.ndarray:
         return self._device_arrays_private[pyop3.device.HOST_DEVICE]
 
+    @property
+    def _current_device_array_sync(self):
+        curr_dev = get_current_device() 
+        if not self._is_data_available_and_synced(curr_dev):
+            self.sync_devices()
+        return self._current_device_array_nosync
+
+    @property
+    def _current_device_array_nosync(self):
+        return self._device_arrays_private[get_current_device()]
+
+    def _lock_current_device(self):
+        """Raise an error if we try to change the current device."""
+        self._lock_state()
+        assert all(d == get_current_device() for d in self._device_locks)
+        self._device_locks.append(get_current_device())
+
+    def _unlock_current_device(self):
+        """Undo a device lock."""
+        assert len(self._device_locks) > 0
+        self._device_locks.pop(-1)
+        self._unlock_state()
+
+    @property
+    def _last_updated_device(self) -> Device:
+        return max(self._state, key=self._state.get)
+
+    # }}}
+
     # {{{ PETSc interop
 
     @cached_method()
@@ -734,6 +881,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def vec_rw(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("rw", block_shape)
 
+    # TODO: This is very similar to what a Dat does, refactor to share functionality
     @contextlib.contextmanager
     def as_vec(
         self,
@@ -754,6 +902,14 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._leaves_valid = False
             # TODO
             # self._work_vec.stateIncrease()
+
+    # }}}
+
+    # {{{ other methods
+
+    @cached_method()
+    def localize(self) -> Self:
+        return self.__record_init__(sf=None)
 
     # }}}
 

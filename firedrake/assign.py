@@ -361,7 +361,7 @@ class Assigner:
                 loop(compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True})
 
                 # now write back only the values that were touched
-                assignee_buffer._reduce_leaves_to_roots(MPI.MAX)
+                assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
                 unchanged_idxs = np.flatnonzero(np.isclose(assignee_buffer._current_device_array_sync, fmin))
                 assignee_buffer._current_device_array_sync[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
 

@@ -483,7 +483,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # that all entries are modified and hence any pending reductions
         # are skippable.
         if subset is not Ellipsis:
-            self.dat.buffer.reduce_leaves_to_roots()
+            self.dat.buffer.sync_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             self.dat.data_wo[...] = expr

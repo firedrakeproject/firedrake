@@ -50,7 +50,10 @@ import os
 import tempfile
 import weakref
 
+from immutabledict import immutabledict as idict
+
 import pyop3.config
+import pyop3.constants
 from pyop3 import utils
 from pyop3.exceptions import CompilationException
 from pyop3.log import debug, LOGGER, DEBUG
@@ -77,6 +80,12 @@ _COMM_CIDX = count()
 _DUPED_COMM_DICT = {}
 # Flag to indicate whether we are in cleanup (at exit)
 PYOP2_FINALIZED = False
+
+REDUCTION_OPS = idict({
+    pyop3.constants.WRITE: MPI.REPLACE,
+    pyop3.constants.INC: MPI.SUM,
+})
+
 
 
 class PyOP2CommError(ValueError):

@@ -24,6 +24,7 @@ from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
 from pyop3 import utils
 
+from pyop3.constants import INC, READ, RW, WRITE
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
@@ -35,10 +36,6 @@ from pyop3.index_tree.tree import LoopIndex
 from pyop3.index_tree.parse import _as_context_free_indices
 import pyop3.insn
 from pyop3.insn.base import (
-    INC,
-    READ,
-    RW,
-    WRITE,
     AssignmentType,
     ArrayAccessType,
     enlist,

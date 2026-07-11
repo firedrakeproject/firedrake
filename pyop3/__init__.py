@@ -36,6 +36,17 @@ del _init_likwid
 import pyop3.dtypes
 import pyop3.lower
 import pyop3.insn.visitors as insn_visitors
+
+from pyop3.constants import (   # noqa: F401
+    INC,
+    MAX_RW,
+    MAX_WRITE,
+    MIN_RW,
+    MIN_WRITE,
+    READ,
+    RW,
+    WRITE,
+)
 from pyop3.expr.tensor import (  # noqa: F401
     Tensor, Dat, Scalar, Mat, AggregateMat, AggregateDat,
     OutOfPlaceCallableTensorTransform
@@ -71,15 +82,6 @@ from pyop3.index_tree import (  # noqa: F401
     as_slice,
 )
 from pyop3.insn import (  # noqa: F401
-    Intent,
-    INC,
-    MAX_RW,
-    MAX_WRITE,
-    MIN_RW,
-    MIN_WRITE,
-    READ,
-    RW,
-    WRITE,
     Function,
     Loop,
     Assignment,

@@ -102,9 +102,7 @@ def prolong(coarse, fine):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse, coarse_coords]:
-            d.dat.buffer.reduce_leaves_to_roots_begin()
-        for d in [coarse, coarse_coords]:
-            d.dat.buffer.reduce_leaves_to_roots_end()
+            d.dat.assemble()
         op3.loop(n, kernel(*kernel_args), eager=True)
 
         if needs_quadrature:
@@ -187,7 +185,7 @@ def restrict(fine_dual, coarse_dual):
 
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
-        coarse_coords.dat.buffer.reduce_leaves_to_roots()
+        coarse_coords.dat.assemble()
         op3.loop(n, kernel(*kernel_args), eager=True)
         fine_dual = coarse_dual
     return coarse_dual
@@ -273,9 +271,7 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.buffer.reduce_leaves_to_roots_begin()
-            for d in [fine, fine_coords]:
-                d.dat.buffer.reduce_leaves_to_roots_end()
+                d.dat.assemble()
             op3.loop(n, kernel(*kernel_args), eager=True)
         else:
             c = Vc.mesh().cells.owned.iter()
@@ -286,9 +282,7 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.buffer.reduce_leaves_to_roots_begin()
-            for d in [fine, fine_coords]:
-                d.dat.buffer.reduce_leaves_to_roots_end()
+                d.dat.buffer.assemble()
             op3.loop(
                 c,
                 kernel(

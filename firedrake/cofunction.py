@@ -246,7 +246,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         # that all entries are modified and hence any pending reductions
         # are skippable.
         if subset is not Ellipsis:
-            self.dat.buffer.reduce_leaves_to_roots()
+            self.dat.buffer.sync_roots()
 
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):

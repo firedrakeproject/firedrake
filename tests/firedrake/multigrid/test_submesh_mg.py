@@ -149,6 +149,8 @@ def monolithic_gmg_params():
 def test_submesh_gmg(solver_type):
     """GMG converges in O(1) iterations and recovers the correct solution."""
     if COMM_WORLD.size > 1:
+        # I think we are not doing halo exchanges at the right point - in particular be
+        # careful around the vec contexts. It is useful to look at the snes and ksp monitors
         pytest.skip(reason="pyop3 TODO, tricky bug")
 
     mesh, smesh, Z, a, L, bcs, u_exact, lam_exact = build_problem(base_n=4, nref=2)

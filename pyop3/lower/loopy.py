@@ -28,10 +28,12 @@ from immutabledict import immutabledict as idict
 import pyop3.axis_tree
 import pyop3.cache
 import pyop3.config
+import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
 from pyop3 import utils, mpi
 from pyop3.cache import memory_and_disk_cache
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
@@ -39,19 +41,10 @@ from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBu
 from pyop3.dtypes import IntType
 from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
-    Intent,
-    INC,
-    MAX_RW,
-    MAX_WRITE,
-    MIN_RW,
-    MIN_WRITE,
-    READ,
-    RW,
     AbstractAssignment,
     Exscan,
     NullInstruction,
     assignment_type_as_intent,
-    WRITE,
     AssignmentType,
     ConcretizedNonEmptyArrayAssignment,
     StandaloneCalledFunction,
@@ -162,7 +155,7 @@ class LoopyCodegenContext(CodegenContext):
 
         self._add_instruction(insn)
 
-    def add_buffer(self, buffer, intent: Intent | None = None) -> str:
+    def add_buffer(self, buffer, intent: pyop3.constants.Intent | None = None) -> str:
         # TODO: This should check to make sure that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
@@ -1106,7 +1099,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     indices = maybe_multiindex(buffer, offset_expr, context)
 
     subscript = pym.subscript(pym.var(name_in_kernel), indices)
-    if context.propagate_negatives and intent == Intent.READ:
+    if context.propagate_negatives and intent == READ:
         idx = indices[-1]  # only the final index has meaning
         is_negative = pym.primitives.Comparison(idx, "<", 0)
         return pym.primitives.If(is_negative, -1, subscript)

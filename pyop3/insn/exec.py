@@ -25,7 +25,7 @@ import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
 from pyop3.cache import cached_method, memory_cache
-from pyop3.insn.base import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
+from pyop3.constants import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 
 
 import pyop3.debug
@@ -657,7 +657,7 @@ class CompiledCodeExecutor:
         return tuple(
             i
             for i, (_, intent) in enumerate(self.buffer_map.values())
-            if intent != pyop3.insn.base.READ
+            if intent != READ
         )
 
     @cached_property
@@ -727,22 +727,21 @@ class CompiledCodeExecutor:
         if intent in {READ, RW}:
             if touches_ghost_points:
                 if not buffer._roots_valid:
-                    initializers.append(buffer.reduce_leaves_to_roots_begin)
+                    initializers.append(buffer.sync_roots_begin)
                     reductions.extend([
-                        buffer.reduce_leaves_to_roots_end,
-                        buffer.broadcast_roots_to_leaves_begin,
+                        buffer.sync_roots_end,
+                        buffer.sync_leaves_begin,
                     ])
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
-                # elif not buffer._leaves_valid:
-                elif True:  # flags arent always correct
-                    initializers.append(buffer.broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
+                    broadcasts.append(buffer.sync_leaves_end)
+                elif not buffer._leaves_valid:
+                    initializers.append(buffer.sync_leaves_begin)
+                    broadcasts.append(buffer.sync_leaves_end)
                 else:
                     pass
             else:
                 if not buffer._roots_valid:
-                    initializers.append(buffer.reduce_leaves_to_roots_begin)
-                    reductions.append(buffer.reduce_leaves_to_roots_end)
+                    initializers.append(buffer.sync_roots_begin)
+                    reductions.append(buffer.sync_roots_end)
 
         elif intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If

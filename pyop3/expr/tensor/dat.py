@@ -511,23 +511,7 @@ class Dat(Tensor):
         if not is_view:
             raise NotImplementedError("TODO")
 
-        # TODO: I would like to disallow this as it creates a lot of confusion
-        if self._vec_context_is_active:
-            breakpoint()  # this is very very bad, have to set parallel things
-            # print("context active")
-            assert is_view
-            # NOTE: Have to be careful that we aren't violating any 'mode' contracts
-            # print(self._work_vec.array_r)
-            # print(self._work_vec.array_r.sum())
-            # debugging
-            if not self.buffer._debug_is_poisoned:
-                self.buffer._debug_poison_array()
-                yield self._work_vec
-                self.buffer._debug_unpoison_array()
-            else:
-                yield self._work_vec
-            return
-
+        assert not self._vec_context_is_active, "cannot nest vec contexts"
 
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
@@ -539,7 +523,7 @@ class Dat(Tensor):
 
         # parallel correctness
         if not self.buffer._roots_valid:
-            self.buffer.reduce_leaves_to_roots()
+            self.buffer.sync_roots()
 
         # Prepare the work vec
         block_size = np.prod(block_shape, dtype=int) 
@@ -561,23 +545,14 @@ class Dat(Tensor):
             if self._work_vec_buffer_state != self.buffer.state:
                 # Buffer data has changed but PETSc doesn't know this
                 self._work_vec.stateIncrease()
-            self._vec_context_is_active = True
-            # print(self._work_vec.array_r)
-            # print(self._work_vec.array_r.sum())
-            # debugging
-            if not self.buffer._debug_is_poisoned:
-                self.buffer._debug_poison_array()
-                yield self._work_vec
-                self.buffer._debug_unpoison_array()
-            else:
-                yield self._work_vec
 
         else:
-            # Not a view, need to copy in and out
-            if self._work_vec_buffer_state == self.buffer.state:
-                # Buffer data is unchanged so can leave the vec alone
-                self._vec_context_is_active = True
-                yield self._work_vec
+            # # Not a view, need to copy in and out
+            # if self._work_vec_buffer_state == self.buffer.state:
+            if False:
+                pass
+            #     # Buffer data is unchanged so can leave the vec alone
+            #     self._vec_context_is_active = True
 
             else:
                 # Buffer data != vec data - copy required
@@ -591,12 +566,20 @@ class Dat(Tensor):
                         self._work_vec.array_w[...] = self.data_rw
                     case _:
                         raise AssertionError
-                self._vec_context_is_active = True
-                yield self._work_vec
 
-        # print("leaving as vec for", self.name, mode)
-        # print(self._work_vec.array_r)
-        # print(self._work_vec.norm())
+        # We don't want to allow any modifications to the buffer until we
+        # leave the vec context
+        self.buffer.freeze()
+
+        self._vec_context_is_active = True
+
+        yield self._work_vec
+
+        self._vec_context_is_active = False
+        self.buffer.unfreeze()
+
+        # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
+
         # Record any state changes on the buffer
         if mode in {"rw", "wo"}:
             self.buffer.inc_state()
@@ -605,7 +588,6 @@ class Dat(Tensor):
 
         # At this point the vec is synchronised with the buffer
         self._work_vec_buffer_state = self.buffer.state
-        self._vec_context_is_active = False
 
 
     @property
