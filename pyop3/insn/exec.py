@@ -717,7 +717,7 @@ class CompiledCodeExecutor:
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
     def _buffer_exchanges(self, buffer, intent):
-        initializers, reductions, broadcasts = [], [], []
+        initializers, reductions, finalizers = [], [], []
 
         # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
         # (we have filter_star_forest())
@@ -732,10 +732,10 @@ class CompiledCodeExecutor:
                         buffer.sync_roots_end,
                         buffer.sync_leaves_begin,
                     ])
-                    broadcasts.append(buffer.sync_leaves_end)
+                    finalizers.append(buffer.sync_leaves_end)
                 elif not buffer._leaves_valid:
                     initializers.append(buffer.sync_leaves_begin)
-                    broadcasts.append(buffer.sync_leaves_end)
+                    finalizers.append(buffer.sync_leaves_end)
                 else:
                     pass
             else:
@@ -746,8 +746,8 @@ class CompiledCodeExecutor:
         elif intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If
             # this is not the case then a manual reduction is needed.
-            initializers.append(lambda: setattr(buffer._pending_reduction, None))
-            finalizers.append(lambda: setattr(buffer._leaves_valid, False))
+            initializers.append(lambda: setattr(buffer, "_pending_reduction", None))
+            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
 
         else:
             # reductions
@@ -784,15 +784,15 @@ class CompiledCodeExecutor:
                 reductions.append(_init_nil)
 
             # We are modifying owned values so the leaves must now be wrong
-            finalizers.append(lambda: setattr(buffer._leaves_valid, False))
+            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
 
             # If ghost points are not modified then no future reduction is required
             if not touches_ghost_points:
-                finalizers.append(lambda: setattr(buffer._pending_reduction, None))
+                finalizers.append(lambda: setattr(buffer, "_pending_reduction", None))
             else:
-                finalizers.append(lambda: setattr(buffer._pending_reduction, intent))
+                finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
 
-        return tuple(initializers), tuple(reductions), tuple(broadcasts)
+        return tuple(initializers), tuple(reductions), tuple(finalizers)
 
 
 @functools.singledispatch

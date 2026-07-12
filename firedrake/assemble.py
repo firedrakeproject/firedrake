@@ -1830,7 +1830,7 @@ class ParloopBuilder:
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        p = self._iterset.loop_index
+        p = self._iterset
         packed_args = []
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)

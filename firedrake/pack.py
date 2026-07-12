@@ -43,23 +43,23 @@ def _(matrix: Matrix, loop_info, **kwargs):
     return pack(matrix.M, *matrix.ufl_function_spaces(), loop_info, **kwargs)
 
 
-def _pack_map(iteration_spec, mesh) -> op3.Index:
+def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
-    iter_mesh = iteration_spec.mesh
+    iter_mesh = loop_index.mesh
     if iter_mesh.topology is mesh.topology:
         composed_map = None
-        target_integral_type = iteration_spec.integral_type
+        target_integral_type = loop_index.integral_type
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh.topology
     ):
-        composed_map = iter_mesh.extr_cell_to_base_cell_map(iteration_spec.loop_index)
+        composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
         target_integral_type = "cell"
-    elif mesh.submesh_youngest_common_ancestor(iteration_spec.mesh):
-        composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
+    elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
+        composed_map, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
     else:
         # No shared topology, must be using a vertex-only mesh
-        composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
+        composed_map = loop_index.mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
 
     if target_integral_type == "cell":
@@ -72,7 +72,7 @@ def _pack_map(iteration_spec, mesh) -> op3.Index:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
 
     if not composed_map:
-        return self_map(iteration_spec.loop_index)
+        return self_map(loop_index)
     else:
         return self_map(composed_map)
 

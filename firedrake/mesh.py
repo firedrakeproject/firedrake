@@ -325,65 +325,20 @@ class ClosureOrdering(enum.Enum):
 
 @op3.record.frozenrecord()
 class MeshLoopIndex(op3.LoopIndex):
-
-    # {{{ instance attrs
+    """Object representing a loop over mesh entities."""
 
     mesh: weakref.ProxyType = dataclasses.field(hash=False)
     integral_type: str
-    plex_indices: PETSc.IS | None = dataclasses.field(hash=False)
-    old_to_new_numbering: PETSc.Section = dataclasses.field(hash=False)
-    needs_subset: bool
 
     def __init__(
         self,
+        iterset: op3.IndexedAxisTree,
         mesh: MeshGeometry,
         integral_type: str,
-        iterset: op3.IndexedAxisTree,
-        plex_indices: PETSc.IS | None,
-        old_to_new_numbering: PETSc.Section,
-        needs_subset: bool,
     ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
-        object.__setattr__(self, "initial_iterset", iterset)
-        object.__setattr__(self, "plex_indices", plex_indices)
-        object.__setattr__(self, "old_to_new_numbering", old_to_new_numbering)
-        object.__setattr__(self, "needs_subset", needs_subset)
-
-        # TODO: the interface to this class needs cleaning up
-        actual_iterset = iterset[self.subset]
-        super().__init__(actual_iterset)
-
-    # }}}
-
-    @cached_property
-    def loop_index(self) -> op3.LoopIndex:
-        # return self.iterset[self.subset].iter()
-        return self
-
-    @cached_property
-    def subset(self) -> op3.Slice | Ellipsis:
-        if not self.needs_subset:
-            assert self.initial_iterset.local_size == self.plex_indices.size
-            return Ellipsis
-        else:
-            iterset_axis = self.initial_iterset.as_axis()
-            # TODO: Ideally should be able to avoid creating these here and just index
-            # with the array
-            subset_dat = op3.Dat.from_array(self.indices.indices, prefix="subset")
-            return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
-
-    @cached_property
-    def indices(self) -> PETSc.IS | None:
-        assert self.needs_subset
-        # We now have the correct set of indices represented in DMPlex numbering, now
-        # we have to convert this to a numbering specific to the iteration set (e.g.
-        # map point 12 to interior facet 3).
-        localized_indices = dmcommon.section_offsets(self.old_to_new_numbering, self.plex_indices, sort=True)
-
-        # Remove ghost points
-        return dmcommon.filter_is(localized_indices, 0, self.initial_iterset.local_size)
-
+        super().__init__(iterset)
 
 
 class AbstractMeshTopology(abc.ABC):
@@ -1141,9 +1096,9 @@ class AbstractMeshTopology(abc.ABC):
             )
 
         if subdomain_id == "everywhere":
-            plex_indices = valid_plex_indices
+            subset = Ellipsis
+
         else:
-            needs_subset = True
             if subdomain_id == "otherwise":
                 subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
                 complement = True
@@ -1184,24 +1139,30 @@ class AbstractMeshTopology(abc.ABC):
                     logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
                                 "Did you choose the right label?")
 
-        # Finally drop ghost points
-        plex_indices = plex_indices.difference(
-            self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
-        )
+            # drop ghost points
+            plex_indices = plex_indices.difference(
+                self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
+            )
+
+            # We now have the correct set of indices represented in DMPlex numbering, now
+            # we have to convert this to a numbering specific to the iteration set (e.g.
+            # map point 12 to interior facet 3).
+            localized_indices = dmcommon.section_offsets(
+                old_to_new_entity_numbering, plex_indices, sort=True
+            )
+
+            iterset_axis = iterset.as_axis()
+            subset_dat = op3.Dat.from_array(localized_indices.indices, prefix="subset")
+            subset = op3.Slice(
+                iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)]
+            )
 
         # Use a weakref for the mesh here because otherwise we would store a
         # reference to the mesh in the cache and, since the lifetime of the cache
         # is tied to the mesh, things will never be cleaned up.
         mesh_ref = weakref.proxy(self.topology)
 
-        return MeshLoopIndex(
-            mesh_ref,
-            integral_type,
-            iterset,
-            plex_indices,
-            old_to_new_entity_numbering,
-            needs_subset=needs_subset,
-        )
+        return MeshLoopIndex(iterset[subset], mesh_ref, integral_type)
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
         if ordering == ClosureOrdering.PLEX:

@@ -734,7 +734,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         This routine does not modify any parallel state-tracking variables.
 
         """
-        self.sf.reduce_end(self._current_device_array_nosync, op)
+        self.sf.reduce_end(self._current_device_array, op)
         self._unlock_current_device()
 
     def sync_leaves(self) -> None:
