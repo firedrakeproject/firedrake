@@ -64,3 +64,25 @@ def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate, perturb):
     diff = np.array([helmholtz(i, el, deg, perturb) for i in range(l, l+2)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate - 0.3).all()
+
+
+def test_bell_hermite_tensor_product_convergence() -> None:
+    """Test H1 convergence of Bell x Hermite on an extruded mesh."""
+    errors = []
+    for refinement in (1, 2):
+        n = 2**refinement
+        mesh = ExtrudedMesh(UnitSquareMesh(n, n), layers=n)
+        V = FunctionSpace(mesh, "Bell", 5,
+                          vfamily="Hermite", vdegree=3)
+        x = SpatialCoordinate(mesh)
+        exact = cos(pi*x[0]) * cos(pi*x[1]) * cos(pi*x[2])
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(grad(u), grad(v))*dx + u*v*dx
+        solution = Function(V)
+        solve(a == a(v, exact), solution,
+              solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+        errors.append(sqrt(assemble(a(solution-exact, solution-exact))))
+
+    assert np.log2(errors[0] / errors[1]) > 2.5
