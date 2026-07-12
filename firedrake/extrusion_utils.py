@@ -51,7 +51,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the fixed layer
     height, and the current cell layer.
     """
-    from firedrake.mesh import get_iteration_spec
     from firedrake.pack import pack
 
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements[0].factor_elements
@@ -230,9 +229,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     extr_mesh = ext_coords.function_space().mesh()
     base_mesh = extr_mesh._base_mesh
 
-    iter_spec = get_iteration_spec(extr_mesh, "cell")
+    loop_index = extr_mesh.iter("cell")
 
-    iterset = iter_spec.iterset
+    iterset = loop_index.iterset
 
     # trick to pass the right layer through to the local kernel
     # TODO: make this a mesh attribute
@@ -243,10 +242,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
 
     op3.loop(
-        p := iter_spec.loop_index,
+        p := loop_index,
         kernel(
-            pack(ext_coords, iter_spec),
-            pack(base_coords, iter_spec),
+            pack(ext_coords, loop_index),
+            pack(base_coords, loop_index),
             layer_height,
             my_layer_dat[p]
         ),

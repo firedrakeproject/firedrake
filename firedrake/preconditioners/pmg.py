@@ -9,7 +9,6 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.mesh import get_iteration_spec
 from firedrake.utils import IntType_c, ScalarType
 from firedrake.pack import pack
 from finat.element_factory import create_element
@@ -1239,17 +1238,17 @@ class StandaloneInterpolationMatrix(object):
         uc_perm, _, _ = get_permutation_to_nodal_elements(self.Vc)
 
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-        loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
+        loop_index = self.Vf.mesh().unique().iter("cell")
 
-        prolong_args = [pack(self.uf, loop_info, permutation=uf_perm),
-                        pack(self.uc, loop_info, permutation=uc_perm),
-                        pack(self._weight, loop_info, permutation=uf_perm)]
-        restrict_args = [pack(self.uc, loop_info, permutation=uc_perm),
-                         pack(self.uf, loop_info, permutation=uf_perm),
-                         pack(self._weight, loop_info, permutation=uf_perm)]
-        coefficient_args = [pack(c, loop_info) for c in coefficients]
+        prolong_args = [pack(self.uf, loop_index, permutation=uf_perm),
+                        pack(self.uc, loop_index, permutation=uc_perm),
+                        pack(self._weight, loop_index, permutation=uf_perm)]
+        restrict_args = [pack(self.uc, loop_index, permutation=uc_perm),
+                         pack(self.uf, loop_index, permutation=uf_perm),
+                         pack(self._weight, loop_index, permutation=uf_perm)]
+        coefficient_args = [pack(c, loop_index) for c in coefficients]
         prolong_expr = op3.loop(
-            loop_info.loop_index,
+            loop_index,
             prolong_kernel(*prolong_args, *coefficient_args),
         )
 
@@ -1257,7 +1256,7 @@ class StandaloneInterpolationMatrix(object):
             prolong_expr(compiler_parameters={"optimize": True})
 
         restrict_expr = op3.loop(
-            loop_info.loop_index,
+            loop_index,
             restrict_kernel(*restrict_args, *coefficient_args),
         )
 

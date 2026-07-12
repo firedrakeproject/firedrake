@@ -32,7 +32,7 @@ from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDu
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_iteration_spec, get_mesh_topologies
+from firedrake.mesh import get_mesh_topologies
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -1522,7 +1522,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for loop_info, (test_index, trial_index) in maps_and_regions:
+        for loop_index, (test_index, trial_index) in maps_and_regions:
             # If indices are 'None' then this means all to allocate for all spaces
             if test_index is None:
                 if is_mixed(test):
@@ -1551,8 +1551,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
             ):
                 op3.loop(
-                    loop_info.loop_index,
-                    pack(sparsity[test_index_, trial_index_], test_space, trial_space, loop_info).assign(666),
+                    loop_index,
+                    pack(sparsity[test_index_, trial_index_], test_space, trial_space, loop_index).assign(666),
                     eager=True,
                 )
 
@@ -1574,8 +1574,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    loop_info = get_iteration_spec(mesh, integral_type, subdomain_id)
-                    loops.append((loop_info, local_kernel.indices))
+                    loop_index = mesh.iter(integral_type, subdomain_id)
+                    loops.append((loop_index, local_kernel.indices))
             return tuple(loops)
 
     @staticmethod
@@ -1596,8 +1596,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
 
-                    loop_info = get_iteration_spec(mesh, integral_type)
-                    loops.append((loop_info, (i, j)))
+                    loop_index = mesh.iter(integral_type)
+                    loops.append((loop_index, (i, j)))
         return tuple(loops)
 
     @cached_property
@@ -1944,8 +1944,7 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return get_iteration_spec(
-                self._topology,
+            return self._topology.iter(
                 self._integral_type,
                 self._subdomain_id,
                 all_integer_subdomain_ids=self._all_integer_subdomain_ids,

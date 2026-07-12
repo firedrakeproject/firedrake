@@ -27,7 +27,6 @@ from firedrake import utils
 from firedrake.constant import Constant
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
-from firedrake.mesh import get_iteration_spec
 from firedrake.pack import pack
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
@@ -286,14 +285,11 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
                     packed_args.append(func.dat[loop_index])
 
         else:
-            iter_spec = get_iteration_spec(
-                mesh, measure.integral_type(), measure.subdomain_id()
-            )
-            loop_index = iter_spec.loop_index
+            loop_index = mesh.iter(measure.integral_type(), measure.subdomain_id())
             packed_args = []
             for func, _ in args.values():
                 func = _extract_subfunction(func)
-                packed_args.append(pack(func, iter_spec))
+                packed_args.append(pack(func, loop_index))
 
         op3.loop(loop_index, function(*packed_args), eager=True)
 

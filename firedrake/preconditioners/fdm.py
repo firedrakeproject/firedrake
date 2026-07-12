@@ -3,7 +3,6 @@ from __future__ import annotations
 from textwrap import dedent
 from functools import cached_property, partial
 from itertools import chain, product
-from firedrake.mesh import get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
@@ -749,16 +748,16 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C0))
             coefficients = self.coefficients["cell"]
 
-            loop_info = get_iteration_spec(Vrow.mesh(), "cell")
+            loop_index = Vrow.mesh().iter("cell")
             element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             mat_args = element_kernel.make_args(A)
             assembler = op3.loop(
-                loop_info.loop_index,
+                loop_index,
                 kernel(
                     *mat_args,
-                    pack(coefficients, loop_info),
-                    *(pack(idat, loop_info) for idat in indices_acc),
+                    pack(coefficients, loop_index),
+                    *(pack(idat, loop_index) for idat in indices_acc),
                 ),
             )
             self.assemblers.setdefault(key, assembler)
@@ -770,10 +769,10 @@ class FDMPC(PCBase):
                 # Determine the global sparsity pattern by inserting a constant sparse element matrix
                 kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
                 assembler = op3.loop(
-                    loop_info.loop_index,
+                    loop_index,
                     kernel(
                         *mat_args[:2],
-                        *(pack(idat, loop_info) for idat in indices_acc),
+                        *(pack(idat, loop_index) for idat in indices_acc),
                     )
                 )
                 self.assemblers.setdefault(key, assembler)
@@ -1777,14 +1776,14 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     preallocator = get_preallocator(comm, sizes, *lgmaps)
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
-    loop_info = get_iteration_spec(Vc.mesh(), "cell")
+    loop_index = Vc.mesh().iter("cell")
     mat_args = kernel.make_args(preallocator)
     assembler = op3.loop(
-        loop_info.loop_index,
+        loop_index,
         kernel.kernel(mat_type=mat_type)(
             *mat_args,
             *(
-                pack(idat, loop_info)
+                pack(idat, loop_index)
                 for idat in indices_acc
             ),
         ),

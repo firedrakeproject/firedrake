@@ -323,6 +323,69 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
+@op3.record.frozenrecord()
+class MeshLoopIndex(op3.LoopIndex):
+
+    # {{{ instance attrs
+
+    mesh: weakref.ProxyType = dataclasses.field(hash=False)
+    integral_type: str
+    plex_indices: PETSc.IS | None = dataclasses.field(hash=False)
+    old_to_new_numbering: PETSc.Section = dataclasses.field(hash=False)
+    needs_subset: bool
+
+    def __init__(
+        self,
+        mesh: MeshGeometry,
+        integral_type: str,
+        iterset: op3.IndexedAxisTree,
+        plex_indices: PETSc.IS | None,
+        old_to_new_numbering: PETSc.Section,
+        needs_subset: bool,
+    ) -> None:
+        object.__setattr__(self, "mesh", mesh)
+        object.__setattr__(self, "integral_type", integral_type)
+        object.__setattr__(self, "initial_iterset", iterset)
+        object.__setattr__(self, "plex_indices", plex_indices)
+        object.__setattr__(self, "old_to_new_numbering", old_to_new_numbering)
+        object.__setattr__(self, "needs_subset", needs_subset)
+
+        # TODO: the interface to this class needs cleaning up
+        actual_iterset = iterset[self.subset]
+        super().__init__(actual_iterset)
+
+    # }}}
+
+    @cached_property
+    def loop_index(self) -> op3.LoopIndex:
+        # return self.iterset[self.subset].iter()
+        return self
+
+    @cached_property
+    def subset(self) -> op3.Slice | Ellipsis:
+        if not self.needs_subset:
+            assert self.initial_iterset.local_size == self.plex_indices.size
+            return Ellipsis
+        else:
+            iterset_axis = self.initial_iterset.as_axis()
+            # TODO: Ideally should be able to avoid creating these here and just index
+            # with the array
+            subset_dat = op3.Dat.from_array(self.indices.indices, prefix="subset")
+            return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
+
+    @cached_property
+    def indices(self) -> PETSc.IS | None:
+        assert self.needs_subset
+        # We now have the correct set of indices represented in DMPlex numbering, now
+        # we have to convert this to a numbering specific to the iteration set (e.g.
+        # map point 12 to interior facet 3).
+        localized_indices = dmcommon.section_offsets(self.old_to_new_numbering, self.plex_indices, sort=True)
+
+        # Remove ghost points
+        return dmcommon.filter_is(localized_indices, 0, self.initial_iterset.local_size)
+
+
+
 class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -970,15 +1033,175 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_indices(self):
         pass
 
-    # @property
-    # @abc.abstractmethod
-    # def _plex_strata_ordering(self):
-    #     """Map from entity dimension to ordering in the DMPlex numbering.
-    #
-    #     For example, 3D meshes begin by numbering cells from 0, then vertices,
-    #     then faces and lastly edges.
-    #
-    #     """
+    @cached_on(
+        get_obj=lambda self, *a, **kw: self.topology,
+        get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
+    )
+    def iter(
+        self,
+        integral_type: str,
+        subdomain_id: Literal["everywhere", "otherwise"] | int | tuple[int, ...] = "everywhere",
+        *,
+        all_integer_subdomain_ids: Iterable[int] | None = None,
+        intersect_meshes=None,
+    ) -> MeshLoopIndex:
+        """Return an iteration set appropriate for the requested integral type.
+
+        :arg integral_type: The type of the integral (should be a valid UFL measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.  This should be a dict mapping
+             ``integral_type`` to the explicitly enumerated subdomain ids.
+
+         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+            """
+        match integral_type:
+            case "cell":
+                iterset = self.cells.owned
+                dmlabel_name = dmcommon.CELL_SETS_LABEL
+                valid_plex_indices = self._cell_plex_indices
+                old_to_new_entity_numbering  = self._old_to_new_cell_numbering
+            case "exterior_facet":
+                iterset = self.exterior_facets.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._exterior_facet_plex_indices
+                old_to_new_entity_numbering  = self._old_to_new_exterior_facet_numbering
+            case "interior_facet":
+                iterset = self.interior_facets.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._interior_facet_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_interior_facet_numbering
+            case "exterior_facet_top":
+                iterset = self.exterior_facets_top.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._exterior_facet_top_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_exterior_facet_top_numbering
+            case "exterior_facet_bottom":
+                iterset = self.exterior_facets_bottom.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._exterior_facet_bottom_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_exterior_facet_bottom_numbering
+            case "exterior_facet_vert":
+                iterset = self.exterior_facets_vert.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._exterior_facet_vert_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_exterior_facet_vert_numbering
+            case "interior_facet_horiz":
+                iterset = self.interior_facets_horiz.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._interior_facet_horiz_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_interior_facet_horiz_numbering
+            case "interior_facet_vert":
+                iterset = self.interior_facets_vert.owned
+                dmlabel_name = dmcommon.FACE_SETS_LABEL
+                valid_plex_indices = self._interior_facet_vert_plex_indices
+                old_to_new_entity_numbering = self._old_to_new_interior_facet_vert_numbering
+            case _:
+                raise AssertionError(f"Integral type {integral_type} not recognised")
+
+        needs_subset = False
+
+        # If we are intersecting submeshes then we filter the plex indices
+        if intersect_meshes:
+            needs_subset = True
+            if subdomain_id != "everywhere":
+                raise NotImplementedError
+
+            if len(intersect_meshes) != 1:
+                raise NotImplementedError
+            else:
+                intersect_mesh, = intersect_meshes
+
+            # To get the indices in the current mesh we need to figure out what
+            # the indices of the intersection mesh are in the common ancestor and
+            # then map them down to the mesh.
+            common_ancestor = self.submesh_youngest_common_ancestor(intersect_mesh)
+
+            intersect_indices = np.arange(*intersect_mesh.topology_dm.getChart(), dtype=IntType)
+            aa = intersect_mesh.submesh_ancestors
+            for a in aa[:aa.index(common_ancestor)]:
+                intersect_indices = a._submesh_to_parent_plex_index_map[intersect_indices]
+
+            # Now we have the indices at the common ancestor, work back down to give us
+            # the indices of the target mesh.
+            bb = self.submesh_ancestors
+            for b in reversed(bb[:bb.index(common_ancestor)]):
+                intersect_indices = b._parent_to_submesh_plex_index_map[intersect_indices]
+
+            valid_plex_indices = PETSc.IS().createGeneral(
+                np.intersect1d(valid_plex_indices.indices, intersect_indices), comm=MPI.COMM_SELF
+            )
+
+        if subdomain_id == "everywhere":
+            plex_indices = valid_plex_indices
+        else:
+            needs_subset = True
+            if subdomain_id == "otherwise":
+                subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
+                complement = True
+            else:
+                subdomain_ids = utils.as_tuple(subdomain_id)
+                complement = False
+
+            # Get all points labelled with the subdomain ID
+            plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+            for subdomain_id in subdomain_ids:
+                if subdomain_id == UNMARKED:
+                    plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+                    # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
+                    all_plex_subdomain_ids = self.topology_dm.getLabelIdIS(dmlabel_name).indices
+                    for subdomain_id_ in all_plex_subdomain_ids:
+                        plex_indices_to_exclude = plex_indices_to_exclude.union(
+                            utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id_))
+                        )
+                    matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
+                else:
+                    matching_indices = utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
+                plex_indices = plex_indices.union(matching_indices)
+
+            # Restrict to indices that exist within the iterset (e.g. drop exterior facets
+            # from an interior facet integral)
+            plex_indices = dmcommon.intersect_is(plex_indices, valid_plex_indices)
+
+            # If the 'subdomain_id' is 'otherwise' then we now have a list of the
+            # indices that we *do not* want
+            if complement:
+                plex_indices = valid_plex_indices.difference(plex_indices)
+
+            # NOTE: Should we sort plex indices?
+
+            with temp_internal_comm(self.comm) as icomm:
+                num_global_indices = icomm.reduce(plex_indices.size, MPI.SUM, root=0)
+                if num_global_indices == 0 and icomm.rank == 0:
+                    logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
+                                "Did you choose the right label?")
+
+        # Finally drop ghost points
+        plex_indices = plex_indices.difference(
+            self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
+        )
+
+        # Use a weakref for the mesh here because otherwise we would store a
+        # reference to the mesh in the cache and, since the lifetime of the cache
+        # is tied to the mesh, things will never be cleaned up.
+        mesh_ref = weakref.proxy(self.topology)
+
+        return MeshLoopIndex(
+            mesh_ref,
+            integral_type,
+            iterset,
+            plex_indices,
+            old_to_new_entity_numbering,
+            needs_subset=needs_subset,
+        )
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
         if ordering == ClosureOrdering.PLEX:
@@ -6610,216 +6833,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     # Tag the relabeled mesh with the original distribution parameters
     submesh._distribution_parameters = mesh._distribution_parameters
     return submesh
-
-
-# Idea: could this inherit from LoopIndex? Then can carry extra information...
-@dataclasses.dataclass(frozen=True)
-class IterationSpec:
-    mesh: MeshGeometry
-    integral_type: str
-    iterset: op3.IndexedAxisTree
-    plex_indices: PETSc.IS | None
-    old_to_new_numbering: PETSc.Section
-    needs_subset: bool
-
-    @cached_property
-    def loop_index(self) -> op3.LoopIndex:
-        return self.iterset[self.subset].iter()
-
-    @cached_property
-    def subset(self) -> op3.Slice | Ellipsis:
-        if not self.needs_subset:
-            assert self.iterset.local_size == self.plex_indices.size
-            return Ellipsis
-        else:
-            iterset_axis = self.iterset.as_axis()
-            # TODO: Ideally should be able to avoid creating these here and just index
-            # with the array
-            subset_dat = op3.Dat.from_array(self.indices.indices, prefix="subset")
-            return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
-
-    @cached_property
-    def indices(self) -> PETSc.IS | None:
-        assert self.needs_subset
-        # We now have the correct set of indices represented in DMPlex numbering, now
-        # we have to convert this to a numbering specific to the iteration set (e.g.
-        # map point 12 to interior facet 3).
-        localized_indices = dmcommon.section_offsets(self.old_to_new_numbering, self.plex_indices, sort=True)
-
-        # Remove ghost points
-        return dmcommon.filter_is(localized_indices, 0, self.iterset.local_size)
-
-
-def _get_iteration_spec_get_obj(mesh, *args, **kwargs):
-    return mesh.topology
-
-
-def _get_iteration_spec_get_key(mesh, *args, **kwargs) -> Hashable:
-    return utils.freeze((args, kwargs))
-
-
-# TODO: Make this be mesh.iter() instead
-@cached_on(_get_iteration_spec_get_obj, _get_iteration_spec_get_key)
-def get_iteration_spec(
-    mesh: MeshGeometry,
-    integral_type: str,
-    subdomain_id: int | tuple[int, ...] | Literal["everywhere"] | Literal["otherwise"] = "everywhere",
-    *,
-    all_integer_subdomain_ids: Iterable[int] | None = None,
-    intersect_meshes=None,
-) -> IterationSpec:
-    """Return an iteration set appropriate for the requested integral type.
-
-    :arg integral_type: The type of the integral (should be a valid UFL measure).
-    :arg subdomain_id: The subdomain of the mesh to iterate over.
-         Either an integer, an iterable of integers or the special
-         subdomains ``"everywhere"`` or ``"otherwise"``.
-    :arg all_integer_subdomain_ids: Information to interpret the
-         ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-         entities not explicitly enumerated by the integer
-         subdomains provided here.  For example, if
-         all_integer_subdomain_ids is empty, then ``"otherwise" ==
-         "everywhere"``.  If it contains ``(1, 2)``, then
-         ``"otherwise"`` is all entities except those marked by
-         subdomains 1 and 2.  This should be a dict mapping
-         ``integral_type`` to the explicitly enumerated subdomain ids.
-
-     :returns: A :class:`pyop2.types.set.Subset` for iteration.
-        """
-    mesh = mesh.unique()
-
-    match integral_type:
-        case "cell":
-            iterset = mesh.cells.owned
-            dmlabel_name = dmcommon.CELL_SETS_LABEL
-            valid_plex_indices = mesh._cell_plex_indices
-            old_to_new_entity_numbering  = mesh._old_to_new_cell_numbering
-        case "exterior_facet":
-            iterset = mesh.exterior_facets.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._exterior_facet_plex_indices
-            old_to_new_entity_numbering  = mesh._old_to_new_exterior_facet_numbering
-        case "interior_facet":
-            iterset = mesh.interior_facets.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._interior_facet_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_interior_facet_numbering
-        case "exterior_facet_top":
-            iterset = mesh.exterior_facets_top.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._exterior_facet_top_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_top_numbering
-        case "exterior_facet_bottom":
-            iterset = mesh.exterior_facets_bottom.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._exterior_facet_bottom_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_bottom_numbering
-        case "exterior_facet_vert":
-            iterset = mesh.exterior_facets_vert.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._exterior_facet_vert_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_vert_numbering
-        case "interior_facet_horiz":
-            iterset = mesh.interior_facets_horiz.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._interior_facet_horiz_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_interior_facet_horiz_numbering
-        case "interior_facet_vert":
-            iterset = mesh.interior_facets_vert.owned
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            valid_plex_indices = mesh._interior_facet_vert_plex_indices
-            old_to_new_entity_numbering = mesh._old_to_new_interior_facet_vert_numbering
-        case _:
-            raise AssertionError(f"Integral type {integral_type} not recognised")
-
-    needs_subset = False
-
-    # If we are intersecting submeshes then we filter the plex indices
-    if intersect_meshes:
-        needs_subset = True
-        if subdomain_id != "everywhere":
-            raise NotImplementedError
-
-        if len(intersect_meshes) != 1:
-            raise NotImplementedError
-        else:
-            intersect_mesh, = intersect_meshes
-
-        # To get the indices in the current mesh we need to figure out what
-        # the indices of the intersection mesh are in the common ancestor and
-        # then map them down to the mesh.
-        common_ancestor = mesh.submesh_youngest_common_ancestor(intersect_mesh)
-
-        intersect_indices = np.arange(*intersect_mesh.topology_dm.getChart(), dtype=IntType)
-        aa = intersect_mesh.submesh_ancestors
-        for a in aa[:aa.index(common_ancestor)]:
-            intersect_indices = a._submesh_to_parent_plex_index_map[intersect_indices]
-
-        # Now we have the indices at the common ancestor, work back down to give us
-        # the indices of the target mesh.
-        bb = mesh.submesh_ancestors
-        for b in reversed(bb[:bb.index(common_ancestor)]):
-            intersect_indices = b._parent_to_submesh_plex_index_map[intersect_indices]
-
-        valid_plex_indices = PETSc.IS().createGeneral(
-            np.intersect1d(valid_plex_indices.indices, intersect_indices), comm=MPI.COMM_SELF
-        )
-
-    if subdomain_id == "everywhere":
-        plex_indices = valid_plex_indices
-    else:
-        needs_subset = True
-        if subdomain_id == "otherwise":
-            subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
-            complement = True
-        else:
-            subdomain_ids = utils.as_tuple(subdomain_id)
-            complement = False
-
-        # Get all points labelled with the subdomain ID
-        plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
-        for subdomain_id in subdomain_ids:
-            if subdomain_id == UNMARKED:
-                plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
-                # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
-                all_plex_subdomain_ids = mesh.topology_dm.getLabelIdIS(dmlabel_name).indices
-                for subdomain_id_ in all_plex_subdomain_ids:
-                    plex_indices_to_exclude = plex_indices_to_exclude.union(
-                        utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id_))
-                    )
-                matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
-            else:
-                matching_indices = utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
-            plex_indices = plex_indices.union(matching_indices)
-
-        # Restrict to indices that exist within the iterset (e.g. drop exterior facets
-        # from an interior facet integral)
-        plex_indices = dmcommon.intersect_is(plex_indices, valid_plex_indices)
-
-        # If the 'subdomain_id' is 'otherwise' then we now have a list of the
-        # indices that we *do not* want
-        if complement:
-            plex_indices = valid_plex_indices.difference(plex_indices)
-
-        # NOTE: Should we sort plex indices?
-
-        with temp_internal_comm(mesh.comm) as icomm:
-            num_global_indices = icomm.reduce(plex_indices.size, MPI.SUM, root=0)
-            if num_global_indices == 0 and icomm.rank == 0:
-                logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
-                            "Did you choose the right label?")
-
-    # Finally drop ghost points
-    plex_indices = plex_indices.difference(
-        mesh.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
-    )
-
-    # Use a weakref for the mesh here because otherwise we would store a
-    # reference to the mesh in the cache and, since the lifetime of the cache
-    # is tied to the mesh, things will never be cleaned up.
-    mesh_ref = weakref.proxy(mesh.topology)
-
-    return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering, needs_subset=needs_subset)
 
 
 def _memoize_facet_supports(

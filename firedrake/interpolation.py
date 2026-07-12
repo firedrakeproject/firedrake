@@ -40,7 +40,7 @@ from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh, get_iteration_spec
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
@@ -780,10 +780,10 @@ class SameMeshInterpolator(Interpolator):
         block_shape = (Vrow.block_shape, Vcol.block_shape)
         buffer_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
         sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes, buffer_spec=buffer_spec)
-        iter_spec = get_iteration_spec(self.target_mesh, "cell")
+        loop_index = self.target_mesh.iter("cell")
         op3.loop(
-            c := iter_spec.loop_index,
-            pack(sparsity, Vrow, Vcol, iter_spec).assign(666),
+            c := loop_index,
+            pack(sparsity, Vrow, Vcol, loop_index).assign(666),
             eager=True,
         )
         return sparsity
@@ -1088,12 +1088,12 @@ def _build_interpolation_callables(
         if subset is not None:
             raise NotImplementedError("TODO")
 
-        iter_spec = get_iteration_spec(target_mesh, "cell", intersect_meshes=[source_mesh])
+        loop_index = target_mesh.iter("cell", intersect_meshes=[source_mesh])
     else:
         if subset is not None:
-            iter_spec = get_iteration_spec(target_mesh, "cell", subdomain_id=subset)
+            loop_index = target_mesh.iter("cell", subdomain_id=subset)
         else:
-            iter_spec = get_iteration_spec(target_mesh, "cell")
+            loop_index = target_mesh.iter("cell")
 
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
@@ -1121,7 +1121,7 @@ def _build_interpolation_callables(
 
         weight = Function(W)
         op3.loop(
-            c := iter_spec.loop_index,
+            c := loop_index,
             weight.dat[target_mesh.closure(c)].iassign(1),
             eager=True,
         )
@@ -1152,11 +1152,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, loop_index)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, loop_index)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1174,17 +1174,17 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
 
-        packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
+        packed_tensor = pack(tensor, Vrow, Vcol, loop_index)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
-        local_kernel_args.append(pack(source_mesh.cell_orientations(), iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_orientations(), loop_index))
 
     if kernel.needs_cell_sizes:
-        local_kernel_args.append(pack(source_mesh.cell_sizes, iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_sizes, loop_index))
 
     for coefficient in coefficients:
-        local_kernel_args.append(pack(coefficient, iter_spec))
+        local_kernel_args.append(pack(coefficient, loop_index))
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
@@ -1209,7 +1209,7 @@ def _build_interpolation_callables(
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
+                local_kernel_args.append(pack(target_mesh.reference_coordinates, loop_index))
 
     if any(c.dat == tensor for c in coefficients):
         output = tensor
@@ -1220,7 +1220,7 @@ def _build_interpolation_callables(
 
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
-    parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
+    parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 

@@ -17,24 +17,24 @@ from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed
 from firedrake.matrix import Matrix
-from firedrake.mesh import IterationSpec
+from firedrake.mesh import MeshLoopIndex
 
 
 @functools.singledispatch
-def pack(tensor: Any, loop_info: IterationSpec, **kwargs) -> op3.Tensor:
+def pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
 @pack.register
-def _(const: firedrake.constant.Constant, loop_info: IterationSpec, **kwargs) -> op3.Dat:
+def _(const: firedrake.constant.Constant, loop_info: MeshLoopIndex, **kwargs) -> op3.Dat:
     return const.dat
 
 
 @pack.register(Function)
 @pack.register(Cofunction)
 @pack.register(CoordinatelessFunction)
-def _(func, loop_info: IterationSpec, **kwargs):
+def _(func, loop_info: MeshLoopIndex, **kwargs):
     return pack(func.dat, func.function_space(), loop_info, **kwargs)
 
 
@@ -81,7 +81,7 @@ def _pack_map(iteration_spec, mesh) -> op3.Index:
 def _(
     dat: op3.Dat,
     space: WithGeometry,
-    loop_info: IterationSpec,
+    loop_info: MeshLoopIndex,
     **kwargs,
 ):
     # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -106,7 +106,7 @@ def _(
 def _pack_dat_nonmixed(
     dat: op3.Dat,
     space: WithGeometry,
-    loop_info: IterationSpec,
+    loop_info: MeshLoopIndex,
     *,
     permutation: collections.abc.Iterable | None = None,
 ):
@@ -134,7 +134,7 @@ def _(
     mat: op3.Mat,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: IterationSpec,
+    loop_info: MeshLoopIndex,
 ):
     if isinstance(row_space.topological, RestrictedFunctionSpace):
         row_space = row_space.function_space
@@ -158,7 +158,7 @@ def _pack_mat_nonmixed(
     mat: op3.Mat,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: IterationSpec,
+    loop_info: MeshLoopIndex,
 ):
     row_map = _pack_map(loop_info, row_space.mesh())
     column_map = _pack_map(loop_info, column_space.mesh())

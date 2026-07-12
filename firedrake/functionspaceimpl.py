@@ -43,7 +43,7 @@ import firedrake.logging
 from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies, get_iteration_spec
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, deprecated
@@ -1079,8 +1079,8 @@ class AbstractFunctionSpace:
         )
 
         # Now pack this for use in a parloop
-        loop_info = get_iteration_spec(space.mesh(), iter_type)
-        packed_offsets = pack(offsets, space, loop_info)
+        loop_index = space.mesh().iter(iter_type)
+        packed_offsets = pack(offsets, space, loop_index)
 
         # Create the array to store the indirection map. If mixed then this stores
         # offsets per iteration entity then per field.
@@ -1093,12 +1093,12 @@ class AbstractFunctionSpace:
         #          └──➤ {closure: [{0: 2}, {1: 1}]}
         #               ├──➤ {dof0: 0}
         #               └──➤ {dof1: 1}
-        iterset_axes = loop_info.iterset.materialize().regionless()  # outer axis is cells etc
+        iterset_axes = loop_index.iterset.materialize().regionless()  # outer axis is cells etc
         map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize().regionless())
         map_plex = op3.Dat.empty(map_plex_axes, dtype=IntType, prefix="map")
 
         op3.loop(
-            p := loop_info.loop_index,
+            p := loop_index,
             map_plex[p].assign(packed_offsets),
             eager=True,
         )
