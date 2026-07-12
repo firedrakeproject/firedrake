@@ -1,19 +1,10 @@
 # Firedrake
 
 Firedrake is an automated system for the portable solution of partial differential equations using
-the finite element method (FEM). The codebase is primarily Python, relying heavily on code generation
-and high-performance C backends to achieve scalability and speed.
-
-Two properties are treated as defining features of Firedrake, not optional extras: **composability**
-(function spaces, forms, boundary conditions, solvers, and preconditioners are expected to combine
-freely, without special-casing particular combinations) and **differentiability** (via `pyadjoint`,
-essentially any computation built from Firedrake's own operations — assembly, interpolation,
-variational solves, boundary condition application — can be taped and differentiated end-to-end).
-Differentiability is expected to fall out of composability: a new feature built from already-annotated
-Firedrake operations should be differentiable for free, with no extra work. A feature that instead
-reaches past those operations into a lower-level, unannotated API silently breaks this guarantee —
-forward runs stay numerically correct, but the adjoint quietly goes wrong, and nothing fails until
-pyadjoint is specifically exercised.
+the finite element method. The codebase is primarily Python, relying heavily on code generation
+and high-performance C backends to achieve scalability and speed. Firedrake is highly composable and
+fully differentiable, enabling the automatic generation of tangent linear and adjoint models for
+PDE-constrained optimization.
 
 Firedrake's full contribution process is documented at
 [Contributing to Firedrake](https://firedrakeproject.org/contribute.html). In short, for AI-assisted
@@ -100,12 +91,6 @@ toolchain:
   mesh-bound data.
 * **Docstrings:** All public-facing APIs must include properly formatted `numpydoc`-style docstrings.
 * **Type Hints:** New code should include type hints on function/method signatures.
-* **Keep Annotation Out Of Plain Modules:** pyadjoint bookkeeping never appears inside a method body in
-  `firedrake/*.py`. Differentiable types instead have a `*Mixin` in `firedrake/adjoint_utils/` exposing
-  one `_ad_annotate_<name>` decorator per method that needs taping, applied where the method is defined
-  (`@SomeMixin._ad_annotate_foo` on `def foo`). The decorator wraps the whole method, so the real
-  implementation stays pyadjoint-agnostic. Add a new decorator to the `Mixin` rather than calling `_ad_*`
-  from `firedrake/*.py` directly.
 
 ## Design And Debugging Method
 
@@ -206,6 +191,14 @@ the last two localize a failure before reading code.
   two failure sets attributes each failure to the commits pushed in between.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
   before the full module; the suite is large and full-module reruns are slow to iterate against.
+* **Test mathematical correctness, not just that it runs or looks structurally right.** Neither "no
+  exception was raised" nor `==` agreement between two expressions proves the result is
+  correct — two independently-built expressions can match structurally while sharing the same wrong
+  derivative or simplification rule. Verify the actual mathematical claim: evaluate numerically and
+  compare against a  hand-computed or finite-difference value, or use a Taylor test for anything
+  claiming to be a derivative.
+* **Taylor-test-everything is the immune system:** Taylor-test a `ReducedFunctional`, ensuring that any
+  new feature built from existing, annotated Firedrake operations is automatically differentiable.
 
 ### Debugging
 
@@ -220,7 +213,7 @@ the last two localize a failure before reading code.
   computed differently per rank and fed into code generation (e.g. a rank-local decision that should be
   a collective/global one) — make that decision the same on every rank, rather than patching the
   generated source or the difference itself.
-* **Parallel deadlocks (niche, rarely needed):** `PYOP2_SPMD_STRICT=1` adds barriers around calls
+* **Parallel deadlocks:** `PYOP2_SPMD_STRICT=1` adds barriers around calls
   marked `@collective` and around cache access, trading overhead for a much narrower failure point when
   ranks disagree about control flow.
 * **Logging:** `firedrake.logging.set_log_level()` (or the `PYOP2_LOG_LEVEL` environment variable)
@@ -246,56 +239,6 @@ the last two localize a failure before reading code.
   the DM callback state and segfaults far from the allocation site. Extruded (hexahedral)
   hierarchies are the stress test: tensor-product elements (NCE/NCF) have no dual-basis
   interpolation, so paths that interpolate on simplices take the projection fallback there.
-
-### PyAdjoint / Differentiability
-
-Guiding principles for building and debugging taped operations with `firedrake.adjoint`, in the
-order they should be applied:
-
-* **Adjoints come from composition, not re-derivation.** If implementing a block's
-  `evaluate_adj_component` has you calling `derivative`/`adjoint`/`action` on an operation
-  Firedrake already tapes (assembly, interpolation, projection, a solve), the tape structure is
-  wrong, not incomplete: make the block depend on that operation's *output*, and the operation's
-  own block supplies the adjoint, TLM, Hessian, and recompute. A block's dependency is the value
-  its operation actually consumes, never the raw user input that value was derived from.
-* **Tape derived state when its consumer is taped, not when it is computed.** A value lazily
-  re-derived from a mutable input must be re-annotated at the moment the consuming block is
-  recorded, so the dependency edge points at the input's *current* block variable; for a
-  `FloatingType`, override `_ad_will_add_as_dependency` to refresh (and thereby tape) the value
-  before `super()` tapes the block. Object reuse in a time loop then records one correct chain per
-  step with no extra bookkeeping. Conversely, run internal updates at construction/setter time
-  under `stop_annotating()`: taping work nothing depends on leaves dangling blocks that recompute
-  pays for.
-* **Prove the linchpin primitive in isolation before restructuring around it.** Check in a few
-  lines that the symbolic machinery you plan to rely on (e.g.
-  `assemble(action(adjoint(derivative(form, c)), cof))`) accepts every input class you must
-  handle. This surfaces hard limits early, and often shows that existing special-case code is
-  subsumed by the general path — or was already dead.
-* **Fix the block class that actually runs, not just the base.** Solves taped through solver
-  objects execute `NonlinearVariationalSolveBlock`, which overrides several `GenericSolveBlock`
-  methods (`prepare_evaluate_adj`, `evaluate_adj_component` with its own `_dFdm_cache`, and
-  `_ad_assign_map`, which refreshes its cached cloned solvers by matching coefficients across
-  clones via `.count()`); a case added only to the generic method silently never executes there.
-  Print `type(block)` from the tape and grep the subclass for overrides before editing the base.
-* **Verify the structure before the numbers.** Print each block in
-  `get_working_tape().get_blocks()` with the identities of its `.get_dependencies()` and
-  `.get_outputs()`, and check the DAG is exactly the chain you designed — no stale or dangling
-  block variables — for both freshly-created and reused objects. Only then run `taylor_test` with
-  a genuinely nonlinear control: rate ≈ 2 is a pass; residuals all ~1e-16 mean the functional is
-  accidentally linear in the control (square it); rate ≈ 1 means a stale value reached the tape.
-  A zero gradient is named by the warning `Adjoint value is None, is the functional independent of
-  the control variable?` — any later `ZeroDivisionError`/`nan` is just its echo. In a
-  `taylor_to_dict` check, rates that start correct then collapse with residuals stuck at a small
-  floor mean a small absolute error in the highest-order term supplied (a nearly-right Hessian or
-  gradient); attribute it by re-running the same Taylor test over a matrix of feature toggles
-  (one new argument at a time) against a known-good baseline.
-* **Dependency discovery is structural, not conceptual.** `form.coefficients()` finds `Function`s
-  (including on `"R"` spaces) but not `firedrake.Constant`, so a bare `Constant` silently records
-  no dependency — represent differentiable scalars as `Function`s on an `"R"` space.
-* **A cache reused across recomputes must resync every axis that varies between reuses.** A cached
-  solver refreshes some of its inputs automatically (form coefficients) but not others (its
-  problem's boundary conditions); each missed axis silently reuses stale data under a perturbed
-  control.
 
 ### Reproducible Environments
 
