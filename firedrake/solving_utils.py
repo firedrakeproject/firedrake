@@ -282,12 +282,18 @@ class _SNESContext(object):
         problem = problem or self._problem
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type
-        kwargs.setdefault("sub_mat_type", self.sub_mat_type)
-        kwargs.setdefault("sub_pmat_type", self.sub_pmat_type)
-        kwargs.setdefault("appctx", self.appctx)
-        kwargs.setdefault("options_prefix", self.options_prefix)
-        kwargs.setdefault("transfer_manager", self.transfer_manager)
-        kwargs.setdefault("pre_apply_bcs", self.pre_apply_bcs)
+
+        default_options = {
+            "sub_mat_type": self.sub_mat_type,
+            "sub_pmat_type": self.sub_pmat_type,
+            "appctx": self.appctx,
+            "options_prefix": self.options_prefix,
+            "transfer_manager": self.transfer_manager,
+            "pre_apply_bcs": self.pre_apply_bcs,
+        }
+        for k, v in default_options.items():
+            if kwargs.get(k) is None:
+                kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
 
     @property
@@ -367,7 +373,7 @@ class _SNESContext(object):
         splits = []
         problem = self._problem
         splitter = ExtractSubBlock()
-        for field in fields:
+        for field_num, field in enumerate(fields):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
@@ -426,8 +432,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
@@ -437,10 +445,10 @@ class _SNESContext(object):
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx,
-                                     transfer_manager=self.transfer_manager,
-                                     pre_apply_bcs=self.pre_apply_bcs))
+            name = V.name if len(V) == 1 else None
+            field_prefix = f"fieldsplit_{name or field_num}_"
+            options_prefix = f"{self.options_prefix}{field_prefix}"
+            splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod

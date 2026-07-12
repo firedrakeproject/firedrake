@@ -42,7 +42,29 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
     'sphinx_copybutton',
+    'nbsphinx',
 ]
+
+# Render the tutorial notebooks. They are generated as .ipynb from the
+# py:percent sources in docs/notebooks and *executed* by the ``copy_notebooks``
+# Makefile target, so nbsphinx only needs to render the stored output. This
+# avoids re-executing the (heavy) notebooks once per Sphinx builder
+# (html/latex/latexpdf/linkcheck all run in the docs CI job).
+nbsphinx_execute = 'never'
+
+# Add a "Run on Colab" banner to the top of every rendered notebook, pointing at
+# the corresponding notebook in the firedrakeproject/notebooks repository.
+nbsphinx_prolog = r"""
+{% set name = env.docname.split('/')|last %}
+
+.. raw:: html
+
+    <div class="admonition note">
+      <p class="admonition-title">Note</p>
+      <p>You can run this notebook on
+      <a href="https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/{{ name }}.ipynb">Google Colab</a>.</p>
+    </div>
+"""
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
 
@@ -161,6 +183,12 @@ nitpick_ignore_regex = [
     ('py:class', 'FormArgument'),
     # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
     ("py:obj", r"typing\.Literal\[.*"),
+]
+
+# sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
+# not as unresolved references handled by nitpick_ignore_regex.
+suppress_warnings = [
+    "bibtex.duplicate_citation",
 ]
 
 # Dodgy links
@@ -434,6 +462,7 @@ intersphinx_mapping = {
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),

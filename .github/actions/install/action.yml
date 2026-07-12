@@ -1,0 +1,166 @@
+name: Install Firedrake
+
+inputs:
+  os:
+    description: Operating system ('linux' or 'macos')
+    type: string
+    required: true
+  source_ref:
+    description: Source branch
+    type: string
+    required: true
+  base_ref:
+    description: Target branch ('main' or 'release')
+    type: string
+    required: true
+  scalar_type:
+    description: Scalar type ('default' or 'complex')
+    type: string
+    default: default
+  gpu:
+    description: Target GPU platform
+    type: string
+    default: none
+  deps:
+    description: Optional dependencies to install along with Firedrake (e.g. 'check')
+    type: string
+    default: check
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies (1)
+      shell: bash
+      if: inputs.os == 'linux'
+      run: |
+          apt-get update
+          apt-get -y install curl git python3 python3-venv
+
+    - name: Add NVIDIA CUDA deb repositories
+      if: inputs.gpu == 'cuda'
+      shell: bash
+      run: |
+        deburl=$(python3 ./firedrake-repo/scripts/firedrake-configure --show-extra-repo-pkg-url --gpu-arch cuda)
+        debfile=$( basename "${deburl}" )
+        curl -fsSLO "${deburl}"
+        dpkg -i "${debfile}"
+        apt-get update
+
+    - name: Install system dependencies (2)
+      shell: bash
+      run: |
+        if [ ${{ inputs.os }} = 'linux' ]; then
+          apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure \
+              --scalar-type ${{ inputs.scalar_type }} \
+              --gpu-arch ${{ inputs.gpu }} \
+              --show-system-packages)
+          : # Dependencies needed to run the test suite
+          apt-get -y install \
+            fonts-dejavu \
+            graphviz \
+            graphviz-dev \
+            parallel \
+            poppler-utils
+        elif [ ${{ inputs.os }} = 'macos' ]; then
+          brew install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure \
+              --scalar-type ${{ inputs.scalar_type }} \
+              --show-system-packages)
+        else
+          echo "Unrecognised 'os' input: '${{ inputs.os }}"
+          exit 1
+        fi
+
+    - name: Install PETSc
+      shell: bash
+      env:
+        EXTRA_OPTIONS: -use_gpu_aware_mpi 0
+      run: |
+        : # Clone PETSc
+        if [ ${{ inputs.base_ref }} = 'main' ]; then
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+        elif [ ${{ inputs.base_ref }} = 'release' ]; then
+          git clone --depth 1 \
+            --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
+            https://gitlab.com/petsc/petsc.git
+        else
+          echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
+          exit 1
+        fi
+
+        if [ ${{ inputs.os }} = 'linux' ]; then
+          NPROCS=8
+        elif [ ${{ inputs.os }} = 'macos' ]; then
+          NPROCS=4
+        else
+          echo "Unrecognised 'os' input: '${{ inputs.os }}"
+          exit 1
+        fi
+
+        cd petsc
+        python3 ../firedrake-repo/scripts/firedrake-configure \
+          --scalar-type ${{ inputs.scalar_type }} \
+          --gpu-arch ${{ inputs.gpu }} \
+          --show-petsc-configure-options | \
+          xargs -L1 ./configure \
+            --with-make-np=$NPROCS \
+            --download-slepc
+        make
+        make check
+
+    - name: Install Firedrake
+      shell: bash
+      run: |
+        export $(python3 ./firedrake-repo/scripts/firedrake-configure \
+          --scalar-type ${{ inputs.scalar_type }} \
+          --gpu-arch ${{ inputs.gpu }} \
+          --show-env)
+        export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
+        : # Disable compiler optimisation to speed up build (especially petsc4py)
+        export CFLAGS="-O0"
+        env
+
+        python3 -m venv venv
+        . venv/bin/activate
+
+        echo 'Cython!=3.2.6' > constraints.txt
+        export PIP_CONSTRAINT=constraints.txt
+
+        : # Empty the pip cache to ensure that everything is compiled from scratch
+        pip cache purge
+
+        if [ ${{ inputs.base_ref }} = 'main' ]; then
+          : # Install build dependencies
+          pip install "$PETSC_DIR"/src/binding/petsc4py
+          pip install -r ./firedrake-repo/requirements-build.txt
+
+          : # Install runtime dependencies that have been removed from the pyproject.toml
+          : # because they rely on non-PyPI versions of petsc4py.
+          pip install --no-build-isolation --no-deps \
+            "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
+          pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
+
+          : # We have to pass '--no-build-isolation' to use a custom petsc4py
+          EXTRA_PIP_FLAGS='--no-build-isolation'
+        elif [ ${{ inputs.base_ref }} = 'release' ]; then
+          EXTRA_PIP_FLAGS=''
+        else
+          echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
+          exit 1
+        fi
+
+        pip install --verbose $EXTRA_PIP_FLAGS \
+          --no-binary h5py \
+          --extra-index-url https://download.pytorch.org/whl/cpu \
+          "./firedrake-repo[${{ inputs.deps }}]"
+
+        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/zany-manifold
+        firedrake-clean
+        pip list
+
+    - name: Run firedrake-check
+      shell: bash
+      run: |
+        . venv/bin/activate
+        firedrake-check
