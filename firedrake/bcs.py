@@ -43,6 +43,9 @@ class BCBase(object):
     def __init__(self, V, sub_domain):
 
         self._function_space = V
+        mesh = V.mesh()
+        if hasattr(mesh, "parse_subdomain_id"):
+            sub_domain = mesh.parse_subdomain_id(mesh.topological_dimension - 1, sub_domain)
         self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate

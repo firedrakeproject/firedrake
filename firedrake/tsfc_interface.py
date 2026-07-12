@@ -11,6 +11,7 @@ import collections
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
+from ufl.measure import as_integral_type
 from .ufl_expr import TestFunction, extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
@@ -150,7 +151,42 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
+def entity_dimension_from_integral_type(domain, integral_type):
+    integral_type = as_integral_type(integral_type)
+    topological_dimension = domain.topological_dimension
+    if integral_type == "cell":
+        return topological_dimension
+    if integral_type.startswith("exterior_facet") or integral_type.startswith("interior_facet"):
+        return topological_dimension - 1
+    if integral_type == "ridge":
+        return topological_dimension - 2
+    if integral_type == "vertex":
+        return 0
+    return topological_dimension
+
+
+def _resolve_region_names(form):
+    if not isinstance(form, Form):
+        return form
+
+    integrals = []
+    changed = False
+    for integral in form.integrals():
+        domain = integral.ufl_domain()
+        parse_subdomain_id = getattr(domain, "parse_subdomain_id", None)
+        if parse_subdomain_id is not None:
+            dim = entity_dimension_from_integral_type(domain, integral.integral_type())
+            subdomain_id = integral.subdomain_id()
+            new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
+            if new_subdomain_id != subdomain_id:
+                integral = integral.reconstruct(subdomain_id=new_subdomain_id)
+                changed = True
+        integrals.append(integral)
+    return Form(integrals) if changed else form
+
+
 def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+    form = _resolve_region_names(form)
     return (
         form.signature(),
         name,
@@ -209,6 +245,8 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     # Check that we get a Form
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
+
+    form = _resolve_region_names(form)
 
     if parameters is None:
         parameters = default_parameters["form_compiler"].copy()
