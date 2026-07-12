@@ -6,7 +6,7 @@ from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
-from gem.optimise import cancel_reciprocals, replace_division, unroll_indexsum
+from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
@@ -33,9 +33,6 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     """
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
-
-    # Cancel reciprocal factors, such as detJ**2 * (1 / detJ)**2
-    expressions = cancel_reciprocals(expressions)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
