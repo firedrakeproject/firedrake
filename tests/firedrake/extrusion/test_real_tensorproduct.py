@@ -162,6 +162,26 @@ def test_helmholtz_convergence(extmesh, quadrilateral, testcase, convrate):
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
 
 
+def test_hermite_real_convergence() -> None:
+    """Test Hermite convergence for a depth-independent solution."""
+    errors = []
+    for refinement in (3, 4):
+        mesh = ExtrudedMesh(UnitIntervalMesh(2**refinement), layers=1)
+        V = FunctionSpace(mesh, "Hermite", 3, vfamily="Real", vdegree=0)
+        x = SpatialCoordinate(mesh)
+        exact = cos(2*pi*x[0])
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(grad(u), grad(v))*dx + u*v*dx
+        solution = Function(V)
+        solve(a == a(v, exact), solution,
+              solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+        errors.append(sqrt(assemble(a(solution-exact, solution-exact))))
+
+    assert np.log2(errors[0] / errors[1]) > 2.7
+
+
 def test_real_tensorproduct_mixed(V):
     mesh = V.mesh()
     Q = FunctionSpace(mesh, "P", 2)
