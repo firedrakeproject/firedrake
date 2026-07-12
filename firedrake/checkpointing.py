@@ -1513,7 +1513,7 @@ class CheckpointFile:
         if element.family() == "Real":
             assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
-            tf.dat.buffer._current_device_array_sync[...] = value
+            tf.dat.buffer._current_device_array[...] = value
         else:
             if path in self.h5pyfile:
                 timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")

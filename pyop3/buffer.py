@@ -255,9 +255,20 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-@pyop3.record.record(repr=False)
+# NOTE: Due to the large amounts of state tracking we should disallow __record_init__
+# for this class. It's not a record.
+@pyop3.record.record(repr=False, add_record_init=False)
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
+
+    Parameters
+    ----------
+    data
+        Note that the arrays passed here should be *unique to this array*. Do
+        not use the same array between buffers as it will disrupt the state
+        tracking done by the buffer.
+
+    """
 
     # {{{ instance attrs
 
@@ -273,8 +284,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     sf: StarForest
     _name: str
     _constant: bool
+
     _rank_equal: bool
     _ordered: bool
+
+    _state: dict
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -319,16 +333,34 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(
         self,
-        data: np.ndarray | cp.ndarray | None, 
-        sf: StarForest | None = None, *, 
-        name: str|None=None,
-        prefix:str|None=None,
-        constant:bool=False, 
-        rank_equal: bool = False, 
-        max_value: numbers.Number | None=None, 
-        ordered:bool=False
+        data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
+        sf: StarForest | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
+        rank_equal: bool = False,
+        max_value: numbers.Number | None = None,  # remove?
+        ordered: bool = False
     ):
-        curr_dev = get_current_device()
+        if isinstance(data, Mapping):
+            assert len(data) > 0
+            if len(data) > 1:
+                raise NotImplementedError("which is up to date?")
+
+            raise NotImplementedError
+
+        if constant:
+            pyop3.device.flag_constant(data)
+
+        if type(data) != pyop3.device.DEVICE_TO_ARRAY_TYPE[get_current_device()]:
+            raise NotImplementedError(
+                "Current device does not match the array type, need to provide "
+                "data as a mapping so we know the right device"
+            )
+
+        device_arrays = {get_current_device(): data}
+        state = {get_current_device(): 0}
 
         if sf is None:
             sf = NullStarForest(data.size)
@@ -339,21 +371,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
+        self._device_arrays_private = device_arrays
+        self._state = state
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._device_arrays_private = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
 
         self.record_setup()
 
+    # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
         # state tracking attrs
         # TODO: I don't think that this should be a defaultdict, key misses are meaningful
         curr_dev = get_current_device()
-        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
+        # self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
         self._state_locks = 0
         self._device_locks = []
 
@@ -364,10 +398,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._finalizer_private: Callable | None = None
 
         ####
-
-        # debugging
-        self._shape = self._host_data_nosync.shape
-        self._dtype = self._host_data_nosync.dtype
 
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
@@ -381,7 +411,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._device_arrays_private[curr_dev].flags.writeable = False
 
         self._debug_is_poisoned = False
-
 
     # }}}
 
@@ -401,47 +430,39 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        # return self._device_arrays_private[get_current_device()].shape
-        return self._shape
+        return next(a.shape for a in self._device_arrays_private.values())
 
     @property
     def dtype(self) -> np.dtype:
-        # return self._device_arrays_private[get_current_device()].dtype
-        return self._dtype
+        return next(a.dtype for a in self._device_arrays_private.values())
 
-    @property
-    def state(self) -> int:
-         return max(self._state.values())
-
-    def inc_state(self) -> None:
-        assert not self.is_frozen
-
-        curr_dev = get_current_device() 
-        self._state[curr_dev] = self.state + 1
-
-    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> ArrayBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None, **kwargs) -> Self:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
-        curr_dev = get_current_device()
 
-        # TODO: Fix for first-assign, immediate duplicate bug
-        # This can be removed once `compile` strategy works on device
-        self.sync_devices()
-
+        current_device = get_current_device()
         if copy:
-            data = {curr_dev: self._current_device_array_sync.copy()}
+            data = self._current_device_array.copy()
         else:
-            data = {curr_dev: curr_dev.zeros_like(self._current_device_array_sync)}
+            data = current_device.zeros_like(self._current_device_array)
         if constant is None:
             constant = self.constant
-        return self.__record_init__(_name=name, _device_arrays_private=data, _constant=constant)
+
+        # NOTE: be careful here that arguments aren't being dropped
+        return type(self)(
+            data=data,
+            sf=self.sf,
+            name=name,
+            constant=constant,
+            **kwargs,
+        )
 
     is_nested: ClassVar[bool] = False
 
     @property
-    def handle(self) -> np.ndarray | cp.ndarray:
-        return self._current_device_array_nosync
+    def handle(self) -> pyop3.types.DeviceArrayT:
+        return self._current_device_array
 
     @property
     def comm(self) -> MPI.Comm:
@@ -588,7 +609,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if intent in {"wo", "rw"}: 
             self.inc_state() 
 
-        array = self._current_device_array_sync
+        array = self._current_device_array
         return readonly(array) if intent == "ro" else array
 
     # TODO: this would be nice to avoid halo exchanges
@@ -704,7 +725,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         """
         self._lock_current_device()
-        self.sf.reduce_begin(self._current_device_array_sync, op)
+        self.sf.reduce_begin(self._current_device_array, op)
 
     @on_host
     def _reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
@@ -771,7 +792,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         """
         self._lock_current_device()
-        self.sf.broadcast_begin(self._current_device_array_sync, MPI.REPLACE)
+        self.sf.broadcast_begin(self._current_device_array, MPI.REPLACE)
 
     @on_host
     def _broadcast_roots_to_leaves_end(self):
@@ -780,7 +801,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         This routine does not modify any parallel state-tracking variables.
 
         """
-        self.sf.broadcast_end(self._current_device_array_sync, MPI.REPLACE)
+        self.sf.broadcast_end(self._current_device_array, MPI.REPLACE)
         self._unlock_current_device()
 
     def assemble(self) -> None:
@@ -815,35 +836,49 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ cross-device state tracking
 
-    def sync_devices(self):
-        last_updated_device = self._last_updated_device
+    @property
+    def state(self) -> int:
+         return max(self._state.values())
+
+    @state.setter
+    def state(self, new_state) -> None:
+        if self.is_frozen:
+            raise pyop3.exceptions.FrozenBufferException(
+                "Buffer is frozen and cannot be modified"
+            )
+        assert new_state >= self.state, "State must always be increasing"
+        self._state[get_current_device()] = new_state
+
+    def inc_state(self) -> None:
+        self.state += 1
+
+    @property
+    def _current_device_array(self) -> pyop3.types.DeviceArrayT:
         current_device = get_current_device()
+        last_updated_device = max(self._state, key=self._state.get)
 
-        self._device_arrays_private[current_device] = current_device.asarray(
-            self._device_arrays_private[last_updated_device], 
-            constant=self.constant
-        )
-        self._state[current_device] = self._state[last_updated_device]
+        if current_device in self._device_arrays_private:
+            if self._state[current_device] == self.state:
+                # current entry is up-to-date, do nothing
+                pass
+            else:
+                assert not self.constant
+                new_values = current_device.asarray(
+                    self._device_arrays_private[last_updated_device]
+                )
+                self._device_arrays_private[current_device][...] = new_values
+                self._state[current_device] = self.state
 
-    def _is_data_available_and_synced(self, device: Device) -> bool:
-        is_available = device in self._device_arrays_private
-        is_synced = self._state[device] == max(self._state.values())
-        return is_available and is_synced
+        # First time seeing the current device - allocate and insert, don't copy
+        else:
+           new_values = current_device.asarray(
+               self._device_arrays_private[last_updated_device], 
+               constant=self.constant
+           )
+           self._device_arrays_private[current_device] = new_values
+           self._state[current_device] = self.state
 
-    @property
-    def _host_data_nosync(self) -> np.ndarray:
-        return self._device_arrays_private[pyop3.device.HOST_DEVICE]
-
-    @property
-    def _current_device_array_sync(self):
-        curr_dev = get_current_device() 
-        if not self._is_data_available_and_synced(curr_dev):
-            self.sync_devices()
-        return self._current_device_array_nosync
-
-    @property
-    def _current_device_array_nosync(self):
-        return self._device_arrays_private[get_current_device()]
+        return self._device_arrays_private[current_device]
 
     def _lock_current_device(self):
         """Raise an error if we try to change the current device."""
@@ -857,20 +892,18 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._device_locks.pop(-1)
         self._unlock_state()
 
-    @property
-    def _last_updated_device(self) -> Device:
-        return max(self._state, key=self._state.get)
-
     # }}}
 
     # {{{ PETSc interop
 
     @cached_method()
+    @on_host  # for now
     def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
         size = self.sf.num_owned
         block_size = np.prod(block_shape, dtype=int)
-        # FIXME: Only allowing host data here
-        return PETSc.Vec().createWithArray(self._host_data_nosync[:size], (size, None), block_size, comm=self.comm)
+        return PETSc.Vec().createWithArray(
+            self._current_device_array[:size], (size, None), block_size, comm=self.comm,
+        )
 
     def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", block_shape)
@@ -915,20 +948,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ debugging helper methods
 
-    def _debug_poison_array(self) -> None:
-        """Turn the next array access into an error."""
-        return
-        if self._debug_is_poisoned:
-            return
-        self.olddata = self._device_arrays_private
-        self._debug_is_poisoned = True
-        self._device_arrays_private = {pyop3.device.HOST_DEVICE: "NOTHING"}
-
-    def _debug_unpoison_array(self) -> None:
-        return
-        """Undo array poisoning."""
-        self._debug_is_poisoned = False
-        self._device_arrays_private = self.olddata
+    # def _debug_poison_array(self) -> None:
+    #     """Turn the next array access into an error."""
+    #     return
+    #     if self._debug_is_poisoned:
+    #         return
+    #     self.olddata = self._device_arrays_private
+    #     self._debug_is_poisoned = True
+    #     self._device_arrays_private = {pyop3.device.HOST_DEVICE: "NOTHING"}
+    #
+    # def _debug_unpoison_array(self) -> None:
+    #     return
+    #     """Undo array poisoning."""
+    #     self._debug_is_poisoned = False
+    #     self._device_arrays_private = self.olddata
 
     # }}}
 

@@ -1550,11 +1550,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
                 zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
             ):
-                test_map = test_space.entity_node_map(loop_info)
-                trial_map = trial_space.entity_node_map(loop_info)
                 op3.loop(
                     loop_info.loop_index,
-                    sparsity[test_index_, trial_index_][test_map, trial_map].assign(666),
+                    pack(sparsity[test_index_, trial_index_], test_space, trial_space, loop_info).assign(666),
                     eager=True,
                 )
 

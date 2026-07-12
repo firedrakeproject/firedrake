@@ -387,7 +387,7 @@ class Dat(Tensor):
     @property
     def data_ro(self) -> np.ndarray:
         """Return a read-only view of the data stored by the dat."""
-        return self.as_array("ro", self.axes.block_shape)
+        return self.as_array("ro")
 
     @property
     def data_ro_with_halos(self):
@@ -396,12 +396,12 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("ro", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("ro", include_ghosts=True)
 
     @property
     def data_wo(self) -> np.ndarray:
         """Return a write-only view of the data stored by the dat."""
-        return self.as_array("wo", self.axes.block_shape)
+        return self.as_array("wo")
 
     @property
     def data_wo_with_halos(self):
@@ -410,12 +410,12 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("wo", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("wo", include_ghosts=True)
 
     @property
     def data_rw(self) -> np.ndarray:
         """Return a modifiable view of the data stored by the dat."""
-        return self.as_array("rw", self.axes.block_shape)
+        return self.as_array("rw")
 
     @property
     def data_rw_with_halos(self) -> np.ndarray:
@@ -424,7 +424,7 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("rw", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("rw", include_ghosts=True)
 
     @property
     @deprecated(".data_rw")
@@ -439,10 +439,13 @@ class Dat(Tensor):
     def as_array(
         self,
         mode: Literal["ro", "wo", "rw"],
-        block_shape: tuple[numbers.Integral, ...] = (),
+        block_shape: tuple[numbers.Integral, ...] | None = None,
         *,
         include_ghosts: bool = False,
     ) -> ArrayT:
+        if block_shape is None:
+            block_shape = self.axes.block_shape
+
         match mode:
             case "ro":
                 array = self.buffer.data_ro
@@ -479,15 +482,15 @@ class Dat(Tensor):
 
     @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("ro", self.axes.block_shape)
+        return self.as_vec("ro")
 
     @property
     def vec_wo(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("wo", self.axes.block_shape)
+        return self.as_vec("wo")
 
     @property
     def vec_rw(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("rw", self.axes.block_shape)
+        return self.as_vec("rw")
 
     @property
     @deprecated(".vec_rw")
@@ -500,40 +503,41 @@ class Dat(Tensor):
     def as_vec(
         self,
         mode: Literal["ro", "rw", "wo"],
-        block_shape: collections.abc.Iterable[int, ...] | int = (),
+        block_shape: collections.abc.Iterable[int, ...] | int | None = None,
     ) -> GeneratorType[PETSc.Vec]:
-        # print("as_vec for ", self.name, mode)
-
-        # If the dat data is a slice of the underlying buffer then views are
-        # used by numpy as so we can avoid copying back and forth into the vec.
-        # TODO: can get this by just accessing the data and seeing if its an arrayref
-        is_view = isinstance(self.axes.owned.buffer_slice(include_ghosts=False), slice)
-        if not is_view:
-            raise NotImplementedError("TODO")
-
-        assert not self._vec_context_is_active, "cannot nest vec contexts"
-
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
                 f"must be '{PETSc.ScalarType}'"
             )
+        if self._vec_context_is_active:
+            raise pyop3.exceptions.NestedVecContextException(
+                "Cannot nest vec contexts"
+            )
+        if block_shape is None:
+            block_shape = self.axes.block_shape
 
-        # NOTE: We only return a vec containing the owned and unconstrained values
+        # Make sure all root values are correct
+        self.buffer.sync_roots()
 
-        # parallel correctness
-        if not self.buffer._roots_valid:
-            self.buffer.sync_roots()
+        # Don't use 'self.data_ro' etc because we want control over the parallel
+        # correctness flags and such
+        indices = self.axes.buffer_slice(include_ghosts=False)
+        array = self.buffer._current_device_array[indices]
+        contiguous = isinstance(indices, slice)
 
         # Prepare the work vec
         block_size = np.prod(block_shape, dtype=int) 
         if self._work_vec is None:
-            array = self.data_ro
-            sizes = self.axes.template_vec(block_shape).sizes
-            if is_view:
-                vec = PETSc.Vec().createWithArray(array, sizes, block_size, self.comm)
+            if contiguous:
+                vec = PETSc.Vec().createWithArray(
+                    array, (array.size, None), block_size, self.comm
+                )
             else:
+                raise NotImplementedError
                 vec = PETSc.Vec().create(self.comm)
+                vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
+                vec.setType(vec_type)
                 vec.setSizes(sizes, block_size)
             self._work_vec = vec
         else:
@@ -541,36 +545,40 @@ class Dat(Tensor):
             if block_size != self._work_vec.block_size:
                 self._work_vec.setBlockSize(block_size)
 
-        if is_view:
-            if self._work_vec_buffer_state != self.buffer.state:
-                # Buffer data has changed but PETSc doesn't know this
-                self._work_vec.stateIncrease()
+        # if is_view:
+        #     pass
+        #     # if self._work_vec_buffer_state != self.buffer.state:
+        #     #     # Buffer data has changed but PETSc doesn't know this
+        #     #     self._work_vec.stateIncrease()
+        #
+        # else:
+        #     raise NotImplementedError
+        #     # # Not a view, need to copy in and out
+        #     # if self._work_vec_buffer_state == self.buffer.state:
+        #     if False:
+        #         pass
+        #     #     # Buffer data is unchanged so can leave the vec alone
+        #     #     self._vec_context_is_active = True
+        #
+        #     else:
+        #         # Buffer data != vec data - copy required
+        #         # Note that state tracking is handled internally for this case
+        #         match mode:
+        #             case "ro":
+        #                 self._work_vec.array_w[...] = self.data_ro
+        #             case "wo":
+        #                 self._work_vec.array_w[...] = self.data_wo
+        #             case "rw":
+        #                 self._work_vec.array_w[...] = self.data_rw
+        #             case _:
+        #                 raise AssertionError
 
-        else:
-            # # Not a view, need to copy in and out
-            # if self._work_vec_buffer_state == self.buffer.state:
-            if False:
-                pass
-            #     # Buffer data is unchanged so can leave the vec alone
-            #     self._vec_context_is_active = True
-
-            else:
-                # Buffer data != vec data - copy required
-                # Note that state tracking is handled internally for this case
-                match mode:
-                    case "ro":
-                        self._work_vec.array_w[...] = self.data_ro
-                    case "wo":
-                        self._work_vec.array_w[...] = self.data_wo
-                    case "rw":
-                        self._work_vec.array_w[...] = self.data_rw
-                    case _:
-                        raise AssertionError
+        initial_state = self.buffer.state
+        self._work_vec.stateSet(initial_state)
 
         # We don't want to allow any modifications to the buffer until we
         # leave the vec context
         self.buffer.freeze()
-
         self._vec_context_is_active = True
 
         yield self._work_vec
@@ -579,16 +587,15 @@ class Dat(Tensor):
         self.buffer.unfreeze()
 
         # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
+        # We could use VecPlaceArray/VecResetArray for this?
 
-        # Record any state changes on the buffer
-        if mode in {"rw", "wo"}:
-            self.buffer.inc_state()
+        if mode == "ro":
+            assert self._work_vec.stateGet() == initial_state
+        else:
+            # We don't set 'self.buffer.state = self._work_vec.getState()' because
+            # we don't trust PETSc to exhaustively track all modifications.
+            self.buffer.state = max(self._work_vec.stateGet(), self.buffer.state+1)
             self.buffer._leaves_valid = False
-            self._work_vec.stateIncrease()
-
-        # At this point the vec is synchronised with the buffer
-        self._work_vec_buffer_state = self.buffer.state
-
 
     @property
     def norm(self) -> numbers.Real:

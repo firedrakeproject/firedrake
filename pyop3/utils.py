@@ -610,5 +610,5 @@ def safe_equals(a, b, /) -> bool:
         return bool(a == b)
 
 
-def raise_visitor_type_error(obj):
+def raise_missing_dispatch_handler(obj: Any) -> None:
     raise TypeError(f"No handler defined for {pretty_type(obj)}")

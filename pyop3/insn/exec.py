@@ -339,7 +339,7 @@ class InstructionExecutionContext:
 
     @functools.singledispatchmethod
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        utils.raise_visitor_type_error(arg)
+        utils.raise_missing_dispatch_handler(arg)
 
     @_extract_buffers.register(pyop3.expr.Scalar)
     @_extract_buffers.register(pyop3.expr.Dat)
@@ -636,11 +636,11 @@ class CompiledCodeExecutor:
 
     @functools.singledispatchmethod
     def _buffer_str(self, buffer):
-        utils.raise_visitor_type_error(arg)
+        utils.raise_missing_dispatch_handler(arg)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer._current_device_array_sync)
+        return f"({buffer.size})", str(buffer._current_device_array)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -666,7 +666,7 @@ class CompiledCodeExecutor:
 
     @functools.singledispatchmethod
     def _as_exec_argument(self, obj: Any) -> int:
-        utils.raise_visitor_type_error(obj)
+        utils.raise_missing_dispatch_handler(obj)
 
     @_as_exec_argument.register
     def _(self, handle: int):  # assumes an address
@@ -746,8 +746,8 @@ class CompiledCodeExecutor:
         elif intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If
             # this is not the case then a manual reduction is needed.
-            buffer._leaves_valid = False
-            buffer._pending_reduction = None
+            initializers.append(lambda: setattr(buffer._pending_reduction, None))
+            finalizers.append(lambda: setattr(buffer._leaves_valid, False))
 
         else:
             # reductions
@@ -779,25 +779,25 @@ class CompiledCodeExecutor:
 
                 def _init_nil():
                     # Not modifying owned values so don't want to update state via intent
-                    buffer._current_device_array_sync[buffer.sf.ileaf] = nil
+                    buffer._current_device_array[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 
             # We are modifying owned values so the leaves must now be wrong
-            buffer._leaves_valid = False
+            finalizers.append(lambda: setattr(buffer._leaves_valid, False))
 
             # If ghost points are not modified then no future reduction is required
             if not touches_ghost_points:
-                buffer._pending_reduction = None
+                finalizers.append(lambda: setattr(buffer._pending_reduction, None))
             else:
-                buffer._pending_reduction = intent
+                finalizers.append(lambda: setattr(buffer._pending_reduction, intent))
 
         return tuple(initializers), tuple(reductions), tuple(broadcasts)
 
 
 @functools.singledispatch
 def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
-    utils.raise_visitor_type_error(obj)
+    utils.raise_missing_dispatch_handler(obj)
 
 
 @cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)

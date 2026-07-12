@@ -783,7 +783,7 @@ class SameMeshInterpolator(Interpolator):
         iter_spec = get_iteration_spec(self.target_mesh, "cell")
         op3.loop(
             c := iter_spec.loop_index,
-            sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
+            pack(sparsity, Vrow, Vcol, iter_spec).assign(666),
             eager=True,
         )
         return sparsity
@@ -812,14 +812,14 @@ class SameMeshInterpolator(Interpolator):
             assignee_buffer = f.dat.buffer
             orig_data = assignee_buffer.data_ro.copy()
             fmin = numpy.finfo(assignee_buffer.dtype).min
-            assignee_buffer._current_device_array_sync[...] = fmin
+            assignee_buffer._current_device_array[...] = fmin
 
             def mywrite():
                 assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
-                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array_sync, fmin))
+                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array, fmin))
                 # just debugging
                 assert len(unchanged_idxs) > 0
-                assignee_buffer._current_device_array_sync[unchanged_idxs] = orig_data[unchanged_idxs]
+                assignee_buffer._current_device_array[unchanged_idxs] = orig_data[unchanged_idxs]
 
             copyout += (mywrite,)
 

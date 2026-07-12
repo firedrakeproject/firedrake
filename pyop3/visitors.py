@@ -208,7 +208,7 @@ def get_comm(obj: Any, /) -> MPI.Comm:
     then ``COMM_SELF`` is used.
 
     """
-    utils.raise_visitor_type_error(obj)
+    utils.raise_missing_dispatch_handler(obj)
 
 
 @get_comm.register

@@ -351,10 +351,10 @@ class Assigner:
             def assign_op() -> None:
                 # swap out another buffer for the computation
                 assignee_buffer = self.assignee.dat.buffer
-                orig_assignee_data = assignee_buffer._current_device_array_sync.copy()
+                orig_assignee_data = assignee_buffer._current_device_array.copy()
 
                 fmin = np.finfo(assignee_buffer.dtype).min
-                assignee_buffer._current_device_array_sync[...] = fmin
+                assignee_buffer._current_device_array[...] = fmin
 
                 # FIXME: These parameters shouldn't be needed if we correctly
                 # mask things (by intersecting meshes)
@@ -362,8 +362,8 @@ class Assigner:
 
                 # now write back only the values that were touched
                 assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
-                unchanged_idxs = np.flatnonzero(np.isclose(assignee_buffer._current_device_array_sync, fmin))
-                assignee_buffer._current_device_array_sync[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
+                unchanged_idxs = np.flatnonzero(np.isclose(assignee_buffer._current_device_array, fmin))
+                assignee_buffer._current_device_array[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
 
         # If possible try to do the assignment by operating on numpy arrays
         elif self.subset is Ellipsis and expr_builder.array_assign_safe:

@@ -11,6 +11,7 @@ import ufl
 from immutabledict import immutabledict as idict
 
 import firedrake.constant
+import firedrake.mesh
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
@@ -40,6 +41,40 @@ def _(func, loop_info: IterationSpec, **kwargs):
 @pack.register(Matrix)
 def _(matrix: Matrix, loop_info, **kwargs):
     return pack(matrix.M, *matrix.ufl_function_spaces(), loop_info, **kwargs)
+
+
+def _pack_map(iteration_spec, mesh) -> op3.Index:
+    """Return the map packing mesh entities according to the iteration spec."""
+    iter_mesh = iteration_spec.mesh
+    if iter_mesh.topology is mesh.topology:
+        composed_map = None
+        target_integral_type = iteration_spec.integral_type
+    elif (
+        isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
+        and iter_mesh.topology._base_mesh is mesh.topology
+    ):
+        composed_map = iter_mesh.extr_cell_to_base_cell_map(iteration_spec.loop_index)
+        target_integral_type = "cell"
+    elif mesh.submesh_youngest_common_ancestor(iteration_spec.mesh):
+        composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
+    else:
+        # No shared topology, must be using a vertex-only mesh
+        composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
+        target_integral_type = "cell"
+
+    if target_integral_type == "cell":
+        def self_map(index):
+            return mesh.closure(index)
+    elif "facet" in target_integral_type:
+        def self_map(index):
+            return mesh.closure(mesh.support(index))
+    else:
+        raise ValueError(f"Unknown integral_type: {target_integral_type}")
+
+    if not composed_map:
+        return self_map(iteration_spec.loop_index)
+    else:
+        return self_map(composed_map)
 
 
 @pack.register(op3.Dat)
@@ -78,7 +113,7 @@ def _pack_dat_nonmixed(
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
-    map_ = space.entity_node_map(loop_info)
+    map_ = _pack_map(loop_info, space.mesh())
     cell_index = map_.index
     packed_dat = dat[map_]
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
@@ -125,8 +160,8 @@ def _pack_mat_nonmixed(
     column_space: WithGeometry,
     loop_info: IterationSpec,
 ):
-    row_map = row_space.entity_node_map(loop_info)
-    column_map = column_space.entity_node_map(loop_info)
+    row_map = _pack_map(loop_info, row_space.mesh())
+    column_map = _pack_map(loop_info, column_space.mesh())
     packed_mat = mat[row_map, column_map]
 
     depths = []
@@ -225,29 +260,6 @@ def transform_packed_cell_closure_mat(
         packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
-
-
-def _make_closure_map_tree(space: WithGeometry, loop_info: IterationSpec) -> op3.IndexTree:
-    if len(space) == 1:
-        return space.entity_node_map(loop_info)
-
-    # mixed, need a closure per subspace and a full slice over the top
-    # TODO: This is full slice, need nice API for that
-    space_axis = space.plex_axes.root
-    space_slice = op3.Slice(
-        space_axis.name,
-        [
-            op3.AffineSliceComponent(space_index, label=space_index)
-            for space_index in space_axis.component_labels
-        ],
-        label=space_axis.name,
-    )
-    index_tree = op3.IndexTree(space_slice)
-    for leaf_path, subspace in zip(index_tree.leaf_paths, space, strict=True):
-        index_tree = index_tree.add_subtree(
-            leaf_path, _make_closure_map_tree(subspace, loop_info)
-        )
-    return index_tree
 
 
 @functools.singledispatch

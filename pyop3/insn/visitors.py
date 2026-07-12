@@ -222,7 +222,7 @@ def expand_implicit_pack_unpack(expr: pyop3.insn.Instruction):
 
 @functools.singledispatch
 def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
-    utils.raise_visitor_type_error(arg)
+    utils.raise_missing_dispatch_handler(arg)
 
 
 @_requires_pack_unpack.register(Scalar)

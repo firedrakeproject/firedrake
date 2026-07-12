@@ -1826,58 +1826,6 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
-    def entity_node_map(self, iteration_spec):
-        r"""Return entity node map rebased on ``source_mesh``.
-
-        Parameters
-        ----------
-        source_mesh : MeshTopology
-            Source (base) mesh topology.
-        source_integral_type : str
-            Integral type on source_mesh.
-        source_subdomain_id : int
-            Subdomain ID on source_mesh.
-        source_all_integer_subdomain_ids : dict
-            All integer subdomain ids on source_mesh.
-
-        Returns
-        -------
-        pyop2.types.map.Map or None
-            Entity node map.
-
-        """
-        if is_mixed(self):
-            raise NotImplementedError("will this work?")
-
-        iter_mesh = iteration_spec.mesh
-        mesh = self.mesh().unique()
-        if iter_mesh.topology is mesh.topology:
-            composed_map = None
-            target_integral_type = iteration_spec.integral_type
-        elif isinstance(iter_mesh.topology, ExtrudedMeshTopology) and iter_mesh.topology._base_mesh is mesh.topology:
-            composed_map = iter_mesh.extr_cell_to_base_cell_map(iteration_spec.loop_index)
-            target_integral_type = "cell"
-        elif mesh.submesh_youngest_common_ancestor(iteration_spec.mesh):
-            composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
-        else:
-            # No shared topology, must be using a vertex-only mesh
-            composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
-            target_integral_type = "cell"
-
-        if target_integral_type == "cell":
-            def self_map(index):
-                return mesh.closure(index)
-        elif "facet" in target_integral_type:
-            def self_map(index):
-                return mesh.closure(mesh.support(index))
-        else:
-            raise ValueError(f"Unknown integral_type: {target_integral_type}")
-
-        if not composed_map:
-            return self_map(iteration_spec.loop_index)
-        else:
-            return self_map(composed_map)
-
     # NOTE: superseded by .lgmap()
     @cached_property
     def _lgmap(self) -> PETSc.LGMap:

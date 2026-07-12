@@ -1079,7 +1079,7 @@ class PatchSNES(SNESBase, PatchBase):
 
 @functools.singledispatch
 def _get_ctypes_arg(arg: Any):
-    op3.utils.raise_visitor_type_error(arg)
+    op3.utils.raise_missing_dispatch_handler(arg)
 
 
 @_get_ctypes_arg.register
