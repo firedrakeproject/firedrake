@@ -569,141 +569,208 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
     petscmat.setLGMap(*orig_lgmaps)
 
 
-def construct_switch_statement(space, mats: dict, n: int, idx: int, args: list, var_list: list[str]) -> str:
-    string = []
-    string += f"a{idx} = iden; \n "
-    string += "\nswitch (dim) { \n"
 
-    var_list += ["iden"]
-    args += [lp.TemporaryVariable("iden", initializer=np.identity(n), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+class FuseMatrixApplyBuilder(object):
 
-    closure_sizes = space._mesh._closure_sizes[space._mesh.cell_dimension()]
-    closure_size_acc = 0
-    indent = 0
-    for dim_i, dim in enumerate(list(closure_sizes.keys())[:-1]):
-        string += f"case {dim_i}:\n "
-        indent += 1
-        string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
-        string += [indent*"\t" + "switch (i) { \n"]
-        if isinstance(dim, tuple):
-            dim_str = "_".join([str(d) for d in dim])
+    build_id = itertools.count()
+
+    def __init__(self, spaces, ns: tuple[int], closures: np.ndarray):
+        self.ns = ns 
+        self.spaces = spaces
+        self.id = next(self.build_id)
+        self.closures = closures
+        self.args = [lp.ValueArg("d", dtype=utils.IntType),
+                     lp.ValueArg("closure_size_acc", dtype=utils.IntType),
+                     lp.ValueArg("o_val", dtype=utils.IntType)]
+        self.args += [lp.GlobalArg(f"o{i}", dtype=utils.IntType, shape=(sum(self.closures)), is_input=True) for i in range(len(self.ns))]
+        self.args += [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(self.ns[i], self.ns[i]), is_input=True, is_output=False) for i in range(len(self.ns))]
+        self.args += [lp.GlobalArg("b", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True),
+                      lp.GlobalArg("res", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True)]
+
+        self.a_list = ",".join([f"a{i}[:,:]" for i in range(len(self.ns))])
+        self.o_list = ",".join([f"o{i}[:]" for i in range(len(self.ns))])
+        self.var_list = [f"o{i}" for i in range(len(self.ns))] + ["d", "i", "o_val", "dim"]
+
+    def get_utility_kernels(self) -> tuple:
+        if len(self.ns) == 1:
+            row_idx, col_idx, iter_idx, all_elems = "j", "", "i", ":"
+            all_idxs = f"{{[{row_idx}]:0 <= j < {self.ns[0]}}}",
+        elif len(self.ns) == 2:
+            row_idx, col_idx, iter_idx, all_elems = "i", "j", "k", ":,:"
+            all_idxs = f"{{[i,j]:0 <= i < {self.ns[0]} and 0 <= j < {self.ns[1]}}}",
         else:
-            dim_str = str(dim)
-        indent += 1
-        for i in range(closure_sizes[dim]):
-            string += indent*"\t" + f"case {i}:\n "
-            indent += 1
-            string += indent*"\t" + "switch (o_val) { \n"
-            indent += 1
-            for val in sorted(mats[dim][i].keys()):
-                string += indent*"\t" + f"case {val}:\n "
-                indent += 1
-                matname = f"mat{dim_str}_{i}_{val}"
-                #if dim > 1:
-                #    string += indent*"\t" + f"printf(\"{matname}\\n\"); \n"
-                string += indent*"\t" + f"a{idx} = {matname};\n"
-                string += indent*"\t" + "break;\n"
-                var_list += [matname]
-                if dim == 2:
-                    #print(mats[dim][i][val][np.ix_(list(range(22, 34)), list(range(22,34)))])
-                    #mat = np.eye(mats[dim][i][val].shape[0], dtype=utils.ScalarType)
-                    mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
-                else:
-                    mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
-                args += [lp.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
-                indent -= 1
-            indent -= 1
-            string += indent*"\t" + "default: break;}break;\n"
-            indent -= 1
-        string += indent*"\t" + "default: break; }break;\n"
-        closure_size_acc += closure_sizes[dim]
-        indent -= 1
+            raise NotImplementedError("Fuse orientations cannot handle tensors")
+        a_idx = ",".join([i for i in [row_idx, iter_idx] if i != ""])
+        res_idx = ",".join([i for i in [row_idx, col_idx] if i != ""])
+        b_idx = ",".join([i for i in [iter_idx, col_idx] if i != ""])
+        all_idx = ",".join([i for i in [row_idx, iter_idx, col_idx] if i != ""])
+        matmuls = []
+        if len(self.ns) == 1:
+            # computes res = Ab
+            matmuls += [lp.make_function(
+            f"{{[{all_idx}]:0 <= {all_idx} < {self.ns[0]}}}",
+            f"""
+                res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
+            """, name=f"matmul{self.id}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+        else:
+            # computes res = A B
+            matmuls += [lp.make_function(
+            f"{{[i,j,k]:0 <= i,k < {self.ns[0]} and 0 <= j < {self.ns[1]}}}",
+            f"""
+                res[i,j] =  res[i,j] + a[i, k]*b[k,j]
+            """, name=f"matmul{self.id}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+            # computes res = B revA
+            matmuls += [lp.make_function(
+            f"{{[i,j,k]:0 <= i < {self.ns[0]} and 0 <= j,k < {self.ns[1]}}}",
+            f"""
+                res[i,j] =  res[i,j] + b[i, k]*a[k, j]
+            """, name=f"matmul{self.id}n1", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
 
-    string += "default: break; }\n"
+        set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True),
+                    lp.GlobalArg("res", dtype=utils.ScalarType, shape=self.ns, is_input=True)]
+        set_knl = lp.make_function(
+            all_idxs,
+            [f"b[{res_idx}] = res[{res_idx}]"],
+            kernel_data=set_args,
+            name=f"set{self.id}",
+            lang_version=op3.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget()
+        )
+        zero_knl = lp.make_function(
+            all_idxs,
+            [f"res[{res_idx}] = 0"],
+            [lp.GlobalArg("res", shape=self.ns, dtype=int, is_input=True, is_output=True)],
+            lang_version=op3.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget(),
+            name=f"zero{self.id}",
+        )
+        self.all_elems = all_elems
+        return matmuls + [set_knl, zero_knl]
     
-    # string += indent*"\t" + "if ((i == 2) && dim == 1)  {\n"
-    # indent += 1
-    # string += indent*"\t" + f"printf(\"o : '%d', d: '%d', i : '%d'\\n\", o_val, d, i); \n"
-    # dof_range = []
-    # if n == 20:
-    #     dof_range = [2,3,8,9,16]
-    # if n == 60:
-    #     #,16
-    #     dof_range = list(np.concat([[i*3, i*3 + 1, i*3 +2] for i in [2,3,8,9]]))
-    #     # dof_range = list(range(12, 14)) + list(range(18, 20))
-    # for i in dof_range:
-    #    string += indent*"\t" + f"printf(\"a{idx} row {i}: {" ".join('%f' for i in dof_range)}\\n\", {", ".join(f"a{idx}[{i*n + j}]" for j in dof_range)}); \n"
-    #string += indent*"\t" + f"printf(\"should be \\n\"); \n"
-    #for i in range(4,6):
-    #    string += indent*"\t" + f"printf(\"mat1_0_1 row {i}: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"mat1_0_1[{i*n + j}]" for j in range(n))}); \n"
-    #string += indent*"\t" + f"printf(\"a row 1: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{n + i}]" for i in range(n))}); \n"
-    #string += indent*"\t" + f"printf(\"a row 2: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{2*n + i}]" for i in range(n))}); \n"
-    #string += indent*"\t" + "printf(\"a rows ...\\n\"); \n"
-    #string += indent*"\t" + "printf(\"\\n\");\n"
-    # string += indent*"\t" + "}\n"
-    return string, args, var_list
 
-def get_utility_kernels(ns: tuple[int]) -> tuple:
-    strns = "".join([str(n) for n in ns])
-    if len(ns) == 1:
-        row_idx = "j"
-        col_idx = ""
-        iter_idx = "i"
-        all_elems = ":"
-        all_idxs = f"{{[{row_idx}]:0 <= j < {ns[0]}}}",
-    elif len(ns) == 2:
-        row_idx = "i"
-        col_idx = "j"
-        iter_idx = "k"
-        all_elems = ":,:"
-        all_idxs = f"{{[i,j]:0 <= i < {ns[0]} and 0 <= j < {ns[1]}}}",
-    else:
-        raise NotImplementedError("Fuse orientations cannot handle tensors")
-    a_idx = ",".join([i for i in [row_idx, iter_idx] if i != ""])
-    res_idx = ",".join([i for i in [row_idx, col_idx] if i != ""])
-    b_idx = ",".join([i for i in [iter_idx, col_idx] if i != ""])
-    all_idx = ",".join([i for i in [row_idx, iter_idx, col_idx] if i != ""])
-    matmuls = []
-    if len(ns) == 1:
-        # computes res = Ab
-        matmuls += [lp.make_function(
-          f"{{[{all_idx}]:0 <= {all_idx} < {ns[0]}}}",
-          f"""
-              res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
-          """, name=f"matmul{strns}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
-    else:
-        # computes res = A B
-        matmuls += [lp.make_function(
-          f"{{[i,j,k]:0 <= i,k < {ns[0]} and 0 <= j < {ns[1]}}}",
-          f"""
-              res[i,j] =  res[i,j] + a[i, k]*b[k,j]
-          """, name=f"matmul{strns}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
-        # computes res = B revA
-        matmuls += [lp.make_function(
-          f"{{[i,j,k]:0 <= i < {ns[0]} and 0 <= j,k < {ns[1]}}}",
-          f"""
-              res[i,j] =  res[i,j] + b[i, k]*a[k, j]
-          """, name=f"matmul{strns}n1", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+    def construct_switch_statement(self, mats: dict, idx: int) -> str:
+        var_list = []
+        args = []
+        string = []
+        string += f"a{idx} = iden; \n "
+        string += "\nswitch (dim) { \n"
 
-    set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
-    set_knl = lp.make_function(
-        all_idxs,
-        [f"b[{res_idx}] = res[{res_idx}]"],
-        kernel_data=set_args,
-        name=f"set{strns}",
+        var_list += ["iden"]
+        args += [lp.TemporaryVariable("iden", initializer=np.identity(self.ns[idx]), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+
+        closure_sizes = self.spaces[idx]._mesh._closure_sizes[self.spaces[idx]._mesh.cell_dimension()]
+        closure_size_acc = 0
+        indent = 0
+        for dim_i, dim in enumerate(list(closure_sizes.keys())[:-1]):
+            string += f"case {dim_i}:\n "
+            indent += 1
+            string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
+            string += [indent*"\t" + "switch (i) { \n"]
+            if isinstance(dim, tuple):
+                dim_str = "_".join([str(d) for d in dim])
+            else:
+                dim_str = str(dim)
+            indent += 1
+            for i in range(closure_sizes[dim]):
+                string += indent*"\t" + f"case {i}:\n "
+                indent += 1
+                string += indent*"\t" + "switch (o_val) { \n"
+                indent += 1
+                for val in sorted(mats[dim][i].keys()):
+                    string += indent*"\t" + f"case {val}:\n "
+                    indent += 1
+                    matname = f"mat{dim_str}_{i}_{val}"
+                    string += indent*"\t" + f"a{idx} = {matname};\n"
+                    string += indent*"\t" + "break;\n"
+                    var_list += [matname]
+                    mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
+                    args += [lp.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+                    indent -= 1
+                indent -= 1
+                string += indent*"\t" + "default: break;}break;\n"
+                indent -= 1
+            string += indent*"\t" + "default: break; }break;\n"
+            closure_size_acc += closure_sizes[dim]
+            indent -= 1
+
+        string += "default: break; }\n"
+        return string, args, var_list
+
+    def debug(self) -> tuple[lp.CInstruction]:
+        if (self.ns[0] == 30) and len(self.ns) == 1:
+            if self.ns[0] == 84:
+                print_range = range(37,43)
+            elif self.ns[0] == 35:
+                print_range = range(22,25)
+            elif self.ns[0] == 30:
+                print_range = range(18, self.ns[0])
+            elif self.ns[0] == 45:
+                print_range = range(18,32)
+            elif self.ns[0] == 20:
+                print_range = [2,3,8,9,16]
+            elif self.ns[0] == 60:
+                print_range = list(np.concat([[i*3, i*3 + 1, i*3 +2] for i in [2,3,8,9,16]]))
+            else:
+                print_range = range(0, self.ns[0])
+            print_insn = lp.CInstruction(tuple(),
+                        f"""printf(\"initial b: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"b[{j}]" for j in print_range)});
+                            printf(\"o: {" ".join('%d' for i in range(sum(self.closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(self.closures)))});
+                            """, assignees=(), read_variables=frozenset([]), id="print")
+            print_insn1 = lp.CInstruction(tuple(),
+                        f"""printf(\"final res: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"res[{j}]" for j in print_range)});
+                        """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        else:
+            print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+            print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")    
+        return print_insn, print_insn1
+
+    def switch(self, mats, i, name):
+        dim_arg = [lp.ValueArg("dim", dtype=utils.IntType)]
+        switch_string, extra_args, extra_vars = self.construct_switch_statement(mats, i)
+        transform_insn = lp.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(self.var_list + extra_vars), within_inames=frozenset(["i"]), id="assign", depends_on="zero")
+        matmul_insn = f"res[{self.all_elems}] = matmul{self.id}n{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign, inames=i}}"
+        print_insn1 = lp.CInstruction(tuple(),
+                    f"""""", assignees=(), read_variables=frozenset(["res"]), within_inames=frozenset(["i"]), depends_on="matmul", id="print")
+        return lp.make_function(
+            "{[i]:0<= i < d }",
+            [f"res[{self.all_elems}] = zero{self.id}(res) {{id=zero, inames=i}}",
+                transform_insn, matmul_insn, print_insn1, 
+                f"b[{self.all_elems}] = set{self.id}(b[{self.all_elems}], res[{self.all_elems}]) {{id=set, dep=print, inames=i}}"
+                ],
+            name=f"{name}{i}_switch_on_o_{self.id}",
+            kernel_data=dim_arg + self.args + extra_args,
+            lang_version=op3.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget())
+
+    def loop_dims(self, direction):
+        closure_arg = [lp.TemporaryVariable("closure_sizes", initializer=np.array(self.closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=lp.AddressSpace(1))]
+        num_switch = len(self.all_elems.split(","))
+        labelling = [ f"{{id=switch{chr(i+65)} " + (",dep=*}" if i == 0 else f",dep=switch{chr(i+64)},dep=*}}") for i in range(num_switch)]
+        switches = [f"""
+                        b[{self.all_elems}], res[{self.all_elems}] = {direction + str(i)}_switch_on_o_{self.id}(dim, d, closure_size_acc, o_val, {self.o_list}, {self.a_list}, b[{self.all_elems}], res[{self.all_elems}]) {labelling[i]}"""
+                    for i in range(num_switch)]
+        return lp.make_function(
+            f"{{[dim]:{0} <= dim <= {len(self.closures) - 1}}}",
+            ["d = closure_sizes[dim] {id=closure}"] + switches +
+            [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}, inames=dim}}"],
+            name=f"{direction}_loop_over_dims_{self.id}",
+            kernel_data=closure_arg + self.args,
+            lang_version=op3.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget())
+    
+    def overall(self, direction):
+        print_insn, print_insn1 = self.debug()
+        return lp.make_kernel(
+        "{:}",
+        [print_insn, 
+        f"b[{self.all_elems}], res[{self.all_elems}] = {direction}_loop_over_dims_{self.id}(0,0,0, {self.o_list}, {self.a_list}, b[{self.all_elems}], res[{self.all_elems}]) {{dep=print,id=loop}}",
+            f"res[{self.all_elems}] = set{self.id}(res[{self.all_elems}], b[{self.all_elems}]) {{id=replace, dep=loop}}",
+            f"b[{self.all_elems}] = zero{self.id}(b[{self.all_elems}]) {{dep=replace, id=zerob}}",
+            print_insn1],
+        name=f"{direction}_transform_{self.id}",
+        kernel_data=self.args[3:],
         lang_version=op3.LOOPY_LANG_VERSION, 
-        target=lp.CWithGNULibcTarget()
-    )
-    zero_knl = lp.make_function(
-        all_idxs,
-        [f"res[{res_idx}] = 0"],
-        [lp.GlobalArg("res", shape=ns, dtype=int, is_input=True, is_output=True)],
-        lang_version=op3.LOOPY_LANG_VERSION, 
-        target=lp.CWithGNULibcTarget(),
-        name=f"zero{strns}",
-    )
-    return matmuls + [set_knl, zero_knl], all_elems
+        target=lp.CWithGNULibcTarget())
 
 def combine_matrices(matrices):
     """ Combine matrix dictionaries for Vector Matrices
@@ -789,8 +856,6 @@ def check_fuse_enriched(element):
     return any(fuse), any(matrix), any(apply), None, None
 
 
-
-
 def fuse_orientations(spaces: list[WithGeometry]):
     fuse_defined_spaces, fuse_matrix_spaces, fuse_needs_matrices, mat_list, reversed_mat_list = list(zip(*[check_fuse(space.ufl_element()) for space in spaces]))
 
@@ -812,129 +877,27 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 mats += [reversed_mat_list[i]]
                 reversed_mats += [mat_list[i]]
             t_dim = space._mesh.cell_dimension()
-            # t_dim = space.ufl_element().cell._tdim
-            # if space._mesh.cell_dimension() != space.ufl_element().cell._tdim:
-            #     raise NotImplementedError("FUSE: cell dimension of mesh doesn't match topological dimension of element cell")
             os = mats[-1][t_dim][0]
             ns += (os[next(iter(os.keys()))].shape[0],)
-        strns = "".join([str(n) for n in ns])
+        
         closures_dict = mesh._closure_sizes[fs._mesh.cell_dimension()]
         closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
 
-        utilities, all_elems = get_utility_kernels(ns)
-        args = [lp.ValueArg("d", dtype=utils.IntType),
-                lp.ValueArg("closure_size_acc", dtype=utils.IntType),
-                lp.ValueArg("o_val", dtype=utils.IntType)] + [lp.GlobalArg(f"o{i}", dtype=utils.IntType, shape=(sum(closures)), is_input=True) for i in range(len(ns))] + [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                          lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True)]
-
-        a_list = ",".join([f"a{i}[:,:]" for i in range(len(ns))])
-        o_list = ",".join([f"o{i}[:]" for i in range(len(ns))])
-        var_list = [f"o{i}" for i in range(len(ns))] + ["d", "i", "o_val", "dim"]
-
-        def switch(space, mats, n, i, args, var_list, all_elems, name, reverse=False):
-            dim_arg = [lp.ValueArg("dim", dtype=utils.IntType)]
-            switch_string, args, var_list = construct_switch_statement(fs, mats, n, i, args, var_list)
-            transform_insn = lp.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(var_list), within_inames=frozenset(["i"]), id="assign", depends_on="zero")
-            matmul_insn = f"res[{all_elems}] = matmul{strns}n{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign, inames=i}}"
-            print_insn1 = lp.CInstruction(tuple(),
-                      f"""""", assignees=(), read_variables=frozenset(["res"]), within_inames=frozenset(["i"]), depends_on="matmul", id="print")
-            #print_insn1 = lp.CInstruction(tuple(),
-            #          f"""printf(\"mid res: {" ".join('%f' for i in range(22, ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(22, ns[0]))});
-            #          """, assignees=(), read_variables=frozenset(["res"]), within_inames=frozenset(["i"]), depends_on="matmul", id="print")
-            return lp.make_function(
-                "{[i]:0<= i < d }",
-                [f"res[{all_elems}] = zero{strns}(res) {{id=zero, inames=i}}",
-                 transform_insn, matmul_insn, print_insn1, 
-                 f"b[{all_elems}] = set{strns}(b[{all_elems}], res[{all_elems}]) {{id=set, dep=print, inames=i}}"
-                 ],
-                name=name + "_switch_on_o",
-                kernel_data=dim_arg + args,
-                lang_version=op3.LOOPY_LANG_VERSION, 
-                target=lp.CWithGNULibcTarget())
-        in_switches = [switch(spaces[i], mats[i], ns[i], i, args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
-        out_switches = [switch(spaces[i], reversed_mats[i], ns[i], i, args, var_list, all_elems, name="out"+str(i)) for i in range(len(spaces))]
-
-        closure_arg = [lp.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=lp.AddressSpace(1))]
-
-        def loop_dims(direction, all_elems):
-            num_switch = len(all_elems.split(","))
-            labelling = [ f"{{id=switch{chr(i+65)} " + (",dep=*}" if i == 0 else f",dep=switch{chr(i+64)},dep=*}}") for i in range(num_switch)]
-            switches = [f"""
-                         b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, {o_list}, {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
-                        for i in range(num_switch)]
-            return lp.make_function(
-                f"{{[dim]:{0} <= dim <= {len(closures) - 1}}}",
-                ["d = closure_sizes[dim] {id=closure}"] + switches +
-                [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}, inames=dim}}"],
-                name=f"{direction}_loop_over_dims",
-                kernel_data=closure_arg + args,
-                lang_version=op3.LOOPY_LANG_VERSION, 
-                target=lp.CWithGNULibcTarget())
-        # printf("o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});")
-        if (ns[0] == 30) and len(ns) == 1:
-            if ns[0] == 84:
-                print_range = range(37,43)
-            elif ns[0] == 35:
-                print_range = range(22,25)
-            elif ns[0] == 30:
-                print_range = range(18,ns[0])
-            elif ns[0] == 45:
-                print_range = range(18,32)
-            elif ns[0] == 20:
-                print_range = [2,3,8,9,16]
-            elif ns[0] == 60:
-                # print_range = [2,3,8,9,16] + [22, 23, 28, 29, 36]
-                print_range = list(np.concat([[i*3, i*3 + 1, i*3 +2] for i in [2,3,8,9,16]]))
-            else:
-                print_range = range(0, ns[0])
-            if len(ns) > 1:
-                print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
-                # print_insn = lp.CInstruction(tuple(),
-                #             f"""printf(\"initial b: {" ".join('%f' for i in range(34, 41))}\\n\", {', '.join(f"b[{i*ns[0] + j}]" for j in range(12, 16) for i in range(12,16))});
-                #                 """, assignees=(), read_variables=frozenset([]), id="print")
-            else:
-                print_insn = lp.CInstruction(tuple(),
-                            f"""printf(\"initial b: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"b[{j}]" for j in print_range)});
-                                printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});
-                                """, assignees=(), read_variables=frozenset([]), id="print")
-
-            if len(ns) > 1:
-                print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-                # print_insn1 = lp.CInstruction(tuple(),
-                #             f"""printf(\"final res: {" ".join('%f' for i in range(0, 16))}\\n\", {', '.join(f"res[{i*ns[0] + j}]"  for j in range(12, 16) for i in range(12, 16))});
-                #             """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-            else:
-                # range(34, ns[0])
-                print_insn1 = lp.CInstruction(tuple(),
-                            f"""printf(\"final res: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"res[{j}]" for j in print_range)});
-                            """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-        else:
-            print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
-
-            print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        builder = FuseMatrixApplyBuilder(spaces, ns, closures)
+        utilities = builder.get_utility_kernels()
         
-        def overall(direction, all_elems):
-            return lp.make_kernel(
-            "{:}",
-            [print_insn, 
-            f"b[{all_elems}], res[{all_elems}] = {direction}_loop_over_dims(0,0,0, {o_list}, {a_list}, b[{all_elems}], res[{all_elems}]) {{dep=print,id=loop}}",
-             f"res[{all_elems}] = set{strns}(res[{all_elems}], b[{all_elems}]) {{id=replace, dep=loop}}",
-             f"b[{all_elems}] = zero{strns}(b[{all_elems}]) {{dep=replace, id=zerob}}",
-             print_insn1],
-            name=f"{direction}_transform",
-            kernel_data=args[3:],
-            lang_version=op3.LOOPY_LANG_VERSION, 
-            target=lp.CWithGNULibcTarget())
-    
-        in_knl = lp.merge([overall("in", all_elems), loop_dims("in", all_elems)] + in_switches + utilities)
-        out_knl = lp.merge([overall("out", all_elems), loop_dims("out", all_elems)] + out_switches + utilities)
+        in_switches = [builder.switch(mats[i], i, name="in") for i in range(len(spaces))]
+        out_switches = [builder.switch(reversed_mats[i], i, name="out") for i in range(len(spaces))]
+
+        in_knl = lp.merge([builder.overall("in"), builder.loop_dims("in")] + in_switches + utilities)
+        out_knl = lp.merge([builder.overall("out"), builder.loop_dims("out")] + out_switches + utilities)
+
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
         transform_in = op3.Function(in_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
         transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
 
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
-        print("not matrix space")
         return None, None
     elif fuse_defined_spaces and sum(fuse_defined_spaces) != sum(fuse_matrix_spaces):
         raise ValueError("If a fuse space is used, all spaces must be fuse spaces")
