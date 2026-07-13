@@ -579,16 +579,9 @@ class CrossMeshInterpolator(Interpolator):
 
         if self.rank == 2:
             assert mat_type == "aij"
-            # The cross-mesh interpolation matrix is the product of the
-            # `self.point_eval_interpolate` and the permutation
-            # given by `self.to_input_ordering_interpolate`.
-            if self.ufl_interpolate.is_adjoint:
-                interp_expr = action(point_eval, point_eval_input_ordering)
-            else:
-                interp_expr = action(point_eval_input_ordering, point_eval)
 
             def callable() -> PETSc.Mat:
-                res = assemble(interp_expr, mat_type=mat_type).petscmat
+                res = self._permute_mat(mat_type)
                 if self.into_quadrature_space:
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
@@ -663,6 +656,83 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     return f_target
         return callable
+
+    def _permute_mat(self, mat_type: str) -> PETSc.Mat:
+        """Return the point evaluation matrix in target input ordering.
+
+        The input-ordering star forest redistributes fixed-size point
+        evaluation stencils. Roots without leaves produce empty rows for
+        missing target points.
+        """
+        from firedrake.assemble import assemble
+
+        point_eval, point_eval_input_ordering = self._symbolic_expressions
+        point_eval_mat = assemble(point_eval, mat_type=mat_type).petscmat
+        if self.ufl_interpolate.is_adjoint:
+            point_eval_mat.hermitianTranspose()
+
+        interpolator = VomOntoVomInterpolator(point_eval_input_ordering)
+        sf = interpolator.original_vom.input_ordering_without_halos_sf
+        block_size = interpolator.target_space.block_size
+        nroots, leaves, _ = sf.getGraph()
+        nleaves = len(leaves)
+
+        rows, columns, values = point_eval_mat.getValuesCSR()
+        row_nnz = numpy.diff(rows).astype(IntType, copy=False)
+
+        local_row_nnz = row_nnz.max() if row_nnz.size else 0
+        row_nnz_per_row = interpolator.target_space.comm.allreduce(local_row_nnz, op=MPI.MAX)
+
+        scalar_mpi_type = MPI._typedict[numpy.dtype(ScalarType).char]
+        int_mpi_type = MPI._typedict[numpy.dtype(IntType).char]
+
+        input_ordering_point_row_nnz = numpy.zeros(nroots, dtype=IntType)
+        point_row_nnz = numpy.full(nleaves, row_nnz_per_row, dtype=IntType)
+        sf.reduceBegin(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+        sf.reduceEnd(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+        input_ordering_row_nnz = numpy.repeat(input_ordering_point_row_nnz, block_size)
+
+        nvalues = block_size * row_nnz_per_row
+        if nvalues:
+            input_ordering_columns_slots = numpy.empty(nroots * nvalues, dtype=IntType)
+            input_ordering_values_slots = numpy.empty(nroots * nvalues, dtype=ScalarType)
+            columns_mpi_type = int_mpi_type.Create_contiguous(nvalues)
+            values_mpi_type = scalar_mpi_type.Create_contiguous(nvalues)
+            columns_mpi_type.Commit()
+            values_mpi_type.Commit()
+            try:
+                sf.reduceBegin(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                sf.reduceEnd(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                sf.reduceBegin(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+                sf.reduceEnd(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+            finally:
+                columns_mpi_type.Free()
+                values_mpi_type.Free()
+
+            present_rows = input_ordering_row_nnz != 0
+            input_ordering_columns = input_ordering_columns_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+            input_ordering_values = input_ordering_values_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+        else:
+            input_ordering_columns = numpy.empty(0, dtype=IntType)
+            input_ordering_values = numpy.empty(0, dtype=ScalarType)
+
+        input_ordering_rows = numpy.empty(len(input_ordering_row_nnz) + 1, dtype=IntType)
+        input_ordering_rows[0] = 0
+        numpy.cumsum(input_ordering_row_nnz, out=input_ordering_rows[1:])
+        _, local_columns = point_eval_mat.getLocalSize()
+        _, global_columns = point_eval_mat.getSize()
+        result = PETSc.Mat().createAIJ(
+            size=(
+                (len(input_ordering_row_nnz), None),
+                (local_columns, global_columns),
+            ),
+            bsize=point_eval_mat.getBlockSizes(),
+            csr=(input_ordering_rows, input_ordering_columns, input_ordering_values),
+            comm=point_eval_mat.comm,
+        )
+        if self.ufl_interpolate.is_adjoint:
+            result.hermitianTranspose()
+        return result
 
     @property
     def _allowed_mat_types(self):
