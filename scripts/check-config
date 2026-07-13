@@ -27,6 +27,7 @@ def main():
     check_slepc_version()
     check_petsc_version_spec()
     check_zlib_declared()
+    check_hdf5_scoped()
 
 
 def check_min_python_version() -> None:
@@ -101,6 +102,33 @@ def check_zlib_declared() -> None:
         raise InvalidConfigurationException(
             "The following archs request '--with-zlib' but do not declare "
             f"'zlib1g-dev' in their system packages: {offenders}"
+        )
+
+
+def check_hdf5_scoped() -> None:
+    """Check that HDF5's location is expressed via a scoped selector.
+
+    An arch's HDF5 location must be with a ``--with-hdf5-*`` option, not as
+    raw ``-I``/``-L`` entries in ``include_dirs``/``library_dirs``. The latter
+    end up in the shared OPTFLAGS, where they cannot be removed by a consumer that overrides HDF5 to
+    ``--download-hdf5``.
+
+    """
+    firedrake_configure = _load_firedrake_configure()
+    all_archs = {
+        **firedrake_configure.OFFICIAL_ARCHS,
+        **firedrake_configure.RETIRED_ARCHS,
+        **firedrake_configure.COMMUNITY_ARCHS,
+    }
+    offenders = [
+        ", ".join(key_part.value for key_part in arch_key)
+        for arch_key, arch in all_archs.items()
+        if any("hdf5" in dir_ for dir_ in (*arch.include_dirs, *arch.library_dirs))
+    ]
+    if offenders:
+        raise InvalidConfigurationException(
+            "The following archs put an HDF5 path in include_dirs/library_dirs "
+            f"instead of a '--with-hdf5-*' selector: {offenders}"
         )
 
 
