@@ -128,6 +128,7 @@ class NonlinearVariationalSolverMixin:
     def _ad_forward_cache(self):
         from firedrake import (
             DirichletBC,
+            MatrixBase,
             NonlinearVariationalProblem,
             NonlinearVariationalSolver)
 
@@ -168,9 +169,17 @@ class NonlinearVariationalSolverMixin:
             for bc in bcs
         ]
 
+        # for a pre-assembled Jacobian (i.e. solving an
+        # assembled equation), we can't pass BCs into the
+        # solver, but we need to cache them for the TLM
+        # and adjoint solvers
+        bcs_fwd = []
+        if not isinstance(Jnew, MatrixBase):
+            bcs_fwd = bcs_new
+
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
-        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_new)
+        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,

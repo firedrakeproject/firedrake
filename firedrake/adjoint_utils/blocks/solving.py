@@ -864,25 +864,6 @@ def solve_init_params(self, args, kwargs, varform):
             self.assemble_kwargs["appctx"] = kwargs["appctx"]
 
 
-class SolveLinearSystemBlock(GenericSolveBlock):
-    def __init__(self, A, u, b, *args, **kwargs):
-        lhs = A.form
-        func = u.function
-        rhs = b.form
-        bcs = A.bcs if hasattr(A, "bcs") else []
-        super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
-
-        # Set up parameters initialization
-        self.ident_zeros_tol = \
-            A.ident_zeros_tol if hasattr(A, "ident_zeros_tol") else None
-        self.assemble_system = \
-            A.assemble_system if hasattr(A, "assemble_system") else False
-
-    def _init_solver_parameters(self, args, kwargs):
-        super()._init_solver_parameters(args, kwargs)
-        solve_init_params(self, args, kwargs, varform=False)
-
-
 class SolveVarFormBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs=[], *args, **kwargs):
         lhs = equation.lhs
