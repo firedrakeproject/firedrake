@@ -80,6 +80,13 @@ def make_unoverlapped_dm(dm):
 
 
 def redistribute_dm(dm, parameters, grow_overlap=True):
+    """Distribute ``dm`` and optionally add the requested overlap.
+
+    Returns the SF from the partitioning step and the composed SF from
+    partitioning plus overlap growth.  If ``grow_overlap`` is false, the
+    unoverlapped redistributed DM is left in place and the partition SF is
+    returned for both entries.
+    """
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")

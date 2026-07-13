@@ -21,16 +21,12 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     nested: bool
         A flag to indicate whether the meshes are nested.
     redistribute: bool
-        If ``True``, keep adaptively refined meshes redistributed when
-        this is needed to avoid load imbalance and use an internal
-        parent-owned mesh for transfer operators.
-    balancing: float
-        Relative load imbalance above which to redistribute when
-        ``redistribute`` is true.
+        If ``True``, redistribute the adaptively-refined mesh
+        when the coarse cell has empty ranks.
 
     """
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
-                 redistribute: bool = True, balancing: float = 1.0):
+                 redistribute: bool = True):
         self.meshes = []
         self._meshes = []
         self.coarse_to_fine_cells = {}
@@ -38,7 +34,6 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         self.refinements_per_level = 1
         self.nested = nested
         self.redistribute = redistribute
-        self.balancing = balancing
         self._shared_data_cache = defaultdict(dict)
         self.add_mesh(base_mesh)
 
@@ -118,7 +113,6 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         markers.dat.data_wo[should_refine] = 1
 
         refined_mesh = mesh.refine_marked_elements(markers,
-                                                   redistribute=self.redistribute,
-                                                   balancing=self.balancing)
+                                                   redistribute=self.redistribute)
         self.add_mesh(refined_mesh)
         return self.meshes[-1]

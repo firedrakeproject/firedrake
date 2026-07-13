@@ -6,6 +6,7 @@ import numpy as np
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+from pyop2.mpi import MPI
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
@@ -198,6 +199,71 @@ def create_lgmap(PETSc.DM dm):
     CHKERR(ISLocalToGlobalMappingRestoreBlockIndices(lgmap.lgm, <const PetscInt**>&indices))
 
     return lgmap
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def set_adaptive_parent_label(PETSc.DM dm,
+                              PETSc.Section cell_numbering,
+                              PetscInt ncoarse,
+                              label_name):
+    """Label owned cells by Firedrake cell number."""
+    cdef:
+        PetscInt cStart, cEnd, c, off
+        DMLabel parent_label = NULL
+
+    label_name = label_name.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char*>label_name, &parent_label))
+    cStart, cEnd = dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &off))
+        if 0 <= off < ncoarse:
+            CHKERR(DMLabelSetValue(parent_label, c, off))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def adaptive_parent_child_cell_maps(PETSc.DM dm,
+                                    PETSc.Section cell_numbering,
+                                    PetscInt ncoarse,
+                                    PetscInt nfine,
+                                    label_name):
+    """Build Firedrake-numbered parent/child cell maps from a DMPlex label."""
+    cdef:
+        PetscInt cStart, cEnd, c, off, parent, max_children
+        DMLabel parent_label = NULL
+        np.ndarray fine_to_coarse
+        np.ndarray child_counts
+        np.ndarray coarse_to_fine
+
+    label_name = label_name.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char*>label_name, &parent_label))
+    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
+    child_counts = np.zeros(ncoarse, dtype=IntType)
+    cStart, cEnd = dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &off))
+        if not (0 <= off < nfine):
+            continue
+        CHKERR(DMLabelGetValue(parent_label, c, &parent))
+        if 0 <= parent < ncoarse:
+            fine_to_coarse[off, 0] = parent
+            child_counts[parent] += 1
+
+    max_children = 0
+    for c in range(ncoarse):
+        if child_counts[c] > max_children:
+            max_children = child_counts[c]
+    max_children = dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
+    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
+    child_counts[:] = 0
+    for c in range(nfine):
+        parent = fine_to_coarse[c, 0]
+        if parent >= 0:
+            coarse_to_fine[parent, child_counts[parent]] = c
+            child_counts[parent] += 1
+
+    return coarse_to_fine, fine_to_coarse
 
 
 # Exposition:
