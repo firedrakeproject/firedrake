@@ -421,6 +421,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -439,7 +440,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -483,6 +483,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -500,7 +501,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",
@@ -545,6 +545,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -563,7 +564,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -607,6 +607,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -624,7 +625,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",
@@ -669,6 +669,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -683,7 +684,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "libpnetcdf-dev",
             "libptscotch-dev",
             "libscalapack-openmpi-dev",
-            "zlib1g-dev",
 
             # CUDA packages
             "cuda-compat-13-0",
@@ -922,6 +922,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -939,7 +940,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -982,6 +982,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -999,7 +1000,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",
@@ -1044,6 +1044,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -1061,7 +1062,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-bison",
@@ -1104,6 +1104,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
+            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -1121,7 +1122,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "libsuitesparse-dev",
             "libsuperlu-dev",
             "libsuperlu-dist-dev",
-            "zlib1g-dev",
         ],
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
-"""Script that makes sure that hardcoded version numbers are consistent.
+"""Sanity checks for hardcoded configuration in the Firedrake repository.
 
-It looks at files in the Firedrake repository and makes sure that everywhere a
-version number is hardcoded that it matches. This allows for single-source-of-truth
-of hardcoded values (via CI).
+Run in CI to catch configuration that has drifted out of sync: version numbers
+duplicated across files, and arch definitions in ``firedrake-configure`` that
+link a system library without declaring its package or that point at HDF5 with
+raw ``-I``/``-L`` flags instead of a scoped ``--with-hdf5-*`` selector.
 
 """
 
@@ -95,8 +96,9 @@ def check_zlib_declared() -> None:
         ", ".join(key_part.value for key_part in arch_key)
         for arch_key, arch in all_archs.items()
         if "--with-zlib" in arch.extra_petsc_configure_options
-        and arch.system_packages is not None
-        and "zlib1g-dev" not in arch.system_packages
+        and (arch.system_packages is None
+             or arch.system_packages is not None
+             and "zlib1g-dev" not in arch.system_packages)
     ]
     if offenders:
         raise InvalidConfigurationException(
