@@ -443,11 +443,7 @@ def test_partition_behaviour_2d_3procs():
 
 def test_partition_behaviour():
     parentmesh = UnitSquareMesh(1, 1)
-    # fp32: the fp64 offsets (1e-8/1e-12) and tolerances (1e-6/1e-10) are far
-    # below single precision resolution (eps ~1e-7), so the offsets are lost
-    # and the tolerances are meaningless. Scale them up (~1e4) to probe the
-    # same "small tol misses, large tol catches" logic at an fp32-resolvable
-    # scale, keeping the same relative ordering. fp64 is unchanged.
+    # fp32: fp64 offsets/tolerances are below machine eps, so scale up.
     offset_small = 1e-4 if single_mode else 1e-8
     tol_large = 1e-3 if single_mode else 1e-6
     tol_small = 1e-5 if single_mode else 1e-10

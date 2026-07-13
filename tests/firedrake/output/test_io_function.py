@@ -23,7 +23,8 @@ def autouse_garbage_cleanup(garbage_cleanup):
 
 def _initialise_function(f, _f, method):
     if method == "project":
-        getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1.e-16})
+        ksp_rtol = 1.e-6 if single_mode else 1.e-16
+        getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": ksp_rtol})
     else:
         getattr(f, method)(_f)
 

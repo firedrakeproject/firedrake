@@ -1790,7 +1790,8 @@ class CheckpointFile:
 
     def _project_function_for_checkpointing(self, f, _f, method):
         if method == "project":
-            getattr(f, method)(_f, solver_parameters={"ksp_rtol": 1.e-16})
+            ksp_rtol = 1.e-6 if utils.single_mode else 1.e-16
+            getattr(f, method)(_f, solver_parameters={"ksp_rtol": ksp_rtol})
         elif method == "interpolate":
             getattr(f, method)(_f)
         else:
