@@ -40,8 +40,9 @@ HESSIAN = SolverType.HESSIAN
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, forward_cache, tangent_cache, adjoint_cache, hessian_cache,
-                 ad_block_tag=None):
+    def __init__(
+        self, forward_cache, tangent_cache, adjoint_cache, hessian_cache, ad_block_tag=None
+    ):
         super().__init__(ad_block_tag=ad_block_tag)
 
         self.forward_cache = forward_cache
@@ -57,6 +58,12 @@ class CachedSolverBlock(Block):
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
         return dependencies[:len(self.forward_cache.replaced_deps)]
+
+    def _mesh_dependencies(self, dependencies=None):
+        dependencies = dependencies or self.get_dependencies()
+        len_replaced = len(self.forward_cache.replaced_deps)
+        len_meshes = len(self.forward_cache.meshes)
+        return dependencies[len_replaced:len_replaced + len_meshes]
 
     def _bc_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
@@ -95,6 +102,12 @@ class CachedSolverBlock(Block):
             if dep.output == self.forward_cache.func:
                 continue
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
+                continue
+            replaced_dep.assign(dep.tlm_value)
+
+        for replaced_dep, dep in zip(self.tangent_cache.mesh_tlms,
+                                     self._mesh_dependencies()):
+            if dep.tlm_value is None:
                 continue
             replaced_dep.assign(dep.tlm_value)
 
@@ -243,7 +256,7 @@ class CachedSolverBlock(Block):
 
         # tlm_input contribution
         for d2Fdmdu, dep in zip(self.hessian_cache.d2Fdmdu_forms,
-                                self._coefficient_dependencies()):
+                                self._coefficient_dependencies() + self._mesh_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
             if dep.output is self.forward_cache.func:  # Can't compute dependence on initial guess
@@ -279,7 +292,7 @@ class CachedSolverBlock(Block):
 
         relevant_d2Fdm2_forms = []
         for i, dep in relevant_dependencies:
-            if i >= len(self._coefficient_dependencies()):
+            if i >= len(self._coefficient_dependencies() + self._mesh_dependencies()):
                 continue
             if dep.tlm_value is None:
                 continue
@@ -293,7 +306,7 @@ class CachedSolverBlock(Block):
                      self.hessian_cache.dFdm_adj2_forms[idx],
                      *relevant_d2Fdm2_forms):
             if not form.empty():
-                hessian_output += firedrake.assemble(-form)
+                hessian_output += firedrake.assemble(form)
 
         return hessian_output
 
