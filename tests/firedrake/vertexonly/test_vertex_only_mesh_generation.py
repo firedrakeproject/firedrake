@@ -443,21 +443,29 @@ def test_partition_behaviour_2d_3procs():
 
 def test_partition_behaviour():
     parentmesh = UnitSquareMesh(1, 1)
-    inputcoords = [[0.0-1e-8, 0.5],
-                   [0.5, 0.0-1e-8],
-                   [0.5, 1.0+1e-8],
-                   [1.0+1e-8, 0.5],
+    # fp32: the fp64 offsets (1e-8/1e-12) and tolerances (1e-6/1e-10) are far
+    # below single precision resolution (eps ~1e-7), so the offsets are lost
+    # and the tolerances are meaningless. Scale them up (~1e4) to probe the
+    # same "small tol misses, large tol catches" logic at an fp32-resolvable
+    # scale, keeping the same relative ordering. fp64 is unchanged.
+    offset_small = 1e-4 if single_mode else 1e-8
+    tol_large = 1e-3 if single_mode else 1e-6
+    tol_small = 1e-5 if single_mode else 1e-10
+    inputcoords = [[0.0-offset_small, 0.5],
+                   [0.5, 0.0-offset_small],
+                   [0.5, 1.0+offset_small],
+                   [1.0+offset_small, 0.5],
                    [0.5, 0.5],
                    [0.5, 0.5],
                    [0.5+1e-12, 0.5],
                    [0.5, 0.5+1e-12]]
     npts = len(inputcoords)
     # Check that we get all the points with a big enough tolerance
-    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-6)
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=tol_large)
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
     # Check that we lose all but the last 4 points with a small tolerance
     with pytest.warns(UserWarning):
-        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-10, missing_points_behaviour='warn')
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=tol_small, missing_points_behaviour='warn')
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
 
 
