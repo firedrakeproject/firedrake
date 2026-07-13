@@ -684,6 +684,7 @@ class CrossMeshInterpolator(Interpolator):
                     return f_target
         return callable
 
+    @PETSc.Log.EventDecorator("CrossMeshPermuteMat")
     def _permute_mat(self, mat_type: str) -> PETSc.Mat:
         """Return the point evaluation matrix in target input ordering.
 
@@ -698,26 +699,30 @@ class CrossMeshInterpolator(Interpolator):
         if self.ufl_interpolate.is_adjoint:
             point_eval_mat.hermitianTranspose()
 
-        interpolator = VomOntoVomInterpolator(point_eval_input_ordering)
-        sf = interpolator.original_vom.input_ordering_without_halos_sf
-        block_size = interpolator.target_space.block_size
-        nroots, leaves, _ = sf.getGraph()
-        nleaves = len(leaves)
+        with PETSc.Log.Event("CrossMeshPermuteMatSF"):
+            interpolator = VomOntoVomInterpolator(point_eval_input_ordering)
+            sf = interpolator.original_vom.input_ordering_without_halos_sf
+            block_size = interpolator.target_space.block_size
+            nroots, leaves, _ = sf.getGraph()
+            nleaves = len(leaves)
 
-        rows, columns, values = point_eval_mat.getValuesCSR()
-        row_nnz = numpy.diff(rows).astype(IntType, copy=False)
+        with PETSc.Log.Event("CrossMeshPermuteMatGetCSR"):
+            rows, columns, values = point_eval_mat.getValuesCSR()
+            row_nnz = numpy.diff(rows).astype(IntType, copy=False)
 
-        local_row_nnz = row_nnz.max() if row_nnz.size else 0
-        row_nnz_per_row = interpolator.target_space.comm.allreduce(local_row_nnz, op=MPI.MAX)
+        with PETSc.Log.Event("CrossMeshPermuteMatReduceNNZ"):
+            local_row_nnz = row_nnz.max() if row_nnz.size else 0
+            row_nnz_per_row = interpolator.target_space.comm.allreduce(local_row_nnz, op=MPI.MAX)
 
         scalar_mpi_type = MPI._typedict[numpy.dtype(ScalarType).char]
         int_mpi_type = MPI._typedict[numpy.dtype(IntType).char]
 
-        input_ordering_point_row_nnz = numpy.zeros(nroots, dtype=IntType)
-        point_row_nnz = numpy.full(nleaves, row_nnz_per_row, dtype=IntType)
-        sf.reduceBegin(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
-        sf.reduceEnd(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
-        input_ordering_row_nnz = numpy.repeat(input_ordering_point_row_nnz, block_size)
+        with PETSc.Log.Event("CrossMeshPermuteMatReduceRowNNZ"):
+            input_ordering_point_row_nnz = numpy.zeros(nroots, dtype=IntType)
+            point_row_nnz = numpy.full(nleaves, row_nnz_per_row, dtype=IntType)
+            sf.reduceBegin(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+            sf.reduceEnd(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+            input_ordering_row_nnz = numpy.repeat(input_ordering_point_row_nnz, block_size)
 
         nvalues = block_size * row_nnz_per_row
         if nvalues:
@@ -727,36 +732,41 @@ class CrossMeshInterpolator(Interpolator):
             values_mpi_type = scalar_mpi_type.Create_contiguous(nvalues)
             columns_mpi_type.Commit()
             values_mpi_type.Commit()
-            try:
-                sf.reduceBegin(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
-                sf.reduceEnd(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
-                sf.reduceBegin(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
-                sf.reduceEnd(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
-            finally:
-                columns_mpi_type.Free()
-                values_mpi_type.Free()
+            with PETSc.Log.Event("CrossMeshPermuteMatReduceColsVals"):
+                try:
+                    sf.reduceBegin(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                    sf.reduceEnd(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                    sf.reduceBegin(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+                    sf.reduceEnd(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+                finally:
+                    columns_mpi_type.Free()
+                    values_mpi_type.Free()
 
-            present_rows = input_ordering_row_nnz != 0
-            input_ordering_columns = input_ordering_columns_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
-            input_ordering_values = input_ordering_values_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+            with PETSc.Log.Event("CrossMeshPermuteMatFilterColsVals"):
+                present_rows = input_ordering_row_nnz != 0
+                input_ordering_columns = input_ordering_columns_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+                input_ordering_values = input_ordering_values_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
         else:
             input_ordering_columns = numpy.empty(0, dtype=IntType)
             input_ordering_values = numpy.empty(0, dtype=ScalarType)
 
-        input_ordering_rows = numpy.empty(len(input_ordering_row_nnz) + 1, dtype=IntType)
-        input_ordering_rows[0] = 0
-        numpy.cumsum(input_ordering_row_nnz, out=input_ordering_rows[1:])
-        _, local_columns = point_eval_mat.getLocalSize()
-        _, global_columns = point_eval_mat.getSize()
-        result = PETSc.Mat().createAIJ(
-            size=(
-                (len(input_ordering_row_nnz), None),
-                (local_columns, global_columns),
-            ),
-            bsize=point_eval_mat.getBlockSizes(),
-            csr=(input_ordering_rows, input_ordering_columns, input_ordering_values),
-            comm=point_eval_mat.comm,
-        )
+        with PETSc.Log.Event("CrossMeshPermuteMatRows"):
+            input_ordering_rows = numpy.empty(len(input_ordering_row_nnz) + 1, dtype=IntType)
+            input_ordering_rows[0] = 0
+            numpy.cumsum(input_ordering_row_nnz, out=input_ordering_rows[1:])
+
+        with PETSc.Log.Event("CrossMeshPermuteMatCreateAIJ"):
+            _, local_columns = point_eval_mat.getLocalSize()
+            _, global_columns = point_eval_mat.getSize()
+            result = PETSc.Mat().createAIJ(
+                size=(
+                    (len(input_ordering_row_nnz), None),
+                    (local_columns, global_columns),
+                ),
+                bsize=point_eval_mat.getBlockSizes(),
+                csr=(input_ordering_rows, input_ordering_columns, input_ordering_values),
+                comm=point_eval_mat.comm,
+            )
         if self.ufl_interpolate.is_adjoint:
             result.hermitianTranspose()
         return result
