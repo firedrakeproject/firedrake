@@ -42,7 +42,7 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
-from firedrake.exceptions import EmptyNodeEnvelopeError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
 import gem
 
 try:
