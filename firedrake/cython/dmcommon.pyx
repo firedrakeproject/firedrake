@@ -922,7 +922,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
-        cell = mesh._old_to_new_cell_numbering.getOffset(c)
+        cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # Here we assume that DMPlex gives entities in the order:
@@ -3030,7 +3030,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
-            cell = mesh._old_to_new_cell_numbering.getOffset(c)
+            cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
 
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
