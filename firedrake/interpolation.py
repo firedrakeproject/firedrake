@@ -593,21 +593,10 @@ class CrossMeshInterpolator(Interpolator):
 
         if self.rank == 2:
             assert mat_type == "aij"
-            # The cross-mesh interpolation matrix is the product of the
-            # `self.point_eval_interpolate` and the permutation
-            # given by `self.to_input_ordering_interpolate`. In the forward case the
-            # permutation is applied as a row scatter with `MatCreateSubMatrix` (see
-            # `_permuted_point_eval`) rather than an explicit permutation matrix and a
-            # parallel `MatMatMult`.
-            if self.ufl_interpolate.is_adjoint:
-                interp_expr = action(point_eval, point_eval_input_ordering)
 
             @PETSc.Log.EventDecorator("CrossMeshMatrixApply")
             def callable() -> PETSc.Mat:
-                if self.ufl_interpolate.is_adjoint:
-                    res = assemble(interp_expr, mat_type=mat_type).petscmat
-                else:
-                    res = self._permuted_point_eval(mat_type)
+                res = self._permute_mat(mat_type)
                 if self.into_quadrature_space:
                     with PETSc.Log.Event("CrossMeshMatrixQuad"):
                         source_space = self.operand.function_space()
@@ -695,46 +684,82 @@ class CrossMeshInterpolator(Interpolator):
                     return f_target
         return callable
 
-    @PETSc.Log.EventDecorator("CrossMeshPermutedPointEval")
-    def _permuted_point_eval(self, mat_type: str) -> PETSc.Mat:
-        """Assemble the forward (non-adjoint) cross-mesh interpolation matrix by scattering
-        the rows of the point-evaluation matrix into the target's input ordering using
-        ``MatCreateSubMatrix``.
+    def _permute_mat(self, mat_type: str) -> PETSc.Mat:
+        """Return the point evaluation matrix in target input ordering.
 
-        This is mathematically equal to ``assemble(action(point_eval_input_ordering,
-        point_eval))`` (i.e. ``P @ PE``), but avoids assembling the explicit permutation
-        matrix ``P`` and the subsequent parallel ``MatMatMult`` (whose ``MatGetBrAoCol``
-        communication dominates at scale). The permutation is a pure row scatter defined by
-        the input-ordering star forest, which is exactly what a row index set passed to
-        ``MatCreateSubMatrix`` expresses.
-
-        Parameters
-        ----------
-        mat_type :
-            The PETSc matrix type used to assemble the point-evaluation matrix.
-
-        Returns
-        -------
-        PETSc.Mat
-            The point-evaluation matrix with its rows in the target input ordering.
+        The input-ordering star forest redistributes fixed-size point
+        evaluation stencils. Roots without leaves produce empty rows for
+        missing target points.
         """
         from firedrake.assemble import assemble
+
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         point_eval_mat = assemble(point_eval, mat_type=mat_type).petscmat
-        # Row index set: for each local input-ordering row, the global immersed-VOM row of
-        # the point-evaluation matrix that should land there (the inverse permutation, obtained
-        # by reducing the immersed-VOM row indices along the input-ordering star forest).
-        permutation = get_interpolator(point_eval_input_ordering)
-        immersed_row_start = point_eval_mat.getOwnershipRange()[0] // permutation.target_space.block_size
-        with PETSc.Log.Event("CrossMeshPermutedPointEvalIS"):
-            isrow = PETSc.IS().createGeneral(
-                permutation._permutation(reduce=True, start=immersed_row_start), comm=point_eval_mat.comm
-            )
-        # Column index set: identity, so the columns (and column layout) are unchanged.
-        cstart, cend = point_eval_mat.getOwnershipRangeColumn()
-        with PETSc.Log.Event("CrossMeshPermutedPointEvalISCol"):
-            iscol = PETSc.IS().createStride(cend - cstart, first=cstart, step=1, comm=point_eval_mat.comm)
-        return point_eval_mat.createSubMatrix(isrow, iscol)
+        if self.ufl_interpolate.is_adjoint:
+            point_eval_mat.hermitianTranspose()
+
+        interpolator = VomOntoVomInterpolator(point_eval_input_ordering)
+        sf = interpolator.original_vom.input_ordering_without_halos_sf
+        block_size = interpolator.target_space.block_size
+        nroots, leaves, _ = sf.getGraph()
+        nleaves = len(leaves)
+
+        rows, columns, values = point_eval_mat.getValuesCSR()
+        row_nnz = numpy.diff(rows).astype(IntType, copy=False)
+
+        local_row_nnz = row_nnz.max() if row_nnz.size else 0
+        row_nnz_per_row = interpolator.target_space.comm.allreduce(local_row_nnz, op=MPI.MAX)
+
+        scalar_mpi_type = MPI._typedict[numpy.dtype(ScalarType).char]
+        int_mpi_type = MPI._typedict[numpy.dtype(IntType).char]
+
+        input_ordering_point_row_nnz = numpy.zeros(nroots, dtype=IntType)
+        point_row_nnz = numpy.full(nleaves, row_nnz_per_row, dtype=IntType)
+        sf.reduceBegin(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+        sf.reduceEnd(int_mpi_type, point_row_nnz, input_ordering_point_row_nnz, MPI.REPLACE)
+        input_ordering_row_nnz = numpy.repeat(input_ordering_point_row_nnz, block_size)
+
+        nvalues = block_size * row_nnz_per_row
+        if nvalues:
+            input_ordering_columns_slots = numpy.empty(nroots * nvalues, dtype=IntType)
+            input_ordering_values_slots = numpy.empty(nroots * nvalues, dtype=ScalarType)
+            columns_mpi_type = int_mpi_type.Create_contiguous(nvalues)
+            values_mpi_type = scalar_mpi_type.Create_contiguous(nvalues)
+            columns_mpi_type.Commit()
+            values_mpi_type.Commit()
+            try:
+                sf.reduceBegin(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                sf.reduceEnd(columns_mpi_type, columns, input_ordering_columns_slots, MPI.REPLACE)
+                sf.reduceBegin(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+                sf.reduceEnd(values_mpi_type, values, input_ordering_values_slots, MPI.REPLACE)
+            finally:
+                columns_mpi_type.Free()
+                values_mpi_type.Free()
+
+            present_rows = input_ordering_row_nnz != 0
+            input_ordering_columns = input_ordering_columns_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+            input_ordering_values = input_ordering_values_slots.reshape(-1, row_nnz_per_row)[present_rows].reshape(-1)
+        else:
+            input_ordering_columns = numpy.empty(0, dtype=IntType)
+            input_ordering_values = numpy.empty(0, dtype=ScalarType)
+
+        input_ordering_rows = numpy.empty(len(input_ordering_row_nnz) + 1, dtype=IntType)
+        input_ordering_rows[0] = 0
+        numpy.cumsum(input_ordering_row_nnz, out=input_ordering_rows[1:])
+        _, local_columns = point_eval_mat.getLocalSize()
+        _, global_columns = point_eval_mat.getSize()
+        result = PETSc.Mat().createAIJ(
+            size=(
+                (len(input_ordering_row_nnz), None),
+                (local_columns, global_columns),
+            ),
+            bsize=point_eval_mat.getBlockSizes(),
+            csr=(input_ordering_rows, input_ordering_columns, input_ordering_values),
+            comm=point_eval_mat.comm,
+        )
+        if self.ufl_interpolate.is_adjoint:
+            result.hermitianTranspose()
+        return result
 
     @property
     def _allowed_mat_types(self):
@@ -999,51 +1024,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         mat.setUp()
         return mat
 
-    @PETSc.Log.EventDecorator("VOMToVOMPermutation")
-    def _permutation(self, reduce: bool, start: int) -> numpy.ndarray:
-        """Map each local row of the permutation to the global source dof that feeds it.
-
-        The permutation is the renumbering star forest between the immersed VOM (the SF leaves)
-        and its input ordering (the SF roots). ``start`` is the global (block-collapsed) index of
-        this rank's first source dof, taken from the ownership range of the matrix being built.
-
-        With ``reduce=False`` we broadcast contiguous input-ordering (root) indices onto the
-        immersed (leaf) dofs, giving, for each immersed row, the input-ordering dof feeding it.
-        With ``reduce=True`` we reduce contiguous immersed (leaf) indices onto the input-ordering
-        (root) dofs, giving, for each input-ordering row, the immersed dof feeding it -- the
-        inverse permutation. Selecting the direction lets us build the permutation matrix (or the
-        row index set for ``MatCreateSubMatrix``) directly in the required orientation, avoiding a
-        ``MatTranspose``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Global source dof indices, one per local row, spaced out by the block size.
-        """
-        sf = self.original_vom.input_ordering_without_halos_sf
-        nroots, leaves, _ = sf.getGraph()
-        nleaves = len(leaves)
-        if reduce:
-            leaf_indices = numpy.arange(start, start + nleaves, dtype=IntType)
-            perm = numpy.zeros(nroots, dtype=IntType)  # result stored in here
-            sf.reduceBegin(MPI.INT, leaf_indices, perm, MPI.REPLACE)
-            sf.reduceEnd(MPI.INT, leaf_indices, perm, MPI.REPLACE)
-        else:
-            root_indices = numpy.arange(start, start + nroots, dtype=IntType)
-            perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
-            sf.bcastBegin(MPI.INT, root_indices, perm, MPI.REPLACE)
-            sf.bcastEnd(MPI.INT, root_indices, perm, MPI.REPLACE)
-        # Vector and Tensor valued functions are stored in a flattened array, so
-        # we need to space out the indices according to the block size.
-        return self._block_expand(perm)
-
-    @PETSc.Log.EventDecorator("VOMToVOMBlockExpand")
-    def _block_expand(self, indices: numpy.ndarray) -> numpy.ndarray:
-        """Space out per-dof ``indices`` into the flattened block layout of the target space."""
-        block_size = self.target_space.block_size
-        return (block_size * indices[:, None]
-                + numpy.arange(block_size, dtype=IntType)[None, :]).reshape(-1)
-
     @PETSc.Log.EventDecorator("VOMToVOMCreatePermutationMat")
     def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
         """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
@@ -1054,27 +1034,40 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         PETSc.Mat
             PETSc seqaij matrix
         """
-        block_size = self.target_space.block_size
-        source_size, target_size, _ = self._get_mat_sizes()
-        if mat_type == "baij" and block_size > 1:
+        # Get correct local and global sizes for the matrix
+        source_size, target_size, nleaves, local_sizes = self._get_mat_sizes()
+        if mat_type == "baij" and self.target_space.block_size > 1:
             create = PETSc.Mat().createBAIJ
         else:
             create = PETSc.Mat().createAIJ
-        # In the forward (reduce) interpolation the permutation maps the immersed VOM onto its
-        # input ordering, so the matrix has input-ordering rows and immersed columns; otherwise
-        # the roles are reversed (source_mesh and target_mesh are defined assuming forward
-        # interpolation). We build the matrix directly in the required orientation rather than
-        # assembling its transpose and calling MatTranspose, which incurs extra communication.
-        reduce = self.forward_reduce and not self.ufl_interpolate.is_adjoint
-        size = (source_size, target_size) if reduce else (target_size, source_size)
-        mat = create(size=size, bsize=block_size, nnz=1, comm=self.source_mesh.comm)
+        mat = create(
+            size=(target_size, source_size),
+            bsize=self.target_space.block_size,
+            nnz=1,
+            comm=self.source_mesh.comm
+        )
         mat.setUp()
-        # The permutation has a single nonzero (== 1) per row, whose column is the global source
-        # dof mapped to that row.
-        cols = self._permutation(reduce, mat.getOwnershipRangeColumn()[0] // block_size)
-        rows = numpy.arange(mat.getLocalSize()[0] + 1, dtype=IntType)
+        # To create the permutation matrix we broadcast an array of indices which are contiguous
+        # across all ranks and then use these indices to set the values of the matrix directly.
+        start = sum(local_sizes[:self.target_space.comm.rank])
+        end = start + source_size[0]
+        contiguous_indices = numpy.arange(start, end, dtype=IntType)
+        perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
+        sf = self.original_vom.input_ordering_without_halos_sf
+        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        rows = numpy.arange(target_size[0] + 1, dtype=IntType)
+        # Vector and Tensor valued functions are stored in a flattened array, so
+        # we need to space out the column indices according to the block size
+        cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
         mat.assemble()
+        if self.forward_reduce and not self.ufl_interpolate.is_adjoint:
+            # The mat we have constructed thus far takes us from the input-ordering VOM to the
+            # immersed VOM. If we're going the other way, then we need to transpose it,
+            # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
+            # are defined assuming we're doing forward interpolation.
+            mat.transpose()
         return mat
 
     @PETSc.Log.EventDecorator("VOMToVOMGetMatSizes")
