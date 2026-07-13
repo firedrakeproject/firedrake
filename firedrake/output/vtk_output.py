@@ -511,7 +511,10 @@ class VTKFile:
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
             from firedrake.functionspace import FunctionSpace
             mesh = functions[0]
-            V = FunctionSpace(mesh, "CG", 1)
+            if isinstance(mesh.topology, VertexOnlyMeshTopology):
+                V = FunctionSpace(mesh, "DG", 0)
+            else:
+                V = FunctionSpace(mesh, "CG", 1)
             functions = [Function(V)]
 
         for f in functions:
