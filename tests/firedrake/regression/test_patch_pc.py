@@ -220,4 +220,4 @@ def test_patch_pc_real():
     star_solution = Function(V)
     solve(a == L, star_solution, solver_parameters=star_solver_parameters)
 
-    assert errornorm(patch_solution, star_solution) < 1e-8
+    assert errornorm(patch_solution, star_solution) < (1e-6 if single_mode else 1e-8)

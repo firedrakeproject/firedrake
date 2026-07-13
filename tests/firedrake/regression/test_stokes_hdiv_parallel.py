@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 import pytest
 import numpy
 
@@ -16,7 +17,6 @@ def element_pair(request):
     return request.param
 
 
-@pytest.mark.skipsingle  # fp32: minres floors at the ~7e-7 residual but the hardcoded ksp_rtol=1e-11 is below fp32 eps, so the solve cannot converge (DIVERGED_LINEAR_SOLVE)
 @pytest.mark.parallel(nprocs=3)
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
@@ -93,8 +93,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
             "ksp_type": "minres",
             "ksp_norm_type": "preconditioned",
             "ksp_max_it": 10,
-            "ksp_atol": "1.e-16",
-            "ksp_rtol": "1.e-11",
+            "ksp_atol": "1.e-6" if single_mode else "1.e-16",
+            "ksp_rtol": "1.e-6" if single_mode else "1.e-11",
             "ksp_monitor_true_residual": None,
             "pc_type": "fieldsplit",
             "pc_fieldsplit_type": "additive",
