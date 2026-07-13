@@ -9,6 +9,20 @@ from petsc4py import PETSc
 cwd = os.path.abspath(os.path.dirname(__file__))
 
 
+def get_mat_sparsity(mat, *nest_indices):
+    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
+    row_ptrs, _ = subpetscmat.getRowIJ()
+    row_sizes = np.full(len(row_ptrs)-1, -1, dtype=int)
+    for row_index, (row_start, row_end) in enumerate(utils.pairwise(row_ptrs)):
+        row_sizes[row_index] = row_end - row_start
+    return row_sizes
+
+
+def get_mat_values(mat, *nest_indices):
+    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
+    return subpetscmat[:, :]
+
+
 def test_submesh_assemble_cell_cell_integral_cell():
     dim = 2
     mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)

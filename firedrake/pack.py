@@ -46,12 +46,13 @@ def _(matrix: Matrix, loop_info, **kwargs):
 def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
     iter_mesh = loop_index.mesh
-    if iter_mesh.topology is mesh.topology:
+    mesh = mesh.topology
+    if iter_mesh.topology is mesh:
         composed_map = None
         target_integral_type = loop_index.integral_type
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
-        and iter_mesh.topology._base_mesh is mesh.topology
+        and iter_mesh.topology._base_mesh is mesh
     ):
         composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
         target_integral_type = "cell"

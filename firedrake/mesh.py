@@ -329,16 +329,23 @@ class MeshLoopIndex(op3.LoopIndex):
 
     mesh: weakref.ProxyType = dataclasses.field(hash=False)
     integral_type: str
+    plex_indices_is: PETSc.IS = dataclasses.field(hash=False)
 
     def __init__(
         self,
         iterset: op3.IndexedAxisTree,
         mesh: MeshGeometry,
         integral_type: str,
+        plex_indices_is: PETSc.IS,
     ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
+        object.__setattr__(self, "plex_indices_is", plex_indices_is)
         super().__init__(iterset)
+
+    @property
+    def plex_indices(self) -> np.ndarray:
+        return readonly(self.plex_indices_is.indices)
 
 
 class AbstractMeshTopology(abc.ABC):
@@ -618,15 +625,150 @@ class AbstractMeshTopology(abc.ABC):
     def points(self):
         return self.flat_points[self._strata_slice]
 
-    @property
-    @abc.abstractmethod
-    def exterior_facets(self) -> op3.IndexedAxisTree:
-        pass
+    @cached_method()
+    @with_self_heavy_cache
+    def _entity_axes(
+        self,
+        _selector: str | int | tuple[int, ...] | None = None,
+        *,
+        name: str | None = None,
+        dim: int | None = None,
+        stratum: int | None = None,
+    ) -> op3.IndexedAxisTree:
+        if sum(x is not None for x in [_selector, name, dim, stratum]) != 1:
+            raise ValueError(
+                "Only one of '_selector', 'name', 'dim' or 'stratum' may be specified"
+            )
 
-    @property
-    @abc.abstractmethod
+        if isinstance(_selector, str):
+            name = _selector
+        else:
+            dim = _selector
+
+        if name is not None:
+            return self._entity_axes_by_name(name)
+        elif dim is not None:
+            if not isinstance(self, ExtrudedMeshTopology):
+                # strata and dims are the same
+                raise NotImplementedError
+            else:
+                # dims are tuples, need to think
+                raise NotImplementedError
+        else:
+            raise NotImplementedError
+
+    def _entity_axes_by_name(self, name: str):
+        match name:
+            case "cell":
+                # NOTE: not sure this is necessary
+                cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
+                # return self.points[op3.as_slice(self.cell_label)]
+                return self.points[cell_slice]
+
+            case "exterior_facet":
+                if isinstance(self, ExtrudedMeshTopology):
+                    # TODO: arguably over fussy
+                    raise TypeError(
+                        "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert', "
+                        "'exterior_facets_top' or 'exterior_facets_bottom' instead"
+                    )
+                else:
+                    subset = self._facet_subset(
+                        self._exterior_facet_plex_indices,
+                        self._old_to_new_facet_numbering,
+                        self.facet_label,
+                    )
+                    return self.points[subset]
+
+            case "interior_facet":
+                if isinstance(self, ExtrudedMeshTopology):
+                    # TODO: arguably over fussy
+                    raise TypeError(
+                        "Cannot use 'interior_facets' for extruded meshes, use 'interior_facets_vert', "
+                        "'interior_facets_horiz'"
+                    )
+                else:
+                    subset = self._facet_subset(
+                        self._interior_facet_plex_indices,
+                        self._old_to_new_facet_numbering,
+                        self.facet_label,
+                    )
+                    return self.points[subset]
+
+            case "exterior_facet_top":
+                subset = self._facet_subset(
+                    self._exterior_facet_top_plex_indices,
+                    self._old_to_new_facet_horiz_numbering,
+                    self.facet_horiz_label,
+                )
+                return self.points[subset]
+
+            case "exterior_facet_bottom":
+                subset = self._facet_subset(
+                    self._exterior_facet_bottom_plex_indices,
+                    self._old_to_new_facet_horiz_numbering,
+                    self.facet_horiz_label,
+                )
+                return self.points[subset]
+
+            case "exterior_facet_vert":
+                subset = self._facet_subset(
+                    self._exterior_facet_vert_plex_indices,
+                    self._old_to_new_facet_vert_numbering,
+                    self.facet_vert_label,
+                )
+                return self.points[subset]
+
+            case "interior_facet_horiz":
+                subset = self._facet_subset(
+                    self._interior_facet_horiz_plex_indices,
+                    self._old_to_new_facet_horiz_numbering,
+                    self.facet_horiz_label,
+                )
+                return self.points[subset]
+
+            case "interior_facet_vert":
+                subset = self._facet_subset(
+                    self._interior_facet_vert_plex_indices,
+                    self._old_to_new_facet_vert_numbering,
+                    self.facet_vert_label,
+                )
+                return self.points[subset]
+
+            case _:
+                raise AssertionError
+
+    # TODO: typing for component_label
+    # Maybe doesn't have to be a method either
+    def _facet_subset(self, plex_indices_is: PETSc.IS, component_renumbering: PETSc.Section, component_label) -> op3.Slice:
+        subset_indices = dmcommon.section_offsets(component_renumbering, plex_indices_is, sort=True)
+        subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
+        return op3.Slice(self.name, [op3.Subset(component_label, subset_dat)])
+
+    @cached_property
+    def cells(self) -> op3.IndexedAxisTree:
+        return self._entity_axes("cell")
+
+    @cached_property
+    def exterior_facets(self) -> op3.IndexedAxisTree:
+        return self._entity_axes("exterior_facet")
+
+    @cached_property
     def interior_facets(self):
-        pass
+        return self._entity_axes("interior_facet")
+
+    @cached_property
+    def facets(self):
+        return self._entity_axes(stratum=self.dimension-1)
+
+    @cached_property
+    def edges(self):
+        return self._entity_axes(stratum=1)
+
+    @cached_property
+    def vertices(self):
+        return self._entity_axes(stratum=0)
+
 
     # }}}
 
@@ -777,13 +919,14 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_indices(
         self,
         base: Literal["plex"],
+        _selector: str | int | tuple[int, ...] | None = None,
         *,
         name: str | None = None,
         dim: int | tuple[int, ...] | None = None,
         stratum: int | None = None,
     ) -> np.ndarray:
         return readonly(
-            self._entity_indices_is(base, name=name, dim=dim, stratum=stratum).indices
+            self._entity_indices_is(base, _selector=_selector, name=name, dim=dim, stratum=stratum).indices
         )
 
     @property
@@ -1071,7 +1214,12 @@ class AbstractMeshTopology(abc.ABC):
              ``integral_type`` to the explicitly enumerated subdomain ids.
 
          :returns: A :class:`pyop2.types.set.Subset` for iteration.
-            """
+        """
+        if all_integer_subdomain_ids is None:
+            all_integer_subdomain_ids = {}
+        if not all_integer_subdomain_ids.get(integral_type) and subdomain_id == "otherwise":
+            subdomain_id = "everywhere"
+
         match integral_type:
             case "cell":
                 iterset = self.cells.owned
@@ -1150,18 +1298,20 @@ class AbstractMeshTopology(abc.ABC):
             )
 
         if subdomain_id == "everywhere":
-            subset = Ellipsis
+            plex_indices_is = self._entity_indices_is("plex", integral_type)
 
         else:
+            needs_subset = True
+
             if subdomain_id == "otherwise":
-                subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
+                subdomain_ids = all_integer_subdomain_ids[integral_type]
                 complement = True
             else:
                 subdomain_ids = utils.as_tuple(subdomain_id)
                 complement = False
 
             # Get all points labelled with the subdomain ID
-            plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+            plex_indices_is = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
             for subdomain_id in subdomain_ids:
                 if subdomain_id == UNMARKED:
                     plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
@@ -1174,35 +1324,31 @@ class AbstractMeshTopology(abc.ABC):
                     matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
                 else:
                     matching_indices = utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
-                plex_indices = plex_indices.union(matching_indices)
+                plex_indices_is = plex_indices_is.union(matching_indices)
 
             # Restrict to indices that exist within the iterset (e.g. drop exterior facets
             # from an interior facet integral)
-            plex_indices = dmcommon.intersect_is(plex_indices, valid_plex_indices)
+            plex_indices_is = dmcommon.intersect_is(plex_indices_is, valid_plex_indices)
 
             # If the 'subdomain_id' is 'otherwise' then we now have a list of the
             # indices that we *do not* want
             if complement:
-                plex_indices = valid_plex_indices.difference(plex_indices)
+                plex_indices_is = valid_plex_indices.difference(plex_indices_is)
 
             # NOTE: Should we sort plex indices?
 
             with temp_internal_comm(self.comm) as icomm:
-                num_global_indices = icomm.reduce(plex_indices.size, MPI.SUM, root=0)
+                num_global_indices = icomm.reduce(plex_indices_is.size, MPI.SUM, root=0)
                 if num_global_indices == 0 and icomm.rank == 0:
                     logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
                                 "Did you choose the right label?")
 
-            # drop ghost points
-            plex_indices = plex_indices.difference(
-                self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
-            )
-
+        if needs_subset:
             # We now have the correct set of indices represented in DMPlex numbering, now
             # we have to convert this to a numbering specific to the iteration set (e.g.
             # map point 12 to interior facet 3).
             localized_indices = dmcommon.section_offsets(
-                old_to_new_entity_numbering, plex_indices, sort=True
+                old_to_new_entity_numbering, plex_indices_is, sort=True
             )
 
             iterset_axis = iterset.as_axis()
@@ -1210,13 +1356,19 @@ class AbstractMeshTopology(abc.ABC):
             subset = op3.Slice(
                 iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)]
             )
+            iterset = iterset[subset]
+
+        # drop ghost points
+        plex_indices_is = plex_indices_is.difference(
+            self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
+        )
 
         # Use a weakref for the mesh here because otherwise we would store a
         # reference to the mesh in the cache and, since the lifetime of the cache
         # is tied to the mesh, things will never be cleaned up.
         mesh_ref = weakref.proxy(self.topology)
 
-        return MeshLoopIndex(iterset[subset], mesh_ref, integral_type)
+        return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is)
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
         if ordering == ClosureOrdering.PLEX:
@@ -2270,23 +2422,6 @@ class MeshTopology(AbstractMeshTopology):
         return utils.readonly(np.unique(np.sort(global_facet_markers_is.indices)))
 
     @cached_property
-    def exterior_facets(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(self._exterior_facet_plex_indices, self._old_to_new_facet_numbering, self.facet_label)
-        return self.points[subset]
-
-    @cached_property
-    def interior_facets(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(self._interior_facet_plex_indices, self._old_to_new_facet_numbering, self.facet_label)
-        return self.points[subset]
-
-    # TODO: typing for component_label
-    # Maybe doesn't have to be a method either
-    def _facet_subset(self, plex_indices_is: PETSc.IS, component_renumbering: PETSc.Section, component_label) -> op3.Slice:
-        subset_indices = dmcommon.section_offsets(component_renumbering, plex_indices_is, sort=True)
-        subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
-        return op3.Slice(self.name, [op3.Subset(component_label, subset_dat)])
-
-    @cached_property
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
@@ -2375,27 +2510,6 @@ class MeshTopology(AbstractMeshTopology):
     @property
     def vertex_label(self) -> int:
         return 0
-
-    @cached_property
-    @with_self_heavy_cache
-    def cells(self) -> op3.IndexedAxisTree:
-        cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
-        return self.points[cell_slice]
-
-    @cached_property
-    @with_self_heavy_cache
-    def facets(self):
-        return self.points[self.facet_label]
-
-    @cached_property
-    @with_self_heavy_cache
-    def edges(self):
-        return self.points[self.edge_label]
-
-    @cached_property
-    @with_self_heavy_cache
-    def vertices(self):
-        return self.points[self.vertex_label]
 
     @property
     @utils.deprecated("cells.owned")
@@ -2517,17 +2631,34 @@ class MeshTopology(AbstractMeshTopology):
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
-
     def _submesh_make_entity_entity_map(
         self,
-        from_set: op3.Axis,
-        to_set: op3.Axis,
-        from_points: np.ndarray,
-        to_points: np.ndarray,
-        from_numbering: PETSc.Section,
-        to_numbering: PETSc.Section,
+        child_integral_type: str,
+        parent_integral_type: str,
         child_parent_map: bool,
     ):
+        child_axis = self._entity_axes(child_integral_type).as_axis()
+        child_plex_indices = self._entity_indices("plex", child_integral_type)
+        child_numbering_sec = self._plex_to_entity_numbering_sec(child_integral_type)
+        parent_axis = self.submesh_parent._entity_axes(parent_integral_type).as_axis()
+        parent_plex_indices = self.submesh_parent._entity_indices("plex", parent_integral_type)
+        parent_numbering_sec = self.submesh_parent._plex_to_entity_numbering_sec(parent_integral_type)
+
+        if child_parent_map:
+            from_set = child_axis
+            from_points = child_plex_indices
+            from_numbering = child_numbering_sec
+            to_set = parent_axis
+            to_points = parent_plex_indices
+            to_numbering = parent_numbering_sec
+        else:
+            from_set = parent_axis
+            from_points = parent_plex_indices
+            from_numbering = parent_numbering_sec
+            to_set = child_axis
+            to_points = child_plex_indices
+            to_numbering = child_numbering_sec
+
         assert from_set.local_size == len(from_points)
         assert to_set.local_size == len(to_points)
 
@@ -2557,268 +2688,294 @@ class MeshTopology(AbstractMeshTopology):
             name=map_name,
         )
 
-    @cached_property
-    def submesh_child_cell_parent_cell_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.cells.as_axis(),
-            self.submesh_parent.cells.as_axis(),
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
-            self._plex_to_entity_numbering_sec("cell"),
-            self.submesh_parent._plex_to_entity_numbering_sec("cell"),
-            True,
-        )
+    # def _submesh_child_to_parent_map(
+    #     self,
+    #     child_integral_type: str,
+    #     parent_integral_type: str,
+    # ) -> op3.Map:
+    #
+    #     return self._submesh_make_entity_entity_map(
+    #         child_axes.as_axis(),
+    #         parent_axes.as_axis(),
+    #         child_indices,
+    #         parent_indices,
+    #         child_numbering_sec,
+    #         parent_numbering_sec,
+    #         True,
+    #     )
+    #
+    # def _submesh_parent_to_child_map(
+    #     self,
+    #     parent_integral_type: str,
+    #     child_integral_type: str,
+    # ) -> op3.Map:
+    #     parent_axes = self.submesh_parent._entity_axes(parent_integral_type)
+    #     parent_plex_indices = self.submesh_parent._entity_indices("plex", parent_integral_type)
+    #     parent_numbering_sec = self.submesh_parent._plex_to_entity_numbering_sec(parent_integral_type)
+    #     child_axes = self._entity_axes(child_integral_type)
+    #     child_plex_indices = self._entity_indices("plex", child_integral_type)
+    #     child_numbering_sec = self._plex_to_entity_numbering_sec(child_integral_type)
+    #
+    #     return self._submesh_make_entity_entity_map(
+    #         child_axes.as_axis(),
+    #         parent_axes.as_axis(),
+    #         child_indices,
+    #         parent_indices,
+    #         child_numbering_sec,
+    #         parent_numbering_sec,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_facet_parent_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.facets.as_axis(),
+    #         self.submesh_parent.facets.as_axis(),
+    #         np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
+    #         np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
+    #         self._old_to_new_facet_numbering,
+    #         self.submesh_parent._old_to_new_facet_numbering,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_edge_parent_edge_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.edges.as_axis(),
+    #         self.submesh_parent.edges.as_axis(),
+    #         np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
+    #         np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
+    #         self._plex_to_entity_numbering_sec(stratum=1),
+    #         self.submesh_parent._plex_to_entity_numbering_sec(stratum=1),
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_vertex_parent_vertex_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.vertices.as_axis(),
+    #         self.submesh_parent.vertices.as_axis(),
+    #         np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
+    #         np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
+    #         self._plex_to_entity_numbering_sec(stratum=0),
+    #         self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_exterior_facet_parent_exterior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.exterior_facets.as_axis(),
+    #         self.submesh_parent.exterior_facets.as_axis(),
+    #         self._exterior_facet_plex_indices.indices,
+    #         self.submesh_parent._exterior_facet_plex_indices.indices,
+    #         self._old_to_new_exterior_facet_numbering,
+    #         self.submesh_parent._old_to_new_exterior_facet_numbering,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_exterior_facet_parent_interior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.exterior_facets.as_axis(),
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         self._exterior_facet_plex_indices.indices,
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         self._old_to_new_exterior_facet_numbering,
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_interior_facet_parent_exterior_facet_map(self):
+    #     raise RuntimeError("Should never happen")
+    #
+    # @cached_property
+    # def submesh_child_interior_facet_parent_interior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.interior_facets.as_axis(),
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         self._interior_facet_plex_indices.indices,
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         self._old_to_new_interior_facet_numbering,
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_cell_parent_interior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.cells.as_axis(),
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         self._plex_to_entity_numbering_sec("cell"),
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         True,
+    #     )
+    #
+    # @cached_property
+    # def submesh_child_cell_parent_exterior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.cells.as_axis(),
+    #         self.submesh_parent.exterior_facets.as_axis(),
+    #         PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+    #         self.submesh_parent._exterior_facet_plex_indices.indices,
+    #         self._plex_to_entity_numbering_sec("cell"),
+    #         self.submesh_parent._old_to_new_exterior_facet_numbering,
+    #         True,
+    #     )
 
-    @cached_property
-    def submesh_child_facet_parent_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.facets.as_axis(),
-            self.submesh_parent.facets.as_axis(),
-            np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
-            np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
-            self._old_to_new_facet_numbering,
-            self.submesh_parent._old_to_new_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_edge_parent_edge_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.edges.as_axis(),
-            self.submesh_parent.edges.as_axis(),
-            np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
-            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
-            self._plex_to_entity_numbering_sec(stratum=1),
-            self.submesh_parent._plex_to_entity_numbering_sec(stratum=1),
-            True,
-        )
-
-    @cached_property
-    def submesh_child_vertex_parent_vertex_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.vertices.as_axis(),
-            self.submesh_parent.vertices.as_axis(),
-            np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
-            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
-            self._plex_to_entity_numbering_sec(stratum=0),
-            self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
-            True,
-        )
-
-    @cached_property
-    def submesh_child_exterior_facet_parent_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.exterior_facets.as_axis(),
-            self.submesh_parent.exterior_facets.as_axis(),
-            self._exterior_facet_plex_indices.indices,
-            self.submesh_parent._exterior_facet_plex_indices.indices,
-            self._old_to_new_exterior_facet_numbering,
-            self.submesh_parent._old_to_new_exterior_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_exterior_facet_parent_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.exterior_facets.as_axis(),
-            self.submesh_parent.interior_facets.as_axis(),
-            self._exterior_facet_plex_indices.indices,
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            self._old_to_new_exterior_facet_numbering,
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_interior_facet_parent_exterior_facet_map(self):
-        raise RuntimeError("Should never happen")
-
-    @cached_property
-    def submesh_child_interior_facet_parent_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.interior_facets.as_axis(),
-            self.submesh_parent.interior_facets.as_axis(),
-            self._interior_facet_plex_indices.indices,
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            self._old_to_new_interior_facet_numbering,
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_cell_parent_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.cells.as_axis(),
-            self.submesh_parent.interior_facets.as_axis(),
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            self._plex_to_entity_numbering_sec("cell"),
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_cell_parent_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.cells.as_axis(),
-            self.submesh_parent.exterior_facets.as_axis(),
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            self.submesh_parent._exterior_facet_plex_indices.indices,
-            self._plex_to_entity_numbering_sec("cell"),
-            self.submesh_parent._old_to_new_exterior_facet_numbering,
-            True,
-        )
-
-    @cached_property
-    def submesh_child_to_parent_map(self):
-        c = lambda: self.submesh_child_cell_parent_cell_map
-        f = lambda: self.submesh_child_facet_parent_facet_map
-        e = lambda: self.submesh_child_edge_parent_edge_map
-        v = lambda: self.submesh_child_vertex_parent_vertex_map
-        match self.dimension:
-            case 0:
-                maps = [c]
-            case 1:
-                maps = [c, v]
-            case 2:
-                maps = [c, e, v]
-            case 3:
-                maps = [c, f, e, v]
-
-        connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
-        return op3.Map(connectivity, name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point")
-
-    @cached_property
-    def submesh_parent_cell_child_cell_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.cells.as_axis(),
-            self.cells.as_axis(),
-            PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            self.submesh_parent._plex_to_entity_numbering_sec("cell"),
-            self._plex_to_entity_numbering_sec("cell"),
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_facet_child_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.facets.as_axis(),
-            self.facets.as_axis(),
-            np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
-            np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
-            self.submesh_parent._old_to_new_facet_numbering,
-            self._old_to_new_facet_numbering,
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_edge_child_edge_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.edges.as_axis(),
-            self.edges.as_axis(),
-            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
-            np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
-            self.submesh_parent._plex_to_entity_numbering_sec(stratum=1),
-            self._plex_to_entity_numbering_sec(stratum=1),
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_vertex_child_vertex_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.vertices.as_axis(),
-            self.vertices.as_axis(),
-            np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
-            np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
-            self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
-            self._plex_to_entity_numbering_sec(stratum=0),
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_exterior_facet_child_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.exterior_facets.as_axis(),
-            self.exterior_facets.as_axis(),
-            self.submesh_parent._exterior_facet_plex_indices.indices,
-            self._exterior_facet_plex_indices.indices,
-            self.submesh_parent._old_to_new_exterior_facet_numbering,
-            self._old_to_new_exterior_facet_numbering,
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_exterior_facet_child_interior_facet_map(self):
-        raise RuntimeError("Should never happen")
-
-    @cached_property
-    def submesh_parent_interior_facet_child_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets.as_axis(),
-            self.exterior_facets.as_axis(),
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            self._exterior_facet_plex_indices.indices,
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            self._old_to_new_exterior_facet_numbering,
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_interior_facet_child_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets.as_axis(),
-            self.interior_facets.as_axis(),
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            self._interior_facet_plex_indices.indices,
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            self._old_to_new_interior_facet_numbering,
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_exterior_facet_child_cell_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.exterior_facets.as_axis(),
-            self.cells.as_axis(),
-            self.submesh_parent._exterior_facet_plex_indices.indices,
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            self.submesh_parent._old_to_new_exterior_facet_numbering,
-            self._plex_to_entity_numbering_sec("cell"),
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_interior_facet_child_cell_map(self):
-        return self._submesh_make_entity_entity_map(
-            self.submesh_parent.interior_facets.as_axis(),
-            self.cells.as_axis(),
-            self.submesh_parent._interior_facet_plex_indices.indices,
-            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
-            self.submesh_parent._old_to_new_interior_facet_numbering,
-            self._plex_to_entity_numbering_sec("cell"),
-            False,
-        )
-
-    @cached_property
-    def submesh_parent_to_child_map(self):
-        # TODO: make this the single entry point for submesh maps
-        c = lambda: self.submesh_parent_cell_child_cell_map
-        f = lambda: self.submesh_parent_facet_child_facet_map
-        e = lambda: self.submesh_parent_edge_child_edge_map
-        v = lambda: self.submesh_parent_vertex_child_vertex_map
-        match self.dimension:
-            case 0:
-                maps = [c]
-            case 1:
-                maps = [c, v]
-            case 2:
-                maps = [c, e, v]
-            case 3:
-                maps = [c, f, e, v]
-
-        connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
-        return op3.ScalarMap(connectivity, name=f"{self.submesh_parent.name}_parent_{self.name}_child_map_point_point")
+    # @cached_property
+    # def submesh_child_to_parent_map(self):
+    #     c = lambda: self.submesh_child_cell_parent_cell_map
+    #     f = lambda: self.submesh_child_facet_parent_facet_map
+    #     e = lambda: self.submesh_child_edge_parent_edge_map
+    #     v = lambda: self.submesh_child_vertex_parent_vertex_map
+    #     match self.dimension:
+    #         case 0:
+    #             maps = [c]
+    #         case 1:
+    #             maps = [c, v]
+    #         case 2:
+    #             maps = [c, e, v]
+    #         case 3:
+    #             maps = [c, f, e, v]
+    #
+    #     connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
+    #     return op3.Map(connectivity, name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point")
+    #
+    # @cached_property
+    # def submesh_parent_cell_child_cell_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.cells.as_axis(),
+    #         self.cells.as_axis(),
+    #         PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
+    #         PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+    #         self.submesh_parent._plex_to_entity_numbering_sec("cell"),
+    #         self._plex_to_entity_numbering_sec("cell"),
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_facet_child_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.facets.as_axis(),
+    #         self.facets.as_axis(),
+    #         np.arange(*self.submesh_parent.topology_dm.getHeightStratum(1), dtype=IntType),
+    #         np.arange(*self.topology_dm.getHeightStratum(1), dtype=IntType),
+    #         self.submesh_parent._old_to_new_facet_numbering,
+    #         self._old_to_new_facet_numbering,
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_edge_child_edge_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.edges.as_axis(),
+    #         self.edges.as_axis(),
+    #         np.arange(*self.submesh_parent.topology_dm.getDepthStratum(1), dtype=IntType),
+    #         np.arange(*self.topology_dm.getDepthStratum(1), dtype=IntType),
+    #         self.submesh_parent._plex_to_entity_numbering_sec(stratum=1),
+    #         self._plex_to_entity_numbering_sec(stratum=1),
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_vertex_child_vertex_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.vertices.as_axis(),
+    #         self.vertices.as_axis(),
+    #         np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
+    #         np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
+    #         self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
+    #         self._plex_to_entity_numbering_sec(stratum=0),
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_exterior_facet_child_exterior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.exterior_facets.as_axis(),
+    #         self.exterior_facets.as_axis(),
+    #         self.submesh_parent._exterior_facet_plex_indices.indices,
+    #         self._exterior_facet_plex_indices.indices,
+    #         self.submesh_parent._old_to_new_exterior_facet_numbering,
+    #         self._old_to_new_exterior_facet_numbering,
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_exterior_facet_child_interior_facet_map(self):
+    #     raise RuntimeError("Should never happen")
+    #
+    # @cached_property
+    # def submesh_parent_interior_facet_child_exterior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         self.exterior_facets.as_axis(),
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         self._exterior_facet_plex_indices.indices,
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         self._old_to_new_exterior_facet_numbering,
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_interior_facet_child_interior_facet_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         self.interior_facets.as_axis(),
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         self._interior_facet_plex_indices.indices,
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         self._old_to_new_interior_facet_numbering,
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_exterior_facet_child_cell_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.exterior_facets.as_axis(),
+    #         self.cells.as_axis(),
+    #         self.submesh_parent._exterior_facet_plex_indices.indices,
+    #         PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+    #         self.submesh_parent._old_to_new_exterior_facet_numbering,
+    #         self._plex_to_entity_numbering_sec("cell"),
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_interior_facet_child_cell_map(self):
+    #     return self._submesh_make_entity_entity_map(
+    #         self.submesh_parent.interior_facets.as_axis(),
+    #         self.cells.as_axis(),
+    #         self.submesh_parent._interior_facet_plex_indices.indices,
+    #         PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+    #         self.submesh_parent._old_to_new_interior_facet_numbering,
+    #         self._plex_to_entity_numbering_sec("cell"),
+    #         False,
+    #     )
+    #
+    # @cached_property
+    # def submesh_parent_to_child_map(self):
+    #     # TODO: make this the single entry point for submesh maps
+    #     c = lambda: self.submesh_parent_cell_child_cell_map
+    #     f = lambda: self.submesh_parent_facet_child_facet_map
+    #     e = lambda: self.submesh_parent_edge_child_edge_map
+    #     v = lambda: self.submesh_parent_vertex_child_vertex_map
+    #     match self.dimension:
+    #         case 0:
+    #             maps = [c]
+    #         case 1:
+    #             maps = [c, v]
+    #         case 2:
+    #             maps = [c, e, v]
+    #         case 3:
+    #             maps = [c, f, e, v]
+    #
+    #     connectivity = op3.utils.merge_dicts(m().connectivity for m in maps)
+    #     return op3.ScalarMap(connectivity, name=f"{self.submesh_parent.name}_parent_{self.name}_child_map_point_point")
 
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
@@ -2906,7 +3063,7 @@ class MeshTopology(AbstractMeshTopology):
                 )
 
             if includes_exterior_facets and includes_interior_facets:
-                raise RuntimeError(f"Attempting to target a mix of interior and exterior facets")
+                raise RuntimeError("Attempting to target a mix of interior and exterior facets")
             elif includes_exterior_facets:
                 target_integral_type = "exterior_facet"
             elif includes_interior_facets:
@@ -2916,10 +3073,19 @@ class MeshTopology(AbstractMeshTopology):
                 raise RuntimeError("Can not find a map from source to target.")
         else:
             raise NotImplementedError
+
         if reverse:
-            map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
+            child_integral_type = target_integral_type
+            parent_integral_type = source_integral_type
+            map_ = self._submesh_make_entity_entity_map(
+                child_integral_type, parent_integral_type, False
+            )
         else:
-            map_ = getattr(self, f"submesh_child_{source_integral_type}_parent_{target_integral_type}_map")
+            child_integral_type = source_integral_type
+            parent_integral_type = target_integral_type
+            map_ = self._submesh_make_entity_entity_map(
+                child_integral_type, parent_integral_type, True
+            )
         return map_, target_integral_type, target_subset_points
 
     # trans mesh
@@ -2940,7 +3106,7 @@ class MeshTopology(AbstractMeshTopology):
         parent_to_submesh_map[submesh_to_parent_map] = np.arange(submesh_to_parent_map.size, dtype=IntType)
         return parent_to_submesh_map
 
-    def trans_mesh_entity_map(self, iter_spec):
+    def trans_mesh_entity_map(self, loop_index):
         """Create entity-entity (composed) map from base_mesh to `self`.
 
         Parameters
@@ -2960,9 +3126,9 @@ class MeshTopology(AbstractMeshTopology):
             `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
 
         """
-        base_mesh = iter_spec.mesh
-        base_integral_type = iter_spec.integral_type
-        base_plex_points = iter_spec.plex_indices.indices
+        base_mesh = loop_index.mesh
+        base_integral_type = loop_index.integral_type
+        base_plex_points = loop_index.plex_indices
 
         common = self.submesh_youngest_common_ancestor(base_mesh)
         if common is None:
@@ -2970,12 +3136,9 @@ class MeshTopology(AbstractMeshTopology):
         elif base_mesh is self:
             raise NotImplementedError("Currently cannot return identity map")
         composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_plex_points)
-        # poor man's reduce
-        # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
-        map_ = iter_spec.loop_index
         for map2 in composed_map:
-            map_ = map2(map_)
-        return map_, integral_type
+            loop_index = map2(loop_index)
+        return loop_index, integral_type
 
     @cached_property
     def _visible_ranks(self):
@@ -3201,7 +3364,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return PETSc.IS().createGeneral(indices, comm=MPI.COMM_SELF)
 
     @cached_property
-    def _entity_indices(self):
+    def _stratum_indices_renum(self):
         # First get the indices of the right entity type. This is more complicated
         # for extruded meshes because the different facet types are not natively
         # distinguished.
@@ -3309,63 +3472,24 @@ class ExtrudedMeshTopology(MeshTopology):
     # {{{ facet iteration
 
     @cached_property
-    def exterior_facets(self) -> NoReturn:
-        raise TypeError(
-            "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert', "
-            "'exterior_facets_top' or 'exterior_facets_bottom' instead"
-        )
-
-    @cached_property
-    def interior_facets(self) -> NoReturn:
-        raise TypeError(
-            "Cannot use 'interior_facets' for extruded meshes, use 'interior_facets_vert' "
-            "or 'interior_facets_horiz instead"
-        )
-
-    @cached_property
     def exterior_facets_top(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(
-            self._exterior_facet_top_plex_indices,
-            self._old_to_new_facet_horiz_numbering,
-            self.facet_horiz_label,
-        )
-        return self.points[subset]
+        return self._entity_axes("exterior_facet_top")
 
     @cached_property
     def exterior_facets_bottom(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(
-            self._exterior_facet_bottom_plex_indices,
-            self._old_to_new_facet_horiz_numbering,
-            self.facet_horiz_label,
-        )
-        return self.points[subset]
+        return self._entity_axes("exterior_facet_bottom")
 
     @cached_property
     def exterior_facets_vert(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(
-            self._exterior_facet_vert_plex_indices,
-            self._old_to_new_facet_vert_numbering,
-            self.facet_vert_label,
-        )
-        return self.points[subset]
+        return self._entity_axes("exterior_facet_vert")
 
     @cached_property
     def interior_facets_horiz(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(
-            self._interior_facet_horiz_plex_indices,
-            self._old_to_new_facet_horiz_numbering,
-            self.facet_horiz_label,
-        )
-        return self.points[subset]
+        return self._entity_axes("interior_facet_horiz")
 
     @cached_property
     def interior_facets_vert(self) -> op3.IndexedAxisTree:
-        subset = self._facet_subset(
-            self._interior_facet_vert_plex_indices,
-            self._old_to_new_facet_vert_numbering,
-            self.facet_vert_label,
-        )
-        return self.points[subset]
+        return self._entity_axes("interior_facet_vert")
 
     @property
     @utils.deprecated()
@@ -3935,14 +4059,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return 0
 
-    @cached_property
-    def cells(self):
-        # Need to be more verbose as we don't want to consume the axis
-        # return self.points[self.cell_label]
-        # This may no longer be needed
-        cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
-        return self.points[cell_slice]
-
     @cached_property  # TODO: Recalculate if mesh moves
     @utils.deprecated("cells.owned")
     def cell_set(self):
@@ -3972,10 +4088,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @property
     def vert_label(self):
         return 0
-
-    @cached_property
-    def _entity_indices(self):
-        raise NotImplementedError
 
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
