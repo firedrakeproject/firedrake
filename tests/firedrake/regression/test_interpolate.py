@@ -192,7 +192,7 @@ def test_restricted_extruded_interval():
     for expr in exprs:
         uf.interpolate(expr)
         ui.interpolate(expr)
-        assert norm(expr - (uf + ui)) < 1E-12
+        assert norm(expr - (uf + ui)) < (1e-7 if single_mode else 1e-12)
 
 
 def test_hdiv_extruded_interval():
@@ -264,7 +264,7 @@ def test_hcurl_2d():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data, h.dat.data, atol=1e-5 if single_mode else 1e-8)
 
 
 def test_cell_orientation():

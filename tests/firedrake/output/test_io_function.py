@@ -23,7 +23,7 @@ def autouse_garbage_cleanup(garbage_cleanup):
 
 def _initialise_function(f, _f, method):
     if method == "project":
-        ksp_rtol = 1.e-6 if single_mode else 1.e-16
+        ksp_rtol = 1e-6 if single_mode else 1e-16
         getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": ksp_rtol})
     else:
         getattr(f, method)(_f)
@@ -148,7 +148,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     VB = fB.function_space()
     fBe = Function(VB)
     _initialise_function(fBe, _get_expr(VB), method)
-    assert assemble(inner(fB - fBe, fB - fBe) * dx) < (1e-4 if single_mode else 6.e-12)
+    assert assemble(inner(fB - fBe, fB - fBe) * dx) < (1e-4 if single_mode else 6e-12)
     # Save
     with CheckpointFile(filename, 'w', comm=comm) as afile:
         afile.save_function(fB)
@@ -241,7 +241,7 @@ def test_io_function_real(cell_type, tmpdir):
                 meshB = afile.load_mesh(mesh_name)
                 fB = afile.load_function(meshB, func_name)
             valueB = fB.dat.data.item()
-            assert abs(valueB - valueA) < (1e-6 if single_mode else 1.e-16)
+            assert abs(valueB - valueA) < (1e-6 if single_mode else 1e-16)
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
         comm.Free()
@@ -310,7 +310,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
             fBe0, fBe1 = fBe.subfunctions
             _initialise_function(fBe0, _get_expr(VB[0]), method)
             fBe1.dat.data[...] = 3.14
-            assert assemble(inner(fB - fBe, fB - fBe) * dx) < (1e-4 if single_mode else 1.e-16)
+            assert assemble(inner(fB - fBe, fB - fBe) * dx) < (1e-4 if single_mode else 1e-16)
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
         comm.Free()

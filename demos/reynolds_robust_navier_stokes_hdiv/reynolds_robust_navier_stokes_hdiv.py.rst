@@ -194,6 +194,7 @@ which is necessary for vertex-star relaxation in parallel. ::
 
   from firedrake import *
   from firedrake.petsc import PETSc
+  from firedrake.utils import single_mode
   from collections.abc import Iterable
 
   print = PETSc.Sys.Print
@@ -339,15 +340,15 @@ exact. ::
       'snes_monitor': None,
       'snes_converged_reason': None,
       'snes_max_it': 20,
-      'snes_atol': 1e-8,
-      'snes_rtol': 1e-12,
+      'snes_atol': 1e-6 if single_mode else 1e-8,
+      'snes_rtol': 1e-6 if single_mode else 1e-12,
       'snes_stol': 1e-06,
       'ksp_type': 'fgmres',
       'ksp_converged_reason': None,
       'ksp_monitor_true_residual': None,
       'ksp_max_it': 30,
-      'ksp_atol': 1e-08,
-      'ksp_rtol': 1e-10,
+      'ksp_atol': 1e-6 if single_mode else 1e-08,
+      'ksp_rtol': 1e-6 if single_mode else 1e-10,
       'pc_type': 'fieldsplit',
       'pc_fieldsplit_type': 'schur',
       'pc_fieldsplit_schur_factorization_type': 'full',

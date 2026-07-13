@@ -330,8 +330,8 @@ def test_fieldsplit():
         },
         'fieldsplit_1': {
             'ksp_type': 'cg',
-            'ksp_rtol': 1e-9,
-            'ksp_atol': 1e-9,
+            'ksp_rtol': 1e-6 if single_mode else 1e-9,
+            'ksp_atol': 1e-6 if single_mode else 1e-9,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
             'Mp_pc_type': 'lu',
@@ -360,4 +360,6 @@ def test_fieldsplit():
 
     rg = RandomGenerator(PCG64(seed=0))
     h = rg.uniform(A)
+    if single_mode:
+        h *= 100.0
     assert taylor_test(Jhat, rho, h) > 1.9
