@@ -497,7 +497,7 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form0_cell_integral" in str(self):
+        # if "form" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 

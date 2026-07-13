@@ -599,6 +599,7 @@ class AbstractMeshTopology(abc.ABC):
     @cached_method()
     def _stratum_indices_renum(self, stratum: int) -> np.ndarray:
         p_start, p_end = self.topology_dm.getDepthStratum(stratum)
+        renumbering = self._old_to_new_point_renumbering.indices
         return readonly(np.sort(renumbering[p_start:p_end]))
 
     @property
@@ -654,12 +655,13 @@ class AbstractMeshTopology(abc.ABC):
     def _global_old_to_new_vertex_numbering(self) -> PETSc.Section:
         # NOTE: This will return negative entries for ghosts
 
-        return self._old_to_new_vertex_numbering.createGlobalSection(self.point_sf.sf)
+        return self._plex_to_entity_numbering_sec(stratum=0).createGlobalSection(self.point_sf.sf)
 
     @cached_method()
     def _entity_indices_is(
         self,
         base: Literal["plex"],
+        _selector: str | int | tuple[int, ...] | None = None,
         *,
         name: str | None = None,
         dim: int | tuple[int, ...] | None = None,
@@ -667,17 +669,27 @@ class AbstractMeshTopology(abc.ABC):
     ) -> PETSc.IS:
         if base not in {"plex", "plex_renum"}:
             raise NotImplementedError
-        if sum(x is not None for x in [name, dim, stratum]) != 1:
+        if sum(x is not None for x in [_selector, name, dim, stratum]) != 1:
             raise ValueError(
-                "Only one of 'name', 'dim' or 'stratum' may be specified"
+                "Only one of '_selector', 'name', 'dim' or 'stratum' may be specified"
             )
+
+        if isinstance(_selector, str):
+            name = _selector
+        else:
+            dim = _selector
 
         match base:
             case "plex":
                 if name is not None:
                     return self._entity_indices_plex_by_name(name)
                 elif dim is not None:
-                    ...
+                    if not isinstance(self, ExtrudedMeshTopology):
+                        # strata and dims are the same
+                        return self._entity_indices_is("plex", stratum=dim)
+                    else:
+                        # dims are tuples, need to think
+                        raise NotImplementedError
                 else:
                     p_start, p_end = self.topology_dm.getDepthStratum(stratum)
                     return _make_is_stride(p_start, p_end)
@@ -687,17 +699,17 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_indices_plex_by_name(self, name: str) -> PETSc.IS:
         match name:
             case "cell":
-                return self._entity_indices(
+                return self._entity_indices_is(
                     base="plex", stratum=self.dimension
                 )
 
             case "exterior_facet":
-                return _make_general(
+                return _make_is_general(
                     dmcommon.facets_with_label(self, "exterior_facets")
                 )
 
             case "interior_facet":
-                return _make_general(
+                return _make_is_general(
                     dmcommon.facets_with_label(self, "interior_facets")
                 )
 
@@ -771,61 +783,39 @@ class AbstractMeshTopology(abc.ABC):
         stratum: int | None = None,
     ) -> np.ndarray:
         return readonly(
-            self._entity_indices_is(*args, **kwargs).indices
+            self._entity_indices_is(base, name=name, dim=dim, stratum=stratum).indices
         )
 
     @property
     @utils.deprecated()
     def _cell_plex_indices(self) -> PETSc.IS:
-        return self._entity_indices("plex", name="cell")
+        return self._entity_indices_is("plex", name="cell")
 
     @property
     @utils.deprecated()
     def _exterior_facet_plex_indices(self) -> PETSc.IS:
-        return self._entity_indices("plex", name="exterior_facet")
+        return self._entity_indices_is("plex", name="exterior_facet")
 
     @property
     @utils.deprecated()
     def _interior_facet_plex_indices(self) -> PETSc.IS:
-        return self._entity_indices("plex", name="exterior_facet")
+        return self._entity_indices_is("plex", name="interior_facet")
 
     @cached_method()
     def _plex_to_entity_numbering_sec(
         self,
+        _selector: str | int | tuple[int, ...] | None = None,
         *,
         name: str | None = None,
         dim: int | tuple[int, ...] | None = None,
         stratum: int | None = None,
     ) -> PETSc.Section:
-        if sum(x is not None for x in [name, dim, stratum]) != 1:
-            raise ValueError(
-                "Only one of 'name', 'dim' or 'stratum' may be specified"
-            )
-
-        if name is not None:
-            return self._plex_to_entity_numbering_sec_by_name(name)
-        elif dim is not None:
-            raise NotImplementedError
-        else:
-            return dmcommon.entity_numbering(
-                self._entity_indices_is("plex", stratum=stratum)
-                self._new_to_old_point_renumbering,
-                self.comm,
-            )
-
-    def _plex_to_entity_numbering_sec_by_name(self, name: str) -> PETSc.Section:
-        match name:
-            case "cell":
-                return self._plex_to_entity_numbering_sec(stratum=self.dimension)
-
-            case "exterior_facet":
-                return dmcommon.entity_numbering(self._exterior_facet_plex_indices, self._new_to_old_point_renumbering, self.comm)
-
-            case "interior_facet":
-                return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering, self.comm)
-
-            case _:
-                raise NotImplementedError
+        plex_indices_is = self._entity_indices_is(
+            "plex", _selector=_selector, name=name, dim=dim, stratum=stratum
+        )
+        return dmcommon.entity_numbering(
+            plex_indices_is, self._new_to_old_point_renumbering, self.comm
+        )
 
     @property
     @utils.deprecated("_plex_to_entity_numbering_sec('cell')")
@@ -846,11 +836,6 @@ class AbstractMeshTopology(abc.ABC):
     @utils.deprecated()
     def _old_to_new_interior_facet_numbering(self):
         return self._plex_to_entity_numbering_sec(name="interior_facet")
-
-    @cached_property
-    @utils.deprecated()
-    def _old_to_new_vertex_numbering(self) -> PETSc.Section:
-        return self._plex_to_entity_numbering_sec(stratum=0)
 
     # below need cleaning up
 
@@ -2615,8 +2600,8 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.vertices.as_axis(),
             np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
             np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
-            self._old_to_new_vertex_numbering,
-            self.submesh_parent._old_to_new_vertex_numbering,
+            self._plex_to_entity_numbering_sec(stratum=0),
+            self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
             True,
         )
 
@@ -2746,8 +2731,8 @@ class MeshTopology(AbstractMeshTopology):
             self.vertices.as_axis(),
             np.arange(*self.submesh_parent.topology_dm.getDepthStratum(0), dtype=IntType),
             np.arange(*self.topology_dm.getDepthStratum(0), dtype=IntType),
-            self.submesh_parent._old_to_new_vertex_numbering,
-            self._old_to_new_vertex_numbering,
+            self.submesh_parent._plex_to_entity_numbering_sec(stratum=0),
+            self._plex_to_entity_numbering_sec(stratum=0),
             False,
         )
 
