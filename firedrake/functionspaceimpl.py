@@ -581,7 +581,7 @@ class FunctionSpace:
         self._mesh = mesh
 
         if isinstance(self._mesh, VertexOnlyMeshTopology):
-            # Store the mesh topology version the FS was defined on
+            # Store the topology version of the VOM the FS was built against
             self._vom_topology_version = self._mesh._topology_version
 
         self.value_size = self._ufl_function_space.value_size
@@ -609,7 +609,8 @@ class FunctionSpace:
         degrees of freedom."""
         self.node_set = self.dof_dset.set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-    
+
+
     @property
     def _shared_data(self):
         if hasattr(self, "_vom_topology_version") \
@@ -731,7 +732,6 @@ class FunctionSpace:
             self._ises_cache = self.dof_dset.field_ises
             return self._ises_cache
 
-    # TODO: use cache property then invalidate using Python's mechanism
     # @cached_property
     @property
     def cell_node_list(self):
@@ -807,18 +807,21 @@ class FunctionSpace:
         return MixedFunctionSpace((self, other))
 
     # @cached_property
+    # No gains from caching so recompute
     @property
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
+        _ = self._shared_data # trigger version check which may delete the cache
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
         return self.node_set.total_size - len(constrained_node_set)
 
     # @cached_property
+    # No gains from caching so recompute
     @property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this

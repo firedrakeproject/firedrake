@@ -370,13 +370,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             FS_topo, val=None, name=self.name(), dtype=self._data.dat.dtype
         )
 
-        # If the new topology is empty, just swap in the empty data and return
-        if self._mesh_topo.num_vertices() == 0:
-            self._data = new_data
-            self._expression_cache.clear()
-            self._mesh_topology_version = current_version
-            return
-
         # Save old function values
         dim = FS_topo.value_size
         old_func_vals = self._data.dat.data_ro.copy()
@@ -408,22 +401,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         # The old function values are defined at the roots so we use a bcast operation 
         # to move them to the dofs at the leaves
         new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype)
-
-        # for c in range(dim):
-        #     root_c = np.ascontiguousarray(old_func_vals_normalized[:, c])
-        #     leaf_c = np.empty(nleaves, dtype=root_c.dtype)
-
-        #     # Get the MPI data type associated with each node in the SF 
-        #     unit = MPI._typedict[np.dtype(root_c.dtype).char]
-
-        #     # Bcast old (root) values into new (leaf) positions
-        #     # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
-        #     # and (input_rank, input_index) an offset into the root buffer
-        #     # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
-        #     latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
-        #     latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
-
-        #     new_func_vals[:, c] = leaf_c
 
         root = np.ascontiguousarray(old_func_vals_normalized) # (nroots, dim)
         leaf = np.empty((nleaves, dim), dtype=root.dtype)

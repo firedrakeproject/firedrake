@@ -4662,6 +4662,9 @@ def _parent_mesh_embedding(
             coords_global = np.empty(
                 (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
             )
+
+            # NOTE: GATHER: coords_global is the concatenation of each rank's supplied coordinates
+            # -> now all ranks know of all points
             icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
             # # ncoords_local_allranks is in rank order so we can just sum up the
             # # previous ranks to get the starting index for the global numbering.
@@ -4680,11 +4683,14 @@ def _parent_mesh_embedding(
             icomm.Allgatherv(
                 input_ranks_local, (input_ranks_global, ncoords_local_allranks)
             )
+    
+    # NOTE: GLOBAL SEARCH: each rank runs point location for all particles against its own partition.
     (
         parent_cell_nums,
         reference_coords,
         ref_cell_dists_l1,
     ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    
     assert len(parent_cell_nums) == ncoords_global
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
@@ -4734,6 +4740,8 @@ def _parent_mesh_embedding(
 
     changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
     changed_ranks = owned_ranks != ranks
+
+    # NOTE: at this point all ranks agree on ownership i.e., which rank owns each particle.
 
     # If distance has changed the the point is not in local mesh partition
     # since some other cell on another rank is closer.
