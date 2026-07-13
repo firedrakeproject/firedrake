@@ -2053,7 +2053,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
+
+        self._topology_version = 0
+        self._topology_step_sfs = {}
+
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+
+    # @property
+    # def topology_version(self):
+    #     return self._topology_version
 
     def _distribute(self):
         pass

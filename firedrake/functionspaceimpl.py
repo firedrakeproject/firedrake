@@ -19,7 +19,7 @@ from pyop2 import op2
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks
-from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
+from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry, VertexOnlyMeshTopology
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -101,6 +101,7 @@ class WithGeometryBase:
                 raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
 
         function_space = function_space.topological
+
         assert mesh.topology == function_space.mesh()
         assert mesh.topology != mesh
 
@@ -185,11 +186,28 @@ class WithGeometryBase:
         data = self.subspaces if mixed else self._components
         return data[i]
 
-    @cached_property
+    # @cached_property
+    # def dm(self):
+    #     dm = self._dm()
+    #     dmhooks.set_function_space(dm, self)
+    #     return dm
+    
+    @property
     def dm(self):
-        dm = self._dm()
+        current_version = getattr(self.topological.mesh(), "_topology_version", None)
+        try:
+            if self._wg_dm_version == current_version:
+                # always returns for meshes that are not VOMs
+                return self._wg_dm_cache
+        except AttributeError:
+            pass
+        # For VOMs: trigger a rebuild when the versions don't match
+        dm = self.topological.dm
         dmhooks.set_function_space(dm, self)
+        self._wg_dm_version = current_version
+        self._wg_dm_cache = dm
         return dm
+
 
     @property
     def num_work_functions(self):
@@ -328,8 +346,11 @@ class WithGeometryBase:
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
+        # Always fetch attributes from the topological FS
         val = getattr(self.topological, name)
-        setattr(self, name, val)
+        # Avoid caching if the topological FS is a VOM as we expect it to be changing
+        if not hasattr(self.topological, "_vom_topology_version"):
+            setattr(self, name, val)
         return val
 
     def __dir__(self):
@@ -559,6 +580,10 @@ class FunctionSpace:
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
 
+        if isinstance(self._mesh, VertexOnlyMeshTopology):
+            # Store the topology version of the VOM the FS was built against
+            self._vom_topology_version = self._mesh._topology_version
+
         self.value_size = self._ufl_function_space.value_size
         r"""The number of scalar components of this :class:`FunctionSpace`."""
 
@@ -577,11 +602,36 @@ class FunctionSpace:
         self.comm = mesh.comm
 
         self.set_shared_data()
+        r"""The topology version of the mesh on which the function space is defined."""
+
         self.dof_dset = self.make_dof_dset()
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
         self.node_set = self.dof_dset.set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+
+
+    @property
+    def _shared_data(self):
+        if hasattr(self, "_vom_topology_version") \
+            and self._vom_topology_version != self._mesh._topology_version:
+            self.refresh_shared_data()
+        return self.__shared_data
+
+
+    def refresh_shared_data(self):
+        if getattr(self, "_vom_topology_version", None) == self._mesh._topology_version:
+            return
+        sdata = get_shared_data(self._mesh, self.ufl_element())
+        self.__shared_data = sdata
+        self._vom_topology_version = self._mesh._topology_version
+        self.global_numbering = sdata.global_numbering
+        self.dof_dset = self.make_dof_dset()
+        self.node_set = self.dof_dset.set
+        for name in ("_dm_cache", "_cell_node_list_cache", "_ises_cache"):
+            if name in self.__dict__:
+                del self.__dict__[name]
+
 
     def set_shared_data(self):
         element = self.ufl_element()
@@ -591,7 +641,7 @@ class FunctionSpace:
         self.finat_element = create_element(element)
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
-        self._shared_data = sdata
+        self.__shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
@@ -636,12 +686,29 @@ class FunctionSpace:
     def _ad_parent_space(self):
         return self.parent
 
-    @cached_property
+    # @cached_property
+    @property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
+        # dm = self._dm()
+        # dmhooks.set_function_space(dm, self)
+        # return dm
+
+        # Trigger version check every time this property is accessed which may delete 
+        # the cache and force a rebuild with updated shared data (provided one exists)
+        try:
+            _ = self._shared_data
+        except AttributeError:
+            # Some FS such as RealFunctionSpace don't have shared data
+            pass
+        try:
+            return self._dm_cache
+        except AttributeError:
+            dm = self._dm()
+            dmhooks.set_function_space(dm, self)
+            self._dm_cache = dm
+            return self._dm_cache
+        
 
     def _dm(self):
         from firedrake.mg.utils import get_level
@@ -654,14 +721,28 @@ class FunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @cached_property
+    # @cached_property
+    @property
     def _ises(self):
-        return self.dof_dset.field_ises
+        # return self.dof_dset.field_ises
+        _ = self._shared_data # trigger version check which may delete the cache
+        try:
+            return self._ises_cache
+        except AttributeError:
+            self._ises_cache = self.dof_dset.field_ises
+            return self._ises_cache
 
-    @cached_property
+    # @cached_property
+    @property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
-        return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        # return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        _ = self._shared_data # trigger version check which may delete the cache
+        try:
+            return self._cell_node_list_cache
+        except AttributeError:
+            self._cell_node_list_cache = self._shared_data.entity_node_lists[self.mesh().cell_set]
+            return self._cell_node_list_cache
 
     @cached_property
     def topological(self):
@@ -725,18 +806,23 @@ class FunctionSpace:
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @cached_property
+    # @cached_property
+    # No gains from caching so recompute
+    @property
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
+        _ = self._shared_data # trigger version check which may delete the cache
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
         return self.node_set.total_size - len(constrained_node_set)
 
-    @cached_property
+    # @cached_property
+    # No gains from caching so recompute
+    @property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
