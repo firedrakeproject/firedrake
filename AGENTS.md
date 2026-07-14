@@ -206,7 +206,7 @@ the last two localize a failure before reading code.
   without debug symbols, so a debugger attached to the Python process cannot meaningfully step through
   it. Set `PYOP2_DEBUG=1` to compile with `-O0 -g` instead, which is the prerequisite for using
   `gdb`/`cgdb` on the compiled kernel at all.
-* **Cross-rank code-generation mismatches:** If a parallel run raises `CompilationError: Generated code
+* **Cross-rank code-generation mismatches (niche, rarely needed):** If a parallel run raises `CompilationError: Generated code
   differs across ranks`, the mismatching per-rank source is dumped under
   `<cache_dir>/mismatching-kernels/src-rank*.c`. Diffing the two sources only tells you *what* differs;
   the actual fix is almost always upstream of that, in whatever Python-level parameter or branch is
