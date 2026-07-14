@@ -14,3 +14,5 @@ setuptools>=77.0.3
 hatchling
 meson-python
 scikit_build_core
+maturin>=1.12,<2.0
+puccinialin
