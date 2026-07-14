@@ -922,7 +922,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
-            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -944,8 +943,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         extra_petsc_configure_options=[
             "--with-bison",
             "--with-fftw",
-            "--with-hdf5-include=/usr/include/hdf5/openmpi",
-            "--with-hdf5-lib=[/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.so,/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5_hl.so]",
+            "--with-hdf5",
             "--with-hwloc",
             "--with-metis",
             "--with-mumps",
@@ -962,9 +960,13 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
+            "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
     ),
 
@@ -982,7 +984,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
-            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -1005,8 +1006,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-scalar-type=complex",
             "--with-bison",
             "--with-fftw",
-            "--with-hdf5-include=/usr/include/hdf5/openmpi",
-            "--with-hdf5-lib=[/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.so,/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5_hl.so]",
+            "--with-hdf5",
             "--with-hwloc",
             "--with-metis",
             "--with-mumps",
@@ -1022,9 +1022,13 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
+            "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
         ],
     ),
 
@@ -1044,7 +1048,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
-            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -1066,8 +1069,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         extra_petsc_configure_options=[
             "--with-bison",
             "--with-fftw",
-            "--with-hdf5-include=/usr/include/hdf5/openmpi",
-            "--with-hdf5-lib=[/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.so,/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5_hl.so]",
+            "--with-hdf5",
             "--with-hwloc",
             "--with-metis",
             "--with-mumps",
@@ -1084,9 +1086,13 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
+            "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
         ],
     ),
 
@@ -1104,7 +1110,6 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "pkg-config",
             "python3-dev",
             "python3-pip",
-            "zlib1g-dev",
 
             # PETSc external packages
             "libfftw3-dev",
@@ -1127,8 +1132,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-scalar-type=complex",
             "--with-bison",
             "--with-fftw",
-            "--with-hdf5-include=/usr/include/hdf5/openmpi",
-            "--with-hdf5-lib=[/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.so,/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5_hl.so]",
+            "--with-hdf5",
             "--with-hwloc",
             "--with-metis",
             "--with-mumps",
@@ -1144,9 +1148,13 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         cxxflags=["-O3", "-march=native", "-mtune=native"],
         fflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
+            "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
         ],
     ),
 }
