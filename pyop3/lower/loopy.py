@@ -38,6 +38,8 @@ from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent,
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.dtypes import IntType
 from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
+from pyop3.lower.context import CodegenContext
+from pyop3.lower.mlir import MLIRCodegenContext # to remove
 from pyop3.insn.base import (
     Intent,
     INC,
@@ -67,59 +69,15 @@ from pyop3.insn.exec import parse_compiler_parameters
 LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
 
-
-class CodegenContext(abc.ABC):
-    pass
-
 class LoopyCodegenContext(CodegenContext):
     def __init__(self, *, check_negatives):
-        self.check_negatives = check_negatives
-
-        self._domains = []
-        self._instructions = []
-        self._arguments = []
-        self._subkernels = []
+        super().__init__(check_negatives=check_negatives)
 
         self._within_inames = frozenset()
         self._last_insn_id = None
 
-        self._name_generator = utils.UniqueNameGenerator()
-
-        # buffer name -> name in kernel
-        self._kernel_names = {}
-
-        # buffer name -> buffer
-        self.global_buffers = {}
-        self.global_buffer_intents = {}
-
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
-
-        # assignee name -> indirection expression
-        self._assignees = {}
-
-    @property
-    def domains(self) -> tuple:
-        return tuple(self._domains)
-
-    @property
-    def instructions(self) -> tuple:
-        return tuple(self._instructions)
-
-    @property
-    def arguments(self) -> tuple:
-        return tuple(sorted(self._arguments, key=lambda arg: arg.name))
-
-    @property
-    def subkernels(self) -> tuple:
-        return tuple(self._subkernels)
-
-    def __str__(self) -> str:
-        ctx = f"Domain: {str(self.domains)}\n\n"
-        ctx += f"Instructions: {str(self.instructions)}\n\n"
-        ctx += f"Arguments: {str(self.arguments)}\n\n"
-        ctx += f"Subkernels: {str(self.subkernels)}\n\n"
-        return ctx 
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -238,7 +196,7 @@ class LoopyCodegenContext(CodegenContext):
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
-
+            
             self.global_buffers[buffer_key] = buffer
             self.global_buffer_intents[buffer_key] = intent
             self._arguments.append(loopy_arg)
@@ -287,9 +245,6 @@ class LoopyCodegenContext(CodegenContext):
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
-    def unique_name(self, prefix):
-        return self._name_generator(prefix)
-
     @contextlib.contextmanager
     def within_inames(self, inames) -> None:
         orig_within_inames = self._within_inames
@@ -301,13 +256,6 @@ class LoopyCodegenContext(CodegenContext):
     def set_temporary_shapes(self, shapes):
         self._temporary_shapes = shapes
 
-    @property
-    def _depends_on(self):
-        return frozenset({self._last_insn_id}) - {None}
-
-    def _add_instruction(self, insn):
-        self._instructions.append(insn)
-        self._last_insn_id = insn.id
 
 
 class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
@@ -450,7 +398,8 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         cs_expr = (insn,)
 
     context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
-    breakpoint()
+    mlir_context = MLIRCodegenContext(check_negatives=compiler_parameters.check_negatives)
+
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -465,7 +414,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
-            breakpoint()
 
     if not context.global_buffers:
         raise pyop3.exceptions.EffectlessComputationException(
@@ -488,6 +436,8 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
     ]
+
+    breakpoint()
 
     translation_unit = lp.make_kernel(
         context.domains,
@@ -870,7 +820,6 @@ def compile_array_assignment(
             continue
         elif component.size != 1:
             iname = codegen_context.unique_name("i")
-
             extent_var = register_extent(
                 component.size,
                 iname_replace_maps[-1],

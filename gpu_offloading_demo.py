@@ -10,7 +10,6 @@ g = Function(V)
 gpu = op3.CUDAGPU()
 
 g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile")
-print("DONE ASSIGN OPERATION\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
 # with op3.offloading(gpu):
 # 	g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile")
 # 	assert isinstance(g.dat.data_ro, cp.ndarray) # Device
