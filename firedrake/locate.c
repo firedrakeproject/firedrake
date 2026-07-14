@@ -6,7 +6,6 @@
 
 int locate_cell_from_candidates(struct Function *f,
         double *x,
-        int dim,
         ref_cell_l1_dist try_candidate,
         ref_cell_l1_dist_xtr try_candidate_xtr,
         void *temp_ref_coords,

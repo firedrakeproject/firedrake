@@ -189,7 +189,7 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
         rtree_free_ids(ids, nids);
         return -1;
     }
-    %(IntType)s cell = locate_cell_from_candidates(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr,
+    %(IntType)s cell = locate_cell_from_candidates(f, x, &to_reference_coords, &to_reference_coords_xtr,
             &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1,
             nids, ids, 1, cells_ignore);
     rtree_free_ids(ids, nids);
