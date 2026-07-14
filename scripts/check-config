@@ -97,8 +97,8 @@ def check_zlib_declared() -> None:
         for arch_key, arch in all_archs.items()
         if "--with-zlib" in arch.extra_petsc_configure_options
         and (arch.system_packages is None
-             or arch.system_packages is not None
-             and "zlib1g-dev" not in arch.system_packages)
+             or (arch.system_packages is not None
+             and "zlib1g-dev" not in arch.system_packages))
     ]
     if offenders:
         raise InvalidConfigurationException(
