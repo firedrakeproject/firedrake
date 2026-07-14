@@ -380,8 +380,6 @@ For Homebrew it is sometimes useful to run the command::
 as this can flag issues with your system that should be resolved before
 installing Firedrake.
 
-Unable to configure PETSc on macOS
-
 Authorization required, but no authorization protocol specified
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
