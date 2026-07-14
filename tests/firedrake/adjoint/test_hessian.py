@@ -82,14 +82,17 @@ def test_mixed_derivatives(rg):
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, [control_f, control_g])
 
-    # Direction to take a step for convergence test
-    h = rg.uniform(V)
+    # fp32: independent h_f/h_g directions give a stable Taylor rate,
+    # unlike reusing one h for both controls.
+    h_f = rg.uniform(V)
+    h_g = rg.uniform(V)
     if single_mode:
-        h *= 15.0
+        h_f *= 8.0
+        h_g *= 8.0
 
     # Evaluate TLM
-    control_f.tlm_value = h
-    control_g.tlm_value = h
+    control_f.tlm_value = h_f
+    control_g.tlm_value = h_g
     tape.evaluate_tlm()
 
     # Evaluate Adjoint
@@ -101,9 +104,9 @@ def test_mixed_derivatives(rg):
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    Hm = control_f.hessian_value.dat.inner(h.dat) + control_g.hessian_value.dat.inner(h.dat)
+    Hm = control_f.hessian_value.dat.inner(h_f.dat) + control_g.hessian_value.dat.inner(h_g.dat)
 
-    assert taylor_test(Jhat, [f, g], [h, h], dJdm, Hm) > 2.9
+    assert taylor_test(Jhat, [f, g], [h_f, h_g], dJdm, Hm) > 2.9
 
 
 @pytest.mark.skipcomplex

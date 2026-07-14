@@ -165,7 +165,10 @@ def test_tao_simple_inversion(minimize, riesz_representation):
     rf = ReducedFunctional(J, c)
 
     x = minimize(rf)
-    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
+    # fp32: near a zero-crossing of source_ref, a small absolute error
+    # blows up in relative terms; atol=0 (numpy default) doesn't allow for
+    # that headroom.
+    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2, atol=5e-3 if single_mode else 0)
 
 
 class TransformType(Enum):
@@ -263,6 +266,7 @@ class TransformBlock(Block):
         return transform(v, *self._args, **self._kwargs)
 
 
+@pytest.mark.skipsingle  # fp32: SLEPc's Krylov matrix-sqrt hits a spurious real negative eigenvalue from round-off, independent of mfn_tol/ncv/orthogonalization settings
 @pytest.mark.skipslepc
 @pytest.mark.parametrize("tao_type", ["lmvm",
                                       "blmvm"])

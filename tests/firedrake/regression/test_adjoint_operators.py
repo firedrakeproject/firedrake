@@ -5,6 +5,7 @@ from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def test_interpolate_constant():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(c))
 
-    assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, c, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -80,6 +81,8 @@ def test_interpolate_with_arguments(rg):
     rf = ReducedFunctional(J, Control(f))
 
     h = rg.uniform(V1)
+    if single_mode:
+        h *= 100.0
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -175,8 +178,9 @@ def test_interpolate_tlm_with_constant():
 
     tape = get_working_tape()
     tape.evaluate_tlm()
-    assert abs(J.block_variable.tlm_value - 2.0) < 1e-5
-    assert taylor_test(rf, c, Function(R, val=1.0), dJdm=J.block_variable.tlm_value) > 1.9
+    assert abs(J.block_variable.tlm_value - 2.0) < (1e-3 if single_mode else 1e-5)
+    h_val = 100.0 if single_mode else 1.0
+    assert taylor_test(rf, c, Function(R, val=h_val), dJdm=h_val * J.block_variable.tlm_value) > 1.9
 
     # test tlm w.r.t constant c and function f:
     tape.reset_tlm_values()
@@ -184,7 +188,7 @@ def test_interpolate_tlm_with_constant():
     f.block_variable.tlm_value = g
     rf(c)  # replay to reset checkpoint values based on c=5
     tape.evaluate_tlm()
-    assert abs(J.block_variable.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
+    assert abs(J.block_variable.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < (1e-2 if single_mode else 1e-4)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -201,7 +205,8 @@ def test_interpolate_bump_function():
     J = assemble(f*y**3*dx)
     rf = ReducedFunctional(J, [Control(cx), Control(cy)])
 
-    h = [Function(R, val=0.1), Function(R, val=0.1)]
+    h_val = 10.0 if single_mode else 0.1
+    h = [Function(R, val=h_val), Function(R, val=h_val)]
     assert taylor_test(rf, [cx, cy], h) > 1.9
 
 
@@ -217,7 +222,7 @@ def test_self_interpolate():
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, c, Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -233,7 +238,7 @@ def test_self_interpolate_function():
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, Function(R, val=3.0), Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, Function(R, val=3.0), Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -251,7 +256,7 @@ def test_interpolate_to_function_space():
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -270,7 +275,7 @@ def test_interpolate_to_function_space_cross_mesh():
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
+    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=10.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -306,6 +311,8 @@ def test_interpolate_hessian_linear_expr(rg):
 
     # Note functions are in W, not V.
     h = rg.uniform(W, 0, 10)
+    if single_mode:
+        h *= 100.0
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -360,7 +367,11 @@ def test_interpolate_hessian_nonlinear_expr(rg):
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
+    # fp32: smaller scale than the linear case -- h *= 100 pushes f
+    # far enough that the nonlinear PDE solve fails to converge.
     h = rg.uniform(W, 0, 10)
+    if single_mode:
+        h *= 10.0
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -417,7 +428,11 @@ def test_interpolate_hessian_nonlinear_expr_multi(rg):
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
+    # fp32: smaller scale than the linear case -- h *= 100 pushes f
+    # far enough that the nonlinear PDE solve fails to converge.
     h = rg.uniform(W, 0, 10)
+    if single_mode:
+        h *= 10.0
 
     J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
@@ -477,7 +492,11 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
+    # fp32: smaller scale than the linear case -- h *= 100 pushes f
+    # far enough that the nonlinear PDE solve fails to converge.
     h = rg.uniform(W, 0, 10)
+    if single_mode:
+        h *= 10.0
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -756,7 +775,8 @@ def test_consecutive_nonlinear_solves():
         solver.solve()
     J = assemble(u1**16*dx)
     rf = ReducedFunctional(J, Control(uic))
-    assert taylor_test(rf, uic, Function(R, val=0.01)) > 1.9
+    h_val = 10.0 if single_mode else 0.01
+    assert taylor_test(rf, uic, Function(R, val=h_val)) > 1.9
 
 
 @pytest.mark.skipcomplex
@@ -770,7 +790,7 @@ def test_assign_function():
     u1.assign(2 * u0 + uic)
     J = assemble(((u1 + Constant(1.0)) ** 2) * dx)
     rf = ReducedFunctional(J, Control(uic))
-    h = Function(V, name="h").assign(0.01)
+    h = Function(V, name="h").assign(1.0 if single_mode else 0.01)
     assert taylor_test(rf, uic, h) > 1.9
 
 
@@ -831,8 +851,8 @@ def test_assign_cofunction(solve_type):
             solver.solve()
         J += assemble(((sol + Constant(1.0)) ** 2) * dx)
     rf = ReducedFunctional(J, Control(k))
-    assert np.isclose(rf(k), J, rtol=1e-10)
-    assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
+    assert np.isclose(rf(k), J, rtol=1e-6 if single_mode else 1e-10)
+    assert taylor_test(rf, k, Function(V).assign(1.0 if single_mode else 0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -892,9 +912,10 @@ def test_cofunction_subfunctions_with_adjoint():
     solve(a == b1, w, bcs=[bc0, bc1])
     J = assemble(0.5*dot(w, w)*dx)
     J_hat = ReducedFunctional(J, Control(k))
-    k.block_variable.tlm_value = Constant(1)
+    h_val = 5.0 if single_mode else 1.0
+    k.block_variable.tlm_value = Constant(h_val)
     get_working_tape().evaluate_tlm()
-    assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9
+    assert taylor_test(J_hat, k, Constant(h_val), dJdm=J.block_variable.tlm_value) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
