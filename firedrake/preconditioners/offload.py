@@ -10,7 +10,10 @@ __all__ = ("OffloadPC",)
 _device_vector_impls = {
     "CUDA": {
         "createWithArrays": "createCUDAWithArrays",
-    }
+    },
+    "HIP": {
+        "createWithArrays": "createHIPWithArrays",
+    },
 }
 
 # These matrix types require an expensive implicit -> dense -> sparse conversion when
