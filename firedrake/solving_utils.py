@@ -432,8 +432,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
