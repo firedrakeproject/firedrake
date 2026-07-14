@@ -4,7 +4,7 @@ import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
+from firedrake.adjoint_utils.blocks import FunctionAssignBlock, SubfunctionBlock, FunctionMergeBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
@@ -25,32 +25,6 @@ class FunctionMixin(FloatingType):
                                   _ad_outputs=kwargs.pop("_ad_outputs", None),
                                   ad_block_tag=kwargs.pop("ad_block_tag", None), **kwargs)
             init(self, *args, **kwargs)
-        return wrapper
-
-    @staticmethod
-    def _ad_annotate_project(project):
-        @wraps(project)
-        def wrapper(self, b, *args, **kwargs):
-            ad_block_tag = kwargs.pop("ad_block_tag", None)
-            annotate = annotate_tape(kwargs)
-
-            if annotate:
-                bcs = kwargs.get("bcs", [])
-                if isinstance(b, firedrake.Function) and extract_unique_domain(b) != self.function_space().mesh():
-                    block = SupermeshProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
-                else:
-                    block = ProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
-
-                tape = get_working_tape()
-                tape.add_block(block)
-
-            with stop_annotating():
-                output = project(self, b, *args, **kwargs)
-
-            if annotate:
-                block.add_output(output.create_block_variable())
-
-            return output
         return wrapper
 
     @staticmethod
