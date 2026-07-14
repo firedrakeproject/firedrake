@@ -6,13 +6,13 @@ from ufl.domain import extract_unique_domain
 from typing import Optional, Union
 
 import firedrake
+from firedrake.adjoint_utils import NonlinearVariationalSolverMixin, annotate_super_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from functools import cached_property
 
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint_utils import annotate_project
 
 
 __all__ = ['project', 'Projector']
@@ -50,7 +50,6 @@ def check_meshes(source, target):
 
 
 @PETSc.Log.EventDecorator()
-@annotate_project
 def project(
     v: ufl.core.expr.Expr,
     V: Union[firedrake.functionspaceimpl.WithGeometry, firedrake.Function],
@@ -234,7 +233,7 @@ class ProjectorBase(metaclass=abc.ABCMeta):
         return self.target
 
 
-class BasicProjector(ProjectorBase):
+class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
     """
     A basic projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -242,6 +241,29 @@ class BasicProjector(ProjectorBase):
     :class:`.SupermeshProjector` is that both function spaces are
     defined on the same mesh.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        V = self.target.function_space()
+        mesh = V.mesh()
+
+        dx = firedrake.dx(mesh)
+        w = firedrake.TestFunction(V)
+        Pv = firedrake.TrialFunction(V)
+        a = firedrake.inner(Pv, w) * dx
+        L = firedrake.inner(self.source, w) * dx
+        p = firedrake.LinearVariationalProblem(a, L, self.target)
+
+        self._init_as_solver(p)
+
+    @NonlinearVariationalSolverMixin._ad_annotate_init
+    def _init_as_solver(self, problem):
+        return
+
+    @NonlinearVariationalSolverMixin._ad_annotate_solve
+    def project(self):
+        return super().project()
 
     @cached_property
     def rhs_form(self):
@@ -283,6 +305,10 @@ class BasicProjector(ProjectorBase):
 
 
 class SupermeshProjector(ProjectorBase):
+    def __init__(self, *args, **kwargs):
+        self._target_is_function = kwargs.pop("target_is_function", True)
+        super().__init__(*args, **kwargs)
+
     @cached_property
     def mixed_mass(self):
         from firedrake.supermeshing import assemble_mixed_mass_matrix
@@ -294,6 +320,10 @@ class SupermeshProjector(ProjectorBase):
         with self.source.dat.vec_ro as u, self.residual.dat.vec_wo as v:
             self.mixed_mass.mult(u, v)
         return self.residual
+
+    @annotate_super_project
+    def project(self):
+        return super().project()
 
 
 @PETSc.Log.EventDecorator()
@@ -364,5 +394,6 @@ def Projector(
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
+            quadrature_degree=quadrature_degree,
+            target_is_function=isinstance(v_out, firedrake.Function),
         )
