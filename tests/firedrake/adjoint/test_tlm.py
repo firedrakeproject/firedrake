@@ -234,7 +234,8 @@ def test_projection_function(rg):
 
     bc = DirichletBC(V, Constant(1.), "on_boundary")
     x, y = SpatialCoordinate(mesh)
-    g = project(sin(x)*sin(y), V, annotate=False)
+    with stop_annotating():
+        g = project(sin(x)*sin(y), V)
     expr = sin(g*x)
     f = project(expr, V)
 
