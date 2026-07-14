@@ -149,6 +149,7 @@ def sniff_compiler_version(compiler, cpp=False):
     return version
 
 
+@parallel_cache()
 def sniff_compiler(exe, comm=mpi.COMM_WORLD):
     """Obtain the correct compiler class by calling the compiler executable.
 
