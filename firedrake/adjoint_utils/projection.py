@@ -14,7 +14,6 @@ def annotate_super_project(project):
 
     @wraps(project)
     def wrapper(self, **kwargs):
-        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         V = self.target.function_space()
         if annotate:
@@ -22,7 +21,7 @@ def annotate_super_project(project):
             sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
             if self._target_is_function:
                 # block should be created before project because output might also be an input that needs checkpointing
-                block = SupermeshProjectBlock(self.source, V, self.target, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+                block = SupermeshProjectBlock(self.source, V, self.target, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)
 
         with stop_annotating():
             output = project(self, **kwargs)
@@ -30,7 +29,7 @@ def annotate_super_project(project):
         if annotate:
             tape = get_working_tape()
             if not self._target_is_function:
-                block = SupermeshProjectBlock(self.source, V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+                block = SupermeshProjectBlock(self.source, V, output, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)
             tape.add_block(block)
             block.add_output(output.create_block_variable())
 
