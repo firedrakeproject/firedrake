@@ -80,8 +80,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
 
 
 @PETSc.Log.EventDecorator()
-def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
-                     tol: float = 1e-5):
+def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     """ Find all permutations between a list of two sets of points.
 
     Given two numpy arrays of shape (ncells, npoints, dim) containing
@@ -95,7 +94,18 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
     if points_a.shape != points_b.shape:
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
-    p = [np.where(cdist(a, b).T < tol)[1] for a, b in zip(points_a, points_b)]
+    dim = points_a.shape[-1]
+    vids = list(range(dim+1))
+
+    bs = points_a[:, vids[0], :]
+    As = points_a[:, vids[1:], :]
+    As -= bs[:, None, :]
+    Ainvs = np.linalg.inv(As)
+
+    ref_points_a = np.matmul(points_a - bs[:, None, :], Ainvs)
+    ref_points_b = np.matmul(points_b - bs[:, None, :], Ainvs)
+
+    p = [np.argmin(cdist(a, b), axis=0) for a, b in zip(ref_points_a, ref_points_b)]
 
     if len(p) == 0:
         return p
