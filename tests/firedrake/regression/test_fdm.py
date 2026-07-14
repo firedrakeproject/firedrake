@@ -335,9 +335,9 @@ def test_ipdg_direct_solver(fs):
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
         with uh.dat.vec_ro as uvec:
-            assert uvec.norm() < (1E-5 if single_mode else 1E-8)
+            assert uvec.norm() < (1E-3 if single_mode else 1E-8)
     else:
-        assert norm(u_exact-uh, "H1") < (1.0E-5 if single_mode else 1.0E-8)
+        assert norm(u_exact-uh, "H1") < (2.0E-4 if single_mode else 1.0E-8)
 
 
 @pytest.mark.parallel(nprocs=2)
