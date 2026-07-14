@@ -963,7 +963,7 @@ class PatchBase(PCSNESBase):
                     )
 
         patch.setDM(self.plex)
-        patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
+        patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
         if len(V) > 1:
             # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs

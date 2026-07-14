@@ -373,35 +373,35 @@ def local_facet_number(mesh, facet_type):
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh._plex_to_entity_numbering(mesh.dimension)
+    cell_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension)
 
     fStart, _ = plex.getHeightStratum(1)
 
     if facet_type == "exterior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 1
-        facets = mesh._exterior_facet_plex_indices.indices
-        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
-        specific_numbering = mesh._old_to_new_exterior_facet_numbering
+        facets = mesh._entity_indices("plex", "exterior_facet")
+        facet_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension-1)
+        specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 2
-        facets = mesh._interior_facet_plex_indices.indices
-        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
-        specific_numbering = mesh._old_to_new_interior_facet_numbering
+        facets = mesh._entity_indices("plex", "interior_facet")
+        facet_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension-1)
+        specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
         ncells_per_facet = 1
-        facets = mesh._exterior_facet_vert_plex_indices.indices
-        facet_numbering = mesh._old_to_new_facet_vert_numbering
-        specific_numbering = mesh._old_to_new_exterior_facet_vert_numbering
+        facets = mesh._entity_indices("plex", "exterior_facet_vert")
+        facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
+        specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
     else:
         assert facet_type == "interior_vert"
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
         ncells_per_facet = 2
-        facets = mesh._interior_facet_vert_plex_indices.indices
-        facet_numbering = mesh._old_to_new_facet_vert_numbering
-        specific_numbering = mesh._old_to_new_interior_facet_vert_numbering
+        facets = mesh._entity_indices("plex", "interior_facet_vert")
+        facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
+        specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet_vert")
 
     nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
@@ -922,7 +922,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
-        cell = mesh._old_to_new_cell_numbering.getOffset(c)
+        cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # Here we assume that DMPlex gives entities in the order:
@@ -3030,7 +3030,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
-            cell = mesh._old_to_new_cell_numbering.getOffset(c)
+            cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
 
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
@@ -4070,36 +4070,36 @@ def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
 # TODO: also do for ragged maps
 # TODO: the naming conventions here do not make it clear that we are 'localising'
 # the indices when we call getOffset
-def renumber_map_fixed(
-    # src_pts: np.ndarray[IntType, ndim=1],  should be cnp.ndarray...
-    # map_data: np.ndarray[IntType, ndim=2],
-    src_pts,
-    map_data,
-    src_numbering: PETSc.Section,
-    dest_numbering: PETSc.Section,
-) -> np.ndarray[IntType]:
-    """
-    """
-    cdef:
-        PetscInt num_src_pts_c, num_dest_pts_c, i_c, j_c, src_pt_c, src_pt_renum_c, dest_pt_c, dest_pt_renum_c
-
-    num_src_pts_c, num_dest_pts_c = map_data.shape
-    assert src_pts.shape == (num_src_pts_c,)
-
-    map_data_renum = np.empty_like(map_data)
-    for i_c in range(num_src_pts_c):
-        src_pt_c = src_pts[i_c]
-        PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
-        for j_c in range(num_dest_pts_c):
-            dest_pt_c = map_data[i_c, j_c]
-            if dest_pt_c == -1:
-                map_data_renum[src_pt_renum_c, j_c] = -1
-            elif dest_numbering.getDof(dest_pt_c) == 1:
-                PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
-                map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
-            else:
-                map_data_renum[src_pt_renum_c, j_c] = -1
-    return utils.readonly(map_data_renum)
+# def renumber_map_fixed(
+#     # src_pts: np.ndarray[IntType, ndim=1],  should be cnp.ndarray...
+#     # map_data: np.ndarray[IntType, ndim=2],
+#     src_pts,
+#     map_data,
+#     src_numbering: PETSc.Section,
+#     dest_numbering: PETSc.Section,
+# ) -> np.ndarray[IntType]:
+#     """
+#     """
+#     cdef:
+#         PetscInt num_src_pts_c, num_dest_pts_c, i_c, j_c, src_pt_c, src_pt_renum_c, dest_pt_c, dest_pt_renum_c
+#
+#     num_src_pts_c, num_dest_pts_c = map_data.shape
+#     assert src_pts.shape == (num_src_pts_c,)
+#
+#     map_data_renum = np.empty_like(map_data)
+#     for i_c in range(num_src_pts_c):
+#         src_pt_c = src_pts[i_c]
+#         PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
+#         for j_c in range(num_dest_pts_c):
+#             dest_pt_c = map_data[i_c, j_c]
+#             if dest_pt_c == -1:
+#                 map_data_renum[src_pt_renum_c, j_c] = -1
+#             elif dest_numbering.getDof(dest_pt_c) == 1:
+#                 PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
+#                 map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
+#             else:
+#                 map_data_renum[src_pt_renum_c, j_c] = -1
+#     return utils.readonly(map_data_renum)
 
 
 # TODO: petsc4py

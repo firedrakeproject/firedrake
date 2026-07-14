@@ -46,12 +46,13 @@ def _(matrix: Matrix, loop_info, **kwargs):
 def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
     iter_mesh = loop_index.mesh
-    if iter_mesh.topology is mesh.topology:
+    mesh = mesh.topology
+    if iter_mesh.topology is mesh:
         composed_map = None
         target_integral_type = loop_index.integral_type
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
-        and iter_mesh.topology._base_mesh is mesh.topology
+        and iter_mesh.topology._base_mesh is mesh
     ):
         composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
         target_integral_type = "cell"
@@ -81,7 +82,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
 def _(
     dat: op3.Dat,
     space: WithGeometry,
-    loop_info: MeshLoopIndex,
+    loop_index: MeshLoopIndex,
     **kwargs,
 ):
     # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -95,7 +96,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, **kwargs)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_index, **kwargs)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -106,16 +107,17 @@ def _(
 def _pack_dat_nonmixed(
     dat: op3.Dat,
     space: WithGeometry,
-    loop_info: MeshLoopIndex,
+    loop_index: MeshLoopIndex,
     *,
     permutation: collections.abc.Iterable | None = None,
-):
+) -> op3.Dat:
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
-    map_ = _pack_map(loop_info, space.mesh())
+    map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
     packed_dat = dat[map_]
+
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
     if isinstance(packed_dat.axes, op3.AxisForest):

@@ -214,24 +214,14 @@ class Pyop3NoiseBackend(NoiseBackendBase):
             """
         )
 
-        cholesky_loopy_kernel = lp.make_kernel(
-            [],
-            [lp.CInstruction((), cholesky_code, frozenset({"z", "b", "coords"}), ("b"))],
+        return op3.Function.from_c_string(
+            "apply_cholesky",
+            cholesky_code,
             [
-                lp.GlobalArg("z", "double", None, is_input=True, is_output=False),
-                lp.GlobalArg("b", "double", None, is_input=True, is_output=True),
-                lp.GlobalArg("coords", "double", None, is_input=True, is_output=False),
+                ("z", "double", op3.READ),
+                ("b", "double", op3.INC),
+                ("coords", "double", op3.READ),
             ],
-            name="apply_cholesky",
-            preambles=[
-                ("20_petsc", "#include <petsc.h>"),
-                ("30_preamble", preamble),
-            ],
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
-        )
-        return op3.Function(
-            cholesky_loopy_kernel, [op3.READ, op3.INC, op3.READ]
         )
 
     def sample(self, *, rng=None,
