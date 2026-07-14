@@ -245,7 +245,7 @@ The final group implements the pressure gradient and the divergence constraint. 
 
   gamma = Constant(10000)
   sigma = Constant(5 * (k+1)**2)
-  h = CellDiameter(mesh)
+  h = CellVolume(mesh)/FacetArea(mesh)
   uflux_int = 0.5*(dot(u, n) + abs(dot(u, n)))*u
 
   F = (
