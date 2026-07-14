@@ -13,7 +13,7 @@ PetscInt locate_cell_from_candidates(struct Function *f,
         void *found_ref_coords,
         PetscReal *found_ref_cell_dist_l1,
         size_t nids,
-        size_t *ids,
+        int64_t *ids,
         size_t ncells_ignore,
         PetscInt* cells_ignore)
 {
