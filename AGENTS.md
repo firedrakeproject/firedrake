@@ -195,7 +195,7 @@ the last two localize a failure before reading code.
   exception was raised" nor `==` agreement between two expressions proves the result is
   correct — two independently-built expressions can match structurally while sharing the same wrong
   derivative or simplification rule. Verify the actual mathematical claim: evaluate numerically and
-  compare against a  hand-computed or finite-difference value, or use a Taylor test for anything
+  compare against a hand-computed or finite-difference value, or use a Taylor test for anything
   claiming to be a derivative.
 * **Taylor-test-everything is the immune system:** Taylor-test a `ReducedFunctional`, ensuring that any
   new feature built from existing, annotated Firedrake operations is automatically differentiable.
