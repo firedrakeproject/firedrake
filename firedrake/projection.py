@@ -259,10 +259,12 @@ class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
         L = firedrake.inner(self.source, w) * dx
         p = firedrake.LinearVariationalProblem(a, L, self.target)
 
-        self._init_as_solver(p, ad_block_tag=ad_block_tag)
+        solver_params = firedrake.LinearVariationalSolver.DEFAULT_SNES_PARAMETERS | self.solver_parameters
+
+        self._init_as_solver(p, forward_kwargs={"solver_parameters": solver_params}, ad_block_tag=ad_block_tag)
 
     @NonlinearVariationalSolverMixin._ad_annotate_init
-    def _init_as_solver(self, problem):
+    def _init_as_solver(self, problem, **kwargs):
         return
 
     @NonlinearVariationalSolverMixin._ad_annotate_solve
