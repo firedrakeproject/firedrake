@@ -281,7 +281,7 @@ pause_annotation()
 # !brew install graphviz poppler
 
 # %% [markdown]
-# Users of all OSs will need the following, though Mac users may need to follow [specific instructions for pygraphviz](https://pygraphviz.github.io/documentation/stable/install.html#homebrew):
+# Users of all OSs will need the following, though Mac users may need to follow [specific instructions for pygraphviz](https://pygraphviz.github.io/documentation/stable/install.html):
 
 # %% tags=["skip-execution", "nbval-skip"]
 # !pip install networkx pygraphviz pdf2image
