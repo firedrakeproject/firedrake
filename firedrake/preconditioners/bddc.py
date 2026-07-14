@@ -112,11 +112,11 @@ class BDDCPC(PCBase):
             dir_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         neu_nodes = numpy.setdiff1d(boundary_nodes, dir_nodes)
 
-        dir_nodes = V.dof_dset.lgmap.apply(dir_nodes)
+        dir_nodes = V.lgmap().apply(dir_nodes)
         dir_bndr = PETSc.IS().createGeneral(dir_nodes, comm=pc.comm)
         bddcpc.setBDDCDirichletBoundaries(dir_bndr)
 
-        neu_nodes = V.dof_dset.lgmap.apply(neu_nodes)
+        neu_nodes = V.lgmap().apply(neu_nodes)
         neu_bndr = PETSc.IS().createGeneral(neu_nodes, comm=pc.comm)
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
@@ -238,7 +238,7 @@ def create_matis(Amat, local_mat_type, cellwise=False):
 
     def local_to_global_map(V, cellwise):
         u = Function(V)
-        u.dat.data_wo[:] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+        u.dat.data_wo[:] = numpy.arange(*V.template_vec.getOwnershipRange())
 
         Vsub = local_space(V, False)
         usub = Function(Vsub).assign(u)
@@ -278,7 +278,7 @@ def create_matis(Amat, local_mat_type, cellwise=False):
 def get_restricted_dofs(V, domain):
     W = FunctionSpace(V.mesh(), V.ufl_element()[domain])
     indices = get_restriction_indices(V, W)
-    indices = V.dof_dset.lgmap.apply(indices)
+    indices = V.lgmap().apply(indices)
     return PETSc.IS().createGeneral(indices, comm=V.comm)
 
 
@@ -337,7 +337,7 @@ def get_primal_indices(V, primal_markers):
         else:
             raise ValueError(f"Expecting markers in either {V.ufl_element()} or DG(0).")
         primal_indices = numpy.flatnonzero(markers.dat.data >= 1E-12)
-        primal_indices += V.dof_dset.layout_vec.getOwnershipRange()[0]
+        primal_indices += V.template_vec.getOwnershipRange()[0]
     else:
         primal_indices = numpy.asarray(primal_markers, dtype=PETSc.IntType)
     return primal_indices
