@@ -31,7 +31,7 @@ def f():
 
 
 def test_deprecation_warning(dumpfile):
-    match = "scheduled for removal in the first major Firedrake release after 1 January 2027"
+    match = "DumbCheckpoint is deprecated and will be removed soon; use CheckpointFile instead."
     with pytest.warns(DeprecationWarning, match=match):
         with DumbCheckpoint(dumpfile, mode=FILE_CREATE):
             pass

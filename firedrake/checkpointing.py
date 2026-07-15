@@ -92,9 +92,8 @@ class DumbCheckpoint:
 
     .. warning::
 
-       ``DumbCheckpoint`` is deprecated and is scheduled for removal in the
-       first major Firedrake release after 1 January 2027.  Use
-       :class:`~.CheckpointFile` instead where possible.
+       ``DumbCheckpoint`` is deprecated and will be removed soon.  Use
+       :class:`~.CheckpointFile` instead.
 
     """
     def __init__(self, basename, single_file=True,
