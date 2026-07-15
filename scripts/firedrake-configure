@@ -74,8 +74,7 @@ def main():
     gpu_arch = GPUPlatform(args.gpu_arch)
     os_ = OS(args.os) if args.os else detect_os(show_error=not args.show_env)
 
-    if os_ is None:
-        assert args.show_env
+    if os_ is None and args.show_env:
         Arch(name=petsc_arch_name(scalar_type, gpu_arch)).show_env()
 
     arch_key = (os_, scalar_type, gpu_arch)
