@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import warnings
 from contextlib import ExitStack
 from itertools import chain
@@ -348,14 +347,13 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
         )
         self.options_manager.set_from_options(snes)
 
-    @contextlib.contextmanager
-    def inserted_options(self, snes: PETSc.SNES):
+    def inserted_options(self):
         warnings.warn(
             "'NonlinearVariationalSolver.inserted_options' is deprecated, use "
             "'NonlinearVariationalSolver.options_manager.inserted_options' instead",
             FutureWarning
         )
-        yield from self.options_manager.inserted_options
+        return self.options_manager.inserted_options()
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.

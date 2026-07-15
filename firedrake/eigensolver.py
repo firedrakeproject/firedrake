@@ -1,5 +1,4 @@
 """Specify and solve finite element eigenproblems."""
-import contextlib
 import warnings
 from functools import cached_property
 
@@ -186,14 +185,13 @@ class LinearEigensolver:
         )
         self.options_manager.set_from_options(snes)
 
-    @contextlib.contextmanager
-    def inserted_options(self, snes: PETSc.SNES):
+    def inserted_options(self):
         warnings.warn(
             "'LinearEigensolver.inserted_options' is deprecated, use "
             "'LinearEigensolver.options_manager.inserted_options' instead",
             FutureWarning
         )
-        yield from self.options_manager.inserted_options
+        return self.options_manager.inserted_options()
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -226,7 +224,7 @@ class LinearEigensolver:
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        with self.inserted_options():
+        with self.options_manager.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
