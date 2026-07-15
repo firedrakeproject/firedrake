@@ -13,7 +13,7 @@ from functools import cached_property
 from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint_utils import annotate_project
+from firedrake.adjoint_utils import annotate_project, ProjectorMixin
 
 
 __all__ = ['project', 'Projector']
@@ -231,6 +231,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     def rhs(self):
         pass
 
+    @ProjectorMixin._ad_annotate_project
     def project(self):
         self.apply_massinv(self.target, self.rhs)
         return self.target

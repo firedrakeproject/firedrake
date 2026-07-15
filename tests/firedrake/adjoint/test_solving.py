@@ -289,6 +289,75 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("reuse_bc", [False, True])
+def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
+    mesh = UnitSquareMesh(4, 4)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    dt = 0.1
+    nsteps = 2
+
+    def J(amp):
+        u = Function(V1)
+        u_old = Function(V1)
+        v = TestFunction(V1)
+
+        F = inner(u - u_old, v)*dx + dt*inner(grad(u), grad(v))*dx
+
+        if reuse_bc:
+            g = Function(V2)
+            bc = DirichletBC(V1, g, "on_boundary")
+            problem = NonlinearVariationalProblem(F, u, bcs=bc)
+            solver = NonlinearVariationalSolver(problem)
+
+        for i in range(nsteps):
+            t = (i + 1)*dt
+            expr = amp*amp*sin(2*pi*t)*(x + y)
+            if reuse_bc:
+                g.interpolate(expr)
+                solver.solve()
+            else:
+                g = Function(V2).interpolate(expr)
+                bc = DirichletBC(V1, g, "on_boundary")
+                solve(F == 0, u, bcs=bc)
+            u_old.assign(u)
+
+        # Final H1 seminorm of u
+        return assemble(inner(grad(u), grad(u))*dx) ** 0.5
+
+    amp = Function(R, val=1.0)
+    J0 = J(amp)
+    rf = ReducedFunctional(J0, Control(amp))
+    assert taylor_test(rf, amp, Constant(0.1)) > 1.95
+
+
+@pytest.mark.skipcomplex
+def test_dirichlet_bc_projected_value():
+    # HCT does not support interpolation, so the boundary value is
+    # projected into the space and the adjoint composes through the
+    # taped projection.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "HCT", 3)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    amp = Function(R, val=1.0)
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, amp*amp*(x + y), "on_boundary")
+    F = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    solve(F == 0, u, bcs=bc,
+          solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+
+    J = assemble(inner(u, u)*dx)
+    rf = ReducedFunctional(J, Control(amp))
+    assert taylor_test(rf, amp, Function(R, val=0.1)) > 1.95
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
