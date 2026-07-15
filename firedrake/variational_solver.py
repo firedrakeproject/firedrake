@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import ufl
-from itertools import chain
+import contextlib
+import warnings
 from contextlib import ExitStack
+from itertools import chain
 from types import MappingProxyType
+
+import ufl
 from petsctools import OptionsManager, flatten_parameters
+from ufl import replace, Form
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
@@ -14,7 +18,6 @@ from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import replace, Form
 from functools import cached_property
 
 __all__ = ["LinearVariationalProblem",
@@ -168,7 +171,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return F
 
 
-class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
+class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
@@ -275,8 +278,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
                                                        snes_defaults=self.DEFAULT_SNES_PARAMETERS)
-        super().__init__(solver_parameters, options_prefix,
-                         default_prefix="firedrake")
+
+        self.options_manager = OptionsManager(solver_parameters, options_prefix,
+                                              default_prefix="firedrake")
         # Now the correct parameters live in self.parameters (via the
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
@@ -322,11 +326,36 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # on a subKSP the context is available.
         dm = self.snes.getDM()
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
-            self.set_from_options(self.snes)
+            self.options_manager.set_from_options(self.snes)
 
         # Used for custom grid transfer.
         self._transfer_operators = ()
         self._setup = False
+
+    @property
+    def parameters(self) -> dict:
+        return self.options_manager.parameters
+
+    @property
+    def options_prefix(self) -> str:
+        return self.options_manager.options_prefix
+
+    def set_from_options(self, snes: PETSc.SNES) -> None:
+        warnings.warn(
+            "'solver.set_from_options' is deprecated, use "
+            "'solver.options_manager.set_from_options' instead",
+            FutureWarning
+        )
+        self.options_manager.set_from_options(snes)
+
+    @contextlib.contextmanager
+    def inserted_options(self, snes: PETSc.SNES):
+        warnings.warn(
+            "'solver.inserted_options' is deprecated, use "
+            "'solver.options_manager.inserted_options' instead",
+            FutureWarning
+        )
+        yield from self.options_manager.inserted_options
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
@@ -391,7 +420,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain([self.inserted_options()],
+                for ctx in chain([self.options_manager.inserted_options()],
                                  [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
