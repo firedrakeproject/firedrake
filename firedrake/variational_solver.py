@@ -342,8 +342,8 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
 
     def set_from_options(self, snes: PETSc.SNES) -> None:
         warnings.warn(
-            "'solver.set_from_options' is deprecated, use "
-            "'solver.options_manager.set_from_options' instead",
+            "'NonlinearVariationalSolver.set_from_options' is deprecated, use "
+            "'NonlinearVariationalSolver.options_manager.set_from_options' instead",
             FutureWarning
         )
         self.options_manager.set_from_options(snes)
@@ -351,8 +351,8 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
     @contextlib.contextmanager
     def inserted_options(self, snes: PETSc.SNES):
         warnings.warn(
-            "'solver.inserted_options' is deprecated, use "
-            "'solver.options_manager.inserted_options' instead",
+            "'NonlinearVariationalSolver.inserted_options' is deprecated, use "
+            "'NonlinearVariationalSolver.options_manager.inserted_options' instead",
             FutureWarning
         )
         yield from self.options_manager.inserted_options
