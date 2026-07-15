@@ -368,10 +368,9 @@ Checkpointing with DumbCheckpoint
 
 .. warning::
 
-   :class:`~.DumbCheckpoint` is deprecated and is scheduled for removal in
-   the first major Firedrake release after 1 January 2027.  Users are
-   encouraged to use :class:`~.CheckpointFile`, which is more robust and
-   scalable.
+   :class:`~.DumbCheckpoint` is deprecated and will be removed soon.
+   Users are encouraged to use :class:`~.CheckpointFile`, which is more
+   robust and scalable.
 
 The support for :class:`~.DumbCheckpoint` is somewhat limited.  One may
 only store :class:`~.Function`\s in the checkpoint object.  Moreover,

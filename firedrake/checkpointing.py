@@ -102,8 +102,8 @@ class DumbCheckpoint:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint is deprecated and is scheduled for removal in the "
-                          "first major Firedrake release after 1 January 2027; use CheckpointFile instead.",
+            warnings.warn("DumbCheckpoint is deprecated and will be removed soon; "
+                          "use CheckpointFile instead.",
                           DeprecationWarning, stacklevel=2)
         self.comm = comm or COMM_WORLD
         self.mode = mode
