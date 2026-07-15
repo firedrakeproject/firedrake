@@ -4,19 +4,19 @@
 #include <float.h>
 #include <evaluate.h>
 
-int locate_cell(struct Function *f,
+PetscInt locate_cell(struct Function *f,
         double *x,
         int dim,
         ref_cell_l1_dist try_candidate,
         ref_cell_l1_dist_xtr try_candidate_xtr,
         void *temp_ref_coords,
         void *found_ref_coords,
-        double *found_ref_cell_dist_l1,
+        PetscReal *found_ref_cell_dist_l1,
         size_t ncells_ignore,
-        int* cells_ignore)
+        PetscInt* cells_ignore)
 {
     RTError err;
-    int cell = -1;
+    PetscInt cell = -1;
     int cell_ignore_found = 0;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
     struct ReferenceCoords but can't be declared as such in the function
@@ -25,8 +25,8 @@ int locate_cell(struct Function *f,
     surrounds this is declared in pointquery_utils.py. We cast when we use the
     ref_coords_copy function and trust that the underlying memory which the
     pointers refer to is updated as necessary. */
-    double ref_cell_dist_l1 = DBL_MAX;
-    double current_ref_cell_dist_l1 =  -0.5;
+    PetscReal ref_cell_dist_l1 = PETSC_MAX_REAL;
+    PetscReal current_ref_cell_dist_l1 =  -0.5;
     /* NOTE: `tolerance`, which is used throughout this funciton, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
@@ -76,9 +76,9 @@ int locate_cell(struct Function *f,
         }
         else {
             for (uint64_t i = 0; i < nids; i++) {
-                int nlayers = f->n_layers;
-                int c = ids[i] / nlayers;
-                int l = ids[i] % nlayers;
+                PetscInt nlayers = f->n_layers;
+                PetscInt c = ids[i] / nlayers;
+                PetscInt l = ids[i] % nlayers;
                 current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
                 for (uint64_t j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {

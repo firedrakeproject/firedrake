@@ -1,5 +1,5 @@
 import loopy as lp
-from firedrake.utils import IntType, as_cstr
+from firedrake.utils import IntType, as_cstr, RealType_c
 
 from finat.element_factory import as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -106,7 +106,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
+    point_arg = lp.GlobalArg("X", dtype=utils.RealType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -159,7 +159,7 @@ def compile_element(expression, coordinates, parameters=None):
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
-        "scalar_type": utils.ScalarType_c,
+        "scalar_type": RealType_c,
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
@@ -170,16 +170,16 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(real_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 
 int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    double found_ref_cell_dist_l1 = DBL_MAX;
+    %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    int cells_ignore[1] = {-1};
+    %(IntType)s cells_ignore[1] = {-1};
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
     if (cell == -1) {
         return -1;
