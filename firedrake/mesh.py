@@ -2744,7 +2744,7 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                {IntType_c} locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                {IntType_c} locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, {IntType_c} ncells_ignore, {IntType_c}* cells_ignore)
                 {{
                     {IntType_c} j = 0;  /* index into x and X */
                     for({IntType_c} i=0; i<npoints; i++) {{
@@ -2794,8 +2794,8 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(IntType)),
-                                ctypes.c_size_t,
-                                ctypes.c_size_t,
+                                as_ctypes(IntType),
+                                as_ctypes(IntType),
                                 np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = as_ctypes(IntType)
             return cache.setdefault(tolerance, locator)

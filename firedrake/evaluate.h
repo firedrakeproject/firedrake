@@ -53,7 +53,7 @@ extern PetscInt locate_cell(struct Function *f,
 		       void *temp_ref_coords,
 		       void *found_ref_coords,
 		       PetscReal *found_ref_cell_dist_l1,
-			   size_t ncells_ignore,
+			   PetscInt ncells_ignore,
 			   PetscInt* cells_ignore);
 
 extern int evaluate(struct Function *f,

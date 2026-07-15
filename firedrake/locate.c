@@ -12,7 +12,7 @@ PetscInt locate_cell(struct Function *f,
         void *temp_ref_coords,
         void *found_ref_coords,
         PetscReal *found_ref_cell_dist_l1,
-        size_t ncells_ignore,
+        PetscInt ncells_ignore,
         PetscInt* cells_ignore)
 {
     RTError err;
@@ -45,7 +45,7 @@ PetscInt locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-                for (uint64_t j = 0; j < ncells_ignore; j++) {
+                for (PetscInt j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
                         break;
@@ -80,7 +80,7 @@ PetscInt locate_cell(struct Function *f,
                 PetscInt c = ids[i] / nlayers;
                 PetscInt l = ids[i] % nlayers;
                 current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                for (uint64_t j = 0; j < ncells_ignore; j++) {
+                for (PetscInt j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
                         break;
@@ -112,9 +112,9 @@ PetscInt locate_cell(struct Function *f,
         free(ids);
     } else {
         if (f->extruded == 0) {
-            for (int c = 0; c < f->n_cols; c++) {
+            for (PetscInt c = 0; c < f->n_cols; c++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
-                for (uint64_t j = 0; j < ncells_ignore; j++) {
+                for (PetscInt j = 0; j < ncells_ignore; j++) {
                     if (c == cells_ignore[j]) {
                         cell_ignore_found = 1;
                         break;
@@ -144,10 +144,10 @@ PetscInt locate_cell(struct Function *f,
             }
         }
         else {
-            for (int c = 0; c < f->n_cols; c++) {
-                for (int l = 0; l < f->n_layers; l++) {
+            for (PetscInt c = 0; c < f->n_cols; c++) {
+                for (PetscInt l = 0; l < f->n_layers; l++) {
                     current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                    for (uint64_t j = 0; j < ncells_ignore; j++) {
+                    for (PetscInt j = 0; j < ncells_ignore; j++) {
                         if (l == cells_ignore[j]) {
                             cell_ignore_found = 1;
                             break;
