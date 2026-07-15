@@ -1,6 +1,7 @@
 from itertools import chain
 
 import numpy
+import petsctools
 import ufl
 
 from pyop2 import op2
@@ -131,7 +132,7 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -152,9 +153,6 @@ class _SNESContext(object):
     sub_pmat_type
         Indicates the matrix type for the sparse blocks in the preconditioner
         if pmat_type='nest', ignored otherwise.
-    appctx
-        Any extra information used in the assembler.  For the
-        matrix-free case this will contain the Newton state in ``"state"``.
     pre_jacobian_callback
         User-defined function called immediately before Jacobian assembly.
     post_jacobian_callback
@@ -171,6 +169,8 @@ class _SNESContext(object):
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
+    legacy_appctx_prefix
+        Options prefix used to find appctx entries passed in the legacy fashion.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -184,12 +184,12 @@ class _SNESContext(object):
                  mat_type: str, pmat_type: str,
                  sub_mat_type: str | None = None,
                  sub_pmat_type: str | None = None,
-                 appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 legacy_appctx_prefix: str | None = None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -216,17 +216,7 @@ class _SNESContext(object):
         # Function to hold current guess
         self._x = problem.u_restrict
 
-        if appctx is None:
-            appctx = {}
-        # A split context will already get the full state.
-        # TODO, a better way of doing this.
-        # Now we don't have a temporary state inside the snes
-        # context we could just require the user to pass in the
-        # full state on the outside.
-        appctx.setdefault("state", self._x)
-        appctx.setdefault("form_compiler_parameters", self.fcp)
-
-        self.appctx = appctx
+        self.legacy_appctx_prefix = legacy_appctx_prefix
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
@@ -286,10 +276,10 @@ class _SNESContext(object):
         default_options = {
             "sub_mat_type": self.sub_mat_type,
             "sub_pmat_type": self.sub_pmat_type,
-            "appctx": self.appctx,
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
+            "legacy_appctx_prefix": self.legacy_appctx_prefix,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -341,6 +331,23 @@ class _SNESContext(object):
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
+
+    # TODO: remove this method eventually
+    @cached_property
+    def appctx(self) -> dict:
+        ctx = petsctools.AppContext(self.legacy_appctx_prefix).getAll()
+
+        # A split context will already get the full state.
+        # TODO, a better way of doing this.
+        # Now we don't have a temporary state inside the snes
+        # context we could just require the user to pass in the
+        # full state on the outside.
+        if "state" not in ctx:
+            ctx["state"] = self._x
+        if "form_compiler_parameters" not in ctx:
+            ctx["form_compiler_parameters"] = self.fcp
+
+        return ctx
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""

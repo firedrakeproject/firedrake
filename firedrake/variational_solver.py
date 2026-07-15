@@ -170,6 +170,17 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return F
 
 
+_solver_id = -1
+"""A unique number for each variational solver.
+
+This is used to uniquely key appctx entries (now deprecated practice).
+
+The fact that this value is not parallel safe is not a concern because PETSc
+options are only read rank-locally.
+
+"""
+
+
 class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
@@ -259,6 +270,9 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
                                                 pre_jacobian_callback=update_diffusivity)
 
         """
+        global _solver_id
+        _solver_id += 1
+
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
@@ -278,10 +292,17 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
                                                        snes_defaults=self.DEFAULT_SNES_PARAMETERS)
 
+        # Move entries from the deprecated appctx into the parameter dictionary
+        if appctx is not None:
+            legacy_appctx_prefix = f"firedrake_legacy_appctx_{_solver_id}_"
+            for key, value in appctx:
+                solver_parameters[f"{legacy_appctx_prefix}_{key}"] = value
+        else:
+            legacy_appctx_prefix = None
+
         self.options_manager = OptionsManager(solver_parameters, options_prefix,
                                               default_prefix="firedrake")
-        # Now the correct parameters live in self.parameters (via the
-        # OptionsManager mixin)
+        # Now the correct parameters live in self.parameters
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
         sub_mat_type = self.parameters.get("sub_mat_type")
@@ -291,13 +312,13 @@ class NonlinearVariationalSolver(NonlinearVariationalSolverMixin):
                                          pmat_type=pmat_type,
                                          sub_mat_type=sub_mat_type,
                                          sub_pmat_type=sub_pmat_type,
-                                         appctx=appctx,
                                          pre_jacobian_callback=pre_jacobian_callback,
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
                                          options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs)
+                                         pre_apply_bcs=pre_apply_bcs,
+                                         legacy_appctx_prefix=legacy_appctx_prefix)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
