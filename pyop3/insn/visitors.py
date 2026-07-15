@@ -619,11 +619,8 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
 
     else:
         materialize_idxss = insn.comm.bcast(None)
-
         # identify the dat expressions to materialise using 'materialize_idxss'
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
-
-    # print("about to materialise", materialize_idxss)
 
     # Materialise any symbolic (composite) dats
     composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
@@ -631,7 +628,6 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
         comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
-    # print("materialised")
     best_candidate = idict({
         key: pyop3.expr.visitors.replace(expr, replace_map)
         for key, expr in best_candidate.items()

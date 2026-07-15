@@ -398,7 +398,8 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
+    ndofs = utils.single_valued(len(v) for v in space.finat_element.entity_dofs()[dim_label].values())
+    dof_axis = op3.Axis(ndofs, f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)

@@ -640,10 +640,11 @@ class AbstractMeshTopology(abc.ABC):
                 "Only one of '_selector', 'name', 'dim' or 'stratum' may be specified"
             )
 
-        if isinstance(_selector, str):
-            name = _selector
-        else:
-            dim = _selector
+        if _selector is not None:
+            if isinstance(_selector, str):
+                name = _selector
+            else:
+                dim = _selector
 
         if name is not None:
             return self._entity_axes_by_name(name)
@@ -815,10 +816,11 @@ class AbstractMeshTopology(abc.ABC):
                 "Only one of '_selector', 'name', 'dim' or 'stratum' may be specified"
             )
 
-        if isinstance(_selector, str):
-            name = _selector
-        else:
-            dim = _selector
+        if _selector is not None:
+            if isinstance(_selector, str):
+                name = _selector
+            else:
+                dim = _selector
 
         match base:
             case "plex":
@@ -1148,12 +1150,12 @@ class AbstractMeshTopology(abc.ABC):
         if facet_type == "exterior":
             local_facet_numbers_dat = self._exterior_facet_local_numbers_dat
             arity = 1
-            facet_to_cell_map = self._facet_support_dat("exterior", only_owned=False).data_ro
+            facet_to_cell_map = self._support_dat("exterior_facet", only_owned=False).data_ro
         else:
             assert facet_type == "interior"
             local_facet_numbers_dat = self._interior_facet_local_numbers_dat
             arity = 2
-            facet_to_cell_map = self._facet_support_dat("interior", only_owned=False).data_ro
+            facet_to_cell_map = self._support_dat("interior_facet", only_owned=False).data_ro
 
         facet_to_cell_map = facet_to_cell_map.reshape((-1, arity))
 
@@ -1559,15 +1561,9 @@ class AbstractMeshTopology(abc.ABC):
     def _renumber_map_fixed(
         self,
         map_data: np.ndarray,
-        _from_selector: str | int | tuple[int, ...] | None = None,
-        _to_selector: str | int | tuple[int, ...] | None = None,
-        *,
-        from_name: str | None = None,
-        from_dim: int | tuple[int, ...] | None = None,
-        from_stratum: int | None = None,
-        to_name: str | None = None,
-        to_dim: int | tuple[int, ...] | None = None,
-        to_stratum: int | None = None,
+        from_plex_indices: np.ndarray,
+        from_numbering_sec: PETSc.Section,
+        to_numbering_sec: PETSc.Section,
     ):
         """
         Parameters
@@ -1575,16 +1571,6 @@ class AbstractMeshTopology(abc.ABC):
         map_data
             Array of points (plex numbering)
         """
-        from_plex_indices = self._entity_indices(
-            "plex", _from_selector, name=from_name, dim=from_dim, stratum=from_stratum
-        )
-        from_numbering_sec = self._plex_to_entity_numbering_sec(
-            _from_selector, name=from_name, dim=from_dim, stratum=from_stratum
-        )
-        to_numbering_sec = self._plex_to_entity_numbering_sec(
-            _to_selector, name=to_name, dim=to_dim, stratum=to_stratum
-        )
-
         map_data_renum = np.empty_like(map_data)
         for i, to_pts in enumerate(map_data):
             from_pt = from_plex_indices[i]
@@ -1705,16 +1691,18 @@ class AbstractMeshTopology(abc.ABC):
                 from_dim=from_dim,
                 from_stratum=from_stratum,
             )
+
+            from_plex_indices = self._entity_indices(
+                "plex", _from_selector, name=from_name, dim=from_dim, stratum=from_stratum
+            )
+            from_numbering_sec = self._plex_to_entity_numbering_sec(
+                _from_selector, name=from_name, dim=from_dim, stratum=from_stratum
+            )
+            to_numbering_sec = self._plex_to_entity_numbering_sec(
+                _to_selector, name=to_name, dim=to_dim, stratum=to_stratum
+            )
             return self._renumber_map_fixed(
-                map_,
-                _from_selector,
-                _to_selector,
-                from_name=from_name,
-                from_dim=from_dim,
-                from_stratum=from_stratum,
-                to_name=to_name,
-                to_dim=to_dim,
-                to_stratum=to_stratum,
+                map_, from_plex_indices, from_numbering_sec, to_numbering_sec
             )
         else:
             raise NotImplementedError
@@ -2027,14 +2015,18 @@ class AbstractMeshTopology(abc.ABC):
     def _fiat_cell_closures_renumbered(self) -> np.ndarray:
         renumbered_closures = np.empty_like(self._fiat_cell_closures)
         from_dim = self.dimension
+        from_plex_indices = self._entity_indices("plex", dim=from_dim)
+        from_numbering_sec = self._plex_to_entity_numbering_sec(dim=from_dim)
         offset = 0
         for to_dim, size in self._closure_sizes[from_dim].items():
+            to_numbering_sec = self._plex_to_entity_numbering_sec(dim=to_dim)
             start = offset
             stop = offset + size
             renumbered_closures[:, start:stop] = self._renumber_map_fixed(
                 self._fiat_cell_closures[:, start:stop],
-                from_stratum=from_dim,
-                to_stratum=to_dim,
+                from_plex_indices,
+                from_numbering_sec,
+                to_numbering_sec,
             )
             offset += size
         return renumbered_closures
@@ -2638,54 +2630,31 @@ class MeshTopology(AbstractMeshTopology):
 
     def _submesh_make_entity_entity_map(
         self,
-        child_selector: Mapping[str, Any],
-        parent_selector: Mapping[str, Any],
+        from_selector: str | int | tuple[int, ...],
+        to_selector: str | int | tuple[int, ...],
         child_parent_map: bool,
     ):
-        child_axis = self._entity_axes(**child_selector).as_axis()
-        child_plex_indices = self._entity_indices("plex", **child_selector)
-        child_numbering_sec = self._plex_to_entity_numbering_sec(**child_selector)
-        parent_axis = self.submesh_parent._entity_axes(**parent_selector).as_axis()
-        parent_plex_indices = self.submesh_parent._entity_indices("plex", **parent_selector)
-        parent_numbering_sec = self.submesh_parent._plex_to_entity_numbering_sec(**parent_selector)
-
         if child_parent_map:
-            from_set = child_axis
-            from_points = child_plex_indices
-            from_numbering = child_numbering_sec
-            to_set = parent_axis
-            to_points = parent_plex_indices
-            to_numbering = parent_numbering_sec
-
-            from_selector = child_selector
-            to_selector = parent_selector
-        else:
-            from_set = parent_axis
-            from_points = parent_plex_indices
-            from_numbering = parent_numbering_sec
-            to_set = child_axis
-            to_points = child_plex_indices
-            to_numbering = child_numbering_sec
-
-            from_selector = parent_selector
-            to_selector = child_selector
-
-        assert from_set.local_size == len(from_points)
-        assert to_set.local_size == len(to_points)
-
-        # this always maps from child plex point to parent plex point
-        if child_parent_map:
-            # this is a dense map from the child points to the parent points
+            from_mesh = self
+            to_mesh = self.submesh_parent
             plex_index_map = self._submesh_to_parent_plex_index_map
         else:
+            from_mesh = self.submesh_parent
+            to_mesh = self
             plex_index_map = self._parent_to_submesh_plex_index_map
 
-        subpoints = plex_index_map[from_points]
-        values = self._renumber_map_fixed(
-            subpoints[:, np.newaxis],  # arity 1 map between plex points
-            **from_selector,
-            **to_selector,
-        )
+        from_set = from_mesh._entity_axes(from_selector).as_axis()
+        from_plex_indices = from_mesh._entity_indices("plex", from_selector)
+        from_numbering_sec = from_mesh._plex_to_entity_numbering_sec(from_selector)
+        to_set = to_mesh._entity_axes(to_selector).as_axis()
+        to_plex_indices = to_mesh._entity_indices("plex", to_selector)
+        to_numbering_sec = to_mesh._plex_to_entity_numbering_sec(to_selector)
+
+        assert from_set.local_size == len(from_plex_indices)
+        assert to_set.local_size == len(to_plex_indices)
+
+        subpoints = plex_index_map[from_plex_indices][:, np.newaxis]  # arity 1 map between plex points
+        values = self._renumber_map_fixed(subpoints, from_plex_indices, from_numbering_sec, to_numbering_sec)
         map_name = f"{self.name}_submesh_map_{from_set.label}_{to_set.label}"
         to_label = to_set.component.label
         map_dat = op3.Dat(from_set, data=values.flatten())
@@ -2794,14 +2763,8 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError
 
-        if reverse:
-            child_integral_type = target_integral_type
-            parent_integral_type = source_integral_type
-        else:
-            child_integral_type = source_integral_type
-            parent_integral_type = target_integral_type
         map_ = self._submesh_make_entity_entity_map(
-            {"name": child_integral_type}, {"name": parent_integral_type}, not reverse
+            source_integral_type, target_integral_type, not reverse
         )
         return map_, target_integral_type, target_subset_points
 
@@ -2811,7 +2774,7 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError
 
         maps = [
-            self._submesh_make_entity_entity_map({"dim": dim}, {"dim": dim}, True)
+            self._submesh_make_entity_entity_map(dim, dim, True)
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
@@ -2823,7 +2786,7 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError
 
         maps = [
-            self._submesh_make_entity_entity_map({"dim": dim}, {"dim": dim}, False)
+            self._submesh_make_entity_entity_map(dim, dim, False)
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)

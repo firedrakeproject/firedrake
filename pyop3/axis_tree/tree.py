@@ -1059,6 +1059,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
     def _matching_target(self):
         return match_target(self, self.unindexed, self.targets)
 
+    @pyop3.mpi.collective  # debugging
     def subst_layouts(self):
         return self._subst_layouts_default
 
@@ -2003,27 +2004,32 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     @cached_method()
     def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray[int]:
+        # Attempt to convert the indices into a slice if possible
         indices = self._buffer_indices(include_ghosts=include_ghosts)
 
-        # then convert to a slice if possible, do in Cython?
-        slice_ = None
-        n = len(indices)
-
-        if n == 0:
-            return slice(0, 0, 1)
-        elif n == 1:
+        # TODO: Move this into Cython
+        maybe_slice = indices
+        if len(indices) == 0:
+            maybe_slice = slice(0, 0, 1)
+        elif len(indices) == 1:
             start = indices[0]
-            return slice(start, start+1, 1)
+            maybe_slice = slice(start, start+1, 1)
         else:
             step = indices[1] - indices[0]
+            for i in range(1, len(indices)-1):
+                if indices[i+1] - indices[i] != step:
+                    # non-const step, abort and use indices
+                    break
+            else:
+                maybe_slice = slice(indices[0], indices[-1]+1, step)
 
-            for i in range(1, n-1):
-                new_step = indices[i+1] - indices[i]
-                # non-const step, abort and use indices
-                if new_step != step:
-                    return indices
+        # The above operation is rank-local - some ranks may have no indices
+        # and hence think that they can use a slice. Allreduce here for
+        # consistency.
+        with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
+            only_slices = icomm.allreduce(type(maybe_slice) is slice, MPI.LAND)
 
-            return slice(indices[0], indices[-1]+1, step)
+        return maybe_slice if only_slices else indices
 
     def buffer_size(self, *, include_ghosts: bool) -> int:
         return self._buffer_indices(include_ghosts=include_ghosts).size
@@ -2032,14 +2038,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # does this work?
     global_numbering = AxisTree.global_numbering
-
-    # @cached_property
-    # def global_numbering(self) -> Dat[IntType]:
-    #     from pyop3 import Dat
-    #
-    #     assert False, "does this work? is it valid?"
-    #
-    #     return Dat(self.localize(), buffer=self.unindexed.global_numbering.buffer)
 
     # }}}
 

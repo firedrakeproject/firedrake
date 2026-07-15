@@ -525,11 +525,26 @@ def parallel_cache(
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
+
+            if heavy and len(_heavy_caches) == 0:
+                pyop3.log.debug(
+                    f"{func.__qualname__} is heavy cached but no heavy cache has been set"
+                )
+
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                if heavy and len(_heavy_caches) == 0:
-                    LOGGER.debug(
-                        f"{func.__qualname__} is heavy cached but no heavy cache has been set"
-                    )
+                # Filter the heavy caches to only use those valid for the
+                # provided comm.
+                # As an illustrative example, say we are calling this function
+                # with COMM_SELF. That means that we are only logically
+                # collective on this rank - we have no idea what other ranks are
+                # doing. It is therefore not safe to use a heavy cache (like
+                # the mesh) that has broader parallel semantics (i.e. a larger comm).
+                valid_heavy_caches = [
+                    c for c in _heavy_caches
+                    if pyop3.mpi.comm_is_subset(c.comm, comm)
+                ]
+
+                if heavy and not valid_heavy_caches:
                     caches = (pyop3.collections.AlwaysEmptyDict(),)
                     cache_type = pyop3.collections.AlwaysEmptyDict
                     value = CACHE_MISS
@@ -541,18 +556,14 @@ def parallel_cache(
                     comm_caches = get_comm_caches(comm)
                     if heavy:
                         if cache_id not in comm_caches:
-                            # This must be a weak key dictionary to ensure that it does
-                            # not explode
-                            # The keys of this dictionary are the lifetime objects
+                            # This must be a weak key dictionary, where the keys are the
+                            # lifetime objects, to ensure that it does not explode
                             comm_caches[cache_id] = weakref.WeakKeyDictionary()
-                            # but this fixes a parallel bug... somewhere...
-                            # comm_caches[cache_id] = {}
 
                         caches = []
                         cache_type = None
-                        for lifetime_obj in _heavy_caches:
-                            # FIXME: This doesn't always hold, but it probably should
-                            assert lifetime_obj.comm.size >= comm.size
+                        for lifetime_obj in valid_heavy_caches:
+                            assert lifetime_obj.comm.size <= comm.size
                             if pyop3.config.spmd_strict:
                                 # cache access must be collective over lifetime objects
                                 lifetime_obj.comm.barrier()
@@ -564,7 +575,7 @@ def parallel_cache(
                                 comm_caches[cache_id][lifetime_obj] = cache
 
                             if cache_type is None:
-                                cache_type = type(cache)
+                                cache_type = type(cache.cache)
                             caches.append(cache)
                         caches = tuple(caches)
                         assert cache_type is not None
@@ -576,11 +587,11 @@ def parallel_cache(
                             cache = make_instrumented_cache()
                             comm_caches[cache_id] = cache
                         caches = (cache,)
-                        cache_type = type(cache)
+                        cache_type = type(cache.cache)
 
                 key = hashkey(*args, **kwargs)
 
-                for cache in caches:
+                for cache_idx, cache in enumerate(caches):
                     try:
                         value = cache[key]
                         break
@@ -619,13 +630,14 @@ def parallel_cache(
                 else:
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
-                    if (
-                        pyop3.config.spmd_strict
-                        and not utils.is_single_valued(
-                            comm.allgather(value is not CACHE_MISS)
-                        )
-                    ):
-                        raise ValueError("Cache hit on some ranks but missed on others")
+                    if pyop3.config.spmd_strict:
+                        check_val = value is not CACHE_MISS
+                        if heavy:
+                            # If we are heavy also send the cache index to assert that
+                            # we are getting a cache hit from the same lifetime object
+                            check_val = (cache_idx, check_val)
+                        if not utils.is_single_valued(comm.allgather(check_val)):
+                            raise ValueError("Inconsistent cache hit behaviour")
 
                 if value is CACHE_MISS:
                     if bcast:

@@ -218,7 +218,7 @@ class Dat(Tensor):
 
         axes = as_axis_tree(axes)
 
-        if "name" in kwargs:
+        if kwargs.get("name") is not None:
             buffer_kwargs["name"] = kwargs["name"] + "_buffer"
 
         buffer = ArrayBuffer.zeros(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)

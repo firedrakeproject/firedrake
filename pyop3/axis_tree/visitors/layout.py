@@ -374,7 +374,9 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
         loop_(
-            ix, exscan(assignee, size_expr_alt, "+", scan_axis, assignee.comm), eager=True
+            ix,
+            exscan(assignee, size_expr_alt, "+", scan_axis, assignee.comm),
+            eager=True
         )
 
     else:
