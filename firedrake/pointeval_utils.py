@@ -1,5 +1,5 @@
 import loopy as lp
-from firedrake.utils import IntType, as_cstr, RealType_c
+from firedrake.utils import IntType, as_cstr
 
 from finat.element_factory import as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -106,7 +106,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=utils.RealType, shape=(dim,))
+    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -159,7 +159,8 @@ def compile_element(expression, coordinates, parameters=None):
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
-        "scalar_type": RealType_c,
+        "scalar_type": utils.ScalarType_c,
+        "real_type": utils.RealType_c,
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
@@ -170,7 +171,7 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(real_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 
