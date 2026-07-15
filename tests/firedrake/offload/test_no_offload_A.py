@@ -1,6 +1,8 @@
 from firedrake import *
+import pytest
 
 
+@pytest.mark.skipnogpu
 def test_matfree_A_does_not_offload():
     length = 10
     n = 3

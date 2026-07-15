@@ -89,10 +89,10 @@ class OffloadPC(PCBase):
         A, P = pc.getOperators()
         A_dev, P_dev = self.pc.getOperators()
         # Perform a value-only copy
-        P.copy(P_dev, structure=P.Structure.SAME_NONZERO_PATTERN)
+        P.copy(P_dev, structure=PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
         if A_dev.handle != P_dev.handle and A.type not in _no_offload_mat_types:
             # Perform a value-only copy
-            A.copy(A_dev, structure=A.Structure.SAME_NONZERO_PATTERN)
+            A.copy(A_dev, structure=PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
 
     # Convert vectors to CUDA, solve and get solution on CPU back
     def apply(self, pc, x, y, transpose=False):
