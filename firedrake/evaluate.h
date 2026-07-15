@@ -36,13 +36,13 @@ struct Function {
 
 typedef PetscReal (*ref_cell_l1_dist)(void *data_,
 				struct Function *f,
-				int cell,
+				PetscInt cell,
 				double *x);
 
 typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
 				struct Function *f,
-				int cell,
-				int layer,
+				PetscInt cell,
+				PetscInt layer,
 				double *x);
 
 extern PetscInt locate_cell(struct Function *f,
