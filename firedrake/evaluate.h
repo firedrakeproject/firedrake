@@ -9,13 +9,13 @@ extern "C" {
 
 struct Function {
 	/* Number of cells in the base mesh */
-	int n_cols;
+	PetscInt n_cols;
 
 	/* 1 if extruded, 0 if not */
 	int extruded;
 
 	/* number of layers for extruded, otherwise 1 */
-	int n_layers;
+	PetscInt n_layers;
 
 	/* Coordinate values and node mapping */
 	PetscScalar *coords;

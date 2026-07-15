@@ -37,9 +37,9 @@ __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'Point
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
+    _fields_ = [("n_cols", as_ctypes(IntType)),
                 ("extruded", c_int),
-                ("n_layers", c_int),
+                ("n_layers", as_ctypes(IntType)),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
