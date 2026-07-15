@@ -380,6 +380,27 @@ For Homebrew it is sometimes useful to run the command::
 as this can flag issues with your system that should be resolved before
 installing Firedrake.
 
+Authorization required, but no authorization protocol specified
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you see the warning message::
+
+   Authorization required, but no authorization protocol specified
+
+printed to your terminal when you run programs then you can fix this
+by setting the environment variable::
+
+   $ export HWLOC_COMPONENTS="-gl"
+
+Hanging during pip install firedrake
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you encounter hanging during ``pip install firedrake`` it is
+possible that this can also be fixed by setting the environment
+variable::
+
+   $ export HWLOC_COMPONENTS="-gl"
+
 .. _customising:
 
 Customising Firedrake
