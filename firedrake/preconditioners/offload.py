@@ -16,6 +16,11 @@ _device_vector_impls = {
     },
 }
 
+# These matrix types require an expensive implicit -> dense -> sparse conversion when
+# offloaded to a GPU. The A matrix does not need to be offloaded, therefore if the A
+# matrix is any of these types, do not offload it.
+_no_offload_mat_types = ("python", "schurcomplement")
+
 
 class OffloadPC(PCBase):
     """Offload PC from CPU to GPU and back.
@@ -56,8 +61,15 @@ class OffloadPC(PCBase):
         pc.setOptionsPrefix(options_prefix)
         if self.device_mat is not None:
             with PETSc.Log.Event("Event: initialize offload"):
-                P_dev = P.convert(mat_type=self.device_mat)
-                A_dev = P_dev if A.handle == P.handle else A.convert(mat_type=self.device_mat)
+                P_dev = PETSc.Mat()
+                P_dev = P.convert(mat_type=self.device_mat, out=P_dev)
+                if A.handle == P.handle:
+                    A_dev = P_dev
+                elif A.type in _no_offload_mat_types:
+                    A_dev = A
+                else:
+                    A_dev = PETSc.Mat()
+                    A_dev = A.convert(mat_type=self.device_mat, out=A_dev)
             P_dev.setNullSpace(P.getNullSpace())
             P_dev.setTransposeNullSpace(P.getTransposeNullSpace())
             P_dev.setNearNullSpace(P.getNearNullSpace())
@@ -76,9 +88,11 @@ class OffloadPC(PCBase):
     def update(self, pc):
         A, P = pc.getOperators()
         A_dev, P_dev = self.pc.getOperators()
-        P.copy(P_dev)
-        if A_dev.handle != P_dev.handle:
-            A.copy(A_dev)
+        # Perform a value-only copy
+        P.copy(P_dev, structure=PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
+        if A_dev.handle != P_dev.handle and A.type not in _no_offload_mat_types:
+            # Perform a value-only copy
+            A.copy(A_dev, structure=PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
 
     # Convert vectors to CUDA, solve and get solution on CPU back
     def apply(self, pc, x, y, transpose=False):
