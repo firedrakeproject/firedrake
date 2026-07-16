@@ -139,7 +139,7 @@ def solve(*args, **kwargs):
     assert len(args) > 0
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
-        _solve_varproblem(*args, **kwargs)
+        return _solve_varproblem(*args, **kwargs)
     else:
         # Solve pre-assembled system
         return _la_solve(*args, **kwargs)
@@ -189,7 +189,7 @@ def _solve_varproblem(*args, **kwargs):
                            options_prefix=options_prefix,
                            appctx=appctx,
                            pre_apply_bcs=pre_apply_bcs)
-    solver.solve()
+    return solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):

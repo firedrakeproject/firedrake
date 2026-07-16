@@ -48,7 +48,7 @@ def test_marking_callback_refine_hook_reconstructs_problem():
         newdm = dm.refine()
         solver._ctx = dmhooks.get_appctx(newdm)
 
-    adapted = solver.get_adapted_solution()
+    adapted = solver.get_solution()
     adapted_mesh = adapted.function_space().mesh()
     hierarchy, level = get_level(adapted_mesh)
 
@@ -132,9 +132,8 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     solver = LinearVariationalSolver(problem,
                                      solver_parameters=params,
                                      marking_callback=mark_cells)
-    solver.solve()
+    u_adapted = solver.solve()
 
-    u_adapted = solver.get_adapted_solution()
     adapted_mesh = u_adapted.function_space().mesh()
     hierarchy, level = get_level(adapted_mesh)
 

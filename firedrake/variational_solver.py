@@ -354,8 +354,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
         self._ctx._marking_callback = callback
 
-    def get_adapted_solution(self):
-        r"""Return the current solution, including after PETSc adapts the DM."""
+    def get_solution(self):
+        r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u
 
     def set_transfer_manager(self, manager):
@@ -440,6 +440,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
         comm = problem.u_restrict.function_space().mesh().comm
         PETSc.garbage_cleanup(comm)
+        return self.get_solution()
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
