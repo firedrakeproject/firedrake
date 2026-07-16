@@ -193,7 +193,7 @@ class RobustTransferManager(TransferManager):
         for c in form.coefficients():
             new_state.append(c.dat.dat_version)
         for c in extract_firedrake_constants(form):
-            new_state.append(c.dat.data.copy())
+            new_state.extend(map(float, c.dat.data))
         new_state = tuple(new_state)
         if state is None:
             state = new_state
