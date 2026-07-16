@@ -48,7 +48,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "global"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -432,8 +432,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
@@ -529,7 +531,10 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         A = ctx._jac.petscmat
-        P = A if ctx.Jp is None else ctx._pjac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
         return A, P
 
     @staticmethod
