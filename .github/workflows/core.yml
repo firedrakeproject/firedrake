@@ -273,7 +273,7 @@ jobs:
             matrix='{"scalar_type": "complex", "int_type": "default", "gpu": "none"}'
           fi
           if [ ${{ inputs.test_int64 }} == 'true' ]; then
-            arch='{"scalar_type": "default", "gpu": "none", "int_type": "int64"}'
+            arch='{"scalar_type": "default", "int_type": "int64", "gpu": "none"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else
