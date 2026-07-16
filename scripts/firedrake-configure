@@ -427,6 +427,7 @@ UBUNTU_SOURCE_BUILD_PACKAGES = [
 
 UBUNTU_SOURCE_BUILD_PETSC_CONFIGURE_OPTIONS = [
     "--download-bison",
+    "--download-cmake",
     "--download-fftw",
     "--download-hdf5",
     "--download-hwloc",
