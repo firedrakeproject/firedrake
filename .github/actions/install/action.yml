@@ -18,9 +18,9 @@ inputs:
     type: string
     default: default
   int_type:
-    description: Integer type ('default' or 'int64')
+    description: Integer type ('int32' or 'int64')
     type: string
-    default: default
+    default: int32
   gpu:
     description: Target GPU platform
     type: string

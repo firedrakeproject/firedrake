@@ -270,7 +270,7 @@ jobs:
         id: generate
         run: |
           if [ ${{ inputs.test_complex }} == 'true' ]; then
-            matrix='{"scalar_type": "complex", "int_type": "default", "gpu": "none"}'
+            matrix='{"scalar_type": "complex", "int_type": "int32", "gpu": "none"}'
           fi
           if [ ${{ inputs.test_int64 }} == 'true' ]; then
             arch='{"scalar_type": "default", "int_type": "int64", "gpu": "none"}'
@@ -281,7 +281,7 @@ jobs:
             fi
           fi
           if [ ${{ inputs.test_cuda }} == 'true' ]; then
-            arch='{"scalar_type": "default", "int_type": "default", "gpu": "cuda"}'
+            arch='{"scalar_type": "default", "int_type": "int32", "gpu": "cuda"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else

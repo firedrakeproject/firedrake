@@ -166,7 +166,7 @@ Please see https://firedrakeproject.org/install for more information."""
     parser.add_argument(
         "--int-type",
         choices=[it.value for it in IntType],
-        default=IntType.DEFAULT.value,
+        default=IntType.INT32.value,
         help="PETSc integer type.",
     )
     parser.add_argument(
@@ -258,7 +258,7 @@ class ScalarType(enum.Enum):
 
 
 class IntType(enum.Enum):
-    DEFAULT = "default"
+    INT32 = "int32"
     INT64 = "int64"
 
 
@@ -420,7 +420,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Ubuntu 26.04 x86
 
-    (OS.UBUNTU_2604_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UBUNTU_2604_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="default",
         system_packages=[
             "bison",
@@ -482,7 +482,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         ],
     ),
 
-    (OS.UBUNTU_2604_X86_64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UBUNTU_2604_X86_64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="complex",
         system_packages=[
             "bison",
@@ -606,7 +606,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Ubuntu 26.04 aarch64
 
-    (OS.UBUNTU_2604_AARCH64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UBUNTU_2604_AARCH64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="default",
         system_packages=[
             "bison",
@@ -668,7 +668,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         ],
     ),
 
-    (OS.UBUNTU_2604_AARCH64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UBUNTU_2604_AARCH64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="complex",
         system_packages=[
             "bison",
@@ -730,7 +730,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Ubuntu 26.04 x86 CUDA
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.CUDA): Arch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.CUDA): Arch(
         name="default-cuda",
         system_packages=[
             "bison",
@@ -810,7 +810,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # macOS arm64
 
-    (OS.MACOS_ARM64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.MACOS_ARM64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="default",
         system_packages=[
             "autoconf",
@@ -863,7 +863,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
     ),
 
-    (OS.MACOS_ARM64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.MACOS_ARM64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="complex",
         system_packages=[
             "autoconf",
@@ -919,7 +919,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
     # Sane default configurations for unknown platforms
 
-    (OS.UNKNOWN, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UNKNOWN, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="default",
         extra_petsc_configure_options=[
             "--download-bison",
@@ -946,7 +946,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         },
     ),
 
-    (OS.UNKNOWN, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): Arch(
+    (OS.UNKNOWN, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
         name="complex",
         extra_petsc_configure_options=[
             "--with-scalar-type=complex",
@@ -1010,7 +1010,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
 
     # Ubuntu 24.04 x86
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
         last_modified="2026-05-13",
         system_packages=[
@@ -1072,7 +1072,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
         last_modified="2026-05-13",
         system_packages=[
@@ -1136,7 +1136,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
 
     # Ubuntu 24.04 aarch64
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
         last_modified="2026-05-13",
         system_packages=[
@@ -1198,7 +1198,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
         last_modified="2026-05-13",
         system_packages=[
@@ -1260,7 +1260,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.HIP): CommunityArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.HIP): CommunityArch(
         name="default-hip",
         maintainer="the G-ADOPT team",
         contact="at help@gadopt.org",
