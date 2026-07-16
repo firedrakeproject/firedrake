@@ -743,15 +743,14 @@ class CompiledCodeExecutor:
             # again. For example we can increment into a buffer as many times
             # as we want. The reduction only needs to be done when the
             # data is read.
-            if buffer._roots_valid or intent == buffer._pending_reduction:
+            if buffer._pending_reduction == intent:
                 pass
             else:
                 # We assume that all points are visited, and therefore that
                 # WRITE accesses do not need to update roots. If only a subset
                 # of entities are written to then a manual reduction is required.
                 # This is the same assumption that we make for data_wo.
-                if intent in {INC, MIN_RW, MAX_RW}:
-                    assert buffer._pending_reduction is not None
+                if not buffer._roots_valid and intent in {INC, MIN_RW, MAX_RW}:
                     initializers.append(buffer._reduce_leaves_to_roots_begin)
                     reductions.append(buffer._reduce_leaves_to_roots_end)
 

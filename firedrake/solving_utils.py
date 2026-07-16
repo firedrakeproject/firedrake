@@ -346,8 +346,10 @@ class _SNESContext(object):
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
-        with self._F.dat.vec_wo as v:
-            snes.setFunction(self.form_function, v)
+        # Pass the vec from self._F here. We don't use a context because
+        # setting state flags does not make sense (we call this function
+        # before we do any compute).
+        snes.setFunction(self.form_function, self._F.dat._work_vec)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -460,10 +462,14 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec_wo as v:
-            X.copy(v)
+        # NOTE: I think we may have to set 'leaves_valid' to false here, as I
+        # don't think ctx._x.dat knows enough about changes. This could be
+        # done according to the vec state.
+        if ctx._x.dat._work_vec.handle != X.handle:
+            ctx._x.dat.data_wo[...] = X.array_r
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -479,10 +485,13 @@ class _SNESContext(object):
             with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
 
+        # Make sure all owned values are fully updated before yielding to PETSc
+        ctx._F.dat.buffer.sync_roots()
+
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._F.dat.vec_ro as v:
-            v.copy(F)
+        if ctx._F.dat._work_vec.handle != F.handle:
+            F.array_w[...] = ctx._F.dat.data_ro
 
     @staticmethod
     def form_jacobian(snes, X, J, P):

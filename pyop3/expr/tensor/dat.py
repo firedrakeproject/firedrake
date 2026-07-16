@@ -145,7 +145,7 @@ class Dat(Tensor):
             assert len(self.buffer.shape) == 1
 
         # Lazily allocated PETSc Vecs (and state tracking)
-        self._work_vec = None
+        self._lazy_work_vec = None
         self._work_vec_buffer_state = None
         self._vec_context_is_active = False
 
@@ -426,13 +426,13 @@ class Dat(Tensor):
         """
         return self.as_array("rw", include_ghosts=True)
 
+    # TODO: eventually deprecate this
     @property
-    @deprecated(".data_rw")
     def data(self):
         return self.data_rw
 
+    # TODO: eventually deprecate this
     @property
-    @deprecated(".data_rw_with_halos")
     def data_with_halos(self):
         return self.data_rw_with_halos
 
@@ -520,30 +520,11 @@ class Dat(Tensor):
         # Make sure all root values are correct
         self.buffer.sync_roots()
 
-        # Don't use 'self.data_ro' etc because we want control over the parallel
-        # correctness flags and such
-        indices = self.axes.buffer_slice(include_ghosts=False)
-        array = self.buffer._current_device_array[indices]
-        contiguous = isinstance(indices, slice)
-
-        # Prepare the work vec
+        # The block size may change between invocations
+        # TODO: Should reset it back at the end
         block_size = np.prod(block_shape, dtype=int) 
-        if self._work_vec is None:
-            if contiguous:
-                vec = PETSc.Vec().createWithArray(
-                    array, (array.size, None), block_size, self.comm
-                )
-            else:
-                raise NotImplementedError
-                vec = PETSc.Vec().create(self.comm)
-                vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
-                vec.setType(vec_type)
-                vec.setSizes(sizes, block_size)
-            self._work_vec = vec
-        else:
-            # The block size may change between invocations
-            if block_size != self._work_vec.block_size:
-                self._work_vec.setBlockSize(block_size)
+        if block_size != self._work_vec.block_size:
+            self._work_vec.setBlockSize(block_size)
 
         # if is_view:
         #     pass
@@ -596,6 +577,31 @@ class Dat(Tensor):
             # we don't trust PETSc to exhaustively track all modifications.
             self.buffer.state = max(self._work_vec.stateGet(), self.buffer.state+1)
             self.buffer._leaves_valid = False
+
+    @property
+    def _work_vec(self) -> PETSc.Vec:
+        if self._lazy_work_vec is None:
+            # Don't use 'self.data_ro' etc because we want control over the parallel
+            # correctness flags and such
+            indices = self.axes.buffer_slice(include_ghosts=False)
+            array = self.buffer._current_device_array[indices]
+            contiguous = isinstance(indices, slice)
+
+            block_size = np.prod(self.axes.block_shape, dtype=int) 
+
+            if contiguous:
+                vec = PETSc.Vec().createWithArray(
+                    array, (array.size, None), block_size, self.comm
+                )
+            else:
+                raise NotImplementedError
+                # vec = PETSc.Vec().create(self.comm)
+                # vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
+                # vec.setType(vec_type)
+                # vec.setSizes(sizes, block_size)
+            self._lazy_work_vec = vec
+
+        return self._lazy_work_vec
 
     @property
     def norm(self) -> numbers.Real:

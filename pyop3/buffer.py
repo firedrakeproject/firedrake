@@ -552,11 +552,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ data accessors
 
     @property
-    @deprecated(".data_rw")
-    def data(self):
-        return self.data_rw
-
-    @property
     def data_rw(self):
         return self.get_array("rw")
 
@@ -921,6 +916,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
                 f"must be '{PETSc.ScalarType}'"
             )
+
+        self.assemble()
 
         # TODO: how should we handle the state of the work vec?
         # TODO: catch nested contexts

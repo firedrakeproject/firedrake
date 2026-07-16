@@ -431,7 +431,7 @@ def test_submesh_solve_mixed_poisson_check_sanity_3d(hexahedral, degree, submesh
     assert u_error < 0.003
 
 
-# @pytest.mark.parallel(4)  # FIXME
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('nref', [1, 3])
 @pytest.mark.parametrize('degree', [2, 4])

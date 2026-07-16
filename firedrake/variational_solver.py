@@ -408,12 +408,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             u.copy(work)
 
         with ExitStack() as stack:
-            # Ensure options database has full set of options (so monitors
-            # work right)
-            for ctx in chain([self.inserted_options()],
-                             [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                             self._transfer_operators):
-                stack.enter_context(ctx)
+            stack.enter_context(self.inserted_options())
+            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]
+            for dmctx in dmctxs:
+                stack.enter_context(dmctx)
+            for top in self._transfer_operators:
+                stack.enter_context(top)
+
             self.snes.solve(None, work)
 
         with problem.u_restrict.dat.vec_rw as u:

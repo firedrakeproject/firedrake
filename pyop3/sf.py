@@ -41,6 +41,16 @@ class AbstractStarForest(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def iroot(self) -> np.ndarray:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def ileaf(self) -> np.ndarray:
+        pass
+
+    @property
+    @abc.abstractmethod
     def num_owned(self) -> AxisComponentRegionSizeT:
         pass
 
@@ -58,6 +68,40 @@ class AbstractStarForest(abc.ABC):
         pass
 
     # }}}
+
+    @cached_property
+    def iroot(self):
+        """Return the indices of roots on the current process."""
+        # mark leaves and reduce
+        mask = np.full(self.size, False, dtype=bool)
+        mask[self.ileaf] = True
+        self.reduce(mask, MPI.REPLACE)
+
+        # now clear the leaf indices, the remaining marked indices are roots
+        mask[self.ileaf] = False
+        return utils.just_one(np.nonzero(mask))
+
+    @property
+    def ileaf(self):
+        return self.ilocal
+
+    @cached_property
+    def icore(self):
+        """Return the indices of points that are not roots or leaves."""
+        mask = np.full(self.size, True, dtype=bool)
+        mask[self.iroot] = False
+        mask[self.ileaf] = False
+        return utils.just_one(np.nonzero(mask))
+
+    @property
+    def num_owned(self):
+        num_owned =  self.size - self.nleaves
+        assert num_owned >= 0
+        return num_owned
+
+    @property
+    def nleaves(self):
+        return len(self.ileaf)
 
 
     def broadcast(self, *args):
@@ -124,40 +168,6 @@ class StarForest(AbstractStarForest):
         sf = PETSc.SF().create(comm)
         sf.setGraph(size, ilocal, iremote)
         return cls(sf, comm)
-
-    @cached_property
-    def iroot(self):
-        """Return the indices of roots on the current process."""
-        # mark leaves and reduce
-        mask = np.full(self.size, False, dtype=bool)
-        mask[self.ileaf] = True
-        self.reduce(mask, MPI.REPLACE)
-
-        # now clear the leaf indices, the remaining marked indices are roots
-        mask[self.ileaf] = False
-        return utils.just_one(np.nonzero(mask))
-
-    @property
-    def ileaf(self):
-        return self.ilocal
-
-    @cached_property
-    def icore(self):
-        """Return the indices of points that are not roots or leaves."""
-        mask = np.full(self.size, True, dtype=bool)
-        mask[self.iroot] = False
-        mask[self.ileaf] = False
-        return utils.just_one(np.nonzero(mask))
-
-    @property
-    def num_owned(self):
-        num_owned =  self.size - self.nleaves
-        assert num_owned >= 0
-        return num_owned
-
-    @property
-    def nleaves(self):
-        return len(self.ileaf)
 
     # better alias?
     @property
@@ -246,6 +256,10 @@ class NullStarForest(AbstractStarForest):
 
     def __eq__(self, /, other: Any) -> bool:
         return type(other) is type(self) and other.size == self.size
+
+    @property
+    def ileaf(self):
+        return np.empty(0, dtype=IntType)
 
     @property
     def num_owned(self) -> AxisComponentRegionSizeT:
