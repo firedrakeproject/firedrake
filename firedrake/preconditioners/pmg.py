@@ -107,6 +107,7 @@ class PMGBase(PCSNESBase):
 
         prefix = obj.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
+        self.options_prefix = options_prefix
         pdm = PETSc.DMShell().create(comm=obj.comm)
         pdm.setOptionsPrefix(options_prefix)
 
