@@ -97,13 +97,13 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
+            v_arg, u_arg = self.J.arguments()
             if isinstance(F, Form):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+                self.F = interpolate(v_res, replace(F, {u_arg: u_res, self.u: self.u_restrict}))
 
-            v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:
                 v_arg, u_arg = self.Jp.arguments()
