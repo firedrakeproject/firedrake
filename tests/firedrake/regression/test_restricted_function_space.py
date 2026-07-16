@@ -215,7 +215,7 @@ def test_restrict_action():
     Q = FunctionSpace(mesh, "DG", 0)
 
     u, v = TrialFunction(V), TestFunction(V)
-    q, r = TrialFunction(Q), TestFunction(Q)
+    q, _ = TrialFunction(Q), TestFunction(Q)
 
     M = inner(q, v) * dx  # Q x V -> R
     I = interpolate(u, Q)  # V x Q^* -> R
