@@ -170,7 +170,18 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
+    base_form_operands = BaseFormAssembler.base_form_operands(form)
+    can_compile = not base_form_operands
+    if isinstance(form, ufl.form.Form) and len(form.ufl_domains()) == 1:
+        domain, = form.ufl_domains()
+        can_compile = all(
+            isinstance(op, ufl.Interpolate)
+            and op.ufl_function_space().ufl_domain() == domain
+            and set(extract_domains(op)) <= {domain}
+            for op in base_form_operands
+        )
+
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
