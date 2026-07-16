@@ -418,11 +418,13 @@ packages are built. The currently supported ARCHs are:
 
 * ``default``: the default installation, suitable for most users
 * ``complex``: an installation where PETSc is configured using complex numbers
+* ``int64``: an installation where PETSc uses 64-bit integer indices
 
-The different configurations can be selected by passing the flag ``--arch`` to
-``firedrake-configure``. For example::
+The scalar and integer configurations can be selected by passing ``--arch`` and
+``--int-type``, respectively, to ``firedrake-configure``. For example::
 
    $ python3 firedrake-configure --show-petsc-configure-options --arch complex
+   $ python3 firedrake-configure --show-petsc-configure-options --int-type int64
 
 
 Optional dependencies
@@ -498,10 +500,9 @@ Customising PETSc
 Since ``firedrake-configure`` only outputs a string of options it is straightforward
 to customise the options that are passed to PETSc ``configure``. You can either:
 
-* Append additional options when ``configure`` is invoked. For example, to
-  build PETSc with support for 64-bit indices you should run::
+* Append additional options when ``configure`` is invoked. For example::
 
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
 
 * Write the output of ``firedrake-configure`` to a file than can be modified. For example::
 
