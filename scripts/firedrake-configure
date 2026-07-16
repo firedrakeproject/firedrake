@@ -72,9 +72,10 @@ def main():
 
     os_ = OS(args.os) if args.os else detect_os()
     scalar_type = ScalarType(args.scalar_type)
+    int_type = IntType(args.int_type)
     gpu_arch = GPUPlatform(args.gpu_arch)
 
-    arch_key = (os_, scalar_type, gpu_arch)
+    arch_key = (os_, scalar_type, int_type, gpu_arch)
     arch_key_str = f"{{{', '.join(f'{k.__class__.__name__}: {k.value}' for k in arch_key)}}}"
     if arch_key in OFFICIAL_ARCHS:
         arch = OFFICIAL_ARCHS[arch_key]
@@ -161,6 +162,12 @@ Please see https://firedrakeproject.org/install for more information."""
         choices=[st.value for st in ScalarType],
         default=ScalarType.DEFAULT.value,
         help="PETSc scalar type.",
+    )
+    parser.add_argument(
+        "--int-type",
+        choices=[it.value for it in IntType],
+        default=IntType.DEFAULT.value,
+        help="PETSc integer type.",
     )
     parser.add_argument(
         "--gpu-arch",
@@ -1060,7 +1067,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
 
     # Ubuntu 24.04 x86
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
         last_modified="2026-05-13",
         system_packages=[
@@ -1122,7 +1129,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
         last_modified="2026-05-13",
         system_packages=[
@@ -1186,7 +1193,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
 
     # Ubuntu 24.04 aarch64
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="default",
         last_modified="2026-05-13",
         system_packages=[
@@ -1248,7 +1255,7 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, GPUPlatform.NO_GPU): RetiredArch(
+    (OS.UBUNTU_2404_AARCH64, ScalarType.COMPLEX, IntType.DEFAULT, GPUPlatform.NO_GPU): RetiredArch(
         name="complex",
         last_modified="2026-05-13",
         system_packages=[
@@ -1308,6 +1315,95 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         library_dirs=[
             "/usr/lib/aarch64-linux-gnu/hdf5/openmpi",
         ],
+    ),
+
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.DEFAULT, GPUPlatform.HIP): CommunityArch(
+        name="default-hip",
+        maintainer="the G-ADOPT team",
+        contact="at help@gadopt.org",
+        last_modified="2026-07-07",
+        system_packages=[
+            "bison",
+            "build-essential",
+            "cmake",
+            "flex",
+            "gfortran",
+            "git",
+            "ninja-build",
+            "pkg-config",
+            "python3-dev",
+            "python3-pip",
+
+            # PETSc external packages
+            "libfftw3-dev",
+            "libfftw3-mpi-dev",
+            "libhwloc-dev",
+            "libhdf5-mpi-dev",
+            "libmumps-ptscotch-dev",
+            "libmetis-dev",
+            "libnetcdf-dev",
+            "libopenblas-dev",
+            "libopenmpi-dev",
+            "libpnetcdf-dev",
+            "libptscotch-dev",
+            "libscalapack-openmpi-dev",
+
+            # HIP packages
+            "rocm-hip-libraries",
+            "rocm-hip-runtime",
+            "rocm-language-runtime",
+            "rocm-ml-libraries",
+            "rocm-opencl-runtime",
+            "rocm-developer-tools",
+            "rocm-hip-runtime-dev",
+            "rocm-hip-sdk",
+            "rocm-opencl-sdk",
+            "rocm-openmp-sdk"
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5",
+            "--with-hwloc",
+            "--with-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--with-pnetcdf",
+            "--with-ptscotch",
+            "--with-scalapack-lib=-lscalapack-openmpi",
+            "--with-zlib",
+            "--download-hypre",
+            "--download-suitesparse",
+            "--download-superlu_dist",
+
+            # HIP options
+            "--with-hip=1",
+            "--with-hip-dir=/opt/rocm",
+            "--with-hip-arch=gfx90a",
+            "--with-openmp=1",
+            "--with-cxx-dialect=c++17",
+            "--download-umpire",
+        ],
+        cflags=["-O3", "-march=native", "-mtune=native"],
+        cxxflags=["-O3", "-march=native", "-mtune=native"],
+        fflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/hdf5/openmpi",
+            "/usr/include/scotch",
+            "/usr/include/superlu",
+            "/usr/include/superlu-dist",
+        ],
+        library_dirs=[
+            "/usr/lib/x86_64-linux-gnu/hdf5/openmpi",
+        ],
+        # Note - must be set before PETSc install
+        extra_env_vars={
+            "CMAKE_PREFIX_PATH": "/opt/rocm/lib/cmake/hip:/opt/rocm/lib/cmake/hipblas:/opt/rocm/lib/cmake/hipblas-common:/opt/rocm/lib/cmake/rocsolver:/opt/rocm/lib/cmake/rocblas",
+        },
+        # See https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html for latest
+        # installer package URL.
+        # Must be installed with apt (not dpkg).
+        extra_url="https://repo.radeon.com/amdgpu-install/7.2.4/ubuntu/noble/amdgpu-install_7.2.4.70204-1_all.deb",
     ),
 }
 

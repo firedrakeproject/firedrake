@@ -17,6 +17,10 @@ inputs:
     description: Scalar type ('default' or 'complex')
     type: string
     default: default
+  int_type:
+    description: Integer type ('default' or '64bit')
+    type: string
+    default: default
   gpu:
     description: Target GPU platform
     type: string
@@ -53,6 +57,7 @@ runs:
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
               --scalar-type ${{ inputs.scalar_type }} \
+              --int-type ${{ inputs.int_type }} \
               --gpu-arch ${{ inputs.gpu }} \
               --show-system-packages)
           : # Dependencies needed to run the test suite
@@ -66,6 +71,7 @@ runs:
           brew install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
               --scalar-type ${{ inputs.scalar_type }} \
+              --int-type ${{ inputs.int_type }} \
               --show-system-packages)
         else
           echo "Unrecognised 'os' input: '${{ inputs.os }}"
@@ -101,6 +107,7 @@ runs:
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
+          --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-petsc-configure-options | \
           xargs -L1 ./configure \
@@ -114,6 +121,7 @@ runs:
       run: |
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
+          --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-env)
         export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
