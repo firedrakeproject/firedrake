@@ -259,7 +259,7 @@ class ScalarType(enum.Enum):
 
 class IntType(enum.Enum):
     DEFAULT = "default"
-    INT64 = "64bit"
+    INT64 = "int64"
 
 
 class GPUPlatform(enum.Enum):
