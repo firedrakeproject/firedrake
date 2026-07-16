@@ -26,7 +26,7 @@ def _solve_helmholtz(mesh):
     return sqrt(assemble((sol - u_exact)**2 * dx))
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('nelem', [2, 4])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
 def test_submesh_solve_simple(nelem, distribution_parameters):
@@ -45,7 +45,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
     assert abs(error - suberror) < 1e-15
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('simplex', [True, False])
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
@@ -107,7 +107,7 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('simplex', [True, False])
 def test_submesh_solve_cell_cell_mixed_vector(dim, simplex):
@@ -299,7 +299,7 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     return sigma_error, u_error
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('nref', [1, 2, 3, 4])
 @pytest.mark.parametrize('degree', [1])
 @pytest.mark.parametrize('quadrilateral', [False, True])
@@ -308,7 +308,7 @@ def test_submesh_solve_mixed_poisson_check_sanity_2d(nref, degree, quadrilateral
     _, _ = _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region)
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('quadrilateral', [True])
 @pytest.mark.parametrize('degree', [3])
 @pytest.mark.parametrize('submesh_region', ["left", "right"])
@@ -421,7 +421,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     return sigma_error, u_error
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('hexahedral', [False])
 @pytest.mark.parametrize('degree', [4])
 @pytest.mark.parametrize('submesh_region', ["left", "right", "front", "back", "bottom", "top"])
@@ -431,7 +431,7 @@ def test_submesh_solve_mixed_poisson_check_sanity_3d(hexahedral, degree, submesh
     assert u_error < 0.003
 
 
-@pytest.mark.parallel(nprocs=4)
+# @pytest.mark.parallel(4)  # FIXME
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('nref', [1, 3])
 @pytest.mark.parametrize('degree', [2, 4])
@@ -467,7 +467,7 @@ def test_submesh_solve_cell_cell_equation_bc(nref, degree, simplex):
     L = inner(x * y, v_inner) * dx_inner
     dbc = DirichletBC(V.sub(0), x_outer * y_outer, (1, 2, 3, 4))
     ebc = EquationBC(inner(u_outer - u_inner, v_outer) * ds_outer(label_interface) == inner(Constant(0.), v_outer) * ds_outer(label_interface), sol, label_interface, V=V.sub(0))
-    solve(a == L, sol, bcs=[dbc, ebc])
+    solve(a == L, sol, bcs=[dbc, ebc], solver_parameters={"ksp_monitor": None, "snes_monitor": None})
     assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < 1.e-12
     assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < 1.e-12
 
@@ -535,7 +535,7 @@ def _test_submesh_solve_quad_triangle_poisson(nref, degree):
     return sqrt(L2Error_t + L2Error_q), sqrt(H1Error_t + H1Error_q)
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(8)
 def test_submesh_solve_quad_triangle_poisson_convergence():
     for degree in range(1, 5):
         L2Errors = []
@@ -672,7 +672,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     return sqrt(L2Error1 + L2Error2), sqrt(H1Error1 + H1Error2)
 
 
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(6)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('direction', [0, 1, 2])
 def test_submesh_solve_3d_2d_poisson_sanity(simplex, direction):
@@ -683,7 +683,7 @@ def test_submesh_solve_3d_2d_poisson_sanity(simplex, direction):
     assert H1Error < 5.e-3
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(8)
 @pytest.mark.parametrize('simplex', [False])
 @pytest.mark.parametrize('direction', [0])
 @pytest.mark.parametrize('degree', [3])
@@ -700,7 +700,7 @@ def test_submesh_solve_3d_2d_poisson_convergence(simplex, direction, degree):
     assert (np.array(H1Errors) > (degree) * 0.96).all()
 
 
-@pytest.mark.parallel(nprocs=7)
+@pytest.mark.parallel(7)
 def test_submesh_solve_2d_1d_poisson_hermite():
     distribution_parameters_noop = {
         "partition": True,

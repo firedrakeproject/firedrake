@@ -1555,7 +1555,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     eager=True,
                 )
 
-        sparsity.assemble()
+        sparsity.assemble()  # TODO: with proper state tracking this can go
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -1652,6 +1652,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # for some reason I need to do this first, is this still the case?
                 # kinda, changing accessor - if we used INC instead? it's allowed because
                 # we're setting something we know to be zero
+                # TODO: with proper state tracking this can go
                 mat.assemble()
 
                 # NOTE: This is only OK in parallel with mixed spaces because we
@@ -1689,6 +1690,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, s in enumerate(space):
                 if i != V.index and _is_real_space(s):
                     self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, V.index, component, bc.node_set)
+
+            mat.buffer._current_insert_mode = PETSc.InsertMode.INSERT_VALUES
+
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
@@ -1731,6 +1735,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             return tensor.M
 
     def result(self, tensor):
+        # Make sure any changes are finalised and not dropped
         tensor.M.assemble()
         return tensor
 

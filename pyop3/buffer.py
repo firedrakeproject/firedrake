@@ -255,8 +255,6 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-# NOTE: Due to the large amounts of state tracking we should disallow __record_init__
-# for this class. It's not a record.
 @pyop3.record.record(repr=False, add_record_init=False)
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
@@ -385,9 +383,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
         # state tracking attrs
-        # TODO: I don't think that this should be a defaultdict, key misses are meaningful
-        curr_dev = get_current_device()
-        # self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
         self._state_locks = 0
         self._device_locks = []
 
@@ -1014,7 +1009,7 @@ class PetscMatAxisSpec:
         return np.prod(self.block_shape, dtype=int)
 
 
-@pyop3.record.record()
+@pyop3.record.record(repr=False, add_record_init=False)
 class PetscMatBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 
@@ -1061,9 +1056,9 @@ class PetscMatBuffer(ConcreteBuffer):
         mat: PETSc.Mat,
         *,
         mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
-        name:str | None = None,
-        prefix:str|None=None,
-        constant:bool=False
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
     ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -1071,13 +1066,22 @@ class PetscMatBuffer(ConcreteBuffer):
         self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
-        self.record_setup()
 
-    def __post_init__(self) -> None:
+        self.record_setup()  # remove me
+
+        # state tracking
+        self._current_insert_mode: pyop3.types.MatInsertMode | None  = None
+
         # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
         # destroyed too early and subsequently some non-data attributes end up crashing.
         # The Right Thing is just to not destroy them - we have a GC after all.
         self._mat_type = self.mat.type
+
+    # }}}
+
+    # {{{ class attrs
+
+    DEFAULT_PREFIX = "petscmat"
 
     # }}}
 
@@ -1090,77 +1094,6 @@ class PetscMatBuffer(ConcreteBuffer):
             return cls(mat, mat_spec=mat_spec, **kwargs)
         else:
             return cls(mat, **kwargs)
-
-    # }}}
-
-
-    # {{{ interface impls
-
-    name: ClassVar[property] = pyop3.record.attr("_name")
-    constant: ClassVar[property] = pyop3.record.attr("_constant")
-
-    dtype = ScalarType
-    rank_equal = False
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
-
-    @property
-    def state(self) -> int:
-        return self.mat.stateGet()
-
-    def inc_state(self) -> None:
-        self.mat.stateIncrease()
-
-    def duplicate(self, **kwargs) -> PetscMatBuffer:
-        raise NotImplementedError("TODO")
-
-    @property
-    def is_nested(self) -> bool:
-        return self.mat_type == PETSc.Mat.Type.NEST
-
-    @cached_method()
-    def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
-        # NOTE: mat_spec isn't a good abstraction, don't like passing along here
-        assert self.is_nested
-        mat = self.mat.getNestSubMatrix(row_index, column_index)
-        if self.mat_spec is not None:
-            mat_spec = self.mat_spec[row_index, column_index]
-        else:
-            mat_spec = None
-        name = f"{self.name}_{row_index}_{column_index}"
-        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
-
-    @property
-    def handle(self) -> Any:
-        return self.mat
-
-    def zero(self) -> None:
-        self.mat.zeroEntries()
-
-    def zero(self) -> None:
-        self.mat.zeroEntries()
-
-    # }}}
-
-    DEFAULT_PREFIX = "petscmat"
-
-    @cached_property
-    def _mat_spec_instruction_executor_cache_key(self) -> Hashable:
-        # FIXME: This is a hack, missing a lot of information from the mat spec
-        return self.mat.type
-        if isinstance(self.mat_spec, np.ndarray):
-            return tuple(self.mat_spec.flatten())
-        else:
-            return self.mat_spec
-
-    @property
-    def mat_type(self) -> str:
-        return self._mat_type
-
-    def assemble(self) -> None:
-        self.mat.assemble()
 
     @classmethod
     def _make_petsc_mat(
@@ -1221,6 +1154,93 @@ class PetscMatBuffer(ConcreteBuffer):
 
         mat.setUp()
         return mat
+
+
+    # }}}
+
+    # {{{ interface impls
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+
+    dtype = ScalarType
+    rank_equal = False
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
+
+    def duplicate(self, **kwargs) -> PetscMatBuffer:
+        raise NotImplementedError("TODO")
+
+    @property
+    def is_nested(self) -> bool:
+        return self.mat_type == PETSc.Mat.Type.NEST
+
+    @cached_method()
+    def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
+        # NOTE: mat_spec isn't a good abstraction, don't like passing along here
+        assert self.is_nested
+        mat = self.mat.getNestSubMatrix(row_index, column_index)
+        if self.mat_spec is not None:
+            mat_spec = self.mat_spec[row_index, column_index]
+        else:
+            mat_spec = None
+        name = f"{self.name}_{row_index}_{column_index}"
+        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
+
+    @property
+    def handle(self) -> Any:
+        return self.mat
+
+    def zero(self) -> None:
+        self.mat.zeroEntries()
+
+    def zero(self) -> None:
+        self.mat.zeroEntries()
+
+    # }}}
+
+    # {{{ state tracking
+
+    def assemble(self, *, final: bool = True) -> None:
+        self.assemble_begin(final=final)
+        self.assemble_end(final=final)
+        if final:
+            assembly_type = PETSc.Mat.AssemblyType.FINAL
+        else:
+            assembly_type = PETSc.Mat.AssemblyType.FLUSH
+        self.mat.assemble(assembly_type)
+
+    def assemble_begin(self, *, final: bool = True) -> None:
+        if final:
+            assembly_type = PETSc.Mat.AssemblyType.FINAL
+        else:
+            assembly_type = PETSc.Mat.AssemblyType.FLUSH
+        self.mat.assemblyBegin(assembly_type)
+
+    def assemble_end(self, *, final: bool = True) -> None:
+        # TODO: It would be nice to assert that assemble_begin has been
+        # called first (and with the same value for 'final')
+        if final:
+            assembly_type = PETSc.Mat.AssemblyType.FINAL
+        else:
+            assembly_type = PETSc.Mat.AssemblyType.FLUSH
+        self.mat.assemblyEnd(assembly_type)
+        self._current_insert_mode = None
+
+    @property
+    def state(self) -> int:
+        return self.mat.stateGet()
+
+    def inc_state(self) -> None:
+        self.mat.stateIncrease()
+
+    # }}}
+
+    @property
+    def mat_type(self) -> str:
+        return self._mat_type
 
     # TODO: Could also accept a vector here
     def set_diagonal(self, value: numbers.Number) -> None:

@@ -42,4 +42,6 @@ ArrayT = np.ndarray | pyop3.arrayref.ArrayReference
 
 DeviceArrayT = np.ndarray | cp.array
 
+MatInsertMode = Literal[PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES]
+
 # }}}

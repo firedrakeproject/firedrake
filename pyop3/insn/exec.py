@@ -519,17 +519,10 @@ class CompiledCodeExecutor:
                 buffers[index] = replacement_buffer
                 exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
 
-        for index in self._modified_buffer_indices:
-            buffers[index].inc_state()
-
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
             "Attempting to pass a null pointer to the executable",
         )
-
-        if self.comm.size == 1:
-            self.executable(*exec_arguments)
-            return
 
         # TODO
         # if self.compiler_parameters.interleave_comp_comm:
@@ -581,29 +574,27 @@ class CompiledCodeExecutor:
             # with PETSc.Log.Event(f"compute_{self.name}_leaf"):
             #     code(**leaf_kwargs)
 
-        # This is a bit of a misnomer - the idea here is that for data to be ready to compute we
-        # must first update all roots and then update all leaves from these roots.
-        # Recall that points on a rank may be partitioned into 'core', 'root' and 'leaf' where a
-        # 'leaf' is a point owned by another process, 'root' is a point that exists as a ghost on
-        # another process, and 'core' are the rest.
-        # * It is valid to compute on parts of the iteration set that only touch 'core' points
-        # before any communication takes place
-        # * it is valid to compute on parts that touch core and root once all roots have been
-        # updated via reductions
-        # * you can only compute using leaf values once these have been updated
+            # This is a bit of a misnomer - the idea here is that for data to be ready to compute we
+            # must first update all roots and then update all leaves from these roots.
+            # Recall that points on a rank may be partitioned into 'core', 'root' and 'leaf' where a
+            # 'leaf' is a point owned by another process, 'root' is a point that exists as a ghost on
+            # another process, and 'core' are the rest.
+            # * It is valid to compute on parts of the iteration set that only touch 'core' points
+            # before any communication takes place
+            # * it is valid to compute on parts that touch core and root once all roots have been
+            # updated via reductions
+            # * you can only compute using leaf values once these have been updated
+
         initializers = []
         reductions = []
         broadcasts = []
+        finalizers = []
         for buffer_ref, (_, intent) in zip(buffers, self.buffer_map.values(), strict=True):
-            if isinstance(buffer_ref, pyop3.buffer.PetscMatBuffer):
-                continue
-            else:
-                assert isinstance(buffer_ref, pyop3.buffer.ArrayBuffer)
-
-            inits, reds, bcasts = self._buffer_exchanges(buffer_ref, intent)
+            inits, reds, bcasts, fins = self._buffer_exchanges(buffer_ref, intent)
             initializers.extend(inits)
             reductions.extend(reds)
             broadcasts.extend(bcasts)
+            finalizers.extend(fins)
 
         # Unoptimised case: perform all transfers eagerly
         for init in initializers:
@@ -616,9 +607,8 @@ class CompiledCodeExecutor:
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
-        # does this fix things? nope, but it changes the answer!
-        # for buffer in buffers:
-        #     buffer.assemble()
+        for fin in finalizers:
+            fin()
 
     def __str__(self) -> str:
         sep = "*" * 80
@@ -651,14 +641,6 @@ class CompiledCodeExecutor:
         return idict({
             buffer.record_id: i for i, buffer in enumerate(self._buffer_refs)
         })
-
-    @cached_property
-    def _modified_buffer_indices(self) -> tuple[int]:
-        return tuple(
-            i
-            for i, (_, intent) in enumerate(self.buffer_map.values())
-            if intent != READ
-        )
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
@@ -716,8 +698,13 @@ class CompiledCodeExecutor:
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
-    def _buffer_exchanges(self, buffer, intent):
-        initializers, reductions, finalizers = [], [], []
+    @functools.singledispatchmethod
+    def _buffer_exchanges(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
+        utils.raise_missing_dispatch_handler(buffer)
+
+    @_buffer_exchanges.register
+    def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
+        initializers, reductions, bcasts, finalizers = [], [], [], []
 
         # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
         # (we have filter_star_forest())
@@ -732,10 +719,10 @@ class CompiledCodeExecutor:
                         buffer.sync_roots_end,
                         buffer.sync_leaves_begin,
                     ])
-                    finalizers.append(buffer.sync_leaves_end)
+                    bcasts.append(buffer.sync_leaves_end)
                 elif not buffer._leaves_valid:
                     initializers.append(buffer.sync_leaves_begin)
-                    finalizers.append(buffer.sync_leaves_end)
+                    bcasts.append(buffer.sync_leaves_end)
                 else:
                     pass
             else:
@@ -792,8 +779,41 @@ class CompiledCodeExecutor:
             else:
                 finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
 
-        return tuple(initializers), tuple(reductions), tuple(finalizers)
+        if intent != READ:
+            finalizers.append(lambda: buffer.inc_state())
 
+        return initializers, reductions, bcasts, finalizers
+
+    @_buffer_exchanges.register
+    def _(self, buffer: pyop3.buffer.PetscMatBuffer, intent):
+        begin_insns = []
+        end_insns = []
+        finalizers = []
+        if intent == READ:
+            begin_insns.append(lambda: buffer.assemble_begin(final=True))
+            end_insns.append(lambda: buffer.assemble_end(final=True))
+        elif intent == WRITE:
+            if buffer._current_insert_mode == PETSc.InsertMode.ADD_VALUES:
+                begin_insns.append(lambda: buffer.assemble_begin(final=False))
+                end_insns.append(lambda: buffer.assemble_end(final=False))
+            finalizers.append(
+                lambda: setattr(buffer, "_current_insert_mode", PETSc.InsertMode.INSERT_VALUES)
+            )
+        else:
+            assert intent == INC
+            if buffer._current_insert_mode == PETSc.InsertMode.INSERT_VALUES:
+                begin_insns.append(lambda: buffer.assemble_begin(final=False))
+                end_insns.append(lambda: buffer.assemble_end(final=False))
+            finalizers.append(
+                lambda: setattr(buffer, "_current_insert_mode", PETSc.InsertMode.ADD_VALUES)
+            )
+
+        if intent != READ:
+            finalizers.append(lambda: buffer.inc_state())
+
+        # We need all communication to happen before we begin computing, but if
+        # we have multiple matrices we can at least overlap their communication.
+        return begin_insns+end_insns, (), (), finalizers
 
 @functools.singledispatch
 def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
