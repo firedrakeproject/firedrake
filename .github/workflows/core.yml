@@ -23,7 +23,7 @@ on:
         description: Whether to test a complex build
         type: boolean
         required: true
-      test_64bit:
+      test_int64:
         description: Whether to test a 64-bit integer build
         type: boolean
         required: true
@@ -58,7 +58,7 @@ on:
         description: Whether to test a complex build
         type: boolean
         required: true
-      test_64bit:
+      test_int64:
         description: Whether to test a 64-bit integer build
         type: boolean
         required: true
@@ -272,7 +272,7 @@ jobs:
           if [ ${{ inputs.test_complex }} == 'true' ]; then
             matrix='{"scalar_type": "complex", "gpu": "none"}'
           fi
-          if [ ${{ inputs.test_64bit }} == 'true' ]; then
+          if [ ${{ inputs.test_int64 }} == 'true' ]; then
             arch='{"scalar_type": "default", "gpu": "none", "int_type": "64bit"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
