@@ -356,6 +356,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)])
+    return_indices = tuple(dict.fromkeys(
+        chain(return_indices, *(variable.free_indices for variable, _ in pairs))
+    ))
     impero_c = impero_utils.compile_gem(pairs, return_indices)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements

@@ -121,6 +121,12 @@ class MatParloopArg(ParloopArg):
     @property
     def map_kernel_args(self):
         rmap, cmap = self.maps
+        if isinstance(rmap, MixedMap):
+            return tuple(itertools.chain.from_iterable(
+                itertools.chain(rmap_._kernel_args_, cmap_._kernel_args_)
+                for rmap_ in rmap.split
+                for cmap_ in cmap.split
+            ))
         return tuple(itertools.chain(rmap._kernel_args_, cmap._kernel_args_))
 
 
@@ -143,7 +149,11 @@ class MixedMatParloopArg(ParloopArg):
     @property
     def map_kernel_args(self):
         rmap, cmap = self.maps
-        return tuple(itertools.chain(rmap._kernel_args_, cmap._kernel_args_))
+        return tuple(itertools.chain.from_iterable(
+            itertools.chain(rmap_._kernel_args_, cmap_._kernel_args_)
+            for rmap_ in rmap.split
+            for cmap_ in cmap.split
+        ))
 
 
 @dataclass

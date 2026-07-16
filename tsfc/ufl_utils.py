@@ -414,6 +414,22 @@ def apply_mapping(expression, element, domain):
     mapping = element.mapping().lower()
     if mapping == "identity":
         rexpression = expression
+    elif isinstance(element.pullback, ufl.MixedPullback):
+        flat = [expression[index] for index in numpy.ndindex(expression.ufl_shape)]
+        reference_components = []
+        offset = 0
+        for subelement, subdomain in zip(element.sub_elements, mesh.iterable_like(element)):
+            physical_shape = subelement.pullback.physical_value_shape(subelement, subdomain)
+            size = int(numpy.prod(physical_shape, dtype=int))
+            piece = as_tensor(numpy.asarray(flat[offset:offset + size]).reshape(physical_shape))
+            mapped = apply_mapping(piece, subelement, subdomain)
+            reference_components.extend(
+                mapped[index] for index in numpy.ndindex(mapped.ufl_shape)
+            )
+            offset += size
+        rexpression = as_tensor(
+            numpy.asarray(reference_components).reshape(element.reference_value_shape)
+        )
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)

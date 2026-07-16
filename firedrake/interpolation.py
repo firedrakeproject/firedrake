@@ -8,7 +8,7 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
@@ -163,8 +163,6 @@ class Interpolate(UFLInterpolate):
         """
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
-        if len(arguments) == 2 and has_mixed_arguments:
-            return MixedInterpolator(self)
 
         operand, = self.ufl_operands
         target_mesh = self.target_space.mesh()
@@ -709,6 +707,68 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
+    @cached_property
+    def _form_interpolate(self):
+        options = asdict(self.ufl_interpolate.options)
+        options.update(subset=self.subset, access=self.access)
+        return self.ufl_interpolate._ufl_expr_reconstruct_(
+            self.operand, v=self.dual_arg, **options
+        )
+
+    @property
+    def _needs_adjoint_weighting(self):
+        return (
+            isinstance(self.dual_arg, Cofunction)
+            and any(not V.finat_element.is_dg() for V in self.target_space)
+        )
+
+    @cached_property
+    def _weighted_dual_arg(self):
+        return Function(self.dual_arg.function_space())
+
+    @cached_property
+    def _adjoint_weight(self):
+        W = self.dual_arg.function_space()
+        weight = W.make_dat()
+        if len(W) > 1:
+            spaces_and_weights = zip(W, weight)
+        else:
+            spaces_and_weights = ((W, weight),)
+
+        source_mesh = self.source_mesh.unique()
+        target_mesh = self.target_mesh.unique()
+        for i, (V, component_weight) in enumerate(spaces_and_weights):
+            node_map = get_interp_node_map(source_mesh, target_mesh, V)
+            size = V.finat_element.space_dimension() * V.block_size
+            kernel_code = f"""
+            void multiplicity_{i}(PetscScalar *restrict w) {{
+                for (PetscInt i=0; i<{size}; i++) w[i] += 1;
+            }}"""
+            kernel = op2.Kernel(kernel_code, f"multiplicity_{i}")
+            op2.par_loop(
+                kernel, target_mesh.cell_set,
+                component_weight(op2.INC, node_map),
+            )
+        with weight.vec as weight_vec:
+            weight_vec.reciprocal()
+        return weight
+
+    @cached_property
+    def _assembler_form(self):
+        if self._needs_adjoint_weighting:
+            return self._form_interpolate._ufl_expr_reconstruct_(
+                self.operand, v=self._weighted_dual_arg
+            )
+        return self._form_interpolate
+
+    def _update_weighted_dual_arg(self):
+        self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
+        with (
+            self._adjoint_weight.vec_ro as weight,
+            self._weighted_dual_arg.dat.vec as dual,
+        ):
+            dual.pointwiseMult(dual, weight)
+
     def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op2.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
@@ -770,7 +830,82 @@ class SameMeshInterpolator(Interpolator):
                                 block_sparse=(mat_type == "baij"))
         return sparsity
 
+    def _get_form_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
+        """Return the form assembler for this interpolation rank."""
+        from firedrake.assemble import (
+            OneFormAssembler, TwoFormAssembler, ZeroFormAssembler,
+        )
+
+        if self.rank == 0:
+            return ZeroFormAssembler(self._assembler_form)
+        elif self.rank == 1:
+            return OneFormAssembler(
+                self._assembler_form,
+                bcs=bcs,
+                needs_zeroing=self.access is op2.INC,
+            )
+        elif self.rank == 2:
+            return TwoFormAssembler(
+                self._assembler_form,
+                bcs=bcs,
+                mat_type=mat_type,
+                sub_mat_type=sub_mat_type,
+                needs_zeroing=True,
+                allocation_integral_types=("cell",),
+            )
+        else:
+            raise ValueError(
+                f"Cannot interpolate an expression with {self.rank} arguments"
+            )
+
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        if self.source_mesh.unique() is not self.target_mesh.unique():
+            return self._get_transmesh_callable(
+                tensor=tensor,
+                bcs=bcs,
+                mat_type=mat_type,
+                sub_mat_type=sub_mat_type,
+            )
+
+        assembler = self._get_form_assembler(
+            bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
+        )
+        copyout = ()
+        inputs = tuple(
+            coefficient for coefficient in extract_coefficients(self._assembler_form)
+            if isinstance(coefficient, Function | Cofunction)
+        )
+        if isinstance(self.dual_arg, Cofunction):
+            inputs += (self.dual_arg,)
+        if (
+            isinstance(tensor, Function | Cofunction)
+            and any(set(tensor.dat).intersection(set(input_.dat))
+                    for input_ in inputs)
+        ):
+            output = tensor
+            tensor = assembler.allocate()
+            copyout = (partial(tensor.dat.copy, output.dat),)
+        elif tensor is None and self.access in {op2.MIN, op2.MAX}:
+            tensor = assembler.allocate()
+            finfo = numpy.finfo(tensor.dat.dtype)
+            value = finfo.max if self.access == op2.MIN else finfo.min
+            tensor.assign(Constant(value))
+
+        assembler_tensor = None if self.rank == 2 else tensor
+
+        def callable():
+            if self._needs_adjoint_weighting:
+                self._update_weighted_dual_arg()
+            result = assembler.assemble(tensor=assembler_tensor)
+            for copy in copyout:
+                copy()
+            if isinstance(result, MatrixBase):
+                return result.petscmat
+            return output if copyout else result
+
+        return callable
+
+    def _get_transmesh_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
@@ -829,7 +964,7 @@ class SameMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij", "matfree", None}
+        return {"aij", "baij", "nest", "matfree", None}
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
