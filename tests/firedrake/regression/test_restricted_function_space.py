@@ -209,6 +209,35 @@ def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     assert errornorm(SpatialCoordinate(mesh)[0]**2, u) < 1.e-12
 
 
+def test_restrict_action():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+
+    u, v = TrialFunction(V), TestFunction(V)
+    q, r = TrialFunction(Q), TestFunction(Q)
+
+    M = inner(q, v) * dx  # Q x V -> R
+    I = interpolate(u, Q)  # V x Q^* -> R
+    A = action(M, I)  # V x V^* -> R
+
+    solution = Function(V)
+    bc = DirichletBC(V, 0, "on_boundary")
+    L = inner(1, v) * dx
+
+    problem = LinearVariationalProblem(A, L, solution, bcs=bc, restrict=True)
+
+    V_res = problem.restricted_space
+    assert problem.F.arguments()[0].function_space() == V_res
+    assert all(arg.function_space() == V_res for arg in problem.J.arguments())
+
+    matrix = assemble(A).petscmat[:, :]
+    matrix = np.delete(matrix, bc.nodes, axis=0)
+    matrix = np.delete(matrix, bc.nodes, axis=1)
+    restricted_matrix = assemble(problem.J).petscmat[:, :]
+    assert np.allclose(matrix, restricted_matrix)
+
+
 @pytest.mark.parametrize("j", [1, 2, 5])
 def test_restricted_function_space_coord_change(j):
     mesh = UnitSquareMesh(1, 2)
