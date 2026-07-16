@@ -500,9 +500,10 @@ Customising PETSc
 Since ``firedrake-configure`` only outputs a string of options it is straightforward
 to customise the options that are passed to PETSc ``configure``. You can either:
 
-* Append additional options when ``configure`` is invoked. For example::
+* Append additional options when ``configure`` is invoked. For example, to
+  build PETSc with HPDDM you should run::
 
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-hpddm
 
 * Write the output of ``firedrake-configure`` to a file than can be modified. For example::
 
