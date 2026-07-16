@@ -3,7 +3,6 @@ import time
 import sys
 from itertools import chain
 import numpy
-from finat.physically_mapped import NeedsCoordinateMappingElement
 
 import ufl
 from ufl.algorithms import extract_coefficients
@@ -21,7 +20,6 @@ from finat.element_factory import as_fiat_cell
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
-from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
@@ -81,6 +79,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"
+    form = ufl_utils.lower_form_interpolations(form)
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
@@ -332,29 +331,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
-    dual_arg, operand = expression.argument_slots()
-
-    # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(operand, kernel_cfg)
-
-    # Get the gem expression for dual evaluation and corresponding basis
-    # indices needed for compilation of the expression
-    if isinstance(to_element, NeedsCoordinateMappingElement):
-        ctx = fem.PointSetContext(**kernel_cfg)
-        mt = analyse_modified_terminal(ufl.Coefficient(dual_arg.ufl_function_space().dual()))
-        coordinate_mapping = fem.CoordinateMapping(mt, ctx)
-    else:
-        coordinate_mapping = None
-    evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-
-    # Compute the action against the dual argument
-    if isinstance(dual_arg, ufl.Cofunction):
-        gem_dual = builder.coefficient_map[dual_arg]
-        if complex_mode:
-            evaluation = gem.MathFunction('conj', evaluation)
-        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
-        basis_indices = ()
-    else:
+    evaluation, basis_indices = fem.dual_evaluate(expression, to_element, kernel_cfg)
+    dual_arg, _ = expression.argument_slots()
+    if not isinstance(dual_arg, ufl.Cofunction):
         argument_multiindices[dual_arg.number()] = basis_indices
 
     argument_multiindices = dict(sorted(argument_multiindices.items()))
@@ -384,64 +363,3 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     builder.set_output(return_var)
     # Build kernel tuple
     return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"], name=name)
-
-
-class DualEvaluationCallable(object):
-    """
-    Callable representing a function to dual evaluate.
-
-    When called, this takes in a
-    :class:`finat.point_set.AbstractPointSet` and returns a GEM
-    expression for evaluation of the function at those points.
-
-    :param expression: UFL expression for the function to dual evaluate.
-    :param kernel_cfg: A kernel configuration for creation of a
-        :class:`GemPointContext` or a :class:`PointSetContext`
-
-    Not intended for use outside of
-    :func:`compile_expression_dual_evaluation`.
-    """
-    def __init__(self, expression, kernel_cfg):
-        self.expression = expression
-        self.kernel_cfg = kernel_cfg
-
-    def __call__(self, ps):
-        """The function to dual evaluate.
-
-        :param ps: The :class:`finat.point_set.AbstractPointSet` for
-            evaluating at
-        :returns: a gem expression representing the evaluation of the
-            input UFL expression at the given point set ``ps``.
-            For point set points with some shape ``(*value_shape)``
-            (i.e. ``()`` for scalar points ``(x)`` for vector points
-            ``(x, y)`` for tensor points etc) then the gem expression
-            has shape ``(*value_shape)`` and free indices corresponding
-            to the input :class:`finat.point_set.AbstractPointSet`'s
-            free indices alongside any input UFL expression free
-            indices.
-        """
-
-        if not isinstance(ps, finat.point_set.AbstractPointSet):
-            raise ValueError("Callable argument not a point set!")
-
-        # Avoid modifying saved kernel config
-        kernel_cfg = self.kernel_cfg.copy()
-
-        if isinstance(ps, finat.point_set.UnknownPointSet):
-            # Run time known points
-            kernel_cfg.update(point_indices=ps.indices, point_expr=ps.expression)
-            # GemPointContext's aren't allowed to have quadrature rules
-            kernel_cfg.pop("quadrature_rule", None)
-            translation_context = fem.GemPointContext(**kernel_cfg)
-        else:
-            # Compile time known points
-            kernel_cfg.update(point_set=ps)
-            translation_context = fem.PointSetContext(**kernel_cfg)
-
-        gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
-        # In some cases ps.indices may be dropped from expr, but nothing
-        # new should now appear
-        argument_multiindices = kernel_cfg["argument_multiindices"].values()
-        assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
-
-        return gem_expr

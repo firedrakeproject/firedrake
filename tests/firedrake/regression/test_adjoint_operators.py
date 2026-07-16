@@ -83,6 +83,20 @@ def test_interpolate_with_arguments(rg):
     assert taylor_test(rf, f, h) > 1.9
 
 
+@pytest.mark.skipcomplex
+def test_interpolate_in_form(rg):
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x + 2 * y)
+
+    J = assemble(interpolate(f, W) ** 2 * dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert taylor_test(rf, f, rg.uniform(V)) > 1.9
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_scalar_valued(rg):
     mesh = IntervalMesh(10, 0, 1)

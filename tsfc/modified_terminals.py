@@ -23,7 +23,7 @@
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
                          Restricted, ConstantValue,
-                         Jacobian, SpatialCoordinate, Zero)
+                         Interpolate, Jacobian, SpatialCoordinate, Zero)
 from ufl.checks import is_cellwise_constant
 from ufl.domain import extract_unique_domain
 
@@ -82,7 +82,7 @@ class ModifiedTerminal(object):
 
 def is_modified_terminal(v):
     "Check if v is a terminal or a terminal wrapped in terminal modifier types."
-    while not v._ufl_is_terminal_:
+    while not (v._ufl_is_terminal_ or isinstance(v, Interpolate)):
         if v._ufl_is_terminal_modifier_:
             v = v.ufl_operands[0]
         else:
@@ -92,7 +92,7 @@ def is_modified_terminal(v):
 
 def strip_modified_terminal(v):
     "Extract core Terminal from a modified terminal or return None."
-    while not v._ufl_is_terminal_:
+    while not (v._ufl_is_terminal_ or isinstance(v, Interpolate)):
         if v._ufl_is_terminal_modifier_:
             v = v.ufl_operands[0]
         else:
@@ -115,7 +115,7 @@ def analyse_modified_terminal(expr):
 
     # Start with expr and strip away layers of modifiers
     t = expr
-    while not t._ufl_is_terminal_:
+    while not (t._ufl_is_terminal_ or isinstance(t, Interpolate)):
         if isinstance(t, ReferenceValue):
             assert reference_value is None, "Got twice pulled back terminal!"
             reference_value = True

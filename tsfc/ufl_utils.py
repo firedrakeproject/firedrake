@@ -5,6 +5,7 @@ from functools import singledispatch
 import numpy
 
 import ufl
+from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -21,7 +22,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import (Abs, Argument, CellOrientation,
-                         Expr, FloatValue, Division,
+                         Expr, FloatValue, Division, ReferenceValue,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
@@ -33,6 +34,36 @@ from tsfc.modified_terminals import is_modified_terminal, analyse_modified_termi
 
 
 preserve_geometry_types = (CellVolume, FacetArea)
+
+
+class InterpolateMapper(MultiFunction):
+    """Represent interpolation in the target element's reference frame."""
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def interpolate(self, o: ufl.Interpolate, operand: Expr) -> Expr:
+        dual_arg, _ = o.argument_slots()
+        domain = extract_unique_domain(o)
+        element = o.ufl_function_space().ufl_element()
+        operand = apply_mapping(operand, element, domain)
+        expr = o._ufl_expr_reconstruct_(operand, v=dual_arg)
+        return element.pullback.apply(ReferenceValue(expr), domain)
+
+
+def lower_form_interpolations(form: ufl.Form) -> ufl.Form:
+    """Represent interpolation nodes in a form in reference space.
+
+    Parameters
+    ----------
+    form : ufl.Form
+        Form containing interpolation nodes.
+
+    Returns
+    -------
+    ufl.Form
+        Form with target-element mappings made explicit.
+    """
+    return map_integrand_dags(InterpolateMapper(), form)
 
 
 def compute_form_data(form,
