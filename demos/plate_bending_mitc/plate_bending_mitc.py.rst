@@ -22,11 +22,26 @@ operator :math:`\Pi_h`. The shear strain term is then evaluated as:
 
   \bar{\boldsymbol{\gamma}}_h = \nabla w - \Pi_h \boldsymbol{\beta}
 
+Element Spaces
+--------------
+
+The following diagram illustrates the element spaces used:
+
+.. image:: elements.svg
+   :align: center
+
+* **P1**: Standard linear Lagrange element for the deflection :math:`w`.
+* **P1-iso-P2**: Constructed as macroelement, where the master triangle is divided into four smaller sub-triangles. This structure is utilized for the rotation field :math:`\boldsymbol{\beta}`.
+* **Nédélec 1**: An :math:`H(\text{curl})`-conforming space used for the MITC projection. The blue arrows represent the edge-based degrees of freedom.
+
+Implementation
+--------------
+
 Thanks to native compilation support for symbolic interpolation nodes inside
 variational forms, we can define the reduction operator directly using
 Firedrake's symbolic ``interpolate`` function within the UFL expression. Under the
-hood, this bypasses the legacy BaseFormAssembler specifically for the case where
-we have a Form with an Interpolate node onto the same mesh.
+hood, this bypasses ``BaseFormAssembler`` specifically for the case where
+we have a ``Form`` with an ``Interpolate`` node onto the same mesh.
 
 We begin by importing the Firedrake namespace.
 
@@ -70,15 +85,17 @@ Function Spaces
 ---------------
 
 We construct a mixed function space for the deflection and the rotation. We use
-quadratic Lagrange elements for both variables. Crucially, we also define a
-Nédélec space :math:`R` of degree 1 to serve as our target edge-conforming space for
-the MITC projection.
+linear Lagrange elements for the deflection and P1-iso-P2 elements for the rotation.
+Crucially, we also define a Nédélec space :math:`R` of degree 1 to serve as our
+target edge-conforming space for the MITC projection. Because the facets are
+split by the P1-iso-P2 macro-triangulation, the Nédélec integral moments must
+employ a composite quadrature scheme (``quad_scheme="iso"``).
 
 ::
 
-  W = FunctionSpace(mesh, "Lagrange", 2)
-  B = VectorFunctionSpace(mesh, "Lagrange", 2)
-  R = FunctionSpace(mesh, "N1curl", 1)
+  W = FunctionSpace(mesh, "Lagrange", 1)
+  B = VectorFunctionSpace(mesh, "Lagrange", 1, variant="iso")
+  R = FunctionSpace(mesh, "N1curl", 1, quad_scheme="iso")
 
   V = MixedFunctionSpace([W, B])
 
