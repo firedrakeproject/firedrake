@@ -1850,6 +1850,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # submesh
         self.submesh_parent = None
 
+        # NOTE: Once super().__init__ is implemented, the following line can be removed
+        self._topology_version = 0
+
     @cached_property
     def _ufl_cell(self):
         return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
