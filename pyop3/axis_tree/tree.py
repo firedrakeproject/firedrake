@@ -1148,7 +1148,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1516,14 +1516,17 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
             return self[self._block_indices(block_shape)].materialize()
 
     # TODO: rename to local_section
-    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat, loop
         from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
-        component_label = as_component_label(component)
         axis = self.node_map[path]
+        if component is pyop3.constants._nothing:
+            component_label = utils.just_one(axis.component_labels)
+        else:
+            component_label = as_component_label(component)
         component = utils.just_one(c for c in axis.components if c.label == component_label)
 
         # IMPORTANT: If the tree contains constraints then the *local* section
@@ -1585,14 +1588,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     def sf(self) -> StarForest:
         _, sf_ = self._layouts_and_sf
         return sf_
-        # from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
-        #
-        # has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
-        # if has_sfs:
-        #     sfs = collect_star_forests(self)
-        #     return concatenate_star_forests(sfs)
-        # else:
-        #     return NullStarForest(self.local_size)
 
     @cached_property
     def _layouts_and_sf(self) -> tuple[idict, pyop3.sf.AbstractStarForest]:
@@ -1888,15 +1883,20 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             targets=targets_blocked,
         )
 
-    def section(self, path: PathT, component: ComponentT, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
         from pyop3 import Dat, loop
         from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
-        component_label = as_component_label(component)
         axis = self.node_map[path]
+
+        if component is pyop3.constants._nothing:
+            component_label = utils.just_one(axis.component_labels)
+        else:
+            component_label = as_component_label(component)
+
         component = utils.just_one(c for c in axis.components if c.label == component_label)
 
         # IMPORTANT: If the tree contains constraints then the *local* section

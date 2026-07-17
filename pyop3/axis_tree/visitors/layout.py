@@ -198,7 +198,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     starts = [0] * len(to_tabulate)
     visited_regions_per_offset_dat = collections.defaultdict(set)
     for regions in axis_tree.region_sets:
-        for i, (offset_axes, offset_dat, _) in enumerate(to_tabulate):
+        for i, (offset_axes, offset_dat, _, _) in enumerate(to_tabulate):
             matching_regions = regions.intersection(offset_axes._all_region_labels)
 
             # Axes do not match the current region set, this means that it is
@@ -237,7 +237,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     if to_tabulate:
         # sf stuff
         offset_sfs = []
-        for _, offset_dat, (sizes, offset_pt_sf) in to_tabulate:
+        for _, offset_dat, sizes, offset_pt_sf in to_tabulate:
             # offset_dat maps pts in the offset_dat to offsets (obviously)
             # and offset_sf maps local pts in the offset dat to remote ones
             # we can use this to build a new sf mapping between offsets
@@ -250,16 +250,12 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
             new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
             offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
 
-        if len(offset_sfs) > 1:
-            breakpoint()
-        else:
-            sf = offset_sfs[0]
-        # sf = ???
+        sf = pyop3.sf.StarForest.merge(offset_sfs)
     else:
         sf = pyop3.sf.NullStarForest(axis_tree.local_size)
 
     # Lastly 'freeze' the offset dats so they can no longer be modified
-    for _, offset_dat, _ in to_tabulate:
+    for _, offset_dat, _, _ in to_tabulate:
         offset_dat.buffer.freeze()
 
     return layouts, sf
@@ -312,34 +308,37 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                offset_dat, mysteps = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
+                offset_dat, steps = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
             else:
-                offset_dat, mysteps = _tabulate_regions(offset_axes, 1, axis_tree.comm)
-            # to_tabulate.append((offset_axes, offset_dat))
-            # to_tabulate.append((offset_axes, offset_dat, offset_axes.sf))
+                offset_dat, steps = _tabulate_regions(offset_axes, 1, axis_tree.comm)
 
-            # get path to component with the SF
-            component_with_sf = None
-            sf_path = idict()
-            for axis in offset_axes.axes:
-                if axis.component.sf is not None:
-                    component_with_sf = axis.component
+            # At this point we have a star forest that relates entries in a
+            # specific component to corresponding entries on other ranks. Since
+            # we are now moving to an offset-focused view of the world we need
+            # to transform this star forest to map between entries in 'offset_dat'.
+            # This is achieved simply by composing the component star forest with
+            # a section describing the number of unknowns for each component entry.
+            # The only complication is that the component carrying a star forest
+            # can be at any point in the tree, not necessarily at the root or leaf.
+
+            # Identify which axis (component) in the axes that we have seen is
+            # the one with a star forest
+            component_sf = None
+            component_sf_path = {}
+            for offset_axis in offset_axes.axes:
+                if offset_axis.component.sf is not None:
+                    component_sf = offset_axis.component.sf
                     break
-                sf_path |= {axis.label: component.label}
+                component_sf_path |= {offset_axis.label: offset_axis.component.label}
+            assert component_sf is not None
 
-            if component_with_sf is not None:
-                # By default the section will drop values for all but the
-                # first region, here we don't want this to happen
-                sf_sec = offset_axes.regionless().section(sf_path, component_with_sf)
-                petsc_sf = pyop3.sf.create_petsc_section_sf(component_with_sf.sf.sf, sf_sec)
-                offset_sf = pyop3.sf.StarForest(petsc_sf, component_with_sf.comm)
-            else:
-                offset_sf = "NOT USED"
+            # Now get the section and build the new star forest. By default the
+            # section will drop values for all but the first region but here we
+            # don't want this to happen
+            component_sf_sec = offset_axes.regionless().section(component_sf_path)
+            offset_sf = component_sf.with_section(component_sf_sec)
 
-            to_tabulate.append((offset_axes, offset_dat, (mysteps, offset_sf)))
-
-
-
+            to_tabulate.append((offset_axes, offset_dat, steps, offset_sf))
 
             assert layout_expr_acc == 0
             layout_expr_acc_ = offset_dat.concretize()

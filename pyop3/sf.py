@@ -31,6 +31,11 @@ class AbstractStarForest(abc.ABC):
 
     # {{{ abstract methods
 
+    @classmethod
+    @abc.abstractmethod
+    def merge(cls, sfs) -> Self:
+        pass
+
     @abc.abstractmethod
     def __hash__(self) -> int:
         pass
@@ -130,6 +135,33 @@ class StarForest(AbstractStarForest):
 
     # }}}
 
+    # {{{ factory methods
+
+    @classmethod
+    def from_graph(cls, size: IntType, ilocal, iremote, comm):
+        size = utils.strict_int(size)
+        ilocal = ilocal.astype(IntType, casting="safe")
+        iremote = iremote.astype(IntType, casting="safe")
+
+        sf = PETSc.SF().create(comm)
+        sf.setGraph(size, ilocal, iremote)
+        return cls(sf, comm)
+
+    @classmethod
+    def merge(cls, sfs) -> Self:
+        assert all(isinstance(sf, cls) for sf in sfs)
+
+        if len(sfs) == 1:
+            return utils.just_one(sfs)
+
+        size = sum(sf.size for sf in sfs)
+        ilocal = np.concatenate([sf.ilocal for sf in sfs])
+        iremote = np.concatenate([sf.iremote for sf in sfs])
+        comm = utils.single_valued(sf.comm for sf in sfs)
+        return cls.from_graph(size, ilocal, iremote, comm)
+
+    # }}}
+
     # {{{ interface impls
 
     comm = pyop3.record.attr("_comm")
@@ -158,16 +190,6 @@ class StarForest(AbstractStarForest):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
-
-    @classmethod
-    def from_graph(cls, size: IntType, ilocal, iremote, comm):
-        size = utils.strict_int(size)
-        ilocal = ilocal.astype(IntType, casting="safe")
-        iremote = iremote.astype(IntType, casting="safe")
-
-        sf = PETSc.SF().create(comm)
-        sf.setGraph(size, ilocal, iremote)
-        return cls(sf, comm)
 
     # better alias?
     @property
@@ -232,6 +254,11 @@ class StarForest(AbstractStarForest):
         dtype, _ = get_mpi_dtype(from_buffer.dtype)
         return (dtype, from_buffer, to_buffer, op)
 
+    def with_section(self, section: PETSc.Section) -> Self:
+        """Create a new star forest via composition with a PETSc section."""
+        petsc_sf = create_petsc_section_sf(self.sf, section)
+        return type(self)(petsc_sf, self.comm)
+
 
 # FIXME: Do we really need to have a size attr?
 class NullStarForest(AbstractStarForest):
@@ -248,6 +275,14 @@ class NullStarForest(AbstractStarForest):
         pass
 
     # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def merge(cls, sfs) -> Self:
+        assert all(isinstance(sf, cls) for sf in sfs)
+        size = sum(sf.size for sf in sfs)
+        return cls(size)
 
     # {{{ interface impls
 
