@@ -22,7 +22,6 @@ from finat.quadrature import QuadratureRule
 from finat.ufl import FiniteElement, TensorElement
 
 from tsfc import fem, ufl_utils
-from tsfc.kernel_interface.common import pick_mode
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
@@ -60,7 +59,7 @@ TSFCInterpolationData = collections.namedtuple(
     "TSFCInterpolationData",
     ["domain", "iteration_domain", "integral_type", "subdomain_id",
      "domain_integral_type_map", "enabled_coefficients", "integrals",
-     "expression", "target_element"],
+     "expression"],
 )
 
 TSFCInterpolationFormData = collections.namedtuple(
@@ -219,7 +218,6 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
         enabled_coefficients=(True,) * len(coefficients),
         integrals=(),
         expression=expression,
-        target_element=target_element,
     )
     return [
         compile_integral(
@@ -296,44 +294,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     builder.set_constants(form_data.constants)
     ctx = builder.create_context()
     if isinstance(integral_data, TSFCInterpolationData):
-        expression = CoefficientSplitter(builder.coefficient_split)(
-            integral_data.expression
-        )
-        target_element = builder.create_element(integral_data.target_element)
-        config = builder.fem_config()
-        config.update(
-            argument_multiindices=builder.argument_multiindices,
-            index_cache=ctx["index_cache"],
-        )
-        if isinstance(target_element, finat.QuadratureElement):
-            config["quadrature_rule"] = target_element._rule
-        evaluation, basis_indices = fem.dual_evaluate(
-            expression, target_element, config
-        )
-        dual_arg, _ = expression.argument_slots()
-        if not isinstance(dual_arg, ufl.Cofunction):
-            arguments = expression.arguments()
-            argument_number = arguments.index(dual_arg)
-            output_indices = builder.argument_multiindices[argument_number]
-            if basis_indices != output_indices:
-                if tuple(i.extent for i in basis_indices) != tuple(
-                    i.extent for i in output_indices
-                ):
-                    raise ValueError("Interpolation output index shape mismatch")
-                mapper = gem.node.MemoizerArg(
-                    gem.optimise.filtered_replace_indices
-                )
-                evaluation = mapper(
-                    evaluation, tuple(zip(basis_indices, output_indices))
-                )
-
         params = parameters.copy()
         params["mode"] = "vanilla"
-        mode = pick_mode(params["mode"])
-        representations = mode.Integrals(
-            [evaluation], (), builder.argument_multiindices, params
-        )
-        builder.stash_integrals(representations, params, ctx)
+        interpolate_exprs = builder.compile_interpolate(integral_data.expression, params, ctx)
+        builder.stash_integrals(interpolate_exprs, params, ctx)
     else:
         for integral in integral_data.integrals:
             params = parameters.copy()

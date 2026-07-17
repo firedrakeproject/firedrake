@@ -5,9 +5,12 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
+from ufl.classes import Cofunction
 from ufl.utils.sequences import max_degree
 from ufl.domain import extract_unique_domain
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
+import finat
 import gem
 import gem.impero_utils as impero_utils
 import petsctools
@@ -146,6 +149,51 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
+
+    def compile_interpolate(self, expression, params, ctx):
+        """Compile UFL interpolate.
+
+        :arg expression: UFL interpolate.
+        :arg params: a dict containing "quadrature_rule".
+        :arg ctx: context created with :meth:`create_context` method.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        expression = CoefficientSplitter(self.coefficient_split)(
+            expression
+        )
+        target_element = self.create_element(expression.ufl_element())
+        config = self.fem_config()
+        config.update(
+            argument_multiindices=self.argument_multiindices,
+            index_cache=ctx["index_cache"],
+        )
+        if isinstance(target_element, finat.QuadratureElement):
+            config["quadrature_rule"] = target_element._rule
+        evaluation, basis_indices = fem.dual_evaluate(
+            expression, target_element, config
+        )
+        dual_arg, _ = expression.argument_slots()
+        if not isinstance(dual_arg, Cofunction):
+            arguments = expression.arguments()
+            argument_number = arguments.index(dual_arg)
+            output_indices = self.argument_multiindices[argument_number]
+            if basis_indices != output_indices:
+                if tuple(i.extent for i in basis_indices) != tuple(
+                    i.extent for i in output_indices
+                ):
+                    raise ValueError("Interpolation output index shape mismatch")
+                mapper = gem.node.MemoizerArg(
+                    gem.optimise.filtered_replace_indices
+                )
+                evaluation = mapper(
+                    evaluation, tuple(zip(basis_indices, output_indices))
+                )
+
+        mode = pick_mode(params["mode"])
+        return mode.Integrals(
+            [evaluation], (), self.argument_multiindices, params
+        )
 
     def compile_integrand(self, integrand, params, ctx):
         """Compile UFL integrand.
