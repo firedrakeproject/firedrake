@@ -320,8 +320,8 @@ def test_extruded_cell_parent_cell_list():
 
     vms = VertexOnlyMesh(ms, coords, missing_points_behaviour="ignore")
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
-    assert vms.num_cells == len(coords)
-    assert vmx.num_cells == len(coords)
+    assert vms.num_cells() == len(coords)
+    assert vmx.num_cells() == len(coords)
     assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._new_to_old_point_renumbering]).all()
     assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._new_to_old_point_renumbering]).all()
 

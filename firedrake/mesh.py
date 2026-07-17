@@ -437,7 +437,7 @@ class AbstractMeshTopology(abc.ABC):
                         )
                         new_to_old_rcm_point_numbering_is = \
                             old_to_new_rcm_point_numbering_is.invertPermutation()
-                        cell_is = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+                        cell_is = PETSc.IS().createStride(self.num_cells(), comm=MPI.COMM_SELF)
                         old_to_new_rcm_cell_numbering_section = dmcommon.entity_numbering(
                             cell_is, new_to_old_rcm_point_numbering_is, self.comm
                         )
@@ -1045,12 +1045,12 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _old_to_new_cell_numbering_is(self) -> PETSc.IS:
-        cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+        cell_indices = PETSc.IS().createStride(self.num_cells(), comm=MPI.COMM_SELF)
         return dmcommon.section_offsets(self._plex_to_entity_numbering_sec("cell"), cell_indices)
 
     @cached_property
     def _new_to_old_cell_numbering(self) -> np.ndarray:
-        cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+        cell_indices = PETSc.IS().createStride(self.num_cells(), comm=MPI.COMM_SELF)
         renumbering_is = dmcommon.section_offsets(self._plex_to_entity_numbering_sec("cell"), cell_indices)
         return renumbering_is.invertPermutation().indices
 
@@ -1874,7 +1874,6 @@ class AbstractMeshTopology(abc.ABC):
     def num_points(self) -> int:
         pass
 
-    @property
     @abc.abstractmethod
     def num_cells(self):
         pass
@@ -2458,7 +2457,6 @@ class MeshTopology(AbstractMeshTopology):
     def num_ghost_points(self) -> int:
         return self.topology_dm.getLabel("firedrake_is_ghost").getStratumSize(1)
 
-    @property
     def num_cells(self) -> int:
         return self.entity_count(self.dimension)
 
@@ -2981,10 +2979,9 @@ class ExtrudedMeshTopology(MeshTopology):
     def vert_label(self) -> tuple:
         return (self._base_mesh.vert_label, 0)
 
-    @property
     def num_cells(self) -> int:
         nlayers = int(self.layers) - 1
-        return self._base_mesh.num_cells * nlayers
+        return self._base_mesh.num_cells() * nlayers
 
     @property
     def num_facets(self) -> int:
@@ -3328,7 +3325,7 @@ class ExtrudedMeshTopology(MeshTopology):
     def cell_column_nums(self) -> op3.Dat:
         """The number of each cell up the column."""
         column_nums = np.concatenate(
-            [np.arange(self.layers-1, dtype=np.int32)]*self._base_mesh.num_cells,
+            [np.arange(self.layers-1, dtype=np.int32)]*self._base_mesh.num_cells(),
         )
         return op3.Dat(self.cells.materialize(), data=column_nums, constant=True)
 
@@ -3482,7 +3479,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def num_points(self) -> int:
         return self.num_vertices
 
-    @property
     def num_cells(self) -> int:
         return self.num_vertices
 
@@ -3684,7 +3680,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        nroots = self.input_ordering.num_cells
+        nroots = self.input_ordering.num_cells()
         e_p_map = self._new_to_old_cell_numbering  # cell-entity -> swarm-point map
         ilocal = np.empty_like(e_p_map)
         if len(e_p_map) > 0:

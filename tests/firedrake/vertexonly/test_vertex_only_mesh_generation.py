@@ -162,7 +162,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.topology._parent_mesh is m.topology
     # Correct generic cell properties
     if not skip_in_bounds_checks:
-        assert vm._fiat_cell_closures.shape == (vm.num_cells, 1)
+        assert vm._fiat_cell_closures.shape == (vm.num_cells(), 1)
     with pytest.raises(AttributeError):
         vm.exterior_facets
     with pytest.raises(AttributeError):
@@ -170,14 +170,14 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     if not skip_in_bounds_checks:
-        assert vm.num_cells == vm._fiat_cell_closures.shape[0] == vm.cells.local_size
+        assert vm.num_cells() == vm._fiat_cell_closures.shape[0] == vm.cells.local_size
         assert vm.cells.owned.local_size == len(inputvertexcoords[in_bounds])
     assert vm.num_facets == 0
     assert vm.num_faces == vm.num_entities(2) == 0
     assert vm.num_edges == vm.num_entities(1) == 0
-    assert vm.num_vertices == vm.num_entities(0) == vm.num_cells
+    assert vm.num_vertices == vm.num_entities(0) == vm.num_cells()
     # Correct parent cell numbers
-    stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells, gdim))
+    stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
     vm.topology_dm.restoreField("DMSwarmPIC_coor")
     stored_parent_cell_nums = np.copy(vm.topology_dm.getField("parentcellnum").ravel())
     vm.topology_dm.restoreField("parentcellnum")
@@ -228,10 +228,10 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         vm_input = vm.input_ordering
         if MPI.COMM_WORLD.rank == 0:
             assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoords.shape), inputcoords)
-            vm_input.num_cells == len(inputcoords)
+            vm_input.num_cells() == len(inputcoords)
         else:
             assert len(vm_input.coordinates.dat.data_ro) == 0
-            vm_input.num_cells == 0
+            vm_input.num_cells() == 0
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
@@ -240,7 +240,7 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         # Check we can get original ordering back
         vm_input = vm.input_ordering
         assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoordslocal.shape), inputcoordslocal)
-        vm_input.num_cells == len(inputcoordslocal)
+        vm_input.num_cells() == len(inputcoordslocal)
 
     # Has correct name after not specifying one
     assert vm.name == parentmesh.name + "_immersed_vom"

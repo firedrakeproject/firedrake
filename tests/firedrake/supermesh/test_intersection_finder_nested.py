@@ -19,5 +19,5 @@ def test_intersection_finder(mesh):
 
     intersections = intersection_finder(mesh_A, mesh_B)
 
-    for cell_A in range(mesh_A.num_cells):
+    for cell_A in range(mesh_A.num_cells()):
         assert cell_A in intersections[cell_A]

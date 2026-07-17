@@ -104,7 +104,7 @@ We first define the finite element spaces and trial/test functions::
 
     # The mixed space
     Z_h = J_h * J_h * V_h * U_h * U_h * P_h * X_h * X_h * R_h * L_h * L_h
-    PETSc.Sys.Print(f"Mesh has {mesh.num_cells} cells, with {Z_h.dim()} finite element DOFs")
+    PETSc.Sys.Print(f"Mesh has {mesh.num_cells()} cells, with {Z_h.dim()} finite element DOFs")
 
     # The discrete solution
     solution = Function(Z_h)
