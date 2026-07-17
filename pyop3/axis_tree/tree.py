@@ -1576,15 +1576,30 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return section
 
     @cached_property
-    def sf(self) -> StarForest:
-        from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+    def layouts(self) -> idict:
+        layouts_, _ = self._layouts_and_sf
+        return layouts_
 
-        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
-        if has_sfs:
-            sfs = collect_star_forests(self)
-            return concatenate_star_forests(sfs)
-        else:
-            return NullStarForest(self.local_size)
+
+    @cached_property
+    def sf(self) -> StarForest:
+        _, sf_ = self._layouts_and_sf
+        return sf_
+        # from pyop3.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+        #
+        # has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
+        # if has_sfs:
+        #     sfs = collect_star_forests(self)
+        #     return concatenate_star_forests(sfs)
+        # else:
+        #     return NullStarForest(self.local_size)
+
+    @cached_property
+    def _layouts_and_sf(self) -> tuple[idict, pyop3.sf.AbstractStarForest]:
+        """Initialise the multi-axis by computing the layout functions."""
+        from .visitors import compute_layouts
+
+        return compute_layouts(self)
 
     # }}}
 
@@ -1647,13 +1662,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     @property
     def layout_axes(self):
         return self
-
-    @cached_property
-    def layouts(self) -> idict:
-        """Initialise the multi-axis by computing the layout functions."""
-        from .visitors import compute_layouts
-
-        return compute_layouts(self)
 
     def buffer_slice(self, *, include_ghosts: bool) -> slice:
         size = self.local_size if include_ghosts else self.owned.local_size

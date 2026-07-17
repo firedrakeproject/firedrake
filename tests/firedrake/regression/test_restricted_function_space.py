@@ -184,7 +184,7 @@ def test_poisson_inhomogeneous_bcs_2(j):
     assert errornorm(u, u2) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
 def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     mesh = UnitSquareMesh(8, 8)
@@ -318,7 +318,7 @@ def test_restricted_function_space_extrusion_basics():
     V = FunctionSpace(extm, "CG", 2)
     V_res = RestrictedFunctionSpace(V, boundary_set=["bottom"])
     # Check lgmap.
-    lgmap = V_res.topological.local_to_global_map(None)
+    lgmap = V_res.lgmap()
     if mesh.comm.rank == 0:
         lgmap_expected = [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
     else:
@@ -350,27 +350,45 @@ def test_restricted_function_space_extrusion_basics():
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 4])
 def test_restricted_function_space_extrusion_poisson(ncells):
-    mesh = UnitIntervalMesh(ncells)
-    extm = ExtrudedMesh(mesh, ncells)
-    subdomain_ids = ["bottom", "top", 1, 2]
+    # mesh = UnitIntervalMesh(ncells)
+    # extm = ExtrudedMesh(mesh, ncells)
+    extm = UnitSquareMesh(ncells, ncells, quadrilateral=True)
+    # subdomain_ids = ["bottom", "top", 1, 2]
+    subdomain_ids = [1, 2, 3, 4]
     V = FunctionSpace(extm, "CG", 4)
     V_res = RestrictedFunctionSpace(V, boundary_set=subdomain_ids)
     x, y = SpatialCoordinate(extm)
     exact = Function(V_res).interpolate(x**2 * y**2)
+
+    # with exact.dat.vec_ro as vec:
+    #     print("norm:", vec.norm())
+    #     return
+
     u = TrialFunction(V_res)
     v = TestFunction(V_res)
     a = inner(grad(u), grad(v)) * dx
     L = inner(-2 * (x**2 + y**2), v) * dx
     bc = DirichletBC(V_res, exact, subdomain_ids)
+
+    # print("a norm:", assemble(a, bcs=bc).petscmat.norm())
+    # with assemble(L, bcs=bc).dat.vec_ro as vec:
+    #     print("L norm:", vec.norm())
+    #     return
+    # print("a norm:", assemble(a).petscmat.norm())
+    with assemble(L).dat.vec_ro as vec:
+        print("L norm:", vec.norm())
+        return
+
     sol = Function(V_res)
-    solve(a == L, sol, bcs=[bc])
+    solve(a == L, sol, bcs=[bc], solver_parameters={"ksp_monitor": None})
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
+    breakpoint()
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 16])
 def test_restricted_function_space_extrusion_stokes(ncells):
     mesh = UnitIntervalMesh(ncells)

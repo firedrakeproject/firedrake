@@ -12,6 +12,7 @@ from immutabledict import immutabledict as idict
 import numpy as np
 from petsc4py import PETSc
 
+import pyop3.sf
 from pyop3.cache import memory_cache
 from pyop3.collections import OrderedSet
 from pyop3 import expr as op3_expr, utils
@@ -197,7 +198,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     starts = [0] * len(to_tabulate)
     visited_regions_per_offset_dat = collections.defaultdict(set)
     for regions in axis_tree.region_sets:
-        for i, (offset_axes, offset_dat) in enumerate(to_tabulate):
+        for i, (offset_axes, offset_dat, _) in enumerate(to_tabulate):
             matching_regions = regions.intersection(offset_axes._all_region_labels)
 
             # Axes do not match the current region set, this means that it is
@@ -232,15 +233,36 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 if i != j:
                     starts[j] = starts[j] + step_size
 
-    # if "functionspace0" in str(axis_tree) and "functionspace1" in str(axis_tree):
-    #     breakpoint()
+    # Construct the star forest for the axis tree
+    if to_tabulate:
+        # sf stuff
+        offset_sfs = []
+        for _, offset_dat, (sizes, offset_pt_sf) in to_tabulate:
+            # offset_dat maps pts in the offset_dat to offsets (obviously)
+            # and offset_sf maps local pts in the offset dat to remote ones
+            # we can use this to build a new sf mapping between offsets
+            section = PETSc.Section().create(comm=offset_pt_sf.comm)
+            section.setChart(0, offset_dat.axes.local_size)
+            for pt, off in enumerate(offset_dat.data_ro):
+                section.setDof(pt, sizes[pt])
+                section.setOffset(pt, off)
+
+            new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
+            offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
+
+        if len(offset_sfs) > 1:
+            breakpoint()
+        else:
+            sf = offset_sfs[0]
+        # sf = ???
+    else:
+        sf = pyop3.sf.NullStarForest(axis_tree.local_size)
 
     # Lastly 'freeze' the offset dats so they can no longer be modified
-    for _, offset_dat in to_tabulate:
-        object.__setattr__(offset_dat.buffer, "_constant", True)
-        offset_dat.buffer.get_array().flags.writeable = False
+    for _, offset_dat, _ in to_tabulate:
+        offset_dat.buffer.freeze()
 
-    return layouts
+    return layouts, sf
 
 
 def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate, tabulated, parent_axes) -> idict:
@@ -290,10 +312,34 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                offset_dat = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
+                offset_dat, mysteps = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
             else:
-                offset_dat = _tabulate_regions(offset_axes, 1, axis_tree.comm)
-            to_tabulate.append((offset_axes, offset_dat))
+                offset_dat, mysteps = _tabulate_regions(offset_axes, 1, axis_tree.comm)
+            # to_tabulate.append((offset_axes, offset_dat))
+            # to_tabulate.append((offset_axes, offset_dat, offset_axes.sf))
+
+            # get path to component with the SF
+            component_with_sf = None
+            sf_path = idict()
+            for axis in offset_axes.axes:
+                if axis.component.sf is not None:
+                    component_with_sf = axis.component
+                    break
+                sf_path |= {axis.label: component.label}
+
+            if component_with_sf is not None:
+                # By default the section will drop values for all but the
+                # first region, here we don't want this to happen
+                sf_sec = offset_axes.regionless().section(sf_path, component_with_sf)
+                petsc_sf = pyop3.sf.create_petsc_section_sf(component_with_sf.sf.sf, sf_sec)
+                offset_sf = pyop3.sf.StarForest(petsc_sf, component_with_sf.comm)
+            else:
+                offset_sf = "NOT USED"
+
+            to_tabulate.append((offset_axes, offset_dat, (mysteps, offset_sf)))
+
+
+
 
             assert layout_expr_acc == 0
             layout_expr_acc_ = offset_dat.concretize()
@@ -389,8 +435,7 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
         return offset_expr
     else:
         invmap = utils.invert_mapping(size_expr_loop_var_replace_map)
-        retval = replace(offset_expr, invmap)
-        return retval
+        return replace(offset_expr, invmap)
 
 
 # This gets the sizes right for a particular dat, then we merge them above
@@ -423,8 +468,6 @@ def _tabulate_regions(offset_axes, step, comm):
     ptr = 0
     for regions in offset_axes.region_sets:
         regioned_offset_axes = offset_axes.with_region_labels(regions).regionless()
-
-        # regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless())
 
         if not regioned_offset_axes.is_linear:
             raise NotImplementedError("Doesn't strictly have to be linear here")
@@ -459,4 +502,4 @@ def _tabulate_regions(offset_axes, step, comm):
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
-    return Dat(step_dat.axes, data=offsets)
+    return Dat(step_dat.axes, data=offsets), step_dat.data_ro

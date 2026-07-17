@@ -497,8 +497,8 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form" in str(self):
-        #     breakpoint()
+        if "form" in str(self):
+            breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
         if not kwargs:  # shortcut for the most common case
