@@ -588,7 +588,8 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
     c_shape = copy.deepcopy(u_shape)
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):
-        integral_type = domain_integral_type_map[extract_unique_domain(arg)]
+        domain = arg.ufl_function_space().ufl_domain()
+        integral_type = domain_integral_type_map[domain]
         if integral_type is None:
             raise RuntimeError(f"Can not determine integral_type on {arg}")
         if integral_type.startswith("interior_facet"):

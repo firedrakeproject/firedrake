@@ -22,9 +22,10 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
+from firedrake.mesh import VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import get_interpolator
+from firedrake.interpolation import get_interp_node_map, get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1472,8 +1473,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
-                    cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    rmap_ = _get_entity_node_map(
+                        mesh, test.function_space()[i],
+                        integral_type, subdomain_id, all_subdomain_ids,
+                    )
+                    cmap_ = _get_entity_node_map(
+                        mesh, trial.function_space()[j],
+                        integral_type, subdomain_id, all_subdomain_ids,
+                    )
                     region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
@@ -1492,8 +1499,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, Vrow in enumerate(test.function_space()):
                 for j, Vcol in enumerate(trial.function_space()):
                     mesh = Vrow.mesh()
-                    rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
-                    cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    rmap_ = _get_entity_node_map(
+                        mesh, Vrow, integral_type, None, None
+                    )
+                    cmap_ = _get_entity_node_map(
+                        mesh, Vcol, integral_type, None, None
+                    )
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1689,6 +1700,18 @@ def _make_global_kernel(*args, **kwargs):
     return _GlobalKernelBuilder(*args, **kwargs).build()
 
 
+def _get_entity_node_map(
+    mesh, function_space, integral_type, subdomain_id,
+    all_integer_subdomain_ids,
+):
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        return get_interp_node_map(function_space.mesh(), mesh, function_space)
+    return function_space.topological.entity_node_map(
+        mesh.topology, integral_type, subdomain_id,
+        all_integer_subdomain_ids,
+    )
+
+
 class _GlobalKernelBuilder:
     """Class that builds a :class:`op2.GlobalKernel`.
 
@@ -1804,7 +1827,11 @@ class _GlobalKernelBuilder:
 
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_arg = V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
+        map_ = _get_entity_node_map(
+            self._mesh, V, self._integral_type,
+            self._subdomain_id, self._all_integer_subdomain_ids,
+        )
+        map_arg = map_._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1822,7 +1849,14 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
+            rmap, cmap = (
+                _get_entity_node_map(
+                    self._mesh, V, self._integral_type,
+                    self._subdomain_id, self._all_integer_subdomain_ids,
+                )
+                for V in (Vrow, Vcol)
+            )
+            rmap_arg, cmap_arg = rmap._global_kernel_arg, cmap._global_kernel_arg
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1922,6 +1956,18 @@ def _as_global_kernel_arg_constant(_, self):
     const = next(self._constants)
     value_size = numpy.prod(const.ufl_shape, dtype=int)
     return op2.GlobalKernelArg((value_size,))
+
+
+@_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
+def _as_global_kernel_arg_tabulation(arg, self):
+    if (
+        arg.loopy_arg.name != "rt_X"
+        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
+    ):
+        raise NotImplementedError("Unknown runtime tabulation argument")
+    return self._make_dat_global_kernel_arg(
+        self._mesh.reference_coordinates.function_space()
+    )
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -2198,7 +2244,10 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        return _get_entity_node_map(
+            self._mesh, V, self._integral_type,
+            self._subdomain_id, self._all_integer_subdomain_ids,
+        )
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
@@ -2276,6 +2325,18 @@ def _as_parloop_arg_coefficient(arg, self):
 def _as_parloop_arg_constant(arg, self):
     const = next(self._constants)
     return op2.GlobalParloopArg(const.dat)
+
+
+@_as_parloop_arg.register(kernel_args.TabulationKernelArg)
+def _as_parloop_arg_tabulation(arg, self):
+    if (
+        arg.loopy_arg.name != "rt_X"
+        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
+    ):
+        raise NotImplementedError("Unknown runtime tabulation argument")
+    reference_coordinates = self._mesh.reference_coordinates
+    map_ = self._get_map(reference_coordinates.function_space())
+    return op2.DatParloopArg(reference_coordinates.dat, map_)
 
 
 @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
