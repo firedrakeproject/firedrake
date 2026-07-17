@@ -11,8 +11,6 @@ from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
-from firedrake.mesh import VertexOnlyMeshTopology
-
 from .paraview_reordering import *
 
 __all__ = ("VTKFile", )
@@ -187,6 +185,8 @@ def get_topology(coordinates):
     elif cells[cell, nonLinear] == VTK_LAGRANGE_WEDGE:
         perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
+    elif cells[cell, nonLinear] == VTK_VERTEX:
+        pass
     elif cells.get((cell, nonLinear)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
@@ -228,15 +228,6 @@ def get_topology(coordinates):
                                         step=basis_dim,
                                         dtype=IntType)
     cell_types = numpy.full(num_cells, cells[cell, nonLinear], dtype="uint8")
-    return (OFunction(connectivity, "connectivity", None),
-            OFunction(offsets_into_con, "offsets", None),
-            OFunction(cell_types, "types", None))
-
-def get_vom_topology(mesh):
-    num_cells = mesh.cell_set.size
-    connectivity = numpy.arange(num_cells, dtype=IntType)
-    offsets_into_con = numpy.arange(1, num_cells + 1, dtype=IntType)
-    cell_types = numpy.full(num_cells, VTK_VERTEX, dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
             OFunction(offsets_into_con, "offsets", None),
             OFunction(cell_types, "types", None))
@@ -511,10 +502,10 @@ class VTKFile:
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
             from firedrake.functionspace import FunctionSpace
             mesh = functions[0]
-            if isinstance(mesh.topology, VertexOnlyMeshTopology):
-                V = FunctionSpace(mesh, "DG", 0)
-            else:
+            if mesh.topological_dimension > 0:
                 V = FunctionSpace(mesh, "CG", 1)
+            else:
+                V = FunctionSpace(mesh, "DG", 0)
             functions = [Function(V)]
 
         for f in functions:
@@ -528,9 +519,9 @@ class VTKFile:
 
         cell = mesh.topology.ufl_cell()
         if (cell, True) not in cells and (cell, False) not in cells:
-                raise ValueError("Unhandled cell type %r" % cell)
+            raise ValueError("Unhandled cell type %r" % cell)
 
-        is_vom = isinstance(mesh.topology, VertexOnlyMeshTopology)
+        is_vom = mesh.topological_dimension == 0
 
         if self._fnames is not None:
             if tuple(f.name() for f in functions) != self._fnames:
@@ -544,16 +535,9 @@ class VTKFile:
                                     function=mesh.coordinates)
             functions = tuple(OFunction(array=get_array(f),
                                         name=f.name(),
-                                        function=f)
-                            for f in functions)
+                                        function=f) for f in functions)
 
-            # Add persistent particle IDs noting that this changes every time the VOM is rebuilt 
-            # since DMSwarmMigrate reorders the swarm's local points.
-            swarm = mesh.topology.topology_dm
-            ids = numpy.copy(swarm.getField("globalindex").ravel())
-            swarm.restoreField("globalindex")
-            functions += (OFunction(array=ids, name="particle_id", function=None),)
-            self._topology = get_vom_topology(mesh)
+            self._topology = get_topology(coordinates.function)
         else:
             continuous = all(is_cg(f.function_space()) for f in functions) and \
                 is_cg(mesh.coordinates.function_space())
@@ -563,14 +547,12 @@ class VTKFile:
             # interpolate/project ALL involved elements onto a single larger
             # finite element.
             mesh_elem = mesh.coordinates.ufl_element()
-            max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
-                                                    for f in functions),
-                                    continuous=continuous,
-                                    max_degree=self.target_degree)
+            max_elem = get_sup_element(mesh_elem, *(f.ufl_element() for f in functions),
+                                       continuous=continuous,
+                                       max_degree=self.target_degree)
             coordinates = self._prepare_output(mesh.coordinates, max_elem)
 
-            functions = tuple(self._prepare_output(f, max_elem)
-                            for f in functions)
+            functions = tuple(self._prepare_output(f, max_elem) for f in functions)
 
             if self._topology is None or self._adaptive:
                 self._topology = get_topology(coordinates.function)
