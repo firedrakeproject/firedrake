@@ -32,6 +32,9 @@ class ASMPatchPC(PCBase):
         _, P = pc.getOperators()
         dm = pc.getDM()
         self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
+        opts = PETSc.Options(self.prefix)
+        backend = opts.getString("backend", default="petscasm").lower()
+        self._backend = backend        
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
@@ -48,8 +51,6 @@ class ASMPatchPC(PCBase):
         asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
 
-        opts = PETSc.Options(self.prefix)
-        backend = opts.getString("backend", default="petscasm").lower()
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
@@ -149,9 +150,11 @@ class ASMStarPC(ASMPatchPC):
     consists of all DoFs on the topological star of the mesh entity
     specified by `pc_star_construct_dim`.
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    Non-overlapping patches are grouped together via a
+    coloring of the mesh entities. 
+    This is the default behavior for ``backend=="petscasm"``.
+    The default may be overridden explicitly by setting
+    `pc_star_use_coloring` to `True` or `False`.
 
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
@@ -174,7 +177,8 @@ class ASMStarPC(ASMPatchPC):
         depth = opts.getInt("construct_dim", default=0)
         validate_overlap(mesh, depth, "star")
 
-        use_coloring = opts.getBool("use_coloring", default=False)
+        use_coloring_default = (self._backend == "petscasm")
+        use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         # Accessing .indices causes the allocation of a global array,
@@ -196,9 +200,11 @@ class ASMVankaPC(ASMPatchPC):
     consists of all DoFs on the closure of the star of the mesh entity
     specified by `pc_vanka_construct_dim` (or codim).
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_vanka_use_coloring`.
+    Non-overlapping patches are grouped together via a
+    coloring of the mesh entities. 
+    This is the default behavior for ``backend=="petscasm"``.
+    The default may be overridden explicitly by setting
+    `pc_vanka_use_coloring` to `True` or `False`.
 
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
@@ -233,7 +239,8 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
         include_star = include_type == "star"
 
-        use_coloring = opts.getBool("use_coloring", default=False)
+        use_coloring_default = (self._backend == "petscasm")
+        use_coloring = opts.getBool("use_coloring", default=use_coloring_default)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         def splitting(V):
