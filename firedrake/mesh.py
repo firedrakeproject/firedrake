@@ -502,9 +502,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    _topology_is_mutable = False
-    """Whether this topology may change in place after construction."""
-
     def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
 
@@ -637,6 +634,11 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def _renumber_entities(self, reorder):
         """Renumber entities."""
         pass
+
+    @property
+    @abc.abstractmethod
+    def _topology_is_mutable(self):
+        """Boolean flag indicating whether this mesh's topology may change after construction."""
 
     @property
     def comm(self):
@@ -1077,6 +1079,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
+    _topology_is_mutable = False
 
     @PETSc.Log.EventDecorator("CreateMesh")
     def __init__(
