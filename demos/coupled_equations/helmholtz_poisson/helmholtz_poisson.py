@@ -12,7 +12,7 @@ h_array = []
 errors_1 = []
 errors_2 = []
 
-n_list = [8, 16, 32, 38, 45, 50, 75, 100]
+n_list = [8, 16, 32, 64, 128]
 
 # Mesh Refinement
 #meshes_1 = MeshHierarchy(mesh_1, refinement_levels=REFINEMENT_LEVELS)
@@ -139,9 +139,9 @@ print("error values 2", errors_2)
 ratios_1 = []
 ratios_2 = []
 for i in range(len(h_array) - 1):
-    q1_numerator = ln(errors_1[i]/errors_1[i+1])
-    q2_numerator = ln(errors_2[i]/errors_2[i+1])
-    q_denominator = ln(h_array[i]/h_array[i+1])
+    q1_numerator = np.log(errors_1[i]/errors_1[i+1])
+    q2_numerator = np.log(errors_2[i]/errors_2[i+1])
+    q_denominator = np.log(h_array[i]/h_array[i+1])
 
     q1 = q1_numerator/q_denominator
     q2 = q2_numerator/q_denominator
@@ -160,3 +160,10 @@ plt.gca().invert_xaxis()
 plt.grid(False)
 plt.legend()
 plt.savefig("Logloggraph.png")
+
+
+#h values [0.125, 0.0625, 0.03125, 0.015625, 0.0078125]
+#error values 1 [0.020312880423902082, 0.023884496389787666, 0.025365250285180028, 0.02592738762685631, 0.026153400696812813]
+#error values 2 [0.015973989980662857, 0.015775911758807538, 0.01573079371999478, 0.015719801003157636, 0.015717070921126182]
+#ratios 1 [-0.23367962518832508, -0.08677893840072241, -0.03162345551367659, -0.012521699176652266]
+#ratios 2 [0.018001326636491045, 0.004131921402400471, 0.0010085112127298289, 0.0002505768275790916]
