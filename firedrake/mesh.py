@@ -501,6 +501,9 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
+    
+    _topology_is_mutable = False
+    """Whether this topology may change in place after construction."""
 
     def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
@@ -604,6 +607,11 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
+
+        self._topology_version = 0
+        if self._topology_is_mutable:
+            self._topology_step_sfs = {}
+
 
     layers = None
     """No layers on unstructured mesh"""
@@ -2017,6 +2025,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     Representation of a vertex-only mesh topology immersed within
     another mesh.
     """
+    _topology_is_mutable = True
 
     @PETSc.Log.EventDecorator()
     def __init__(self, swarm, parentmesh, name, reorder, input_ordering_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
@@ -2054,14 +2063,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
 
-        self._topology_version = 0
-        self._topology_step_sfs = {}
-
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
-
-    # @property
-    # def topology_version(self):
-    #     return self._topology_version
 
     def _distribute(self):
         pass
