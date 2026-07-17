@@ -330,12 +330,7 @@ class WithGeometryBase:
         return MixedFunctionSpace((self, other))
 
     def __getattr__(self, name):
-        # Fetch attributes from the underlying topological FS.
         val = getattr(self.topological, name)
-        # Avoid caching on the WG FS if the topological FS is defined on a mutable mesh as we expect these FS to change
-        # and want to be able to detect staleness in such cases
-        if not getattr(self.topological.mesh(), "_topology_is_mutable", False):
-            setattr(self, name, val)
         return val
 
     def __dir__(self):
@@ -565,9 +560,6 @@ class FunctionSpace:
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
 
-        self._mesh_topology_version = self._mesh._topology_version
-        r"""The topology version of the mesh on which this :class:`FunctionSpace` is defined."""
-
         self.value_size = self._ufl_function_space.value_size
         r"""The number of scalar components of this :class:`FunctionSpace`."""
 
@@ -587,48 +579,39 @@ class FunctionSpace:
 
         self.set_shared_data()
 
-        self.dof_dset = self.make_dof_dset()
+    @cached_property_until(lambda self: self._mesh._topology_version)
+    def _shared_data(self):
+        return get_shared_data(self._mesh, self.ufl_element())
+
+    @cached_property_until(lambda self: self._mesh._topology_version)
+    def dof_dset(self):
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
-        self.node_set = self.dof_dset.set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        return self.make_dof_dset()
 
     @property
-    def _shared_data(self):
-        # I have deliberately NOT set @cached_property_until here, although the version check is the
-        # same pattern: on staleness this property must refresh the whole shared data object -- based on which
-        # several properties like which dof_dset, global_numbering etc. get re-assigned as a side effect --
-        # while the caching decorator can only memoise a single return value.
-        if self._mesh_topology_version != self._mesh._topology_version:
-            self.refresh_shared_data()  # owns the refresh
-        return self._shared_data_private
+    def global_numbering(self):
+        return self._shared_data.global_numbering
 
-    def refresh_shared_data(self):
-        if self._mesh_topology_version == self._mesh._topology_version:
-            return
-        sdata = get_shared_data(self._mesh, self.ufl_element())
-        self._shared_data_private = sdata
-        self._mesh_topology_version = self._mesh._topology_version
-        self.global_numbering = sdata.global_numbering
-        self.dof_dset = self.make_dof_dset()
-        self.node_set = self.dof_dset.set
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        return self.dof_dset.set
 
     def set_shared_data(self):
         element = self.ufl_element()
-        sdata = get_shared_data(self._mesh, element)
+        sdata = self._shared_data
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
-        self._shared_data_private = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-        self.global_numbering = sdata.global_numbering
 
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
@@ -660,7 +643,8 @@ class FunctionSpace:
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
+        # Given that dof_dset is now re-created when the FS mutates, we remove it from the hash
+        return hash((self.mesh(), self.ufl_element()))
 
     @cached_property
     def _ad_parent_space(self):
@@ -669,12 +653,7 @@ class FunctionSpace:
     @cached_property_until(lambda self: self._mesh._topology_version)
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        try:
-            _ = self._shared_data  # trigger refresh
-        except AttributeError:
-            pass  # RealFunctionSpace has no shared data
         dm = self._dm()
-        dmhooks.set_function_space(dm, self)
         return dm
 
     def _dm(self):
@@ -690,13 +669,12 @@ class FunctionSpace:
 
     @cached_property_until(lambda self: self._mesh._topology_version)
     def _ises(self):
-        _ = self._shared_data  # trigger refresh
         return self.dof_dset.field_ises
 
     @cached_property_until(lambda self: self._mesh._topology_version)
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
-        self._shared_data.entity_node_lists[self.mesh().cell_set]
+        return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
     @cached_property
     def topological(self):
@@ -766,7 +744,6 @@ class FunctionSpace:
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        _ = self._shared_data
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
@@ -1016,21 +993,19 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.topological = self
         self.name = name or function_space.name
 
-    def set_shared_data(self):
-        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
-        self._shared_data = sdata
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name,
-                                    apply_local_global_filter=sdata.extruded)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
+    @cached_property_until(lambda self: self._mesh._topology_version)
+    def _shared_data(self):
+        return get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
 
-        # check not all degrees of freedom are constrained
-        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
-        if self.comm.allreduce(unconstrained_dofs) == 0:
-            raise ValueError("All degrees of freedom are constrained.")
+    @cached_property_until(lambda self: self._mesh._topology_version)
+    def dof_dset(self):
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self._shared_data.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name,
+                                    apply_local_global_filter=self._shared_data.extruded)
+
+    def set_shared_data(self):
+        sdata = self._shared_data
         self.finat_element = create_element(self.ufl_element())
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
@@ -1040,7 +1015,10 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-        self.global_numbering = sdata.global_numbering
+        # check not all degrees of freedom are constrained
+        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+        if self.comm.allreduce(unconstrained_dofs) == 0:
+            raise ValueError("All degrees of freedom are constrained.")
 
     def __eq__(self, other):
         if not isinstance(other, RestrictedFunctionSpace):
@@ -1053,7 +1031,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             str(self.function_space), self.name, self.boundary_set)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
+        return hash((self.mesh(), self.ufl_element(),
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
@@ -1455,6 +1433,10 @@ class RealFunctionSpace(FunctionSpace):
 
     finat_element = None
     global_numbering = None
+
+    @property
+    def _shared_data(self):
+        raise AttributeError("RealFunctionSpace has no shared data")
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
