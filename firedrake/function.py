@@ -365,9 +365,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise RuntimeError(
                 "Function migration only supports degree 0 Functions defined on VertexOnlyMeshes."
             )
-        
-        # Refresh the FS to align with the new topology
-        _ = FS_topo.refresh_shared_data()
 
         # Allocate new dat on the refreshed FS
         new_data = CoordinatelessFunction(
