@@ -7,7 +7,6 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 import firedrake.cython.patchimpl
-from firedrake.bcs import bcdofs
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
@@ -23,6 +22,7 @@ import ufl
 import operator
 from functools import cached_property, partial
 import numpy
+from finat.ufl import VectorElement, MixedElement
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 import petsctools
@@ -585,6 +585,47 @@ def make_patch_callables(form: ufl.Form, state: Function | None) -> tuple[
             assert exterior_facet_callable is None, "Only a single exterior facet callable allowed"
             exterior_facet_callable = callable
     return cell_callable, interior_facet_callable, exterior_facet_callable
+
+
+def bcdofs(bc, ghost=True):
+    # Return the global dofs fixed by a DirichletBC
+    # in the numbering given by concatenation of all the
+    # subspaces of a mixed function space
+    Z = bc.function_space()
+    while Z.parent is not None:
+        Z = Z.parent
+
+    indices = bc._indices
+    offset = 0
+
+    for (i, idx) in enumerate(indices):
+        if isinstance(Z.ufl_element(), VectorElement):
+            offset += idx
+            assert i == len(indices)-1  # assert we're at the end of the chain
+            assert Z.sub(idx).block_size == 1
+        elif isinstance(Z.ufl_element(), MixedElement):
+            if ghost:
+                offset += sum(Z.sub(j).dof_count for j in range(idx))
+            else:
+                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).block_size for j in range(idx))
+        else:
+            raise NotImplementedError("How are you taking a .sub?")
+
+        Z = Z.sub(idx)
+
+    if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
+        bs = Z.parent.block_size
+        start = 0
+        stop = 1
+    else:
+        bs = Z.block_size
+        start = 0
+        stop = bs
+    nodes = bc.nodes
+    if not ghost:
+        nodes = nodes[nodes < Z.dof_dset.size]
+
+    return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 
 
 def select_entity(p, dm=None, exclude=None):
