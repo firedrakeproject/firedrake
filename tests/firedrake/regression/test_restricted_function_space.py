@@ -209,7 +209,8 @@ def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     assert errornorm(SpatialCoordinate(mesh)[0]**2, u) < 1.e-12
 
 
-def test_restrict_action():
+@pytest.mark.parametrize("preassembled", [False, True])
+def test_restrict_action(preassembled):
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
     Q = FunctionSpace(mesh, "DG", 0)
@@ -219,6 +220,9 @@ def test_restrict_action():
 
     M = inner(q, v) * dx  # Q x V -> R
     I = interpolate(u, Q)  # V x Q^* -> R
+    if preassembled:
+        M = assemble(M)
+        I = assemble(I)
     A = action(M, I)  # V x V^* -> R
 
     solution = Function(V)
