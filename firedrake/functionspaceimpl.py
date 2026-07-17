@@ -335,7 +335,7 @@ class WithGeometryBase:
         # Avoid caching on the WG FS if the topological FS is defined on a mutable mesh as we expect these FS to change
         # and want to be able to detect staleness in such cases
         if not getattr(self.topological.mesh(), "_topology_is_mutable", False):
-            setattr(self, name, val)            
+            setattr(self, name, val)
         return val
 
     def __dir__(self):
@@ -593,15 +593,14 @@ class FunctionSpace:
         self.node_set = self.dof_dset.set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
 
-
     @property
     def _shared_data(self):
         # I have deliberately NOT set @cached_property_until here, although the version check is the
         # same pattern: on staleness this property must refresh the whole shared data object -- based on which
         # several properties like which dof_dset, global_numbering etc. get re-assigned as a side effect --
-        # while the caching decorator can only memoise a single return value. 
+        # while the caching decorator can only memoise a single return value.
         if self._mesh_topology_version != self._mesh._topology_version:
-            self.refresh_shared_data() # owns the refresh
+            self.refresh_shared_data()  # owns the refresh
         return self._shared_data_private
 
     def refresh_shared_data(self):
@@ -630,7 +629,6 @@ class FunctionSpace:
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
         self.global_numbering = sdata.global_numbering
-
 
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
@@ -672,9 +670,9 @@ class FunctionSpace:
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         try:
-            _ = self._shared_data # trigger refresh
-        except AttributeError: 
-            pass # RealFunctionSpace has no shared data
+            _ = self._shared_data  # trigger refresh
+        except AttributeError:
+            pass  # RealFunctionSpace has no shared data
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
         return dm
@@ -692,7 +690,7 @@ class FunctionSpace:
 
     @cached_property_until(lambda self: self._mesh._topology_version)
     def _ises(self):
-        _ = self._shared_data # trigger refresh
+        _ = self._shared_data  # trigger refresh
         return self.dof_dset.field_ises
 
     @cached_property_until(lambda self: self._mesh._topology_version)
@@ -761,7 +759,6 @@ class FunctionSpace:
         :class:`.FunctionSpace` and other"""
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
-    
 
     @cached_property_until(lambda self: self._mesh._topology_version)
     def node_count(self):
@@ -774,7 +771,6 @@ class FunctionSpace:
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
         return self.node_set.total_size - len(constrained_node_set)
-
 
     @property
     def dof_count(self):

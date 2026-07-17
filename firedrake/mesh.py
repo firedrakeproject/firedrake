@@ -501,7 +501,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
-    
+
     _topology_is_mutable = False
     """Whether this topology may change in place after construction."""
 
@@ -611,7 +611,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self._topology_version = 0
         if self._topology_is_mutable:
             self._topology_step_sfs = {}
-
 
     layers = None
     """No layers on unstructured mesh"""
