@@ -469,7 +469,7 @@ class _SNESContext(object):
         # don't think ctx._x.dat knows enough about changes. This could be
         # done according to the vec state.
         if ctx._x.dat._work_vec.handle != X.handle:
-            ctx._x.dat.data_wo[...] = X.array_r
+            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -491,7 +491,7 @@ class _SNESContext(object):
         # F may not be the same vector as self._F, so copy
         # residual out to F.
         if ctx._F.dat._work_vec.handle != F.handle:
-            F.array_w[...] = ctx._F.dat.data_ro
+            F.array_w[...] = ctx._F.dat.data_ro.flatten()
 
     @staticmethod
     def form_jacobian(snes, X, J, P):

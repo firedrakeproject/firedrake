@@ -605,6 +605,10 @@ def common_comm(*comms: Iterable[MPI.Comm]) -> MPI.Comm:
     """
     shared_comm = None
     for comm in utils.iterflat(comms):
+        # COMM_WORLD always wins out as it is always valid for everyone
+        if comm is MPI.COMM_WORLD:
+            return comm
+
         if shared_comm is None:
             shared_comm = comm
             continue
