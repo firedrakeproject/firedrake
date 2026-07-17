@@ -348,8 +348,8 @@ class WithGeometryBase:
     def __getattr__(self, name):
         # Always fetch attributes from the topological FS
         val = getattr(self.topological, name)
-        # Avoid caching if the topological FS is a VOM as we expect it to be changing
-        if not hasattr(self.topological, "_vom_topology_version"):
+        # Never cache for VOM spaces: their shared data changes under rebuilds
+        if not isinstance(self.topological.mesh(), VertexOnlyMeshTopology):
             setattr(self, name, val)
         return val
 

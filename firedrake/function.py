@@ -292,6 +292,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if isinstance(function_space, Function):
             self.assign(function_space)
+    
+    # XXX: Added to bypass cached _data.dat
+    @property
+    def dat(self):
+        return self._data.dat
 
     @property
     def topological(self):
@@ -430,6 +435,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Swap the data object
         self._data = new_data
+        self.__dict__.pop("dat", None) # drop cached dat
 
         # Clear any expression caches as they need to be rebuilt
         self._expression_cache.clear()
