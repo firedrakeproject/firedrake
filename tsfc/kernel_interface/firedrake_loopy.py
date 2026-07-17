@@ -4,7 +4,7 @@ from collections import namedtuple, OrderedDict
 from ufl import Coefficient, FunctionSpace
 from ufl.domain import MeshSequence
 
-from finat.ufl import FiniteElement
+from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
 
 import gem
 from gem.flop_count import count_flops
@@ -206,7 +206,13 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         self.coefficient_split = {}
 
         for i, coefficient in enumerate(coefficients):
-            self._coefficient(coefficient, f"w_{i}")
+            if type(coefficient.ufl_element()) == ufl_MixedElement:
+                subcoeffs = coefficient.subfunctions  # Firedrake-specific
+                self.coefficient_split[coefficient] = subcoeffs
+                for j, subcoeff in enumerate(subcoeffs):
+                    self._coefficient(subcoeff, f"w_{i}_{j}")
+            else:
+                self._coefficient(coefficient, f"w_{i}")
 
     def set_constants(self, constants):
         for i, const in enumerate(constants):
@@ -287,6 +293,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.local_tensor = None
         self.coefficient_number_index_map = OrderedDict()
         self.integral_data_info = integral_data_info
+        self.coefficient_split = integral_data_info.coefficient_split
         self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
         self.set_arguments()
 

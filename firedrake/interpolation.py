@@ -151,6 +151,11 @@ class Interpolate(UFLInterpolate):
         """
         return self._options
 
+    def subdomain_data(self):
+        """Return cell-iteration subdomain data for the target mesh."""
+        domain = self.target_space.mesh().unique()
+        return {domain: {"cell": [self.options.subset]}}
+
     @cached_property
     def _interpolator(self):
         """Access the numerical interpolator.
@@ -737,6 +742,7 @@ class SameMeshInterpolator(Interpolator):
 
         source_mesh = self.source_mesh.unique()
         target_mesh = self.target_mesh.unique()
+        iterset = target_mesh.cell_set if self.subset is None else self.subset
         for i, (V, component_weight) in enumerate(spaces_and_weights):
             node_map = get_interp_node_map(source_mesh, target_mesh, V)
             size = V.finat_element.space_dimension() * V.block_size
@@ -746,7 +752,7 @@ class SameMeshInterpolator(Interpolator):
             }}"""
             kernel = op2.Kernel(kernel_code, f"multiplicity_{i}")
             op2.par_loop(
-                kernel, target_mesh.cell_set,
+                kernel, iterset,
                 component_weight(op2.INC, node_map),
             )
         with weight.vec as weight_vec:
@@ -843,6 +849,7 @@ class SameMeshInterpolator(Interpolator):
                 self._assembler_form,
                 bcs=bcs,
                 needs_zeroing=self.access is op2.INC,
+                access=self.access,
             )
         elif self.rank == 2:
             return TwoFormAssembler(
@@ -851,7 +858,7 @@ class SameMeshInterpolator(Interpolator):
                 mat_type=mat_type,
                 sub_mat_type=sub_mat_type,
                 needs_zeroing=True,
-                allocation_integral_types=("cell",),
+                access=self.access,
             )
         else:
             raise ValueError(
@@ -859,14 +866,6 @@ class SameMeshInterpolator(Interpolator):
             )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        if self.source_mesh.unique() is not self.target_mesh.unique():
-            return self._get_transmesh_callable(
-                tensor=tensor,
-                bcs=bcs,
-                mat_type=mat_type,
-                sub_mat_type=sub_mat_type,
-            )
-
         assembler = self._get_form_assembler(
             bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
         )
@@ -902,63 +901,6 @@ class SameMeshInterpolator(Interpolator):
             if isinstance(result, MatrixBase):
                 return result.petscmat
             return output if copyout else result
-
-        return callable
-
-    def _get_transmesh_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        mat_type = mat_type or "aij"
-        if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
-            # adjoint one-form case: we need an empty tensor, so if it shares dats with
-            # the dual_arg we cannot use it directly, so we store it
-            f = self._get_tensor(mat_type)
-            copyout = (partial(f.dat.copy, tensor.dat),)
-        else:
-            f = tensor or self._get_tensor(mat_type)
-            copyout = ()
-
-        op2_tensor = f if isinstance(f, op2.Mat) else f.dat
-        loops = []
-        if self.access is op2.INC:
-            loops.append(op2_tensor.zero)
-
-        # Arguments in the operand are allowed to be from a MixedFunctionSpace
-        # We need to split the target space V and generate separate kernels
-        if self.rank == 2:
-            expressions = {(0,): self.ufl_interpolate}
-        elif isinstance(self.dual_arg, Coargument):
-            # Split in the coargument
-            expressions = dict(split_form(self.ufl_interpolate))
-        else:
-            assert isinstance(self.dual_arg, Cofunction)
-            # Split in the cofunction: split_form can only split in the coargument
-            # Replace the cofunction with a coargument to construct the Jacobian
-            interp = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
-            # Split the Jacobian into blocks
-            interp_split = dict(split_form(interp))
-            # Split the cofunction
-            dual_split = dict(split_form(self.dual_arg))
-            # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
-
-        # Interpolate each sub expression into each function space
-        for indices, sub_expr in expressions.items():
-            sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
-            loops.extend(_build_interpolation_callables(sub_expr, sub_op2_tensor, self.access, self.subset, bcs))
-
-        if bcs and self.rank == 1:
-            loops.extend(partial(bc.apply, f) for bc in bcs)
-
-        loops.extend(copyout)
-
-        def callable() -> Function | Cofunction | PETSc.Mat | Number:
-            for l in loops:
-                l()
-            if self.rank == 0:
-                return f.dat.data.item()
-            elif self.rank == 2:
-                return f.handle  # In this case f is an op2.Mat
-            else:
-                return f
 
         return callable
 

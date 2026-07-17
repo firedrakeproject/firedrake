@@ -397,6 +397,77 @@ def test_assemble_action_adjoint(V1, V2):
         assert np.allclose(res.dat.data, res4.dat.data)
 
 
+def test_assemble_interp_vector_matrix():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+    W = VectorFunctionSpace(mesh, "DG", 1, dim=2)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(as_vector((x + 2*y, 2*x - y)))
+
+    operator = assemble(interpolate(TrialFunction(V), W))
+    actual = assemble(action(operator, f))
+    expected = assemble(interpolate(f, W))
+
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+def test_assemble_interp_mixed_vector_matrix():
+    mesh = UnitSquareMesh(2, 2)
+    X = VectorFunctionSpace(mesh, "CG", 2)
+    Y = VectorFunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = X * V
+    W = Y * V
+    x, y = SpatialCoordinate(mesh)
+    f = Function(Z)
+    f.sub(0).interpolate(as_vector((x + 2*y, 2*x - y)))
+    f.sub(1).interpolate(x - y)
+
+    operator = assemble(interpolate(TrialFunction(Z), W), mat_type="nest")
+    actual = assemble(action(operator, f))
+    expected = assemble(interpolate(f, W))
+
+    for actual_subfunction, expected_subfunction in zip(
+        actual.subfunctions, expected.subfunctions
+    ):
+        assert np.allclose(
+            actual_subfunction.dat.data_ro,
+            expected_subfunction.dat.data_ro,
+        )
+
+
+def test_interpolate_mixed_vector_in_bilinear_form():
+    from firedrake.assemble import ExplicitMatrixAssembler, get_assembler
+
+    mesh = UnitSquareMesh(2, 2)
+    X = VectorFunctionSpace(mesh, "CG", 2)
+    Y = VectorFunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = X * V
+    W = Y * V
+    x, y = SpatialCoordinate(mesh)
+    f = Function(Z)
+    f.sub(0).interpolate(as_vector((x + 2*y, 2*x - y)))
+    f.sub(1).interpolate(x - y)
+    v = TestFunction(W)
+    form = inner(interpolate(TrialFunction(Z), W), v) * dx
+
+    assembler = get_assembler(form, mat_type="nest")
+    assert isinstance(assembler, ExplicitMatrixAssembler)
+    operator = assembler.assemble()
+    actual = assemble(action(operator, f))
+    interpolated = assemble(interpolate(f, W))
+    expected = assemble(inner(interpolated, v) * dx)
+
+    for actual_subfunction, expected_subfunction in zip(
+        actual.subfunctions, expected.subfunctions
+    ):
+        assert np.allclose(
+            actual_subfunction.dat.data_ro,
+            expected_subfunction.dat.data_ro,
+        )
+
+
 @pytest.mark.parallel(2)
 def test_interpolate_in_form_compiled_reuse():
     from firedrake.assemble import OneFormAssembler, get_assembler

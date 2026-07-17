@@ -41,6 +41,7 @@ class KernelBuilderBase(KernelInterface):
 
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
+        self.coefficient_split = {}
 
         # Constants
         self.constant_map = collections.OrderedDict()
@@ -62,6 +63,16 @@ class KernelBuilderBase(KernelInterface):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
+
+    def coefficient_components(self, ufl_coefficient, restriction):
+        """Return GEM expressions for a coefficient's stored components."""
+        coefficients = self.coefficient_split.get(
+            ufl_coefficient, (ufl_coefficient,)
+        )
+        return tuple(
+            self.coefficient(coefficient, restriction)
+            for coefficient in coefficients
+        )
 
     def constant(self, const):
         return self.constant_map[const]

@@ -43,8 +43,11 @@ class InterpolateMapper(MultiFunction):
 
     def interpolate(self, o: ufl.Interpolate, operand: Expr) -> Expr:
         dual_arg, _ = o.argument_slots()
-        domain = extract_unique_domain(o)
-        element = o.ufl_function_space().ufl_element()
+        domain = (
+            extract_unique_domain(operand)
+            or dual_arg.ufl_function_space().ufl_domain()
+        )
+        element = o.ufl_element()
         operand = apply_mapping(operand, element, domain)
         expr = o._ufl_expr_reconstruct_(operand, v=dual_arg)
         return element.pullback.apply(ReferenceValue(expr), domain)

@@ -176,6 +176,12 @@ class CellVolumeKernelInterface(CellKernelInterface):
         assert r is None
         return self._wrapee.coefficient(ufl_coefficient, self.restriction)
 
+    def coefficient_components(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient_components(
+            ufl_coefficient, self.restriction
+        )
+
 
 class CoordinateMapping(PhysicalGeometry):
     """Callback class that provides physical geometry to FInAT elements.
@@ -358,14 +364,39 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
         coordinate_mapping = CoordinateMapping(analyse_modified_terminal(coefficient), ctx)
     else:
         coordinate_mapping = None
-    evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-
     if isinstance(dual_arg, ufl.Cofunction):
-        gem_dual = kernel_cfg["interface"].coefficient_map[dual_arg]
-        if is_complex(kernel_cfg["scalar_type"]):
-            evaluation = gem.MathFunction("conj", evaluation)
-        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
+        gem_duals = kernel_cfg["interface"].coefficient_components(
+            dual_arg, None
+        )
+    else:
+        gem_duals = ()
+
+    if len(gem_duals) > 1:
+        assert to_element.is_mixed
+        assert len(to_element.elements) == len(gem_duals)
+        evaluations = []
+        for element, gem_dual in zip(to_element.elements, gem_duals):
+            evaluation, basis_indices = element.dual_evaluation(
+                fn, coordinate_mapping
+            )
+            if is_complex(kernel_cfg["scalar_type"]):
+                evaluation = gem.MathFunction("conj", evaluation)
+            evaluations.append(gem.IndexSum(
+                evaluation * gem_dual[basis_indices], basis_indices
+            ))
+        evaluation = gem.optimise.make_sum(evaluations)
         basis_indices = ()
+    else:
+        evaluation, basis_indices = to_element.dual_evaluation(
+            fn, coordinate_mapping
+        )
+        if gem_duals:
+            if is_complex(kernel_cfg["scalar_type"]):
+                evaluation = gem.MathFunction("conj", evaluation)
+            evaluation = gem.IndexSum(
+                evaluation * gem_duals[0][basis_indices], basis_indices
+            )
+            basis_indices = ()
 
     return evaluation, basis_indices
 
@@ -815,7 +846,11 @@ def translate_constant_value(terminal, mt, ctx):
 
 @translate.register(ufl.Interpolate)
 def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: ContextBase) -> gem.Node:
-    domain = extract_unique_domain(terminal)
+    dual_arg, operand = terminal.argument_slots()
+    domain = (
+        extract_unique_domain(operand)
+        or dual_arg.ufl_function_space().ufl_domain()
+    )
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
     kernel_cfg = {
         "interface": CellVolumeKernelInterface(
@@ -891,8 +926,12 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
         unsummed_indices = set(chain(*argument_multiindices))
         unsummed_indices.update(ctx.unsummed_coefficient_indices)
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
-            indices = tuple(i for i in var.index_ordering() if i not in unsummed_indices)
-            value = gem.IndexSum(gem.Product(expr, var), indices)
+            product = gem.Product(expr, var)
+            indices = tuple(
+                i for i in dict.fromkeys(chain(var.index_ordering(), beta))
+                if i not in unsummed_indices and i in product.free_indices
+            )
+            value = gem.IndexSum(product, indices)
             summands.append(gem.optimise.contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
@@ -904,7 +943,12 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
     if hasattr(argument_multiindices, "values"):
         argument_multiindices = argument_multiindices.values()
     allowed_indices = set(chain(ctx.point_indices, *argument_multiindices))
-    assert set(result.free_indices) - ctx.unsummed_coefficient_indices <= allowed_indices
+    unexpected_indices = (
+        set(result.free_indices)
+        - ctx.unsummed_coefficient_indices
+        - allowed_indices
+    )
+    assert not unexpected_indices, unexpected_indices
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2

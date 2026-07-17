@@ -9,7 +9,7 @@ from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain, extract_domains
+from ufl.domain import MeshSequence, extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
@@ -18,7 +18,7 @@ from gem.unconcatenate import unconcatenate
 import finat
 from finat.element_factory import as_fiat_cell
 
-from tsfc import fem, ufl_utils
+from tsfc import fem, kernel_args, ufl_utils
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
@@ -76,6 +76,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     """
     cpu_time = time.time()
 
+    if isinstance(form, ufl.Interpolate):
+        return compile_interpolate(form, prefix=prefix, parameters=parameters)
+
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"
@@ -108,6 +111,88 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
     return kernels
+
+
+def compile_interpolate(expression, prefix="interpolate", parameters=None):
+    """Compile an interpolation into a cell-iteration assembly kernel."""
+    parameters = preprocess_parameters(parameters)
+    dual_arg, operand = expression.argument_slots()
+    target_domain = dual_arg.ufl_function_space().ufl_domain()
+    if isinstance(target_domain, MeshSequence):
+        target_domains = set(target_domain.meshes)
+        if len(target_domains) != 1:
+            raise NotImplementedError(
+                "Interpolation onto multiple distinct meshes is not supported"
+            )
+        target_domain, = target_domains
+    source_domain = (
+        extract_unique_domain(operand)
+        or target_domain
+    )
+    all_domains = expression.ufl_domains()
+
+    expression_kernel = compile_expression_dual_evaluation(
+        expression,
+        expression.ufl_element(),
+        domain=source_domain,
+        parameters=parameters,
+        name=prefix,
+    )
+
+    arguments = list(expression_kernel.arguments)
+    active_domain = all_domains.index(source_domain)
+    coefficient_offset = (
+        1
+        + expression_kernel.oriented
+        + expression_kernel.needs_cell_sizes
+    )
+    if expression_kernel.needs_external_coords:
+        coordinate_arg = arguments[coefficient_offset]
+        arguments[coefficient_offset] = kernel_args.CoordinatesKernelArg(
+            coordinate_arg.loopy_arg
+        )
+
+    coefficients = expression.coefficients()
+    coefficient_numbers = []
+    for number in expression_kernel.coefficient_numbers:
+        coefficient = coefficients[number]
+        if type(coefficient.ufl_element()) is finat.ufl.MixedElement:
+            subindices = tuple(range(len(coefficient.ufl_element().sub_elements)))
+        else:
+            subindices = (0,)
+        coefficient_numbers.append((number, subindices))
+
+    active_domain_numbers = firedrake_interface_loopy.ActiveDomainNumbers(
+        coordinates=(
+            (active_domain,) if expression_kernel.needs_external_coords else ()
+        ),
+        cell_orientations=(
+            (active_domain,) if expression_kernel.oriented else ()
+        ),
+        cell_sizes=(
+            (active_domain,) if expression_kernel.needs_cell_sizes else ()
+        ),
+        exterior_facets=(),
+        interior_facets=(),
+        orientations_cell=(),
+        orientations_exterior_facet=(),
+        orientations_interior_facet=(),
+    )
+    return [
+        firedrake_interface_loopy.Kernel(
+            ast=expression_kernel.ast,
+            arguments=tuple(arguments),
+            integral_type="cell",
+            subdomain_id=("everywhere",),
+            domain_number=all_domains.index(target_domain),
+            active_domain_numbers=active_domain_numbers,
+            coefficient_numbers=tuple(coefficient_numbers),
+            tabulations=expression_kernel.tabulations,
+            flop_count=expression_kernel.flop_count,
+            name=expression_kernel.name,
+            event=expression_kernel.event,
+        )
+    ]
 
 
 def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):

@@ -57,6 +57,46 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
 
 
+@pytest.mark.parallel([1, 3])
+def test_submesh_interpolate_compile_form():
+    from firedrake.assemble import OneFormAssembler, get_assembler
+
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    submesh = make_submesh(mesh, conditional(x < 0.51, 1, 0), 999)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(submesh, "CG", 1)
+    f = Function(V).interpolate(x + 2*y)
+    xs, ys = SpatialCoordinate(submesh)
+    expected = Function(W).interpolate(xs + 2*ys)
+
+    actual = assemble(interpolate(f, W))
+    assert np.allclose(
+        actual.dat.data_ro_with_halos,
+        expected.dat.data_ro_with_halos,
+    )
+
+    operator = assemble(interpolate(TrialFunction(V), W))
+    actual = assemble(action(operator, f))
+    assert np.allclose(
+        actual.dat.data_ro_with_halos,
+        expected.dat.data_ro_with_halos,
+    )
+
+    v = TestFunction(W)
+    subdx = Measure(
+        "dx",
+        submesh,
+        intersect_measures=(Measure("dx", mesh),),
+    )
+    form = inner(interpolate(f, W), v) * subdx
+    assembler = get_assembler(form)
+    assert isinstance(assembler, OneFormAssembler)
+    actual = assembler.assemble()
+    expected = assemble(inner(expected, v) * dx(submesh))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
 @pytest.mark.parametrize('nelem', [2, 4, 8, None])
 @pytest.mark.parametrize('fe_fesub', [[("DQ", 0), ("DQ", 0)],
                                       [("Q", 4), ("Q", 5)]])

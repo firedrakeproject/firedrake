@@ -19,7 +19,7 @@ import finat.ufl
 from firedrake import (extrusion_utils as eutils, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_domains as _extract_domains
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
@@ -41,17 +41,6 @@ __all__ = "assemble",
 
 _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
-
-
-def extract_domains(expression):
-    """Extract domains, including interpolation argument slots."""
-    domains = list(_extract_domains(expression))
-    if isinstance(expression, ufl.Interpolate):
-        dual_arg, _ = expression.argument_slots()
-        for domain in _extract_domains(dual_arg):
-            if domain not in domains:
-                domains.append(domain)
-    return tuple(domains)
 
 
 @PETSc.Log.EventDecorator()
@@ -183,14 +172,22 @@ def get_assembler(form, *args, **kwargs):
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     base_form_operands = BaseFormAssembler.base_form_operands(form)
     can_compile = not base_form_operands
-    if isinstance(form, ufl.form.Form) and len(form.ufl_domains()) == 1:
-        domain, = form.ufl_domains()
-        can_compile = all(
-            isinstance(op, ufl.Interpolate)
-            and op.ufl_function_space().ufl_domain() == domain
-            and set(extract_domains(op)) <= {domain}
-            for op in base_form_operands
-        )
+    if isinstance(form, ufl.form.Form):
+        can_compile = True
+        for integral in form.integrals():
+            valid_domains = set(integral.extra_domain_integral_type_map())
+            valid_domains.add(integral.ufl_domain())
+            for op in ufl.algorithms.extract_base_form_operators(
+                integral.integrand()
+            ):
+                if (
+                    not isinstance(op, ufl.Interpolate)
+                    or not set(extract_domains(op)) <= valid_domains
+                ):
+                    can_compile = False
+                    break
+            if not can_compile:
+                break
 
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         diagonal = kwargs.pop('diagonal', False)
@@ -1035,9 +1032,11 @@ class ParloopFormAssembler(FormAssembler):
         Should ``tensor`` be zeroed before assembling?
 
     """
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None,
+                 needs_zeroing=True, access=op2.INC):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
+        self._access = access
 
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
@@ -1129,13 +1128,12 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        if isinstance(self._form, ufl.Form):
+        if isinstance(self._form, (ufl.Form, ufl.Interpolate)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
-                parameters=self._form_compiler_params
+                parameters=self._form_compiler_params,
+                access=self._access,
             )
-        elif isinstance(self._form, ufl.Interpolate):
-            kernels = self._compile_interpolate()
         elif isinstance(self._form, slate.TensorBase):
             kernels = slac.compile_expression(
                 self._form,
@@ -1145,91 +1143,6 @@ class ParloopFormAssembler(FormAssembler):
             raise AssertionError
         return tuple(
             (k, subdomain_id) for k in kernels for subdomain_id in k.kinfo.subdomain_id
-        )
-
-    def _compile_interpolate(self):
-        """Compile an interpolation as a form kernel."""
-        from firedrake.interpolation import compile_expression
-
-        all_meshes = extract_domains(self._form)
-        all_constants = extract_firedrake_constants(self._form)
-        parameters = {"scalar_type": ScalarType}
-        parameters.update(self._form_compiler_params)
-
-        dual_arg, operand = self._form.argument_slots()
-        target_mesh = dual_arg.function_space().mesh().unique()
-        source_mesh = (ufl.domain.extract_unique_domain(operand) or target_mesh).unique()
-        target_element = dual_arg.function_space().dual().ufl_element()
-        expression_kernel = compile_expression(
-            target_mesh.comm, self._form, target_element,
-            domain=source_mesh, parameters=parameters,
-        )
-
-        arguments = list(expression_kernel.arguments)
-        active_domain = all_meshes.index(source_mesh)
-        coefficient_offset = (
-            1
-            + expression_kernel.oriented
-            + expression_kernel.needs_cell_sizes
-        )
-        if expression_kernel.needs_external_coords:
-            coordinate_arg = arguments[coefficient_offset]
-            arguments[coefficient_offset] = kernel_args.CoordinatesKernelArg(
-                coordinate_arg.loopy_arg
-            )
-
-        active_domain_numbers = tsfc_interface.ActiveDomainNumbers(
-            coordinates=(
-                (active_domain,)
-                if expression_kernel.needs_external_coords
-                else ()
-            ),
-            cell_orientations=(
-                (active_domain,) if expression_kernel.oriented else ()
-            ),
-            cell_sizes=(
-                (active_domain,) if expression_kernel.needs_cell_sizes else ()
-            ),
-            exterior_facets=(),
-            interior_facets=(),
-            orientations_cell=(),
-            orientations_exterior_facet=(),
-            orientations_interior_facet=(),
-        )
-
-        coefficient_numbers = tuple(
-            (i, None) for i in expression_kernel.coefficient_numbers
-        )
-        constants = extract_firedrake_constants(self._form)
-        constant_numbers = tuple(
-            all_constants.index(constant) for constant in constants
-        )
-        access = self._form.options.access or op2.WRITE
-        kernel = tsfc_interface.as_pyop2_local_kernel(
-            expression_kernel.ast,
-            expression_kernel.name,
-            len(arguments),
-            access=access,
-            flop_count=expression_kernel.flop_count,
-            events=(expression_kernel.event,),
-        )
-        kinfo = tsfc_interface.KernelInfo(
-            kernel=kernel,
-            integral_type="cell",
-            subdomain_id=("everywhere",),
-            domain_number=all_meshes.index(target_mesh),
-            active_domain_numbers=active_domain_numbers,
-            coefficient_numbers=coefficient_numbers,
-            constant_numbers=constant_numbers,
-            needs_cell_facets=False,
-            pass_layer_arg=False,
-            arguments=tuple(arguments),
-            events=(expression_kernel.event,),
-        )
-        return (
-            tsfc_interface.SplitKernel(
-                (None,) * len(self._form.arguments()), kinfo
-            ),
         )
 
     @property
@@ -1320,14 +1233,21 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=True, diagonal=False, weight=1.0):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
+        return (tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing,
+                zero_bc_nodes, diagonal, weight, access)
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=True, diagonal=False, weight=1.0):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+                 zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
+        super().__init__(
+            form,
+            bcs=bcs,
+            form_compiler_parameters=form_compiler_parameters,
+            needs_zeroing=needs_zeroing,
+            access=access,
+        )
         self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
@@ -1389,7 +1309,7 @@ class OneFormAssembler(ParloopFormAssembler):
             return tensor.dat
 
     def execute_parloops(self, tensor):
-        if isinstance(self._form, ufl.Interpolate) and self._form.options.access is not op2.INC:
+        if self._access is not op2.INC:
             for parloop in self.parloops(tensor):
                 parloop()
             return
@@ -1480,8 +1400,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+                 allocation_integral_types=None, access=op2.INC):
+        super().__init__(
+            form,
+            bcs=bcs,
+            form_compiler_parameters=form_compiler_parameters,
+            needs_zeroing=needs_zeroing,
+            access=access,
+        )
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
@@ -1598,8 +1524,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     def _apply_bc(self, tensor, bc, u=None):
         assert u is None
-        if isinstance(self._form, ufl.Interpolate):
-            return
         op2tensor = tensor.M
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
@@ -1609,7 +1533,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if not any(space == fs for fs in spaces):
+            if not any(bc.function_space_match(fs) for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
             if spaces[0] != spaces[1]:
                 # Not on a diagonal block, we cannot set diagonal entries
@@ -1734,29 +1658,24 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
     all_meshes = extract_domains(form)
     domain_ids = tuple(mesh.ufl_id() for mesh in all_meshes)
 
-    if isinstance(form, ufl.Form):
+    if isinstance(form, (ufl.Form, ufl.Interpolate)):
         sig = form.signature()
-    elif isinstance(form, ufl.Interpolate):
-        sig = hash(form)
     elif isinstance(form, slate.TensorBase):
         sig = form.expression_hash
 
     # The form signature does not store this information. This should be accessible from
     # the UFL so we don't need this nasty hack.
     subdomain_key = []
-    if isinstance(form, ufl.Interpolate):
-        subdomain_key.append(("cell", 0, form.options.subset is not None))
-    else:
-        for val in form.subdomain_data().values():
-            for k, v in val.items():
-                for i, vi in enumerate(v):
-                    if vi is not None:
-                        extruded = vi._extruded
-                        constant_layers = extruded and vi.constant_layers
-                        subset = isinstance(vi, op2.Subset)
-                        subdomain_key.append((k, i, extruded, constant_layers, subset))
-                    else:
-                        subdomain_key.append((k, i))
+    for val in form.subdomain_data().values():
+        for k, v in val.items():
+            for i, vi in enumerate(v):
+                if vi is not None:
+                    extruded = vi._extruded
+                    constant_layers = extruded and vi.constant_layers
+                    subset = isinstance(vi, op2.Subset)
+                    subdomain_key.append((k, i, extruded, constant_layers, subset))
+                else:
+                    subdomain_key.append((k, i))
 
     return (domain_ids
             + (sig, subdomain_id)
@@ -1858,8 +1777,6 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _needs_subset(self):
-        if isinstance(self._form, ufl.Interpolate):
-            return self._form.options.subset is not None
         subdomain_data = self._form.subdomain_data()[self._mesh]
         if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
@@ -1902,7 +1819,7 @@ class _GlobalKernelBuilder:
         if any(isinstance(e, finat.EnrichedElement) and e.is_mixed for e in {relem, celem}):
             subargs = tuple(self._make_mat_global_kernel_arg(Vrow_sub, Vcol_sub)
                             for Vrow_sub, Vcol_sub in product(Vrow, Vcol))
-            shape = len(Vrow), len(Vcol)
+            shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
             rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
@@ -2166,18 +2083,11 @@ class ParloopBuilder:
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
 
-        def matches_space(bc, V):
-            V = V.dual() if isinstance(V, FiredrakeDualSpace) else V
-            bc_space = bc.function_space()
-            if V.parent is None:
-                return bc_space.parent is None and bc_space == V
-            return bc_space.parent == V.parent and bc_space.index == V.index
-
         test_space = self.test_function_space
         if len(test_space) > 1:
             test_space = test_space[row]
         bcrow = tuple(
-            bc for bc in self._bcs if matches_space(bc, test_space)
+            bc for bc in self._bcs if bc.function_space_match(test_space)
         )
 
         trial_space = self.trial_function_space
@@ -2185,7 +2095,8 @@ class ParloopBuilder:
             trial_space = trial_space[col]
         bccol = tuple(
             bc for bc in self._bcs
-            if isinstance(bc, DirichletBC) and matches_space(bc, trial_space)
+            if isinstance(bc, DirichletBC)
+            and bc.function_space_match(trial_space)
         )
         return bcrow, bccol
 
@@ -2218,6 +2129,7 @@ class ParloopBuilder:
         if len(self._form.arguments()) == 2 and not self._diagonal:
             if not self._bcs:
                 return None
+
             if any(i is not None for i in self._local_knl.indices):
                 i, j = self._local_knl.indices
                 row_bcs, col_bcs = self._filter_bcs(i, j)
@@ -2263,8 +2175,6 @@ class ParloopBuilder:
 
     @cached_property
     def _iterset(self):
-        if isinstance(self._form, ufl.Interpolate):
-            return self._form.options.subset or self._mesh.cell_set
         try:
             subdomain_data = self._form.subdomain_data()[self._mesh][self._integral_type]
         except KeyError:
@@ -2466,16 +2376,10 @@ class _FormHandler:
     @staticmethod
     def iter_active_coefficients(form, kinfo):
         """Yield the form coefficients referenced in ``kinfo``."""
-        if isinstance(form, ufl.Interpolate):
-            all_coefficients = ufl.algorithms.extract_coefficients(form)
-        else:
-            all_coefficients = form.coefficients()
+        all_coefficients = form.coefficients()
         for idx, subidxs in kinfo.coefficient_numbers:
-            if subidxs is None:
-                yield all_coefficients[idx]
-            else:
-                for subidx in subidxs:
-                    yield all_coefficients[idx].subfunctions[subidx]
+            for subidx in subidxs:
+                yield all_coefficients[idx].subfunctions[subidx]
 
     @staticmethod
     def iter_constants(form, kinfo):
