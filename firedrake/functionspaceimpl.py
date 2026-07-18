@@ -2176,7 +2176,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         for local_is, subspace in zip(self.local_ises, self):
             size = subspace.axes.free.buffer_size(include_ghosts=False)
             is_ = PETSc.IS().createGeneral(
-                local_is.indices[:size]+start, comm=MPI.COMM_SELF
+                local_is.indices[:size]+start, comm=self.comm
             )
             ises.append(is_)
         return tuple(ises)
