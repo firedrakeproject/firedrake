@@ -248,6 +248,8 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 section.setOffset(pt, off)
 
             new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
+            # TODO: handle this earlier on?
+            # new_sf = pyop3.sf.mask_petsc_sf(new_sf, mask)
             offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
 
         sf = pyop3.sf.StarForest.merge(offset_sfs)
@@ -500,5 +502,18 @@ def _tabulate_regions(offset_axes, step, comm):
     reordered_offsets = utils.steps(reordered_steps)
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
+
+    # if "constrained" in offset_axes._all_region_labels:
+    #     unconstrained_step_dat = Dat.zeros_like(step_dat)
+    #     loop_(
+    #         i := offset_axes.with_region_label("constrained", allow_missing=True).iter(),
+    #         unconstrained_step_dat[i].assign(1),
+    #         eager=True,
+    #     )
+    #     masked = utils.just_one(np.nonzero(unconstrained_step_dat.data_ro == 1))
+    #     # breakpoint()
+    # else:
+    #     unconstrained_step_dat = step_dat
+    #     masked = np.empty(0, dtype=IntType)
 
     return Dat(step_dat.axes, data=offsets), step_dat.data_ro

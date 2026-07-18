@@ -189,7 +189,7 @@ class Operator(Expression, metaclass=abc.ABCMeta):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self.operands)
+        return pyop3.visitors.common_comm(self.operands)
 
     # }}}
 
@@ -677,7 +677,7 @@ class LoopIndexVar(TerminalExpression):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self.loop_index, self.axis)
+        return pyop3.visitors.common_comm([self.loop_index, self.axis])
 
     def __init__(self, loop_index, axis) -> None:
         from pyop3 import LoopIndex

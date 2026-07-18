@@ -20,7 +20,12 @@ if typing.TYPE_CHECKING:
     from pyop3.axis_tree import AxisComponentRegionSizeT
 
 
-from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
+from ._sf_cy import (  # noqa: F401
+    filter_petsc_sf,
+    create_petsc_section_sf,
+    renumber_petsc_sf,
+    mask_petsc_sf,
+)
 
 
 class BufferSizeMismatchException(Exception):
@@ -44,10 +49,10 @@ class AbstractStarForest(abc.ABC):
     def __eq__(self, other: Any, /) -> bool:
         pass
 
-    @property
-    @abc.abstractmethod
-    def iroot(self) -> np.ndarray:
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def iroot(self) -> np.ndarray:
+    #     pass
 
     @property
     @abc.abstractmethod
@@ -74,41 +79,6 @@ class AbstractStarForest(abc.ABC):
 
     # }}}
 
-    @cached_property
-    def iroot(self):
-        """Return the indices of roots on the current process."""
-        # mark leaves and reduce
-        mask = np.full(self.size, False, dtype=bool)
-        mask[self.ileaf] = True
-        self.reduce(mask, MPI.REPLACE)
-
-        # now clear the leaf indices, the remaining marked indices are roots
-        mask[self.ileaf] = False
-        return utils.just_one(np.nonzero(mask))
-
-    @property
-    def ileaf(self):
-        return self.ilocal
-
-    @cached_property
-    def icore(self):
-        """Return the indices of points that are not roots or leaves."""
-        mask = np.full(self.size, True, dtype=bool)
-        mask[self.iroot] = False
-        mask[self.ileaf] = False
-        return utils.just_one(np.nonzero(mask))
-
-    @property
-    def num_owned(self):
-        num_owned =  self.size - self.nleaves
-        assert num_owned >= 0
-        return num_owned
-
-    @property
-    def nleaves(self):
-        return len(self.ileaf)
-
-
     def broadcast(self, *args):
         self.broadcast_begin(*args)
         self.broadcast_end(*args)
@@ -132,6 +102,15 @@ class StarForest(AbstractStarForest):
     _poisoned: bool = False
     """Debugging attribute, turn exchanges into errors."""
     # only for root values, bcasting is fine I think
+
+    # def __init__(self, sf, comm, mask=None):
+    #     self._orig_sf = sf
+    #
+    #     if mask is not None:
+    #         sf = mask_petsc_sf(sf, mask)
+    #     self.sf = sf
+    #     self.mask = mask
+    #     self._comm = comm
 
     # }}}
 
@@ -181,6 +160,42 @@ class StarForest(AbstractStarForest):
             and (other.ilocal == self.ilocal).all()
             and (other.iremote == self.iremote).all()
         )
+
+    # @cached_property
+    # def iroot(self):
+    #     """Return the indices of roots on the current process."""
+    #     # mark leaves and reduce
+    #     mask = np.full(self.size, False, dtype=bool)
+    #     mask[self.ileaf] = True
+    #     self.reduce(mask, MPI.REPLACE)
+    #
+    #     # now clear the leaf indices, the remaining marked indices are roots
+    #     mask[self.ileaf] = False
+    #     return utils.just_one(np.nonzero(mask))
+
+    @property
+    def ileaf(self):
+        return self.ilocal
+
+    # @cached_property
+    # def icore(self):
+    #     """Return the indices of points that are not roots or leaves."""
+    #     mask = np.full(self.size, True, dtype=bool)
+    #     mask[self.iroot] = False
+    #     mask[self.ileaf] = False
+    #     return utils.just_one(np.nonzero(mask))
+
+    @property
+    def num_owned(self):
+        num_owned =  self.size - self.nleaves
+        assert num_owned >= 0
+        return num_owned
+
+    @property
+    def nleaves(self):
+        return len(self.ileaf)
+
+
 
     # }}}
 
@@ -257,6 +272,10 @@ class StarForest(AbstractStarForest):
     def with_section(self, section: PETSc.Section) -> Self:
         """Create a new star forest via composition with a PETSc section."""
         petsc_sf = create_petsc_section_sf(self.sf, section)
+        return type(self)(petsc_sf, self.comm)
+
+    def filter(self, indices) -> Self:
+        petsc_sf = filter_petsc_sf(self.sf, indices, 0, self.size)
         return type(self)(petsc_sf, self.comm)
 
 

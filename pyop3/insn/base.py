@@ -162,7 +162,7 @@ class Loop(NonTerminalInstruction):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self.index, *self.statements)
+        return pyop3.visitors.common_comm([self.index, *self.statements])
 
     def __init__(
         self,
@@ -214,7 +214,7 @@ class InstructionList(NonTerminalInstruction):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self.instructions)
+        return pyop3.visitors.common_comm(self.instructions)
 
     def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
@@ -530,7 +530,7 @@ class CalledFunction(AbstractCalledFunction):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self._arguments)
+        return pyop3.visitors.common_comm(self._arguments)
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
@@ -591,7 +591,7 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self._arguments)
+        return pyop3.visitors.common_comm(self._arguments)
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
@@ -734,7 +734,7 @@ class Assignment(AbstractAssignment):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self._assignee, self._expression)
+        return pyop3.visitors.common_comm([self._assignee, self._expression])
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)

@@ -177,7 +177,7 @@ def _(num: numbers.Number | types.NoneType, /) -> MPI.Comm:
     return MPI.COMM_SELF
 
 
-def common_comm(*objects: Iterable[Any]) -> MPI.Comm:
+def common_comm(objects: Iterable[Any]) -> MPI.Comm:
     """Return a communicator valid for all objects.
 
     The valid communicator is defined as the one with the largest size.
@@ -194,7 +194,7 @@ def common_comm(*objects: Iterable[Any]) -> MPI.Comm:
         A communicator that the provided objects are safely collective over.
 
     """
-    return pyop3.mpi.common_comm(*(map(get_comm, objects)))
+    return pyop3.mpi.common_comm(map(get_comm, objects))
 
 
 def single_comm(*objects: Iterable[Any]) -> MPI.Comm:

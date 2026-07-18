@@ -386,7 +386,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self.regions, self.size, self.sf)
+        return pyop3.visitors.common_comm([*self.regions, self.size, self.sf])
 
     def __init__(
         self,
@@ -573,7 +573,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
 
     @cached_property
     def comm(self) -> MPI.Comm | None:
-        return pyop3.visitors.common_comm(*self.components)
+        return pyop3.visitors.common_comm(self.components)
 
     def __init__(
         self,
@@ -1463,7 +1463,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
     @cached_property
     def comm(self):
-        return pyop3.visitors.common_comm(*self._node_map.values())
+        return pyop3.visitors.common_comm(self._node_map.values())
 
     def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
@@ -1745,7 +1745,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self._node_map.values(), self._unindexed)
+        return pyop3.visitors.common_comm([*self._node_map.values(), self._unindexed])
 
     # TODO: where to put *, and order?
     def __init__(
@@ -2090,7 +2090,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self._node_maps.values(), self.unindexed)
+        return pyop3.visitors.common_comm([*self._node_maps.values(), self.unindexed])
 
     def __init__(
         self,
@@ -2301,7 +2301,7 @@ class AxisForest(AbstractAxisTreeLike):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self._trees)
+        return pyop3.visitors.common_comm(self._trees)
 
     def __new__(
         cls,
@@ -2373,6 +2373,11 @@ class AxisForest(AbstractAxisTreeLike):
     def buffer_size(self, *, include_ghosts: bool) -> int:
         return utils.single_valued(
             t.buffer_size(include_ghosts=include_ghosts) for t in self.trees
+        )
+
+    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
+        return utils.single_valued(
+            t._buffer_indices(include_ghosts=include_ghosts) for t in self.trees
         )
 
     @property
@@ -2533,7 +2538,7 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(*self.trees.values())
+        return pyop3.visitors.common_comm(self.trees.values())
 
     def __init__(self, trees: Mapping):
         trees = idict(trees)

@@ -1403,10 +1403,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
-                    # the issue is here when we are dealing with subsets (as opposed to region slices)
-                    # I have just implemented a new attempt that uses another bit of the PETSc API
-                    petsc_sf = filter_petsc_sf(target_component.sf.sf, indices, 0, target_component.local_size)
-                    sf = StarForest(petsc_sf, target_component.sf.comm)
+                    sf = target_component.sf.filter(indices)
                 else:
                     assert isinstance(target_component.sf, NullStarForest)
                     sf = NullStarForest(indices.size)

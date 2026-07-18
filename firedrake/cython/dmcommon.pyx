@@ -1420,23 +1420,46 @@ def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool
     return points
 
 
-def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, boundary_set, extruded: bool) -> PETSc.IS:
+def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, boundary_set, extruded: bool) -> PETSc.IS:
     """'Restrict' a renumbering of DM points by moving constrained points to the end."""
     boundary_pts = get_boundary_set_points(dm, boundary_set, extruded)
 
+    ghostlabel = dm.getLabel("firedrake_is_ghost")
+
+    num_owned_cons = 0
+    num_ghost_cons = 0
+    for bpt in boundary_pts.indices:
+        if ghostlabel.getValue(bpt) != 1:
+            num_owned_cons += 1
+        else:
+            num_ghost_cons += 1
+
     # very inefficient to do this
     new_renumbering = np.empty_like(orig_renumbering)
-    ptr1 = 0
-    ptr2 = orig_renumbering.size - boundary_pts.size
+    ptr_owned_free = 0
+    ptr_owned_cons = nowned - num_owned_cons
+    ptr_ghost_free = nowned
+    ptr_ghost_cons = orig_renumbering.size - num_ghost_cons
     for i, n in enumerate(orig_renumbering.indices):
-        if n in boundary_pts.indices:
-            new_renumbering[ptr2] = n
-            ptr2 += 1
+        if ghostlabel.getValue(n) != 1:
+            if n in boundary_pts.indices:
+                new_renumbering[ptr_owned_cons] = n
+                ptr_owned_cons += 1
+            else:
+                new_renumbering[ptr_owned_free] = n
+                ptr_owned_free += 1
         else:
-            new_renumbering[ptr1] = n
-            ptr1 += 1
-    assert ptr1 == orig_renumbering.size - boundary_pts.size
-    assert ptr2 == orig_renumbering.size
+            if n in boundary_pts.indices:
+                new_renumbering[ptr_ghost_cons] = n
+                ptr_ghost_cons += 1
+            else:
+                new_renumbering[ptr_ghost_free] = n
+                ptr_ghost_free += 1
+
+    assert ptr_owned_free == nowned - num_owned_cons
+    assert ptr_owned_cons == nowned
+    assert ptr_ghost_free == orig_renumbering.size - num_ghost_cons
+    assert ptr_ghost_cons == orig_renumbering.size
 
     return PETSc.IS().createGeneral(new_renumbering, comm=MPI.COMM_SELF)
 
@@ -1444,6 +1467,7 @@ def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, boundary_s
 def restrict_section(
     section: PETSc.Section,
     dm: PETSc.DM,
+    nowned,
     boundary_set: Iterable,
     extruded: bool,
 ) -> PETSc.Section:
@@ -1454,7 +1478,7 @@ def restrict_section(
 
     # To build the restricted section we need a custom permutation of the plex
     # points that put the restricted points at the end
-    restricted_perm = restrict_dm_renumbering(section.getPermutation(), dm, boundary_set, extruded)
+    restricted_perm = restrict_dm_renumbering(section.getPermutation(), dm, nowned, boundary_set, extruded)
     restricted_section.setPermutation(restricted_perm)
 
     # the rest of the section is unchanged from the original

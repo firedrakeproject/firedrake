@@ -262,7 +262,7 @@ class Mat(Tensor):
 
     @property
     def comm(self) -> MPI.Comm:
-        return single_valued([self.row_axes.comm, self.column_axes.comm])
+        return pyop3.mpi.common_comm([self.row_axes.comm, self.column_axes.comm])
 
     # }}}
 
@@ -358,7 +358,7 @@ class Mat(Tensor):
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
-        comm = pyop3.visitors.common_comm(row_axes, column_axes)
+        comm = pyop3.visitors.common_comm([row_axes, column_axes])
 
         if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes

@@ -1460,10 +1460,10 @@ class FunctionSpace(AbstractFunctionSpace):
                         )
 
                         if extr_dim == 0:
-                            selector = numpy.repeat(base_selector.data, self.mesh().layers)
+                            selector = numpy.repeat(base_selector.data_ro, self.mesh().layers)
                         else:
                             assert extr_dim == 1
-                            selector = numpy.repeat(base_selector.data, self.mesh().layers-1)
+                            selector = numpy.repeat(base_selector.data_ro, self.mesh().layers-1)
                         selector = op3.ArrayBuffer(selector, prefix="map", constant=True)
 
                         target_expr = op3.LinearDatBufferExpression(
@@ -1718,6 +1718,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return dmcommon.restrict_section(
             self.function_space.section,
             self.mesh().topology_dm,
+            self.mesh().points.owned.local_size,
             self.boundary_set,
             self.extruded,
         )
@@ -2168,15 +2169,16 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
             start = icomm.exscan(self.axes.free.buffer_size(include_ghosts=False)) or 0
-        for subspace in self:
+
+        ises = []
+        for local_is, subspace in zip(self.local_ises, self):
             size = subspace.axes.free.buffer_size(include_ghosts=False)
-            is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
-            is_.setBlockSize(subspace.block_size)
+            is_ = PETSc.IS().createGeneral(
+                local_is.indices[:size]+start, comm=MPI.COMM_SELF
+            )
             ises.append(is_)
-            start += size
         return tuple(ises)
 
     @property
@@ -2198,34 +2200,10 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers.
 
         """
-        if self.boundary_set:
-            raise NotImplementedError
-
-        # Currently a bit hacky but the idea is that we need to store the
-        # indices of both owned and ghost DoFs which in parallel are kept
-        # apart.
-        subspace_indices = [{"owned": None, "ghost": None} for _ in self]
-        start = 0
-        for partition in ["owned", "ghost"]:
-            for i, subspace in enumerate(self):
-                # inelegant
-                num_owned = subspace.axes.buffer_size(include_ghosts=False)
-                if partition == "owned":
-                    size = num_owned
-                else:
-                    size = subspace.axes.buffer_size(include_ghosts=True) - num_owned
-
-                subspace_indices[i][partition] = numpy.arange(start, start+size, dtype=IntType)
-                start += size
-
         ises = []
-        for idxss in subspace_indices:
-            # merge owned+ghost
-            is_ = PETSc.IS().createGeneral(
-                numpy.concatenate(list(idxss.values()), axis=None), comm=MPI.COMM_SELF
-            )
-            # TODO: Is this safe now that things are interleaved?
-            # is_.setBlockSize(subspace.block_size)
+        for label in self._labels:
+            idxs = self.axes[label]._buffer_indices(include_ghosts=True)
+            is_ = PETSc.IS().createGeneral(idxs, comm=MPI.COMM_SELF)
             ises.append(is_)
         return tuple(ises)
 

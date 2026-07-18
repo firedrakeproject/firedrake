@@ -353,39 +353,21 @@ def test_restricted_function_space_extrusion_basics():
 @pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 4])
 def test_restricted_function_space_extrusion_poisson(ncells):
-    # mesh = UnitIntervalMesh(ncells)
-    # extm = ExtrudedMesh(mesh, ncells)
-    extm = UnitSquareMesh(ncells, ncells, quadrilateral=True)
-    # subdomain_ids = ["bottom", "top", 1, 2]
-    subdomain_ids = [1, 2, 3, 4]
+    mesh = UnitIntervalMesh(ncells)
+    extm = ExtrudedMesh(mesh, ncells)
+    subdomain_ids = ["bottom", "top", 1, 2]
     V = FunctionSpace(extm, "CG", 4)
     V_res = RestrictedFunctionSpace(V, boundary_set=subdomain_ids)
     x, y = SpatialCoordinate(extm)
     exact = Function(V_res).interpolate(x**2 * y**2)
-
-    # with exact.dat.vec_ro as vec:
-    #     print("norm:", vec.norm())
-    #     return
-
     u = TrialFunction(V_res)
     v = TestFunction(V_res)
     a = inner(grad(u), grad(v)) * dx
     L = inner(-2 * (x**2 + y**2), v) * dx
     bc = DirichletBC(V_res, exact, subdomain_ids)
-
-    # print("a norm:", assemble(a, bcs=bc).petscmat.norm())
-    # with assemble(L, bcs=bc).dat.vec_ro as vec:
-    #     print("L norm:", vec.norm())
-    #     return
-    # print("a norm:", assemble(a).petscmat.norm())
-    with assemble(L).dat.vec_ro as vec:
-        print("L norm:", vec.norm())
-        return
-
     sol = Function(V_res)
     solve(a == L, sol, bcs=[bc], solver_parameters={"ksp_monitor": None})
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
-    breakpoint()
 
 
 @pytest.mark.parallel(4)
@@ -419,9 +401,6 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     solve(a_res == L_res, sol_res, bcs=[bc_res])
     # Compare.
     assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-14
-    # -- Actually, the ordering is the same.
-    assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
-    assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
 
 
 def test_reconstruct_mixed_restricted():
