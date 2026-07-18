@@ -3482,17 +3482,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def num_cells(self) -> int:
         return self.num_vertices
 
-    # TODO I reckon that these should error instead
     @property
     def num_facets(self):
         return 0
 
-    # TODO I reckon that these should error instead
     @property
     def num_faces(self):
         return 0
 
-    # TODO I reckon that these should error instead
     @property
     def num_edges(self):
         return 0
