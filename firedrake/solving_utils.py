@@ -48,7 +48,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "global"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -535,6 +535,17 @@ class _SNESContext(object):
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
     @staticmethod
+    def create_operators(ksp):
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        A = ctx._jac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
+        return A, P
+
+    @staticmethod
     def compute_operators(ksp, J, P):
         r"""Form the Jacobian for this problem
 
@@ -545,13 +556,20 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-        assert J.handle == ctx._jac.petscmat.handle
+
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
         ctx._jacobian_assembled = True
 
+        if ctx.Jp is not None and (J.handle == ctx._pjac.petscmat.handle):
+            # Assemble the preconditioner only
+            assert P.handle == ctx._pjac.petscmat.handle
+            ctx._assemble_pjac(ctx._pjac)
+            return
+
+        assert J.handle == ctx._jac.petscmat.handle
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle

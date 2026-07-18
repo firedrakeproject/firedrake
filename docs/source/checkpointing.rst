@@ -368,9 +368,9 @@ Checkpointing with DumbCheckpoint
 
 .. warning::
 
-   :class:`~.DumbCheckpoint` will be deprecated after 01/01/2023.
-   Instead, users are encouraged to use :class:`~.CheckpointFile`,
-   which is more robust and scalable.
+   :class:`~.DumbCheckpoint` is deprecated and will be removed soon.
+   Users are encouraged to use :class:`~.CheckpointFile`, which is more
+   robust and scalable.
 
 The support for :class:`~.DumbCheckpoint` is somewhat limited.  One may
 only store :class:`~.Function`\s in the checkpoint object.  Moreover,
@@ -461,7 +461,7 @@ two different :class:`~.Function`\s with names ``"A"`` and
 
 .. code-block:: python3
 
-   chk = DumbCheckpoint("dump.h5", mode=FILE_READ)
+   chk = DumbCheckpoint("dump", mode=FILE_READ)
 
    a = Function(V, name="A")
 
@@ -475,13 +475,10 @@ two different :class:`~.Function`\s with names ``"A"`` and
 
 .. note::
 
-   Since Firedrake does not currently support reading data from a
-   checkpoint file on a different number of processes from that it was
-   written with, whenever a :class:`~.Function` is stored, an
-   attribute is set recording the number of processes used.  When
-   loading data from the checkpoint, this value is validated against
-   the current number of processes and an error is raised if they do
-   not match.
+   :class:`~.DumbCheckpoint` does not support reading data on a different
+   number of processes from that used to write it.  An attribute records the
+   number of processes, and opening the checkpoint for reading raises an
+   error if it does not match the current number of processes.
 
 Closing a checkpoint
 --------------------
@@ -498,7 +495,7 @@ the object goes out of scope.  To use this approach, we use the python
 .. code-block:: python3
 
    # Normal code here
-   with DumbCheckpoint("dump.h5", mode=FILE_UPDATE) as chk:
+   with DumbCheckpoint("dump", mode=FILE_UPDATE) as chk:
        # Checkpoint file open for reading and writing
        chk.store(...)
        chk.load(...)
@@ -553,8 +550,8 @@ Inspecting available time levels
 
 The stored time levels in the checkpoint object are available as
 attributes in the file.  They may be inspected by calling
-:meth:`~.DumbCheckpoint.get_timesteps`.  This returns a list of the
-timesteps stored in the file, along with the indices they map to.  In
+:meth:`~.DumbCheckpoint.get_timesteps`.  This returns the timesteps stored
+in the file, along with the indices they map to.  In
 addition, the timestep value is available as an attribute on the
 appropriate field group: reading the attribute
 ``"/fields/IDX/timestep"`` returns the timestep value corresponding to

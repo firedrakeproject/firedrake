@@ -90,8 +90,8 @@ class DumbCheckpoint:
 
     .. warning::
 
-       DumbCheckpoint class will soon be deprecated.
-       Use :class:`~.CheckpointFile` class instead.
+       ``DumbCheckpoint`` is deprecated and will be removed soon.  Use
+       :class:`~.CheckpointFile` instead.
 
     """
     def __init__(self, basename, single_file=True,
@@ -99,8 +99,9 @@ class DumbCheckpoint:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
-                          DeprecationWarning)
+            warnings.warn("DumbCheckpoint is deprecated and will be removed soon; "
+                          "use CheckpointFile instead.",
+                          DeprecationWarning, stacklevel=2)
         self.comm = comm or COMM_WORLD
         self.mode = mode
 

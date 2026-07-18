@@ -48,7 +48,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import as_cstr, IntType, RealType
+from firedrake.utils import as_cstr, IntType, RealType, cached_property_until
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
@@ -3759,12 +3759,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
-        self._bounding_box_coords = None
-        self._rtree = None
-        self._saved_coordinate_dat_version = coordinates.dat.buffer.state
-
-        self._cache = {}
-
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
 
@@ -3791,6 +3785,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
     @coordinates.setter
     def coordinates(self, value):
+        if value is self.coordinates:
+            return
         message = """Cannot re-assign the coordinates.
 
 You are free to change the coordinate values, but if you need a
@@ -3858,9 +3854,11 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        self._rtree = None
+        # `cached_property_until` stores the cached rtree in self._rtree_cache
+        # setting it to None will force the rtree to be rebuilt on next access.
+        self._rtree_cache = None
 
-    @cached_property
+    @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates bounding boxes for the mesh rtree.
@@ -3912,7 +3910,7 @@ values from f.)"""
         all_coords = coords.dat.data_ro_with_halos[cell_node_list]
         return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
-    @property
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
     def rtree(self):
         """Builds an rtree from bounding box coordinates, expanding
@@ -3930,12 +3928,6 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.buffer.state != self._saved_coordinate_dat_version:
-            if "bounding_box_coords" in self.__dict__:
-                del self.bounding_box_coords
-        else:
-            if self._rtree:
-                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -3960,7 +3952,6 @@ values from f.)"""
 
         with PETSc.Log.Event("rtree_build"):
             self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state
         return self._rtree
 
     @PETSc.Log.EventDecorator()

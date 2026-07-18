@@ -445,7 +445,9 @@ def coarsen(dm, comm):
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
+        dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
         dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+        cdm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     return cdm
 

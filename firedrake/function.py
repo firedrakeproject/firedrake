@@ -26,11 +26,10 @@ from pyop3.mpi import internal_comm
 import petsctools
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes
+from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c
 
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
-from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices, is_mixed
@@ -82,7 +81,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = utils._new_uid(self.comm)
+        self.uid = _new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -602,7 +601,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        coord = np.asarray(coord, dtype=utils.ScalarType)
+        coord = np.asarray(coord, dtype=ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
@@ -638,8 +637,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
-        if utils.complex_mode:
+        arg = np.asarray(arg, dtype=ScalarType)
+        if complex_mode:
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
@@ -767,7 +766,7 @@ class PointEvaluator:
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks. Default is True.
         """
-        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.points = np.asarray(points, dtype=ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
         gdim = mesh.geometric_dimension
@@ -776,13 +775,20 @@ class PointEvaluator:
         self.points = self.points.reshape(-1, gdim)
 
         self.mesh = mesh
-
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
-        self.tolerance = tolerance
-        self.vom = VertexOnlyMesh(
-            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
-            redundant=redundant, tolerance=tolerance
+        if tolerance is not None:
+            mesh.tolerance = tolerance
+
+    @cached_property_until(
+        lambda self: (self.mesh.coordinates.dat.buffer.state, self.mesh.tolerance)
+    )
+    def vom(self) -> MeshGeometry:
+        """The VOM used for point evaluation. This is cached until the mesh coordinates or tolerance change."""
+        # We invalidate when the parent mesh moves until https://github.com/firedrakeproject/firedrake/issues/4540 is fixed.
+        return VertexOnlyMesh(
+            self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+            redundant=self.redundant, tolerance=None
         )
 
     def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
@@ -820,19 +826,8 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh().unique()
-        if function_mesh is not self.mesh:
+        if function.function_space().mesh().unique() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.buffer.state != self.mesh._saved_coordinate_dat_version:
-            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
-            self.mesh = function_mesh
-        if tol_changed := self.mesh.tolerance != self.tolerance:
-            self.tolerance = self.mesh.tolerance
-        if coord_changed or tol_changed:
-            self.vom = VertexOnlyMesh(
-                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
-                redundant=self.redundant, tolerance=self.tolerance
-            )
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
@@ -856,7 +851,7 @@ class PointEvaluator:
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
-                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+                result = np.empty((len(self.points),) + shape, dtype=ScalarType)
             self.mesh.comm.Bcast(result)
         return result
 
@@ -881,10 +876,10 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {ScalarType_c} const *__restrict__ dat1, {IntType_c} const *__restrict__ map0, {IntType_c} const *__restrict__ map1)
         {{
-          {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
-          {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
+          {ScalarType_c} t0[{coords_shape}*{gdim}];
+          {ScalarType_c} t1[{func_shape}*{func_bsize}];
 
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
