@@ -15,50 +15,60 @@ h_array = []
 errors_1 = []
 errors_2 = []
 
-n_list = [2, 4, 8, 16, 32, 64]
+n_list = [2,4,8,16,32]
+mesh1_list = []
+mesh2_list = []
 
-def setup_and_solve(mesh_1, mesh_2):
-    x1, y1 = SpatialCoordinate(mesh_1)
-    x2, y2 = SpatialCoordinate(mesh_2)
+w2 = Constant(100.0)  # Nitsche penalty weight
 
-    V1 = FunctionSpace(mesh_1, "CG", 3)
-    V2 = FunctionSpace(mesh_2, "CG", 3)
+for i in range(len(n_list)):
+    n = n_list[i]
+    mesh2 = UnitSquareMesh(n, n, quadrilateral=True)
+    mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
+    mesh1 = UnitSquareMesh(n, n, quadrilateral=True)
 
-    # intermediate spaces
-    Q1v = VectorFunctionSpace(mesh_1, "CG", 3)
-    Q2 = FunctionSpace(mesh_2, "CG", 3)
+    mesh1_list.append(mesh1)
+    mesh2_list.append(mesh2)
 
-    W = V1 * V2
+def build_problem(mesh1, mesh2):
+    p = 3
 
-    u1, u2 = TrialFunctions(W)
-    v1, v2 = TestFunctions(W)
-
+    x1, y1 = SpatialCoordinate(mesh1)
+    x2, y2 = SpatialCoordinate(mesh2)
     u1_exact = x1 * sin(pi * y1) ** 2
     u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
-
+    
     # RHS functions
     f1 = -div(grad(u1_exact))
     f2 = -div(grad(u2_exact)) + u2_exact
 
-    # Nitsche penalty weights
-    w2 = Constant(100.0)
+    n1 = FacetNormal(mesh1)
+    n2 = FacetNormal(mesh2)
+    dx1 = Measure("dx", domain=mesh1)
+    dx2 = Measure("dx", domain=mesh2)
+    ds1 = Measure("ds", domain=mesh1, subdomain_id=2)
+    ds2 = Measure("ds", domain=mesh2, subdomain_id=1)
 
-    n1 = FacetNormal(mesh_1)
-    n2 = FacetNormal(mesh_2)
+    # Function Spaces
+    V1 = FunctionSpace(mesh1, "CG", p)
+    V2 = FunctionSpace(mesh2, "CG", p)
+    # Intermediate spaces
+    Q1v = VectorFunctionSpace(mesh1, "CG", p)
+    Q2 = FunctionSpace(mesh2, "CG", p)
 
-    dx1 = Measure("dx", domain=mesh_1)
-    dx2 = Measure("dx", domain=mesh_2)
-    ds1 = Measure("ds", domain=mesh_1, subdomain_id=2)
-    ds2 = Measure("ds", domain=mesh_2, subdomain_id=1)
+    W = V1 * V2
+    # Test and trial functions
+    u1, u2 = TrialFunctions(W)
+    v1, v2 = TestFunctions(W)
 
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1
 
     # Helmholtz on mesh_2
     A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
-            - inner(dot(grad(u2), n2), v2) * ds2 \
-            + w2 * inner(u2, v2) * ds2
-
+                - inner(dot(grad(u2), n2), v2) * ds2 \
+                + w2 * inner(u2, v2) * ds2
+    
     # A12: row v1, column u2
     # W --B12--> Q1v --M1--> W^*
     # inner(dot(grad(u2), n1), v1) * ds1
@@ -77,25 +87,13 @@ def setup_and_solve(mesh_1, mesh_2):
     # RHS
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-
-    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
-
     A = A11_form + A12_form + A21_form + A22_form
     L = b1 + b2
 
-    u_sol = Function(W)
-    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
-    params = {
-        "mat_type": "aij",
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-        "pc_factor_mat_solver_type": "mumps",
-    }
-    solver = LinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
+    u1_exact_func = Function(V1).interpolate(u1_exact)
+    u2_exact_func = Function(V2).interpolate(u2_exact)
 
-    u_1, u_2 = u_sol.subfunctions
-    return u_1, u_2, V1, V2, u1_exact, u2_exact, dx1, dx2
+    return A, L, W, u1_exact_func, u2_exact_func
 
 def plot(filename, u_1, u_2):
     u1_vals = u_1.dat.data_ro
@@ -111,25 +109,32 @@ def plot(filename, u_1, u_2):
     ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
+
+
+for n, mesh1, mesh2 in zip(n_list, mesh1_list, mesh2_list):
+    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
+    u_sol = Function(W)
     
+    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
+    params = {
+        "mat_type": "aij",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+    }
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    u_1, u_2 = u_sol.subfunctions
 
-for i in range(len(n_list)):
-    n = n_list[i]
-    mesh_2 = UnitSquareMesh(n, n, quadrilateral=True)
-    mesh_2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
-    mesh_1 = UnitSquareMesh(n, n, quadrilateral=True)
-
-    u_1, u_2, V1, V2, u1_exact, u2_exact, dx1, dx2 = setup_and_solve(mesh_1, mesh_2)
-
-    if PLOT:
-        plot(f"demos/coupled_equations/dirichlet_neumann/dirichlet_neumann_example_{i}.png", u_1, u_2)
-
-    u1_exact_func = Function(V1).interpolate(u1_exact)
-    u2_exact_func = Function(V2).interpolate(u2_exact)
+    if PLOT and COMM_WORLD.rank == 0:
+        #demos/coupled_equations/dirichlet_neumann/
+        plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
 
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
     e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
-    h = 1/n
+    h = 1.0/n
+    #h = mesh1.cell_sizes.dat.data_ro.max()
 
     h_array.append(h)
     errors_1.append(e_1)
@@ -150,20 +155,28 @@ for i in range(len(h_array) - 1):
     ratios_2.append(q2)
 
 
-print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
+if COMM_WORLD.rank == 0:
+    print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
+    for i in range(len(errors_1)):
+        if i == 0:
+            print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
+        else:
+            print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
 
-for i in range(len(errors_1)):
-    if i == 0:
-        print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
-    else:
-        print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
+    print(f"{'h':>10} {'Error 2':>15} {'Rate 2':>10}")
+    for i in range(len(errors_2)):
+        if i == 0:
+            print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
+        else:
+            print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
 
-plt.figure(figsize=(8,8))
-plt.loglog(h_array, errors_1, "o-", label="Poisson")
-plt.loglog(h_array, errors_2, "s-", label="Helmholtz")
-plt.xlabel("h")
-plt.ylabel("L2 error")
-plt.gca().invert_xaxis()
-plt.grid(False)
-plt.legend()
-plt.savefig("demos/coupled_equations/dirichlet_neumann/Logloggraph.png")
+    plt.figure(figsize=(8,8))
+    plt.loglog(h_array, errors_2, "o-", label="Helmholtz")
+    plt.loglog(h_array, errors_1, "s-", label="Poisson")
+    plt.xlabel("h")
+    plt.ylabel("L2 error")
+    plt.gca().invert_xaxis()
+    plt.grid(False)
+    plt.legend()
+    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann Method")
+    plt.savefig("Logloggraph.png")

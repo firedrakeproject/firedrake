@@ -12,7 +12,7 @@ h_array = []
 errors_1 = []
 errors_2 = []
 
-n_list = [8, 16, 32, 64, 128]
+n_list = [2, 4, 8, 16, 32, 64]
 
 # Mesh Refinement
 #meshes_1 = MeshHierarchy(mesh_1, refinement_levels=REFINEMENT_LEVELS)
@@ -131,11 +131,6 @@ for i in range(len(n_list)):
     errors_1.append(e_1)
     errors_2.append(e_2)
 
-print("h values", h_array)
-print("error values 1", errors_1)
-print("error values 2", errors_2)
-# Error term - O(h^(n+1))
-
 ratios_1 = []
 ratios_2 = []
 for i in range(len(h_array) - 1):
@@ -148,8 +143,21 @@ for i in range(len(h_array) - 1):
     ratios_1.append(q1)
     ratios_2.append(q2)
 
-print("ratios 1", ratios_1)
-print("ratios 2", ratios_2)
+print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
+for i in range(len(errors_1)):
+    if i == 0:
+        print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
+    else:
+        print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
+
+print(f"{'h':>10} {'Error 2':>15} {'Rate 2':>10}")
+for i in range(len(errors_2)):
+    if i == 0:
+        print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
+    else:
+        print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
+
+
 
 plt.figure(figsize=(8,8))
 plt.loglog(h_array, errors_1, "o-", label="Helmholtz")
@@ -159,11 +167,5 @@ plt.ylabel("L2 error")
 plt.gca().invert_xaxis()
 plt.grid(False)
 plt.legend()
+plt.title("Original Helmholtz-Poisson Coupling")
 plt.savefig("Logloggraph.png")
-
-
-#h values [0.125, 0.0625, 0.03125, 0.015625, 0.0078125]
-#error values 1 [0.020312880423902082, 0.023884496389787666, 0.025365250285180028, 0.02592738762685631, 0.026153400696812813]
-#error values 2 [0.015973989980662857, 0.015775911758807538, 0.01573079371999478, 0.015719801003157636, 0.015717070921126182]
-#ratios 1 [-0.23367962518832508, -0.08677893840072241, -0.03162345551367659, -0.012521699176652266]
-#ratios 2 [0.018001326636491045, 0.004131921402400471, 0.0010085112127298289, 0.0002505768275790916]
