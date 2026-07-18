@@ -2,7 +2,9 @@ Coupled equations
 ================
 
 1. Introduction and background
-2. Describe an example (using MMS)
+1.1. Explain the Poisson and Helmholtz equations and Dirichlet-Neumann Method [CITE TEXTBOOK]
+1.2. Explain MMS
+2. Describe example (using MMS) [conforming/nonconforming meshes]
 3. Describe the python implementation
 4. Provide example of plotting output and verify accuracy - convergence analysis
 
@@ -10,40 +12,51 @@ Coupled equations
 Introduction
 ------------
 
-This tutorial shows how Firedrake can handle coupled equations using coupled meshes with two examples. The first example implements an advection equation coupled to a Helmholtz (OR POISSON) equation using a conforming mesh. In the next example, we repeat this coupling using nonconforming meshes by alterring the starting functions for each equation.
-
-In this tutorial, we provide the relevant weak forms and boundary conditions for the advection and Helmholtz equations. Further details on the theory and implementation of each individual equation can be found in `DG advection equation with upwinding`_ and `Simple Helmholtz equation`_. 
-
-The advection equations 
+This tutorial shows how Firedrake can handle coupled equations with coupled meshes. The first example implements a poisson equation coupled to a Helmholtz equation. [......]
 
 ----------------------------------------------------------------
-Coupled Advection and Helmholtz equations with a conforming mesh
+Coupled Poisson and Helmholtz equations [To Delete: with a (non)conforming mesh]
 ----------------------------------------------------------------
 
-The advection equation on a domain :math:`\Omega` is defined as
+Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` with boundary :math:`\Gamma` and :math:`\Gamma_1 = {x = 1, y \in [0,1]}` be the shared edge between each unit square. The poisson equation is defined on :math:`\Omega_1` as
 
-.. math ::
-  
-  \frac{\partial q}{\partial t} + (\xrightarrow{u} \cdot \nabla)q = 0
+.. math::
 
-where :math:`\xrightarrow{u}` is a prescribed vector field and :math:`q(\xrightarrow{x}, t)` is an unknown scalar field [TODO: DESCRIBE VARIABLES BETTER]. 
+  -\nabla^2 u_1 = f
 
-The value of :math:`q` is known initially as 
+  u_2 = 0 \textit{ on } \partial \Omega_1\\ \Gamma_1.
 
-.. math ::
-  `q(\xrightarrow{x}, 0) = q_0(\xrightarrow{x})`
-and at the boundary :math:`\Gamma` where :math:`\xrightarrow{x}` is directed towards the interior of the domain
-.. math ::
-  q(\xrightarrow{x},t) = q_{in}(\xrightarrow{x}, t) on \Gamma_{inflow}.
+The Helmholtz equation is defined on :math:`\Omega_2` as
+
+.. math::
+  -\nabla^2 u_2 + u_2 = g
+
+  \nabla u_2 \cdot \bf{n} = 0 \textit{ on } \partial \Omega_2 \\ \Gamma_2. 
+
+:math:`f \text{ and } g` are known functions and :math:`u_1, u_2 \in V` are the solutions to these equations in some function space :math:`V`.
+
+
+The weak forms for these equations can be found by multiplying by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_.
+[TODO: Add weak form for each equation from Leo's report]
+
+
+The weak form for the Helmholtz equation is
+
+.. math::
+
+  \int_{\Omega_2}{\nabla u \cdot \nabla v + uv dx} = \int_{\Omega_2}{v f dx} + 
 
 
 
+------------------------
+Dirichlet-Neumann Method
+------------------------
 
 --------------------------------------
 Method of Manufactured Solutions (MMS)
 --------------------------------------
 
-The method of manufactured solutions verifies the accuracy of implemented finite element models. This is done by explicitly specifying a solution for the differential equation at hand, ensuring that this solution satisfies all conditions set on the problem. We can compare the approximated solution and the actual solution to 
+The method of manufactured solutions verifies the accuracy of implemented finite element models. This is done by explicitly specifying a solution for the differential equation at hand, ensuring that this solution satisfies all conditions set on the problem. We can then analyse the accuracy of the approximated solution. 
 
 
 
@@ -52,19 +65,10 @@ A python script version of this demo can be found :demo:`here <coupled_equations
 
 .. _DG advection equation with upwinding: https://www.firedrakeproject.org/demos/DG_advection.py.html
 .. _Simple Helmholtz equation: https://www.firedrakeproject.org/demos/helmholtz.py.html
+.. _Mixed formulation for the Poisson equation: https://www.firedrakeproject.org/demos/poisson_mixed.py.html
 
 
 ############################ NOTES: TODO DELETE #####################################################
-Can add maths using 
-.. math::
-
-   \frac{\partial u}{\partial t} + (u\cdot\nabla) u - \nu\nabla^2 u = 0
-
-   (n\cdot \nabla) u = 0 \ \textrm{on}\ \Gamma
-
-where :math:`\Gamma` is the domain boundary and :math:`\nu` is a
-constant scalar viscosity.
-
 Can add python block using::
   from firedrake import *
   n = 30
