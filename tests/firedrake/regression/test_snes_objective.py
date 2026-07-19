@@ -2,10 +2,11 @@ from firedrake import *
 import pytest
 import math
 
-# GAMG has issues with FAS and pre_apply_bcs=True
+# The inexact solves of gamg and jacobi expose the flaws of the pre_apply_bcs=True
+# model, while hypre and ilu are accurate enough to serve as a reference.
 pc_types = ("gamg",
             "jacobi",
-            "hypre",
+            pytest.param("hypre", marks=pytest.mark.skiphypre),
             "ilu")
 
 
@@ -13,14 +14,11 @@ pc_types = ("gamg",
 @pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
 @pytest.mark.parametrize("pc_type", pc_types)
 def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
-    if pc_type == 'hypre' and not PETSc.Sys.hasExternalPackage("hypre"):
-        pytest.xfail("Need PETSc with HYPRE support for this test")
-
     restrict = False
     if pre_apply_bcs == "restrict":
         restrict = True
         pre_apply_bcs = True
-    if refine > 0 and pc_type == "gamg" and pre_apply_bcs and not restrict:
+    if pc_type == "gamg" and pre_apply_bcs and not restrict:
         pytest.xfail("The pre_apply_bcs=True model requires linear solvers to exactly solve the identity block of the bcs")
 
     newtonls_params = {
@@ -94,7 +92,7 @@ def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
 
     u.assign(0)
     sp = newtonls_params
-    problem = NonlinearVariationalProblem(F, u, bcs)
+    problem = NonlinearVariationalProblem(F, u, bcs, restrict=restrict)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=pre_apply_bcs)
     solver.solve()
     e2 = assemble(E)

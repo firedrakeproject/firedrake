@@ -1,6 +1,7 @@
 from itertools import repeat
 
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.facet_split import get_restriction_indices
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
@@ -12,7 +13,7 @@ from firedrake.preconditioners.hiptmair import curl_to_grad
 from functools import cached_property
 
 from firedrake.parloops import par_loop, INC, READ
-from firedrake.bcs import bcdofs, DirichletBC
+from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
 from finat.ufl import BrokenElement

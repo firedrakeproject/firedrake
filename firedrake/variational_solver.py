@@ -326,7 +326,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
         ctx._near_nullspace = near_nullspace
-        ctx.set_ksp_postsolve(self.snes)
 
         # Set from options now, so that people who want to noodle with
         # the snes object directly (mostly Patrick), can.  We need the

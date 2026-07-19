@@ -3,12 +3,12 @@ from functools import cached_property, partial
 from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
-from firedrake.bcs import bcdofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
