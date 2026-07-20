@@ -51,6 +51,7 @@ from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
 from pyop3.labeled_tree import (
     as_node_map,
+    fixup_node_map,
     LabelledNodeComponent,
     LabeledTree,
     MultiComponentLabelledNode,
@@ -86,9 +87,19 @@ class IndexTree(MutableLabelledTreeMixin, LabeledTree):
     # {{{ instance attrs
 
     _node_map: idict
+    _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
-    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
+    @property
+    def comm(self):
+        raise NotImplementedError
+
+    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None, comm: MPI.Comm | None = None) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
+        object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_node_map", fixup_node_map(self.node_map))
 
     # }}}
 

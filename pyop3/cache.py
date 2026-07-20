@@ -598,6 +598,7 @@ def parallel_cache(
                     except KeyError:
                         pass
                 else:
+                    cache_idx = None
                     value = CACHE_MISS
 
                 if issubclass(cache_type, DictLikeDiskAccess):

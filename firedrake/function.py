@@ -553,8 +553,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.assemble()
             with op3.mpi.temp_internal_comm(self.comm) as icomm:
                 if icomm.rank == 0:
-                    value = icomm.bcast(utils.just_one(self.dat.data_ro))
+                    value = icomm.bcast(self.dat.data_ro.item())
                 else:
+                    # touch to make sure state tracking is consistent
+                    self.dat.data_ro
                     value = icomm.bcast(None)
             return float(value)
         else:

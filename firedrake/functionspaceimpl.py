@@ -780,7 +780,7 @@ class AbstractFunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        return layout_from_spec(self.layout, self.dm_axis_constraints)
+        return layout_from_spec(self.layout, self.dm_axis_constraints, self.comm)
 
     @cached_property
     @_mesh_cached
@@ -799,7 +799,7 @@ class AbstractFunctionSpace:
         # immediately after each other then we have an incompatible layout
         # as described.
         nodal_layout = self._parse_nodal_layout(self.layout)
-        return layout_from_spec(nodal_layout, self.nodal_axis_constraints)
+        return layout_from_spec(nodal_layout, self.nodal_axis_constraints, self.comm)
 
     @classmethod
     def _parse_nodal_layout(cls, layout):
@@ -1994,7 +1994,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return self._make_axes("nodal")
 
     def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
-        axis_tree = op3.AxisTree(self.field_axis)
+        axis_tree = op3.AxisTree(self.field_axis, comm=self.comm)
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(
             self.field_axis.components, self._orig_spaces, strict=True
@@ -2508,10 +2508,10 @@ class InvalidFunctionSpaceLayoutException(Exception):
 
 
 @functools.singledispatch
-def layout_from_spec(layout_spec: Any, axis_constraints: Sequence) -> op3.AxisTree:
+def layout_from_spec(layout_spec: Any, axis_constraints: Sequence, comm: MPI.Comm) -> op3.AxisTree:
     visited_axes = frozenset()
     axis_nest = _parse_layout_spec(layout_spec, axis_constraints, visited_axes)
-    return op3.AxisTree.from_nest(axis_nest)
+    return op3.AxisTree.from_nest(axis_nest, comm=comm)
 
 
 def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited_axes) -> idict:

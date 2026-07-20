@@ -6577,7 +6577,7 @@ def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
 
 
 def extract_mesh_topologies(mesh) -> frozenset[MeshTopology]:
-    if isinstance(mesh, MeshSequenceGeometry):
+    if isinstance(mesh, MeshSequenceTopology | MeshSequenceGeometry):
         return op3.collections.OrderedFrozenSet([m.topology for m in mesh])
     else:
         return op3.collections.OrderedFrozenSet([mesh.topology])

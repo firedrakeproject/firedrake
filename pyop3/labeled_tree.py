@@ -75,10 +75,6 @@ class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Pyop3Object):
     def label(self):
         pass
 
-    # def __init__(self, label=utils.PYOP3_DECIDE):
-    #     Node.__init__(self)
-    #     Labelled.__init__(self, label)
-
     def __post_init__(self) -> None:
         if not utils.has_unique_entries(self.component_labels):
             raise ValueError("Duplicate component labels found")
@@ -124,9 +120,9 @@ class LabeledTree(AbstractLabeledTreeLike):
     # {{{ constructors
 
     @classmethod
-    def from_iterable(cls, iterable: Iterable) -> LabeledTree:
+    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> LabeledTree:
         if not iterable:
-            return cls()
+            return cls(comm=comm)
 
         node_map = {}
         path = idict()
@@ -134,15 +130,15 @@ class LabeledTree(AbstractLabeledTreeLike):
             node = cls.as_node(node)
             node_map.update({path: node})
             path = path | {node.label: node.component_label}
-        return cls(node_map)
+        return cls(node_map, comm=comm)
 
     @classmethod
-    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabeledTree:
+    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node, comm: MPI.Comm | None = None) -> LabeledTree:
         if isinstance(nest, Node):
-            return cls(nest)
+            return cls(nest, comm=comm)
         else:
             node_map = cls._node_map_from_nest(nest=nest, path=idict())
-            return cls(node_map)
+            return cls(node_map, comm=comm)
 
     @classmethod
     def _node_map_from_nest(cls, *, nest: Mapping[Node, Sequence[Mapping | Node]], path: ConcretePathT) -> ConcretePathT:
@@ -632,7 +628,7 @@ class MutableLabelledTreeMixin:
             )
 
         if self.is_empty:
-            return type(self)(node)
+            return self.__record_init__(_node_map=idict({idict(): node}))
 
         *parent_path, (parent_axis_label, parent_component_label) = path.items()
         parent_path = as_path(parent_path)
@@ -643,7 +639,7 @@ class MutableLabelledTreeMixin:
         if parent_axis_label != parent_node.label or parent_component_label not in parent_node.component_labels:
             raise TreeMutationException("Bad parent descriptor")
 
-        return type(self)(self.node_map | {path: node})
+        return self.__record_init__(_node_map=self.node_map | {path: node})
 
     def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabelledTreeMixin:
         """Attach another tree to a leaf of the current tree."""
@@ -667,7 +663,7 @@ class MutableLabelledTreeMixin:
         for subpath, subnode in subtree.node_map.items():
             assert not (path.keys() & subpath.keys())
             node_map[path | subpath] = subnode
-        return type(self)(node_map)
+        return self.__record_init__(_node_map=idict(node_map))
 
     def subtree(self, path: PathT) -> MutableLabelledTreeMixin:
         """Return the subtree with ``path`` as the root."""
@@ -677,7 +673,7 @@ class MutableLabelledTreeMixin:
             raise TreeMutationException("Provided path does not exist in the tree")
 
         trimmed_node_map = self._subtree_node_map(path)
-        return type(self)(trimmed_node_map)
+        return self.__record_init__(_node_map=trimmed_node_map)
 
     def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabelledTreeMixin:
         path = as_path(path)
@@ -792,6 +788,7 @@ def fixup_node_map(node_map: NodeMapT) -> ConcreteNodeMapT:
         raise InvalidTreeException("There are orphaned entries in the node map")
 
     return complete_node_map
+
 
 def _fixup_node_map(*, path: idict, unvisited: dict) -> ConcreteNodeMapT:
     if path not in unvisited:

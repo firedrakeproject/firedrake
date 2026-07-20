@@ -1448,6 +1448,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     # {{{ instance attrs
 
     _node_map: idict
+    _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
     def collect_buffers(self, visitor):
         return utils.reduce("|", map(visitor, self.node_map.values()), OrderedFrozenSet())
@@ -1463,10 +1464,15 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
     @cached_property
     def comm(self):
-        return pyop3.visitors.common_comm(self._node_map.values())
+        return self._comm or pyop3.visitors.common_comm(self._node_map.values())
 
-    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
+    def __init__(
+        self,
+        node_map: Mapping[PathT, Node] | None | None = None,
+        comm: MPI.Comm | None = None,
+    ) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
+        object.__setattr__(self, "_comm", comm)
 
     # }}}
 
@@ -1745,7 +1751,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     @cached_property
     def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([*self._node_map.values(), self._unindexed])
+        return self._unindexed.comm
 
     # TODO: where to put *, and order?
     def __init__(
