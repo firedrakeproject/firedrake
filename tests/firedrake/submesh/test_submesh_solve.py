@@ -291,7 +291,7 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     sigma_, u_ = split(w_)
     a_ = (inner(sigma_, tau) + inner(u_, div(tau)) + inner(div(sigma_), v)) * dx1 + inner(u_ - u_exact, v) * dx0(label_submesh_compl)
     L_ = inner(f, v) * dx0(label_submesh) + inner((u_('+') + u_('-')) / 2., dot(tau, nsub)) * ds1_int(boun_int) + inner(u_exact, dot(tau, nsub)) * ds1_ext(boun_ext)
-    solve(a_ - L_ == 0, w_, bcs=[bc])
+    solve(a_ - L_ == 0, w_, bcs=[bc], solver_parameters={"snes_max_it": 1})
     assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < 1.e-20
     assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < 1.e-20
     sigma_error = sqrt(assemble(inner(sigma - sigma_exact, sigma - sigma_exact) * dx1))

@@ -765,7 +765,7 @@ class CompiledCodeExecutor:
 
                 def _init_nil():
                     # Not modifying owned values so don't want to update state via intent
-                    buffer._current_device_array[buffer.sf.ileaf] = nil
+                    np.ravel(buffer._current_device_array)[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 

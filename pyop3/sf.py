@@ -24,7 +24,6 @@ from ._sf_cy import (  # noqa: F401
     filter_petsc_sf,
     create_petsc_section_sf,
     renumber_petsc_sf,
-    mask_petsc_sf,
 )
 
 
@@ -102,15 +101,6 @@ class StarForest(AbstractStarForest):
     _poisoned: bool = False
     """Debugging attribute, turn exchanges into errors."""
     # only for root values, bcasting is fine I think
-
-    # def __init__(self, sf, comm, mask=None):
-    #     self._orig_sf = sf
-    #
-    #     if mask is not None:
-    #         sf = mask_petsc_sf(sf, mask)
-    #     self.sf = sf
-    #     self.mask = mask
-    #     self._comm = comm
 
     # }}}
 
@@ -262,7 +252,7 @@ class StarForest(AbstractStarForest):
         else:
             raise ValueError
 
-        if any(len(buf) != self.size for buf in [from_buffer, to_buffer]):
+        if any(buf.size != self.size for buf in [from_buffer, to_buffer]):
             raise BufferSizeMismatchException
 
         # what about cdim?

@@ -248,8 +248,6 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 section.setOffset(pt, off)
 
             new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
-            # TODO: handle this earlier on?
-            # new_sf = pyop3.sf.mask_petsc_sf(new_sf, mask)
             offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
 
         sf = pyop3.sf.StarForest.merge(offset_sfs)

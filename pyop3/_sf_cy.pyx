@@ -165,17 +165,3 @@ def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> pet
     section.setUp()
 
     return create_petsc_section_sf(sf, section)
-
-
-def mask_petsc_sf(sf, indices):
-    size, ilocal, iremote = sf.getGraph()
-
-    if len(indices) > 0:
-        _, to_drop, _ = np.intersect1d(ilocal, indices, return_indices=True)
-        to_keep = np.setdiff1d(np.arange(ilocal.size, dtype=IntType), to_drop, assume_unique=True)
-        ilocal = ilocal[to_keep]
-        iremote = iremote[to_keep]
-
-    new_sf = PETSc.SF().create(sf.comm)
-    new_sf.setGraph(size, ilocal, iremote)
-    return new_sf
