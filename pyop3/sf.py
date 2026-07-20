@@ -102,6 +102,10 @@ class StarForest(AbstractStarForest):
     """Debugging attribute, turn exchanges into errors."""
     # only for root values, bcasting is fine I think
 
+    @classmethod
+    def record_prepare_args(cls, sf, comm):
+        return dict(sf=sf, _comm=comm)
+
     # }}}
 
     # {{{ factory methods
@@ -151,17 +155,17 @@ class StarForest(AbstractStarForest):
             and (other.iremote == self.iremote).all()
         )
 
-    # @cached_property
-    # def iroot(self):
-    #     """Return the indices of roots on the current process."""
-    #     # mark leaves and reduce
-    #     mask = np.full(self.size, False, dtype=bool)
-    #     mask[self.ileaf] = True
-    #     self.reduce(mask, MPI.REPLACE)
-    #
-    #     # now clear the leaf indices, the remaining marked indices are roots
-    #     mask[self.ileaf] = False
-    #     return utils.just_one(np.nonzero(mask))
+    @cached_property
+    def iroot(self):
+        """Return the indices of roots on the current process."""
+        # mark leaves and reduce
+        mask = np.full(self.size, False, dtype=bool)
+        mask[self.ileaf] = True
+        self.reduce(mask, MPI.REPLACE)
+
+        # now clear the leaf indices, the remaining marked indices are roots
+        mask[self.ileaf] = False
+        return utils.just_one(np.nonzero(mask))
 
     @property
     def ileaf(self):

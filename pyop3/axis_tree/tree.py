@@ -135,8 +135,6 @@ class ContextSensitive(ContextAware, abc.ABC):
     #
     #     """
     #
-    def __init__(self, context_map) -> None:
-        self.context_map = idict(context_map)
 
     @cached_property
     def loop_indices(self):
@@ -237,7 +235,8 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.get_comm(self.size)
 
-    def __init__(self, size, label=None):
+    @classmethod
+    def record_prepare_args(cls, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
 
         if isinstance(label, str):
@@ -247,16 +246,11 @@ class AxisComponentRegion(pyop3.obj.Pyop3Object):
         if isinstance(size, Tensor):
             size = size.concretize()
 
-        object.__setattr__(self, "size", size)
-        object.__setattr__(self, "label", label)
-
-        self.__post_init__()
+        return dict(size=size, label=label)
 
     def __post_init__(self) -> None:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
-
-        assert not isinstance(self.label, str), "old API"
 
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
@@ -389,8 +383,9 @@ class AxisComponent(LabelledNodeComponent):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.common_comm([*self.regions, self.size, self.sf])
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         regions,
         label=utils.PYOP3_DECIDE,
         *,
@@ -421,11 +416,11 @@ class AxisComponent(LabelledNodeComponent):
             else:
                 regions = _partition_regions(regions, sf)
 
-        object.__setattr__(self, "regions", regions)
-        object.__setattr__(self, "_size", size)
-        object.__setattr__(self, "_label", label)
-        object.__setattr__(self, "sf", sf)
-        self.__post_init__()
+        return dict(
+        regions= regions,
+        _size= size,
+        _label= label,
+        sf=sf)
 
     def __post_init__(self) -> None:
         if self.sf is not None:
@@ -576,12 +571,13 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
     def comm(self) -> MPI.Comm | None:
         return pyop3.visitors.common_comm(self.components)
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         components,
         label=utils.PYOP3_DECIDE,
     ):
-        components = self._parse_components(components)
+        components = cls._parse_components(components)
         # relabel components if needed
         if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
             if len(components) > 1:
@@ -589,11 +585,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
             else:
                 components = (utils.just_one(components).record_new(_label=None),)
 
-        label = label if label is not PYOP3_DECIDE else self.unique_label()
+        label = label if label is not PYOP3_DECIDE else cls.unique_label()
 
-        object.__setattr__(self, "components", components)
-        object.__setattr__(self, "_label", label)
-        self.__post_init__()
+        return dict(components=components, _label=label)
 
     def __post_init__(self) -> None:
         assert isinstance(self.components, tuple)
@@ -1467,17 +1461,16 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     def comm(self):
         return self._comm or pyop3.visitors.common_comm(self._node_map.values())
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         node_map: Mapping[PathT, Node] | None | None = None,
         comm: MPI.Comm | None = None,
     ) -> None:
-        object.__setattr__(self, "_node_map", as_node_map(node_map))
-        object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
+        return dict(_node_map=as_node_map(node_map), _comm=comm)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "_node_map", fixup_node_map(self.node_map))
+        pass
 
         # eagerly evaluate this so profiles are comprehensible
         # self.layouts
@@ -1726,12 +1719,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         raise AssertionError(
             "Indexed axis trees should not be present when we disk cache"
         )
-        # below is old
-        # When we disk cache things we have already pushed any symbolic
-        # information in the targets into the actual expressions. We
-        # therefore only care about the shape of things as that affects
-        # loop extents.
-        # return visitor(self.materialize())
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
@@ -1762,8 +1749,9 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         return self._unindexed.comm
 
     # TODO: where to put *, and order?
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         node_map,
         unindexed,
         *,
@@ -1776,10 +1764,11 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
         targets = complete_axis_targets(targets)
 
-        object.__setattr__(self, "_node_map", node_map)
-        object.__setattr__(self, "_unindexed", unindexed)
-        object.__setattr__(self, "_targets", targets)
-        self.__post_init__()
+        return dict(
+            _node_map=node_map,
+            _unindexed=unindexed,
+            _targets=targets,
+        )
 
     def __post_init__(self) -> None:
         self.targets
@@ -2106,8 +2095,9 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.common_comm([*self._node_maps.values(), self.unindexed])
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         unindexed: AxisTree | None,
         *,
         targets,
@@ -2116,9 +2106,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
             targets = targets | {idict(): ((),)}
 
         assert targets.keys() == {idict()}
-        object.__setattr__(self, "_unindexed", unindexed)
-        object.__setattr__(self, "_targets", targets)
-        self.__post_init__()
+        return dict(_unindexed=unindexed, _targets=targets)
 
     def __post_init__(self) -> None:
         pass
@@ -2333,18 +2321,7 @@ class AxisForest(AbstractAxisTreeLike):
             return utils.just_one(unique_trees)
         else:
             # no argument modification, build as normal
-            self = object.__new__(cls)
-            object.__setattr__(self, "_trees", unique_trees)
-            return self
-
-    def __init__(self, *args, **kwargs) -> None:
-        # To correctly handle generators, which get consumed at first use,
-        # we do all initialisation inside __new__ instead of here
-        assert hasattr(self, "_trees")
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        pass
+            return pyop3.record._maybe_create_frozenrecord(cls, _trees=unique_trees)
 
     # }}}
 
@@ -2554,14 +2531,9 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.common_comm(self.trees.values())
 
-    def __init__(self, trees: Mapping):
-        trees = idict(trees)
-
-        object.__setattr__(self, "trees", trees)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        assert isinstance(self.trees, Hashable)
+    @classmethod
+    def record_prepare_args(cls, trees: Mapping):
+        return dict(trees=idict(trees))
 
     # }}}
 

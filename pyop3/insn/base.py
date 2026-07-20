@@ -75,9 +75,6 @@ class UnprocessedExpressionException(Pyop3Exception):
 
 class Instruction(Node, abc.ABC):
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_hit_executor_cache", True)
-
     # FIXME: This is very similar to PreprocessedOperation.buffers but *not the same*
     #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
     # it is everything that gets passed in
@@ -164,15 +161,13 @@ class Loop(NonTerminalInstruction):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.common_comm([self.index, *self.statements])
 
-    def __init__(
+    def record_prepare_args(
         self,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
-    ) -> None:
+    ) -> dict[str, Any]:
         statements = utils.as_tuple(statements)
-        object.__setattr__(self, "index", index)
-        object.__setattr__(self, "statements", statements)
-        super().__init__()
+        return dict(index=index, statements=statements)
 
     # }}}
 

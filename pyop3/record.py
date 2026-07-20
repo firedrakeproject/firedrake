@@ -7,9 +7,7 @@ from typing import Any
 
 from mpi4py import MPI
 
-from pyop3 import utils
-from pyop3.cache import memory_cache
-from pyop3.exceptions import UnhashableObjectException
+import pyop3.cache
 
 
 def record(**kwargs):
@@ -24,30 +22,69 @@ def frozenrecord(**kwargs):
 
 
 def _make_record_class(**kwargs):
+    assert "init" not in kwargs
+
     def wrapper(cls):
-        cls = dataclasses.dataclass(**kwargs)(cls)
+        cls = dataclasses.dataclass(init=False, **kwargs)(cls)
 
+        assert cls.__init__ is object.__init__, \
+            f"'{cls.__qualname__}' should not define its own '__init__'"
+
+        # Overload __new__ unless the class already does so (and it
+        # must then call '_create_record' or '_maybe_create_frozenrecord')
+        if cls.__new__ is object.__new__:
+            cls.__new__ = _record_dunder_new
+
+        # attach other methods
+        if not hasattr(cls, "record_prepare_args"):
+            cls.record_prepare_args = _record_prepare_args_default
         cls.record_new = _record_new
-        cls.record_init = _record_init
-
-        old_init = cls.__init__
-
-        def custom_init(self, *args, **kwargs):
-            # print("calling old init")
-            old_init(self, *args, **kwargs)
-            # print("called")
-
-        cls.__init__ = custom_init
-
-
-        # def _record_method_cache(self):
-        #     return collections.defaultdict(dict)
 
         # if kwargs.get("frozen", False):
         #     cls.__hash__ = _frozenrecord_hash
 
         return cls
     return wrapper
+
+
+def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs) -> Any:
+    if not _record_args_prepared:
+        kwargs = cls.record_prepare_args(*args, **kwargs)
+    else:
+        assert not args
+    if cls.__dataclass_params__.frozen:
+        return _maybe_create_frozenrecord(cls, **kwargs)
+    else:
+        return _create_record(cls, **kwargs)
+
+
+@pyop3.cache.memory_cache(
+    heavy=True,
+    # get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF, TODO
+)
+def _maybe_create_frozenrecord(cls: Any, **attrs: Any) -> Any:
+    return _create_record(cls, **attrs)
+
+
+def _create_record(cls: Any, **attrs: Any) -> Any:
+    self = object.__new__(cls)
+    for field_name, attr in attrs.items():
+        object.__setattr__(self, field_name, attr)
+    if hasattr(self, "__post_init__"):
+        self.__post_init__()
+    return self
+
+
+@classmethod
+def _record_prepare_args_default(cls, *args, **kwargs):
+    assert len(args) <= len(dataclasses.fields(cls))
+
+    attrs = {}
+    # consume all args
+    for arg, field in zip(args, dataclasses.fields(cls)):
+        # TODO: assert no kw_only etc
+        attrs[field.name] = arg
+    return attrs | kwargs
 
 
 def _record_new(self, **attrs: Any) -> Any:
@@ -64,7 +101,15 @@ def _record_new(self, **attrs: Any) -> Any:
             f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
         )
 
-    # TODO: cache this
+    return type(self)(_record_args_prepared=True, **new_attrs)
+
+
+def _make_record(**attrs: Any):
+    # Try and retrieve a record from the cache
+
+    # If no existing record is found then create one
+
+    # TODO: cache this, but put the cache in record init because we only occasionally call recordnew?
     new = object.__new__(type(self))
 
     new.record_init(**new_attrs)
@@ -85,10 +130,6 @@ def _record_new(self, **attrs: Any) -> Any:
 
 def _record_init(self, **attrs: Any) -> None:
     """Initialise a new record."""
-    for field_name, attr in attrs.items():
-        object.__setattr__(self, field_name, attr)
-    if hasattr(self, "__post_init__"):
-        self.__post_init__()
 
 
 # def _frozenrecord_hash(self):

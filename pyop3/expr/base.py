@@ -589,17 +589,14 @@ class AxisVar(TerminalExpression):
     def comm(self) -> MPI.Comm:
         return self.axis.comm
 
-    def __init__(self, axis: Axis) -> None:
+    @classmethod
+    def record_prepare_args(cls, axis: Axis) -> None:
         assert len(axis.components) == 1
         assert axis.component.sf is None
         # FIXME
         # assert tuple(r.label for r in axis.component.regions) == (None,)
 
-        object.__setattr__(self, "axis", axis)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        pass
+        return dict(axis=axis)
 
     # }}}
 
@@ -679,7 +676,8 @@ class LoopIndexVar(TerminalExpression):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.common_comm([self.loop_index, self.axis])
 
-    def __init__(self, loop_index, axis) -> None:
+    @classmethod
+    def record_prepare_args(cls, loop_index, axis) -> None:
         from pyop3 import LoopIndex
 
         # we must be linear at this point
@@ -687,8 +685,7 @@ class LoopIndexVar(TerminalExpression):
 
         assert isinstance(loop_index, LoopIndex)
         assert axis.component.sf is None
-        object.__setattr__(self, "loop_index", loop_index)
-        object.__setattr__(self, "axis", axis)
+        return dict(loop_index=loop_index, axis=axis)
 
     # }}}
 
