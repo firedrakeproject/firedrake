@@ -329,6 +329,9 @@ matplotlib.
 Visualising a vertex-only mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+Plotting vertex-only mesh data with matplotlib
+++++++++++++++++++++++++++++++++++++++++++++++
+
 Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
 In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
 Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
@@ -369,6 +372,27 @@ Last but not least, vector fields defined on a vertex-only mesh can be visualise
    :dedent:
    :start-after: [test_vom_plotting_2d_manual_examples 5]
    :end-before: [test_vom_plotting_2d_manual_examples 6]
+
+Writing vertex-only mesh data to VTK
+++++++++++++++++++++++++++++++++++++
+
+Vertex-only mesh data can be written to VTK output enabling point data visualisations in third-party software such as ParaView. A :class:`~.vtk_output.VTKFile` accepts :class:`~.Function`\s
+defined on a :func:`~.VertexOnlyMesh` in the same way as functions defined on ordinary meshes. The output includes the point coordinates, the values of any supplied function(s), 
+and a ``firedrake_particle_ids`` field which attaches a persistent ID to each point by default. In ParaView, for instance, this ID field can be used to colour particles by identity.
+
+.. literalinclude:: ../../tests/firedrake/output/test_pvd_output.py
+   :language: python3
+   :dedent:
+   :start-after: [test_can_save_vom_data 1]
+   :end-before: [test_can_save_vom_data 2]
+
+.. figure:: images/vom-paraview.png
+   :alt: Vertex-only mesh particle IDs visualised in ParaView
+   :align: center
+
+   Vertex-only mesh data visualised in ParaView, with particles coloured by
+   ``firedrake_particle_ids``.
+
 
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org
