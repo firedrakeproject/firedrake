@@ -378,7 +378,7 @@ Writing vertex-only mesh data to VTK
 
 Vertex-only mesh data can be written to VTK output enabling point data visualisations in third-party software such as ParaView. A :class:`~.vtk_output.VTKFile` accepts :class:`~.Function`\s
 defined on a :func:`~.VertexOnlyMesh` in the same way as functions defined on ordinary meshes. The output includes the point coordinates, the values of any supplied function(s), 
-and a ``firedrake_particle_ids`` field which attaches a persistent ID to each point by default. In ParaView, for instance, this ID field can be used to colour particles by identity.
+and a persistent particle ID field. In ParaView, for instance, this ID field can be used to colour particles by identity.
 
 .. literalinclude:: ../../tests/firedrake/output/test_pvd_output.py
    :language: python3
@@ -390,8 +390,7 @@ and a ``firedrake_particle_ids`` field which attaches a persistent ID to each po
    :alt: Vertex-only mesh particle IDs visualised in ParaView
    :align: center
 
-   Vertex-only mesh data visualised in ParaView, with particles coloured by
-   ``firedrake_particle_ids``.
+   Vertex-only mesh data visualised in ParaView, with particles coloured by thier IDs.
 
 
 .. _Paraview: http://www.paraview.org
