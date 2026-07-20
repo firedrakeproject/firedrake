@@ -13,6 +13,7 @@ class CodegenContext(ABC):
         self._instructions = []
         self._arguments = []
         self._subkernels = []
+        self._last_insn_id = None # determine dependence
 
         self._name_generator = utils.UniqueNameGenerator()
 

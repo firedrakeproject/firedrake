@@ -27,6 +27,8 @@ import pyop3.insn.base
 from pyop3.cache import cached_method, memory_cache
 from pyop3.insn.base import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 
+import pyop3.debug_flags
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
@@ -55,6 +57,7 @@ class CompilerParameters:
 
     # TODO: handle these - need to build CompilerOptions
 
+    codegen: str = "loopy" 
     # extra_cflags: tuple[str, ...] = ()
     # extra_ldflags: tuple[str, ...] = ()
 
@@ -104,7 +107,7 @@ def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> Parse
         return compiler_parameters
 
     if compiler_parameters is None:
-        compiler_parameters = {}
+        compiler_parameters = {"codegen": "mlir"}
     else:
         # TODO: nice error message
         assert pyop3.collections.is_ordered_mapping(compiler_parameters)
@@ -262,6 +265,7 @@ class InstructionExecutionContext:
         assert num_buffers == len(self.preprocessed_buffers)
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
+        
         loopy_code, buffer_index_map = _compile_static(self, compiler_parameters)
 
         extra_compiler_options = collect_compiler_options(self._preprocessed)
@@ -277,6 +281,7 @@ class InstructionExecutionContext:
             extra_compiler_options=extra_compiler_options,
             petsc_events=petsc_events,
         )
+
 
         # TODO: We don't do anything with nest indices yet because we have always already
         # unpacked things

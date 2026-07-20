@@ -63,6 +63,7 @@ from pyop3.insn.base import (
 # TODO: import other way around?
 from pyop3.insn.exec import parse_compiler_parameters
 
+import pyop3.debug_flags # Sam for debugging
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -74,7 +75,6 @@ class LoopyCodegenContext(CodegenContext):
         super().__init__(check_negatives=check_negatives)
 
         self._within_inames = frozenset()
-        self._last_insn_id = None
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
@@ -141,6 +141,7 @@ class LoopyCodegenContext(CodegenContext):
         #     dat2[i] = dat1[2*i]
         #
         # is not.
+
         if buffer.is_nested:
             raise NotImplementedError("Currently handle nesting outside the generated code")
 
@@ -207,6 +208,8 @@ class LoopyCodegenContext(CodegenContext):
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
         # can be shared.
+        global mlir_context
+
         can_reuse = initializer is not None and read_only
         if can_reuse:
             key = initializer.data.tobytes()
@@ -397,8 +400,10 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     else:
         cs_expr = (insn,)
 
-    context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
-    mlir_context = MLIRCodegenContext(check_negatives=compiler_parameters.check_negatives)
+    if compiler_parameters.codegen == "mlir": 
+        context = MLIRCodegenContext(check_negatives=compiler_parameters.check_negatives)
+    else:
+        context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
 
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
@@ -420,6 +425,9 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
 
+    if pyop3.debug_flags.hit_assign:
+        breakpoint()
+
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     noop = lp.CInstruction(
@@ -436,8 +444,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
     ]
-
-    breakpoint()
 
     translation_unit = lp.make_kernel(
         context.domains,
@@ -578,10 +584,11 @@ def parse_loop_properly_this_time(
 
         if axis_tree.linearize(path_, partial=True).size == 0:
             continue
-        elif component.size != 1:
+        elif component.local_size != 1:
+
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
-                component.size,
+                component.local_size,
                 iname_map,
                 loop_indices,
                 codegen_context,
@@ -785,6 +792,7 @@ def compile_array_assignment(
     axis_tree=None,
     paths=None,
 ):
+
     if paths is None:
         paths = []
     if iname_replace_maps is None:
@@ -818,10 +826,10 @@ def compile_array_assignment(
         # If the subtree below this is zero-sized then don't do anything
         if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
             continue
-        elif component.size != 1:
+        elif component.local_size != 1:
             iname = codegen_context.unique_name("i")
             extent_var = register_extent(
-                component.size,
+                component.local_size,
                 iname_replace_maps[-1],
                 loop_indices,
                 codegen_context,
@@ -864,7 +872,6 @@ def compile_array_assignment(
                     codegen_context,
                     loop_indices,
                 )
-
 
 def add_leaf_assignment(
     assignment,
@@ -935,7 +942,7 @@ def _(mul: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
 
 
 @_lower_expr.register(pyop3.expr.Modulo)
-def _(mod: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
+def _(mod: pyop3.expr.Modulo, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
 
 
