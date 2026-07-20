@@ -8,18 +8,17 @@ from functools import cached_property, singledispatch
 import gem
 import numpy
 import ufl
-from FIAT.expansions import morton_forward_table, morton_inverse_table
 from FIAT.orientation_utils import Orientation as FIATOrientation
 from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
+from finat.duffy import DuffyElement
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import CollapsedTensorProductPointSet, PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
-from finat.spectral import Legendre
-from gem.node import MemoizerArg, traversal
-from gem.optimise import constant_fold_zero, contraction, ffc_rounding, filtered_replace_indices
+from gem.node import traversal
+from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
@@ -709,19 +708,24 @@ def fiat_to_ufl(fiat_dict, order):
     return gem.ComponentTensor(tensor, sigma + delta)
 
 
-def _use_sum_factorisation(element, ctx):
-    """Whether the sum-factorized (Duffy/lattice) tabulation applies.
+def _use_duffy_contraction(element, ctx):
+    """Whether the sum-factorized (Duffy/lattice) coefficient contraction
+    applies.
 
     This holds exactly when `element` is a simplicial DG element whose
-    nodal basis coincides with the Dubiner expansion set (currently
-    `finat.spectral.Legendre`), evaluation points come from a collapsed
+    nodal basis coincides with the Dubiner expansion set (any
+    `finat.duffy.DuffyElement`), evaluation points come from a collapsed
     tensor-product quadrature rule (requested via
     ``dx(scheme="collapsed")``), and the integral is over the cell
-    interior.  In that case `finat.spectral.Legendre.duffy_evaluation`
-    tabulates the element in O(p^d) space/time using a lattice
-    multi-index rather than the flat degree-of-freedom index, whereas
-    the standard `~.PointSetContext.basis_evaluation` tabulates all
-    O(p^d) basis functions densely at all O(p^d) points.
+    interior.  In that case `DuffyElement.duffy_contraction` contracts a
+    `Coefficient` against the element in O(p^d) space/time using the
+    lattice multi-index, whereas the standard dense contraction
+    materializes all O(p^d) basis functions at all O(p^d) points before
+    contracting.
+
+    The argument (basis evaluation) side needs no such dispatch: it is
+    handled transparently by `DuffyElement.basis_evaluation`, reached
+    through the usual `~.PointSetContext.basis_evaluation` call.
 
     Parameters
     ----------
@@ -733,127 +737,33 @@ def _use_sum_factorisation(element, ctx):
     Returns
     -------
     bool
-        Whether to use `_duffy_evaluation` in place of
-        ``ctx.basis_evaluation``.
+        Whether to use `DuffyElement.duffy_contraction` in place of the
+        standard dense contraction.
     """
-    return (isinstance(element, Legendre)
+    return (isinstance(element, DuffyElement)
             and isinstance(ctx, PointSetContext)
             and isinstance(ctx.point_set, CollapsedTensorProductPointSet)
             and ctx.integration_dim == ctx.fiat_cell.get_dimension()
             and not ctx.unsummed_coefficient_indices)
 
 
-def _duffy_evaluation(element, mt, ctx, entity_id):
-    """Sum-factorized tabulation of a simplicial Legendre DG element.
-
-    Thin wrapper around `finat.spectral.Legendre.duffy_evaluation` that
-    filters out derivative orders other than ``mt.local_derivatives``,
-    mirroring the filtering `translate_argument` and
-    `translate_coefficient` apply to `~.PointSetContext.basis_evaluation`
-    output.
-
-    Parameters
-    ----------
-    element : finat.spectral.Legendre
-        The element being tabulated.
-    mt : ModifiedTerminal
-        The modified terminal being translated.
-    ctx : PointSetContext
-        The translation context; ``ctx.point_set`` must be a
-        `finat.point_set.CollapsedTensorProductPointSet`.
-    entity_id : int
-        The cell entity id, relative to ``ctx.integration_dim`` (the
-        cell interior only is supported).
-
-    Returns
-    -------
-    tuple
-        ``(multiindex, result)``: ``multiindex`` is the tuple of
-        `gem.JaggedIndex` enumerating the simplex lattice, and
-        ``result`` maps each derivative multi-index alpha with
-        ``sum(alpha) == mt.local_derivatives`` to a scalar GEM
-        expression free in ``multiindex`` and ``ctx.point_set.indices``.
-    """
-    multiindex, result = element.duffy_evaluation(mt.local_derivatives, ctx.point_set,
-                                                  (ctx.integration_dim, entity_id))
-    result = {alpha: table for alpha, table in result.items()
-              if sum(alpha) == mt.local_derivatives}
-    return multiindex, result
-
-
-def _scatter_to_dof_index(multiindex, result, element):
-    """Reshape a lattice-indexed tabulation into a flat-dof-indexed one.
-
-    Builds, for each derivative multi-index alpha, a dense
-    `gem.ComponentTensor` of shape ``(element.space_dimension(),)``
-    indexed by the flat degree-of-freedom index, matching the shape
-    convention of the standard (non-factorized)
-    `~.PointSetContext.basis_evaluation` output that `fiat_to_ufl`
-    expects.  The flat index of a lattice point is its Morton index
-    (`FIAT.expansions.morton_index`), the same enumeration FIAT already
-    uses for the element's degrees of freedom, so no reordering of the
-    element's dof numbering is involved.
-
-    Parameters
-    ----------
-    multiindex : tuple of gem.JaggedIndex
-        The lattice multi-index free in each entry of ``result``, as
-        returned by `_duffy_evaluation`.
-    result : dict
-        Mapping alpha to a scalar GEM expression free in ``multiindex``
-        (and point indices).
-    element : finat.spectral.Legendre
-        The element being tabulated.
-
-    Returns
-    -------
-    dict
-        Mapping alpha to a `gem.ComponentTensor` of shape
-        ``(element.space_dimension(),)``.
-    """
-    sd = len(multiindex)
-    ndof = element.space_dimension()
-    r = gem.Index(extent=ndof)
-    inv_table = morton_inverse_table(sd, element.degree)
-    subst = tuple(
-        (axis, gem.VariableIndex(gem.Indexed(
-            gem.Literal(numpy.ascontiguousarray(inv_table[:, t]), dtype=gem.uint_type), (r,))))
-        for t, axis in enumerate(multiindex)
-    )
-    mapper = MemoizerArg(filtered_replace_indices)
-    return {alpha: gem.ComponentTensor(mapper(expr, subst), (r,))
-            for alpha, expr in result.items()}
-
-
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
-    if _use_sum_factorisation(element, ctx):
-        def callback(entity_id):
-            multiindex, duffy_dict = _duffy_evaluation(element, mt, ctx, entity_id)
-            filtered_dict = _scatter_to_dof_index(multiindex, duffy_dict, element)
+    def callback(entity_id):
+        finat_dict = ctx.basis_evaluation(element, mt, entity_id)
+        # Filter out irrelevant derivatives
+        filtered_dict = {alpha: finat_dict[alpha]
+                         for alpha in finat_dict
+                         if sum(alpha) == mt.local_derivatives}
 
-            # Change from FIAT to UFL arrangement
-            square = fiat_to_ufl(filtered_dict, mt.local_derivatives)
+        # Change from FIAT to UFL arrangement
+        square = fiat_to_ufl(filtered_dict, mt.local_derivatives)
 
-            # A numerical hack that FFC used to apply on FIAT tables still
-            # lives on after ditching FFC and switching to FInAT.
-            return ffc_rounding(square, ctx.epsilon)
-    else:
-        def callback(entity_id):
-            finat_dict = ctx.basis_evaluation(element, mt, entity_id)
-            # Filter out irrelevant derivatives
-            filtered_dict = {alpha: finat_dict[alpha]
-                             for alpha in finat_dict
-                             if sum(alpha) == mt.local_derivatives}
-
-            # Change from FIAT to UFL arrangement
-            square = fiat_to_ufl(filtered_dict, mt.local_derivatives)
-
-            # A numerical hack that FFC used to apply on FIAT tables still
-            # lives on after ditching FFC and switching to FInAT.
-            return ffc_rounding(square, ctx.epsilon)
+        # A numerical hack that FFC used to apply on FIAT tables still
+        # lives on after ditching FFC and switching to FInAT.
+        return ffc_rounding(square, ctx.epsilon)
     table = ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
@@ -862,51 +772,6 @@ def translate_argument(terminal, mt, ctx):
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
     return gem.partial_indexed(table, argument_multiindex)
-
-
-def _contract_dof_index(multiindex, result, element, vec):
-    """Contract a lattice-indexed tabulation against a coefficient vector.
-
-    The sum over the flat degree-of-freedom index is rewritten as a sum
-    over the lattice multi-index, gathering the coefficient vector
-    through the same Morton dof numbering FIAT already uses
-    (`FIAT.expansions.morton_index`).  `gem.optimise.contraction`
-    sum-factorizes the resulting nested sum over the lattice
-    multi-index, exploiting the same axis-separable structure that
-    makes `finat.spectral.Legendre.duffy_evaluation` itself O(p^d).
-
-    Parameters
-    ----------
-    multiindex : tuple of gem.JaggedIndex
-        The lattice multi-index free in each entry of ``result``, as
-        returned by `_duffy_evaluation`.
-    result : dict
-        Mapping alpha to a scalar GEM expression free in ``multiindex``
-        (and point indices).
-    element : finat.spectral.Legendre
-        The element being tabulated.
-    vec : gem.Node
-        The coefficient's local dof vector, of shape
-        ``(element.space_dimension(),)``.
-
-    Returns
-    -------
-    dict
-        Mapping alpha to a `gem.ComponentTensor` over
-        ``element.get_value_indices()`` (empty for the scalar `Legendre`
-        element), free in the point indices only.
-    """
-    sd = len(multiindex)
-    fwd_table = morton_forward_table(sd, element.degree)
-    r_index = gem.VariableIndex(gem.Indexed(
-        gem.Literal(fwd_table, dtype=gem.uint_type), multiindex))
-    vec_r, = gem.optimise.remove_componenttensors([gem.Indexed(vec, (r_index,))])
-    zeta = element.get_value_indices()
-    value_dict = {}
-    for alpha, expr in result.items():
-        value = gem.IndexSum(gem.Product(expr, vec_r), multiindex)
-        value_dict[alpha] = gem.ComponentTensor(contraction(value), zeta)
-    return value_dict
 
 
 @translate.register(TSFCConstantMixin)
@@ -920,12 +785,11 @@ def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
-    if _use_sum_factorisation(element, ctx):
+    if _use_duffy_contraction(element, ctx):
         entity_id, = ctx.entity_ids(domain)
-        multiindex, duffy_dict = _duffy_evaluation(element, mt, ctx, entity_id)
-        duffy_dict = {alpha: ffc_rounding(table, ctx.epsilon)
-                      for alpha, table in duffy_dict.items()}
-        value_dict = _contract_dof_index(multiindex, duffy_dict, element, vec)
+        value_dict = element.duffy_contraction(mt.local_derivatives, ctx.point_set,
+                                               (ctx.integration_dim, entity_id),
+                                               vec, ctx.epsilon)
     else:
         # Collect FInAT tabulation for all entities
         per_derivative = collections.defaultdict(list)

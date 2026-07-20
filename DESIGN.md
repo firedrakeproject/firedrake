@@ -118,58 +118,61 @@ so the original plan of making `argument_multiindices` itself a lattice
 multiindex (see the old Route-B write-up below) would have changed the local
 tensor's shape and broken that contract. The implementation instead keeps
 `element.index_shape` and `argument_multiindices` exactly as they are today,
-and confines the lattice multiindex to the tabulation step alone:
+and confines the lattice multiindex — and all the Duffy/Morton machinery — to
+a new `finat/duffy.py` module, reached from `tsfc/fem.py` through ordinary
+FInAT element methods rather than through tsfc-side branching:
 
-* `_use_sum_factorisation(element, ctx)` (`tsfc/fem.py`) gates the whole path:
-  `element` must be `finat.spectral.Legendre`, `ctx.point_set` a
-  `CollapsedTensorProductPointSet` (i.e. the measure requested
-  `dx(scheme="collapsed")`), the integral must be over the cell interior, and
-  `ctx.unsummed_coefficient_indices` must be empty (macrocells, which
-  `duffy_evaluation` already rejects, are the only case that sets it).
-* `_duffy_evaluation(element, mt, ctx, entity_id)` calls
-  `element.duffy_evaluation(mt.local_derivatives, ctx.point_set,
-  (ctx.integration_dim, entity_id))` and filters to `sum(alpha) ==
-  mt.local_derivatives`, exactly mirroring the filtering the standard path
-  applies to `basis_evaluation`'s output.
-* **Forward transform (`translate_coefficient`).** `_contract_dof_index`
-  builds a forward Morton lookup table (`FIAT.expansions.morton_forward_table`,
-  shape `(degree+1,)^d`, clamped to a valid dof so out-of-lattice reads are
-  merely wasted, never out of bounds — they always multiply a zero
-  tabulation), gathers `vec[VariableIndex(table[multiindex])]`, and hands
-  `IndexSum(Product(duffy[alpha], vec_r), multiindex)` to
-  `gem.optimise.contraction`, exactly as originally planned: the `m_t`
-  `VariableIndex` couplings inside `duffy_evaluation`'s own expression make
-  the per-axis free-index sets nested (`{i_1} ⊂ {i_1, i_2} ⊂ ...`), so
-  `contraction` finds the innermost-axis-first Karniadakis–Sherwin sweep by
-  itself — no bespoke sum-factorization code needed. The result is wrapped
-  back into a `gem.ComponentTensor` over `element.get_value_indices()` (empty
-  for the scalar `Legendre` element), so it slots into `fiat_to_ufl` exactly
-  like a standard dense tabulation would.
-* **Backward transform (`translate_argument`).** `_scatter_to_dof_index` goes
-  the other way: it introduces one *fresh* flat dof index `r` (the same free
-  index `argument_multiindex` will later pick a single value of — nothing
-  about `argument_multiindices` construction changes), builds the *inverse*
-  Morton table (`FIAT.expansions.morton_inverse_table`, shape `(ndof, d)`) to
-  get per-axis lookups `i_t(r)`, and substitutes
-  `multiindex[t] -> VariableIndex(inverse_table[:, t][r])` throughout
-  `duffy_evaluation`'s expression tree via
-  `gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)` — the same
-  substitution mechanism `translate_argument`/`translate_coefficient` already
-  use for canonical quadrature-point reordering. `filtered_replace_indices`
-  recurses into `VariableIndex.expression` (`gem/optimise.py`'s
-  `_replace_indices_atomic`), so this also correctly rewrites the nested `m_t`
-  lookups (which are themselves `VariableIndex` expressions built from
-  `multiindex[:t]`) into r-indexed double lookups, with no duplicated
-  tabulation logic. The result, wrapped in `gem.ComponentTensor(..., (r,))`,
-  is a dense `(ndof,)`-shaped table — indistinguishable, from
-  `fiat_to_ufl`/`prepare_arguments`'s point of view, from the standard dense
-  tabulation. `gem.optimise.contraction` never runs on this side (there is no
-  sum to hoist yet at this stage); the sum-factorized quadrature contraction
-  happens later, per dof, when `vanilla.py`/`spectral.py` process the
-  quadrature `IndexSum` — the collapsed quadrature's own per-axis structure is
-  what still delivers the O(p) win per axis there.
+* `finat.duffy.DuffyElement` is a mixin (`finat.spectral.Legendre` is
+  currently its only user) providing `duffy_evaluation` (the lattice-indexed,
+  sum-factorized tabulation) plus two dispatch points:
+  * **Backward transform / `basis_evaluation` override.** When `ps` is a
+    `CollapsedTensorProductPointSet` and the entity is the cell interior (and
+    not a macrocell — the only other case `duffy_evaluation` rejects),
+    `DuffyElement.basis_evaluation` calls `duffy_evaluation` and scatters the
+    lattice tabulation to the standard flat-dof-indexed convention: it
+    introduces one *fresh* flat dof index `r`, builds the *inverse* Morton
+    table (`FIAT.expansions.morton_inverse_table`, shape `(ndof, d)`) to get
+    per-axis lookups `i_t(r)`, and substitutes `multiindex[t] ->
+    VariableIndex(inverse_table[:, t][r])` throughout `duffy_evaluation`'s
+    expression tree via `gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)`
+    (the same substitution mechanism `translate_argument`/`translate_coefficient`
+    use for canonical quadrature-point reordering; `filtered_replace_indices`
+    recurses into `VariableIndex.expression`, so the nested `m_t` lookups are
+    rewritten too). The result, wrapped in `gem.ComponentTensor(..., (r,))`,
+    is indistinguishable, from `fiat_to_ufl`/`prepare_arguments`'s point of
+    view, from a standard dense `basis_evaluation` tabulation — so
+    `translate_argument` in `tsfc/fem.py` needs **no special case at all**: it
+    always calls `ctx.basis_evaluation(element, mt, entity_id)`, exactly as
+    for any other element. `gem.optimise.contraction` never runs on this
+    side (there is no sum to hoist yet at this stage); the sum-factorized
+    quadrature contraction happens later, per dof, when
+    `vanilla.py`/`spectral.py` process the quadrature `IndexSum` — the
+    collapsed quadrature's own per-axis structure is what still delivers the
+    O(p) win per axis there.
+  * **Forward transform / `duffy_contraction`.** Unlike `basis_evaluation`,
+    coefficient contraction has no generic per-element hook to dispatch
+    through (it additionally needs the coefficient's dof vector `vec`), so
+    `translate_coefficient` in `tsfc/fem.py` keeps a small
+    `_use_duffy_contraction(element, ctx)` guard (`isinstance(element,
+    DuffyElement)`, `ctx.point_set` a `CollapsedTensorProductPointSet`, cell
+    interior, `ctx.unsummed_coefficient_indices` empty) before calling
+    `element.duffy_contraction(mt.local_derivatives, ctx.point_set, entity,
+    vec, ctx.epsilon)`. `duffy_contraction` builds a forward Morton lookup
+    table (`FIAT.expansions.morton_forward_table`, shape `(degree+1,)^d`,
+    clamped to a valid dof so out-of-lattice reads are merely wasted, never
+    out of bounds — they always multiply a zero tabulation), gathers
+    `vec[VariableIndex(table[multiindex])]`, and hands
+    `IndexSum(Product(duffy[alpha], vec_r), multiindex)` to
+    `gem.optimise.contraction`, exactly as originally planned: the `m_t`
+    `VariableIndex` couplings inside `duffy_evaluation`'s own expression make
+    the per-axis free-index sets nested (`{i_1} ⊂ {i_1, i_2} ⊂ ...`), so
+    `contraction` finds the innermost-axis-first Karniadakis–Sherwin sweep by
+    itself — no bespoke sum-factorization code needed. The result is wrapped
+    back into a `gem.ComponentTensor` over `element.get_value_indices()`
+    (empty for the scalar `Legendre` element), so it slots into `fiat_to_ufl`
+    exactly like a standard dense tabulation would.
 
-Both helpers were validated to ~1e-13/1e-14 against FIAT's dense
+Both dispatch points were validated to ~1e-13/1e-14 against FIAT's dense
 `tabulate()`, via compiled-and-executed loopy kernels, for values and first
 derivatives on triangles and tetrahedra
 (`tests/tsfc/test_codegen.py::test_duffy_scatter_and_contract`), and end to
@@ -194,11 +197,14 @@ considered:
 * **Route B — Morton gather/scatter via `VariableIndex` (chosen; see (b)).**
   Keeps FIAT's dof ordering, `element.index_shape`, and
   `argument_multiindices` completely untouched; the Morton lookup lives
-  entirely inside `_contract_dof_index`/`_scatter_to_dof_index` in `tsfc/fem.py`.
-  No `driver.py` or `kernel_interface/*.py` changes were needed at all — the
-  lattice multiindex never escapes `fem.py`. The indirection costs one uint
-  load per accumulation (forward) or one uint load per dof (backward),
-  negligible against the O(p) inner contraction.
+  entirely inside `finat/duffy.py` (`DuffyElement.basis_evaluation` and
+  `DuffyElement.duffy_contraction`). No `driver.py` or
+  `kernel_interface/*.py` changes were needed at all, and — after the
+  fem.py-integration refactor above — no bespoke branching in `tsfc/fem.py`
+  either for the argument side; the lattice multiindex never escapes
+  `finat/duffy.py`. The indirection costs one uint load per accumulation
+  (forward) or one uint load per dof (backward), negligible against the O(p)
+  inner contraction.
 
 * **Route C — reorder FIAT dofs p-major.** Change `Legendre`
   (variant="integral") to lattice-lexicographic dof order so the flat index
@@ -210,6 +216,13 @@ considered:
 
 ## Deferred
 
+* **Route C — reorder FIAT dofs to eliminate the Morton gather/scatter
+  entirely.** Raised in self-review of PR #5263: renumbering the expansion
+  set/finite element dofs so the flat dof index *is* the (bounding-box)
+  lattice multiindex would let the generic `basis_evaluation`/contraction
+  machinery pick up the separable structure without any table lookup at all
+  (see Route C above). Left as a follow-up after the fem.py-integration
+  refactor landed in `finat/duffy.py`, rather than attempted alongside it.
 * **CG / C0 basis (milestones 3–4):** the C0 recombination makes each basis
   function a sum of <= 3 separable members (Sherwin–Karniadakis vertex/edge/face
   recombination); `tabulate_duffy` currently raises `NotImplementedError` for
