@@ -1201,7 +1201,7 @@ class AbstractMeshTopology(abc.ABC):
             map_from_cell_to_facet_orientations[facet_to_cell_map[slice_, :]],
             local_facets.reshape(local_facets.shape + (1, ))[slice_, :, :],  # reshape as required by take_along_axis.
             axis=2,
-        ).reshape(local_facets.shape)
+        ).reshape((-1, arity))
         return op3.Dat(
             local_facet_numbers_dat.axes, data=data.flatten(),
             name=f"{self.name}_{facet_type}_local_facet_orientation"
