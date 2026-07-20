@@ -454,3 +454,28 @@ def test_homogeneous_bc_residual():
 
     interior = np.setdiff1d(range(r.dat.data_ro.shape[0]), bc.nodes)
     assert np.allclose(r.dat.data_ro[interior], 333)
+
+
+@pytest.mark.parametrize("preassembled", [False, True])
+def test_action_bcs(preassembled):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+
+    u, v = TrialFunction(V), TestFunction(V)
+    q, _ = TrialFunction(Q), TestFunction(Q)
+
+    M = inner(q, v) * dx  # Q x V -> R
+    I = interpolate(u, Q)  # V x Q^* -> R
+    if preassembled:
+        M = assemble(M)
+        I = assemble(I)
+    A = action(M, I)  # V x V^* -> R
+    A_mat = assemble(A).petscmat[:, :]
+    A_mat = np.delete(A_mat, bc.nodes, axis=0)
+    A_mat = np.delete(A_mat, bc.nodes, axis=1)
+
+    bc = DirichletBC(V, 0, "on_boundary")
+    A_bcs = assemble(A, bcs=[bc]).petscmat[:, :]
+
+    assert np.allclose(A_bcs, A_mat)
