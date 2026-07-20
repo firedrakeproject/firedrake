@@ -180,12 +180,13 @@ end through `firedrake.assemble` (residuals and matrices, `dx` vs
 `dx(scheme="collapsed")`, on triangle and tetrahedron meshes, degrees 1 and 3:
 `tests/firedrake/regression/test_quadrature.py::test_collapsed_quadrature_sum_factorisation`).
 
-### (c) Basis-index integration route — Route B chosen
+### (c) Basis-index integration route — Route B chosen, Route C's dof reorder adopted underneath it
 
-The element's flat basis index is Morton-ordered (`FIAT.expansions.morton_index`,
-using `morton_index2`/`morton_index3` = total-degree-major), while the
-factorization is indexed by the lattice multiindex. Three routes were
-considered:
+The element's flat basis index was originally Morton-ordered
+(`FIAT.expansions.morton_index`, using `morton_index2`/`morton_index3` =
+total-degree-major); it is now lattice-lexicographic (`FIAT.expansions.
+lexicographic_permutation`, `FIAT.hierarchical.LegendreDual`), while the
+factorization is indexed by the lattice multiindex. Routes considered:
 
 * **Route A — layer-wise `Concatenate`.** Reuse tsfc/spectral.py's
   `Concatenate`/`unconcatenate` machinery by splitting the basis into
@@ -194,10 +195,10 @@ considered:
   sweeps contract one lattice axis at a time, not one total-degree layer at a
   time), so it buys the wrong factorization.
 
-* **Route B — Morton gather/scatter via `VariableIndex` (chosen; see (b)).**
+* **Route B — gather/scatter via `VariableIndex` (chosen; see (b)).**
   Keeps FIAT's dof ordering, `element.index_shape`, and
-  `argument_multiindices` completely untouched; the Morton lookup lives
-  entirely inside `finat/duffy.py` (`DuffyElement.basis_evaluation` and
+  `argument_multiindices` completely untouched; the flat-index arithmetic
+  lives entirely inside `finat/duffy.py` (`DuffyElement.basis_evaluation` and
   `DuffyElement.duffy_contraction`). No `driver.py` or
   `kernel_interface/*.py` changes were needed at all, and — after the
   fem.py-integration refactor above — no bespoke branching in `tsfc/fem.py`
@@ -206,23 +207,45 @@ considered:
   (forward) or one uint load per dof (backward), negligible against the O(p)
   inner contraction.
 
-* **Route C — reorder FIAT dofs p-major.** Change `Legendre`
-  (variant="integral") to lattice-lexicographic dof order so the flat index
-  becomes `offsets[i_1, ..] + i_d` (affine within each innermost run).
-  Cleanest kernels, but dof ordering is externally visible (checkpoints,
-  hand-written index hacks, any test with hard-coded dof numbers) and the
-  offset table is still a lookup, so the win over Route B is small. Not
-  pursued; only worth it if profiling shows the Morton gather hurts.
+* **Route C — reorder FIAT dofs p-major (adopted, underneath Route B).**
+  `Legendre` (variant="integral") now uses lattice-lexicographic dof order
+  (`FIAT.hierarchical.LegendreDual` permuted via `FIAT.expansions.
+  lexicographic_permutation`), so the flat index is `offsets[i_1, .., i_{d-1}]
+  + i_d` — affine in the innermost coordinate for fixed outer coordinates,
+  unlike Morton's `(p+q)(p+q+1)/2 + q`, which mixes every coordinate
+  non-separably. This didn't eliminate Route B's `VariableIndex` gather/
+  scatter (see "Deferred" below for why), but it did let `finat/duffy.py`'s
+  index arithmetic (`_flat_index_expr`/`_inverse_lex_index_exprs`) shrink
+  from multi-stage triangular/tetrahedral-number arithmetic to one small
+  `(degree+1,)`-ish table lookup plus a bounded subtraction, both directions.
+  Reordering FIAT's own dof numbering is externally visible (checkpoints,
+  hand-written index hacks), judged an acceptable, narrowly-scoped cost
+  specifically because `Legendre`/`variant="integral"` is a niche element
+  family — ordinary `Lagrange`/`variant=None` elements are untouched.
 
 ## Deferred
 
-* **Route C — reorder FIAT dofs to eliminate the Morton gather/scatter
-  entirely.** Raised in self-review of PR #5263: renumbering the expansion
-  set/finite element dofs so the flat dof index *is* the (bounding-box)
-  lattice multiindex would let the generic `basis_evaluation`/contraction
-  machinery pick up the separable structure without any table lookup at all
-  (see Route C above). Left as a follow-up after the fem.py-integration
-  refactor landed in `finat/duffy.py`, rather than attempted alongside it.
+* **Fully eliminating Route B's `VariableIndex` gather/scatter by making
+  `element.get_indices()` return the lattice multiindex directly.** With the
+  lattice-lexicographic dof order in place, this was investigated in depth
+  and found to be blocked by more than "dof ordering is externally visible":
+  `get_indices()` takes no arguments and is cached once per kernel, so it
+  cannot distinguish a cell-interior kernel (where the lattice multiindex
+  applies) from a facet-integral kernel (where `DuffyElement._duffy_applies`
+  is always `False` and tabulation always uses the dense, flat-`(ndof,)`
+  FIAT path) — returning a lattice tuple unconditionally would break
+  `translate_argument` for every facet integral on a DG element (SIPG,
+  upwinding), not just an edge case. A real fix is possible (pad the dense
+  facet tabulation to the same `(degree+1,)**d` bounding-box shape at
+  TSFC-compile time, and give `tsfc/kernel_interface/common.py`'s
+  `prepare_arguments`/`prepare_coefficient` a bespoke jagged
+  `gem.FlexiblyIndexed` view — `ComponentTensor(FlexiblyIndexed(flat_var,
+  ((offset(p), ((q, 1),)),)), (p, q))` — instead of the current pure-
+  rectangular `gem.reshape`) but that code is shared by every Firedrake
+  kernel; confirmed via `test_collapsed_quadrature_sum_factorisation`'s
+  mass-matrix case that it must also handle *two* Duffy arguments combined
+  in one "A" tensor. Deliberately deferred as a separate, higher-risk
+  follow-up rather than folded into the dof-reorder work above.
 * **CG / C0 basis (milestones 3–4):** the C0 recombination makes each basis
   function a sum of <= 3 separable members (Sherwin–Karniadakis vertex/edge/face
   recombination); `tabulate_duffy` currently raises `NotImplementedError` for
