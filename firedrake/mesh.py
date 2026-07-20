@@ -2747,12 +2747,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
 
-    # Enforces a read-only contract on particle IDs
-    @property
-    def firedrake_particle_ids(self):
-        """Persistent particle IDs if this is a VertexOnlyMesh and None otherwise."""
-        return getattr(self, "_firedrake_particle_ids", None)
-
     @property
     def topological(self):
         """Alias of topology.
@@ -4075,7 +4069,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     n_owned = vmesh_out.cell_set.size
     offset = vmesh_out.comm.scan(n_owned) - n_owned
     pid.dat.data_wo[:] = np.arange(offset, offset + n_owned, dtype=IntType)
-    vmesh_out._firedrake_particle_ids = pid
+    vmesh_out._particle_ids = pid
 
     return vmesh_out
 
