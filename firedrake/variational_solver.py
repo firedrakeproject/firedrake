@@ -232,7 +232,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before imposing bcs, and the bcs are appended to the nonlinear system.
         :kwarg marking_callback: An optional callable of the form
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
-               The callback receives the :class:`~.solving_utils._SNESContext`
+               The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
                :class:`.Function` or :class:`.Cofunction` with positive
                values on cells to refine.
@@ -346,7 +346,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         The callback is called as ``callback(ctx, u)`` when PETSc asks the
         solution DM to refine, where ``ctx`` is the current
-        :class:`~.solving_utils._SNESContext`. It must return a DG0
+        `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
         mesh, with positive values on cells to refine.
         """
