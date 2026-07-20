@@ -1,13 +1,12 @@
 """Micro-benchmark for firedrake.cython.dmcommon.entity_orientations.
 
 Times the kernel in isolation on a BoxMesh (unstructured tets), so we can
-measure the prange/nogil optimisation against the serial baseline and verify
+measure the de-Python-ified optimisation against the baseline and verify
 the result is bit-identical.
 
 Env vars:
   BENCH_N        BoxMesh resolution (default 79 -> (N+1)^3 DOFs, ~2.4M tets)
   BENCH_REPS     repeats for a stable timing (default 5)
-  OMP_NUM_THREADS threads for the parallel path
   BENCH_SAVE     path to np.save the orientation array (for correctness ref)
   BENCH_CHECK    path to np.load a reference array and assert equality
 """
@@ -24,7 +23,6 @@ topo = mesh.topology
 cc = topo.cell_closure                      # compute the closure once (not timed)
 
 print(f"N={N}  cells={cc.shape[0]}  closure_width={cc.shape[1]}  DOFs~={(N+1)**3}")
-print(f"OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'unset')}")
 
 times, res = [], None
 for r in range(REPS):
