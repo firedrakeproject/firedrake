@@ -1173,6 +1173,7 @@ class InvalidIndexException(Pyop3Exception):
 
 
 def match_target_paths_to_axis_tree(index_tree, orig_axes):
+    """Traverse the index tree to determine which axes it targets."""
     target_axes_by_index, leaf_target_axes = match_target_paths_to_axis_tree_rec(index_tree, orig_axes, index_path=idict(), candidate_target_paths_acc=(idict(),))
     assert all(len(leaf_axes) == 0 for leaf_axes in leaf_target_axes), "Expected all axes to be consumed by now"
     return target_axes_by_index
@@ -1212,7 +1213,8 @@ def match_target_paths_to_axis_tree_rec(
             full_target_axes = utils.single_valued(
                 orig_axes.visited_nodes(candidate_path)
                 for candidate_path in candidate_target_paths_acc_
-                if candidate_path in orig_axes.node_map
+                # if candidate_path in orig_axes.node_map
+                if candidate_path in orig_axes.leaf_paths
             )
             # convert to a dict so entries can be popped off as we go up
             sub_leaf_target_axess = (dict(full_target_axes),)

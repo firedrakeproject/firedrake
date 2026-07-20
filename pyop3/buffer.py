@@ -700,7 +700,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._lock_semaphores()
 
     @_check_finalizer
-    def reduce_leaves_to_roots_end(self) -> None:
+    def reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
         """Finish unconditionally updating roots."""
         self._unlock_semaphores()
         self._reduce_leaves_to_roots_end(op)

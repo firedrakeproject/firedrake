@@ -41,6 +41,7 @@ from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.labeled_tree import (
     as_node_map,
+    fixup_node_map,
     LabelledNodeComponent,
     LabeledTree,
     MultiComponentLabelledNode,
@@ -1473,6 +1474,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     ) -> None:
         object.__setattr__(self, "_node_map", as_node_map(node_map))
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_node_map", fixup_node_map(self.node_map))
 
     # }}}
 

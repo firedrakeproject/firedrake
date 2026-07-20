@@ -649,14 +649,13 @@ class AbstractMeshTopology(abc.ABC):
         if name is not None:
             return self._entity_axes_by_name(name)
         elif dim is not None:
-            if not isinstance(self, ExtrudedMeshTopology):
-                # strata and dims are the same
+            dim_slice = op3.Slice(self.name, op3.as_slice(dim))
+            return self.points[dim_slice]
+        else:
+            if isinstance(self, ExtrudedMeshTopology):
                 raise NotImplementedError
             else:
-                # dims are tuples, need to think
-                raise NotImplementedError
-        else:
-            raise NotImplementedError
+                return self._entity_axes(dim=stratum)
 
     @cached_method()
     def _entity_axes_by_name(self, name: str):
