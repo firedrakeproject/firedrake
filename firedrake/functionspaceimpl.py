@@ -1406,9 +1406,7 @@ class FunctionSpace(AbstractFunctionSpace):
                 ])
 
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
-        retval = self.dm_axes[index_tree]
-        assert retval.local_size == self.dm_axes.local_size
-        return retval
+        return self.dm_axes[index_tree]
 
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except

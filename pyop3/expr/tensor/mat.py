@@ -95,7 +95,7 @@ class Mat(Tensor):
         self._name = name
         self._transform = transform
 
-        self.record_setup()
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
@@ -433,8 +433,6 @@ class AggregateMat(pyop3.obj.Pyop3Object):
         self.row_axis = row_axis
         self.column_axis = column_axis
         self.name = name
-
-        self.record_setup()
 
     # }}}
 

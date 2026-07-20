@@ -192,7 +192,7 @@ class NullBuffer(AbstractArrayBuffer):
         self._max_value = max_value
         self._ordered = ordered
 
-        self.record_setup()
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         assert isinstance(self.shape, tuple)
@@ -376,7 +376,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._max_value = max_value
         self._ordered = ordered
 
-        self.record_setup()
+        self.__post_init__()
 
     # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
@@ -1061,8 +1061,6 @@ class PetscMatBuffer(ConcreteBuffer):
         self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
-
-        self.record_setup()  # remove me
 
         # state tracking
         self._current_insert_mode: pyop3.types.MatInsertMode | None  = None

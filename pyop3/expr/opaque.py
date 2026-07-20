@@ -39,8 +39,6 @@ class OpaqueTerminal(NamedTerminalExpression):
         object.__setattr__(self, "buffer", buffer)
         object.__setattr__(self, "_name", name)
 
-        self.record_setup()
-
     # }}}
 
     # {{{ interface impls

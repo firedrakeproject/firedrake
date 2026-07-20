@@ -1,19 +1,3 @@
-"""
-
-Instantiating record types
---------------------------
-* call record_setup()
-
-Record IDs
-----------
-All records are given a unique ID (a string). This is useful as a cache key
-
-In general if you call `record_init` on a record you will get an object with a
-new ID. However, sometimes you want to preserve the ID (e.g. if you are only
-reshaping something - the object is still considered to be the 'same'). To do
-this you have to specify 'non_id_attrs'.
-
-"""
 from __future__ import annotations
 
 import collections
@@ -42,7 +26,6 @@ def frozenrecord(**kwargs):
 def _make_record_class(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
-        cls.record_setup = _record_setup
 
         cls.__record_init__ = _record_init
 
@@ -90,11 +73,16 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         return self
     elif self.__dataclass_params__.frozen and not change_id:
         try:
-            return _make_record_maybe_singleton(self, new_attrs, change_id=False)
+            record = _make_record_maybe_singleton(self, new_attrs, change_id=False)
         except UnhashableObjectException:
-            return _make_record(self, new_attrs, change_id=False)
+            record = _make_record(self, new_attrs, change_id=False)
     else:
-        return _make_record(self, new_attrs, change_id=change_id)
+        record = _make_record(self, new_attrs, change_id=change_id)
+
+    if hasattr(record, "__post_init__"):
+        record.__post_init__()
+
+    return record
 
 
 # NOTE: We use COMM_SELF because __record_init__ isn't always called collectively.
@@ -103,7 +91,7 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
 # @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
 # actually just disable this unless we can prove that it's necessary - it generates a
 # lot of cache misses and probably slows up GC
-@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF)
+# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF)
 def _make_record_maybe_singleton(self, *args, **kwargs):
     return _make_record(self, *args, **kwargs)
 
@@ -112,27 +100,7 @@ def _make_record(self, attrs, *, change_id: bool):
     new = object.__new__(type(self))
     for field_name, attr in attrs.items():
         object.__setattr__(new, field_name, attr)
-    new_id = utils.unique_id(self) if change_id else self.record_id
-    new.record_setup(_id=new_id)
     return new
-
-
-def _record_setup(self, *, _id: str | None = None) -> None:
-    """Finalise a record object.
-
-    This method should be called inside every record ``__init__`` method.
-
-    Parameters
-    ----------
-    _id
-        The ID of the object. Internal use only.
-    """
-    if _id is None:
-        _id = utils.unique_id(self)
-    object.__setattr__(self, "record_id", _id)
-
-    if hasattr(self, "__post_init__"):
-        self.__post_init__()
 
 
 def _frozenrecord_hash(self):

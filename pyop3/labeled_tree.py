@@ -619,16 +619,18 @@ class MutableLabelledTreeMixin:
         """Return a new tree with ``node`` attached at ``path``."""
         if path is None:
             path = self.leaf_path
-
-        path = as_path(path)
+        else:
+            path = as_path(path)
 
         if self.node_map[path]:
             raise TreeMutationException(
                 "A node already exists at this location."
             )
 
+        new_leaves = {path | {node.label: cl}: None for cl in node.component_labels}
+
         if self.is_empty:
-            return self.__record_init__(_node_map=idict({idict(): node}))
+            return self.__record_init__(_node_map=idict({idict(): node}) | new_leaves)
 
         *parent_path, (parent_axis_label, parent_component_label) = path.items()
         parent_path = as_path(parent_path)
@@ -639,7 +641,7 @@ class MutableLabelledTreeMixin:
         if parent_axis_label != parent_node.label or parent_component_label not in parent_node.component_labels:
             raise TreeMutationException("Bad parent descriptor")
 
-        return self.__record_init__(_node_map=self.node_map | {path: node})
+        return self.__record_init__(_node_map=self._node_map | {path: node} | new_leaves)
 
     def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabelledTreeMixin:
         """Attach another tree to a leaf of the current tree."""

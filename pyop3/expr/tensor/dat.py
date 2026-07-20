@@ -136,7 +136,7 @@ class Dat(Tensor):
         self._buffer = buffer
         self._name = name
         self._transform = transform
-        self.record_setup()
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         # fails for transforms, is that an issue?
@@ -793,8 +793,6 @@ class AggregateDat(pyop3.obj.Pyop3Object):
         self.subdats = subdats
         self.axis = axis
         self.name = name
-
-        self.record_setup()
 
     # }}}
 
