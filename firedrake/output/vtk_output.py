@@ -537,6 +537,12 @@ class VTKFile:
                                         name=f.name(),
                                         function=f) for f in functions)
 
+            pids = getattr(mesh, "firedrake_particle_ids", None)
+            if pids is not None:
+                functions += (OFunction(array=get_array(pids),
+                                       name=pids.name(),
+                                       function=pids),)
+
             self._topology = get_topology(coordinates.function)
         else:
             continuous = all(is_cg(f.function_space()) for f in functions) and \

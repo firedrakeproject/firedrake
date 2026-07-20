@@ -2365,7 +2365,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
-
+        
+        # Registry of live functions defined on the VOM
         self._live_functions = weakref.WeakValueDictionary()
         self._function_counter = itertools.count()
 
@@ -2644,6 +2645,28 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # The leaves have been ordered according to the pyop2 classes with non-halo
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
+    
+    def _migrate_functions(self, functions_to_migrate=()):
+            """
+            Migrate Function(s) defined on this topology to the current version.
+
+            If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
+            """
+            import gc
+            gc.collect() # collect reference-cycle garbage identically on all ranks
+
+            if len(functions_to_migrate) > 0:
+                for f in functions_to_migrate:
+                    f._match_mesh_topology_version()
+                    return
+            
+            keys = [k for k in sorted(self._live_functions.keys())
+                    if self._live_functions.get(k) if not None]
+
+            for k in keys:
+                f = self._live_functions.get(k)
+                if f is not None:
+                    f._match_mesh_topology_version()
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -2723,6 +2746,12 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
+
+    # Enforces a read-only contract on particle IDs
+    @property
+    def firedrake_particle_ids(self):
+        """Persistent particle IDs if this is a VertexOnlyMesh and None otherwise."""
+        return getattr(self, "_firedrake_particle_ids", None)
 
     @property
     def topological(self):
@@ -3986,6 +4015,9 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         assumed to be a new vertex.
 
     """
+    from firedrake.functionspace import FunctionSpace
+    from firedrake.function import Function
+    
     petsctools.cite("nixonhill2023consistent")
 
     if tolerance is None:
@@ -4036,6 +4068,15 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     )
     vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
+
+    # Attach persistent particle IDs
+    P0 = FunctionSpace(vmesh_out, "DG", 0)
+    pid = Function(P0, dtype=IntType, name="firedrake_particle_ids")
+    n_owned = vmesh_out.cell_set.size
+    offset = vmesh_out.comm.scan(n_owned) - n_owned
+    pid.dat.data_wo[:] = np.arange(offset, offset + n_owned, dtype=IntType)
+    vmesh_out._firedrake_particle_ids = pid
+
     return vmesh_out
 
 
