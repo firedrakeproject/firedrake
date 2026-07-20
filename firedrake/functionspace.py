@@ -6,7 +6,6 @@ backwards-compatibility, argument checking, and dispatch.
 """
 import itertools
 import ufl
-from ufl.cell import as_cell
 import finat.ufl
 
 from pyop3.pyop2_utils import flatten
@@ -69,7 +68,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
                                      quad_scheme=quad_scheme)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
-                                     cell=ufl.interval,
+                                     cell=finat.ufl.as_cell("interval"),
                                      degree=vdegree,
                                      variant=variant,
                                      quad_scheme=quad_scheme)

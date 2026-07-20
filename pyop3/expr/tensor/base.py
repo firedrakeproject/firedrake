@@ -17,7 +17,6 @@ from pyop3.cache import cached_method
 from pyop3.expr.base import ExpressionT
 import pyop3.record
 from pyop3 import utils
-from pyop3.sf import DistributedObject
 from pyop3.axis_tree import ContextAware
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.expr import TerminalExpression
@@ -28,7 +27,7 @@ if typing.TYPE_CHECKING:
     import pyop3.insn.exec
 
 
-class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
+class Tensor(ContextAware, TerminalExpression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 

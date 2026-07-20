@@ -42,6 +42,7 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 # TODO: just be a cached method? Or globally cache?
 @cached_on(lambda tree, *a, **kw: tree, lambda tree, path, label: (path, label))
 def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: PathT, component_label: ComponentLabelT):
+    import pyop3
     from pyop3 import Scalar
     from pyop3.expr.visitors import replace_terminals, replace
 
@@ -126,9 +127,10 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         component_size = replace(component_size, axis_to_loop_var_replace_map)
         subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
-        Loop(i,
-            component_size.iassign(subtree_size_expr)
-        )()
+        pyop3.loop(i,
+            component_size.iassign(subtree_size_expr),
+            eager=True,
+        )
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this
@@ -147,5 +149,3 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
             return replace(XXX, axis_to_loop_var_replace_map)
     else:
         return component.size * subtree_size
-
-

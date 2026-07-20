@@ -16,7 +16,7 @@ from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
-@with_heavy_caches(lambda extr_top, *a, **kw: {extr_top})
+@with_heavy_caches(lambda extr_top, *a, **kw: [extr_top])
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """
@@ -69,7 +69,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op3.Dat.from_array(layer_height)
+    # NOTE: Not sure about this in parallel, needs an SF?
+    layer_height = op3.Dat.from_array(layer_height, comm=extruded_topology.comm)
 
     if kernel is not None:
         raise NotImplementedError
@@ -319,7 +320,7 @@ def is_real_tensor_product_element(element):
     assert not isinstance(element, finat.TensorFiniteElement)
 
     if isinstance(element, finat.TensorProductElement):
-        _, factor = element.factors
+        factor = element.factors[-1]
         return isinstance(factor, finat.Real)
     else:
         return False

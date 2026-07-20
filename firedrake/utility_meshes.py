@@ -75,7 +75,7 @@ distribution_parameters_no_overlap = {"partition": True,
 reorder_noop = False
 
 
-def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
+def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name, use_fuse=False):
     dm = coords.function_space().mesh().topology.topology_dm
     dm.removeLabel("firedrake_is_ghost")
     dm.removeLabel("exterior_facets")
@@ -95,6 +95,7 @@ def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, n
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 @PETSc.Log.EventDecorator()
@@ -107,6 +108,7 @@ def OneTetMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """
     Mesh with only two tets in 
@@ -128,6 +130,8 @@ def OneTetMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
@@ -149,6 +153,7 @@ def OneTetMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -162,6 +167,7 @@ def TwoTetMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """
     Mesh with only two tets in 
@@ -183,6 +189,8 @@ def TwoTetMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
@@ -203,9 +211,89 @@ def TwoTetMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
+
+@PETSc.Log.EventDecorator()
+def TwoHexMesh(
+    perm=None,
+    right=None,
+    distribution_parameters=None,
+    reorder=False,
+    comm=COMM_WORLD,
+    name=DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+    use_fuse=False,
+):
+    """
+    Mesh with only two hexahedra, sharing a single quadrilateral face.
+
+    Analogous to :func:`TwoTetMesh`: the two cells share a unit-square
+    face in the ``z == 0`` plane (cell A occupies ``z in [-1, 0]``, cell
+    B occupies ``z in [0, 1]``). Cell B's local vertex ordering is fixed;
+    ``perm`` (if given) is applied to cell A's local vertex list, letting
+    the caller sweep the relative orientation of the shared face through
+    the quadrilateral's full 8-element dihedral symmetry group -- useful
+    for exhaustively testing H(div)/H(curl) orientation handling on
+    hexahedral cells, the way :func:`TwoTetMesh` does for tetrahedra
+    (whose shared triangular face only has a 6-element symmetry group).
+
+    :arg perm: (optional) a callable (e.g. a `sympy.combinatorics.Permutation`
+         of length 8) applied to cell A's local vertex list
+         ``[4, 5, 6, 7, 0, 3, 2, 1]`` (positions 0-3 hold cell A's own
+         private vertices, positions 4-7 the shared-face vertices).
+         ``perm`` must be a symmetry of the cube's vertex-position graph,
+         i.e. a D4 element acting simultaneously on BOTH blocks (the two
+         blocks are matched by the vertical vertex pairing of the DMPlex
+         hexahedron cone convention: bottom position ``i`` sits below top
+         position ``[0, 3, 2, 1][i]``). Permuting only positions 4-7
+         while fixing 0-3 is NOT a cube symmetry: it produces a twisted
+         trilinear cell (cell A's volume comes out != 1 -- 2/3 or 1/3
+         for face rotations, 1/sqrt(3) for face reflections), silently
+         invalidating anything computed on the mesh. Sweeping the paired
+         D4 elements realises all 8 relative orientations of the shared
+         face with valid geometry.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
+    """
+    coords = np.array([
+        [0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0],      # 0-3: shared face
+        [0, 0, -1], [0, 1, -1], [1, 1, -1], [1, 0, -1],  # 4-7: cell A private
+        [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],      # 8-11: cell B private
+    ])
+    cellA = [4, 5, 6, 7, 0, 3, 2, 1]
+    cellB = [0, 1, 2, 3, 8, 9, 10, 11]
+    if perm is not None:
+        cellA = perm(cellA)
+    cells = np.array([cellA, cellB])
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
+    )
+    m = Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+        use_fuse=use_fuse
+    )
+    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -219,6 +307,7 @@ def IntervalMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """
     Generate a uniform mesh of an interval.
@@ -240,6 +329,8 @@ def IntervalMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
@@ -274,6 +365,7 @@ def IntervalMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
 
 
@@ -286,6 +378,7 @@ def UnitIntervalMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """
     Generate a uniform mesh of the interval [0,1].
@@ -302,6 +395,8 @@ def UnitIntervalMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
@@ -315,6 +410,7 @@ def UnitIntervalMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -328,6 +424,7 @@ def PeriodicIntervalMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a periodic mesh of an interval.
 
@@ -344,6 +441,8 @@ def PeriodicIntervalMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
     plex = PETSc.DMPlex().createBoxMesh(
         (ncells,),
@@ -353,7 +452,7 @@ def PeriodicIntervalMesh(
         periodic=True,
         interpolate=True,
         sparseLocalize=False,
-        comm=comm
+        comm=comm,
     )
     _mark_mesh_boundaries(plex)
 
@@ -365,6 +464,7 @@ def PeriodicIntervalMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse,
     )
 
 
@@ -377,6 +477,7 @@ def PeriodicUnitIntervalMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a periodic mesh of the unit interval.
 
@@ -392,6 +493,8 @@ def PeriodicUnitIntervalMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
     return PeriodicIntervalMesh(
         ncells,
@@ -402,6 +505,7 @@ def PeriodicUnitIntervalMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=False,
     )
 
 
@@ -415,6 +519,7 @@ def OneElementThickMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
@@ -433,6 +538,8 @@ def OneElementThickMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
 
     left = np.arange(ncells, dtype=np.int32)
@@ -565,6 +672,7 @@ def OneElementThickMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=False,
     )
     topverts = Vc.cell_node_list[:, 1::2].flatten()
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
@@ -599,6 +707,7 @@ def UnitTriangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of the reference triangle
 
@@ -613,6 +722,8 @@ def UnitTriangleMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
     coords = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
     cells = [[0, 1, 2]]
@@ -651,6 +762,7 @@ def UnitTriangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse,
     )
 
 
@@ -670,6 +782,7 @@ def RectangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a rectangular mesh
 
@@ -694,6 +807,8 @@ def RectangleMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -730,6 +845,7 @@ def RectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse,
     )
 
 
@@ -744,6 +860,7 @@ def TensorRectangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a rectangular mesh
 
@@ -758,6 +875,8 @@ def TensorRectangleMesh(
         from bottom left to top right (``"right"``), or top left to
         bottom right (``"left"``), or put in both diagonals (``"crossed"``).
         Default is ``"left"``.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -829,6 +948,7 @@ def TensorRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
 
 
@@ -845,6 +965,7 @@ def SquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse: bool = False,
 ):
     """Generate a square mesh.
 
@@ -875,6 +996,9 @@ def SquareMesh(
     permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -905,6 +1029,7 @@ def SquareMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse,
     )
 
 
@@ -920,6 +1045,7 @@ def UnitSquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse: bool = False,
 ):
     """Generate a unit square mesh.
 
@@ -948,6 +1074,9 @@ def UnitSquareMesh(
     permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -977,6 +1106,7 @@ def UnitSquareMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse,
     )
 
 
@@ -995,6 +1125,7 @@ def PeriodicRectangleMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse=False,
 ) -> MeshGeometry:
     """Generate a periodic rectangular mesh.
 
@@ -1029,6 +1160,9 @@ def PeriodicRectangleMesh(
     permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -1088,6 +1222,7 @@ def PeriodicRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
 
 
@@ -1105,6 +1240,7 @@ def PeriodicSquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse=False,
 ):
     """Generate a periodic square mesh.
 
@@ -1137,6 +1273,9 @@ def PeriodicSquareMesh(
     permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -1170,6 +1309,7 @@ def PeriodicSquareMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse,
     )
 
 
@@ -1186,6 +1326,7 @@ def PeriodicUnitSquareMesh(
     name: str = DEFAULT_MESH_NAME,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
+    use_fuse: bool = False,
 ):
     """Generate a periodic unit square mesh.
 
@@ -1216,6 +1357,9 @@ def PeriodicUnitSquareMesh(
     permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -1311,6 +1455,7 @@ def CircleManifoldMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse,
     )
     if degree > 1:
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
@@ -1325,6 +1470,7 @@ def CircleManifoldMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
     m._radius = radius
     return m
@@ -1354,6 +1500,8 @@ def UnitDiskMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     vertices = np.array(
         [[0, 0], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]],
@@ -1406,6 +1554,7 @@ def UnitDiskMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -1434,6 +1583,8 @@ def UnitBallMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     vertices = np.array(
         [
@@ -1493,6 +1644,7 @@ def UnitBallMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -1503,6 +1655,7 @@ def UnitTetrahedronMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of the reference tetrahedron.
 
@@ -1514,6 +1667,8 @@ def UnitTetrahedronMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     coords = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     cells = [[0, 1, 2, 3]]
@@ -1527,6 +1682,7 @@ def UnitTetrahedronMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -1542,6 +1698,7 @@ def TensorBoxMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a 3D box.
 
@@ -1674,6 +1831,7 @@ def TensorBoxMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -1694,6 +1852,7 @@ def BoxMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a 3D box.
 
@@ -1743,6 +1902,7 @@ def BoxMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
     else:
         xcoords = np.linspace(0, Lx, nx + 1, dtype=np.double)
@@ -1759,6 +1919,7 @@ def BoxMesh(
             name=name,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
+            use_fuse=use_fuse
         )
 
 
@@ -1775,6 +1936,7 @@ def CubeMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a cube
 
@@ -1794,6 +1956,8 @@ def CubeMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
 
     The boundary surfaces are numbered as follows:
 
@@ -1818,6 +1982,7 @@ def CubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -1833,6 +1998,7 @@ def UnitCubeMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a mesh of a unit cube
 
@@ -1851,6 +2017,8 @@ def UnitCubeMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
 
     The boundary surfaces are numbered as follows:
 
@@ -1873,6 +2041,7 @@ def UnitCubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse = use_fuse
     )
 
 
@@ -1892,6 +2061,7 @@ def PeriodicBoxMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a periodic mesh of a 3D box.
 
@@ -1927,6 +2097,9 @@ def PeriodicBoxMesh(
     permutation_name : str or None
         Name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -1969,7 +2142,8 @@ def PeriodicBoxMesh(
             name=name,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
-            comm=comm)
+            comm=comm,
+            use_fuse=use_fuse)
     else:
         # TODO: When hexahedra -> simplex refinement is implemented this can go away.
         if tuple(directions) != (True, True, True):
@@ -2014,6 +2188,7 @@ def PeriodicBoxMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
 
         new_coordinates = Function(
@@ -2064,6 +2239,7 @@ def PeriodicUnitCubeMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a periodic mesh of a unit cube
 
@@ -2093,6 +2269,9 @@ def PeriodicUnitCubeMesh(
     permutation_name : str or None
         Name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
+    use_fuse 
+        Flag indicting if mesh should be created using a fuse cell
+        Default: False, mesh is based on the ufc cell
 
     Returns
     -------
@@ -2129,6 +2308,7 @@ def PeriodicUnitCubeMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2143,6 +2323,7 @@ def IcosahedralSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generate an icosahedral approximation to the surface of the
     sphere.
@@ -2170,6 +2351,8 @@ def IcosahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -2242,6 +2425,7 @@ def IcosahedralSphereMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     if degree > 1:
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
@@ -2255,6 +2439,7 @@ def IcosahedralSphereMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
     m._radius = radius
     return m
@@ -2270,6 +2455,7 @@ def UnitIcosahedralSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate an icosahedral approximation to the unit sphere.
 
@@ -2288,6 +2474,8 @@ def UnitIcosahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     return IcosahedralSphereMesh(
         1.0,
@@ -2299,6 +2487,7 @@ def UnitIcosahedralSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2318,6 +2507,7 @@ def OctahedralSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate an octahedral approximation to the surface of the
     sphere.
@@ -2342,6 +2532,8 @@ def OctahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     if refinement_level < 0 or refinement_level % 1:
         raise ValueError("Number of refinements must be a non-negative integer")
@@ -2400,6 +2592,7 @@ def OctahedralSphereMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     if degree > 1:
         # use it to build a higher-order mesh
@@ -2410,6 +2603,7 @@ def OctahedralSphereMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
 
     # remap to a cone
@@ -2472,6 +2666,7 @@ def UnitOctahedralSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -2494,6 +2689,8 @@ def UnitOctahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     return OctahedralSphereMesh(
         1.0,
@@ -2507,6 +2704,7 @@ def UnitOctahedralSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2654,6 +2852,7 @@ def CubedSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate an cubed approximation to the surface of the
     sphere.
@@ -2673,6 +2872,8 @@ def CubedSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -2694,6 +2895,7 @@ def CubedSphereMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
 
     if degree > 1:
@@ -2707,6 +2909,7 @@ def CubedSphereMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm,
+            use_fuse=use_fuse
         )
     m._radius = radius
     return m
@@ -2722,6 +2925,7 @@ def UnitCubedSphereMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a cubed approximation to the unit sphere.
 
@@ -2739,6 +2943,8 @@ def UnitCubedSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
     return CubedSphereMesh(
         1.0,
@@ -2749,6 +2955,7 @@ def UnitCubedSphereMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 
@@ -2765,6 +2972,7 @@ def TorusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a toroidal mesh
 
@@ -2784,6 +2992,8 @@ def TorusMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell
     """
 
     if nR < 3 or nr < 3:
@@ -2841,6 +3051,7 @@ def TorusMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
     return m
 
@@ -2856,6 +3067,7 @@ def AnnulusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate an annulus mesh periodically extruding an interval mesh
 
@@ -2873,6 +3085,8 @@ def AnnulusMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if ``None``, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
     if nt < 3:
         raise ValueError("Must have at least 3 cells in the circumferential direction")
@@ -2884,7 +3098,8 @@ def AnnulusMesh(
                         comm=comm,
                         name=base_name,
                         distribution_name=distribution_name,
-                        permutation_name=permutation_name)
+                        permutation_name=permutation_name,
+                        use_fuse=use_fuse)
     bar = ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
     x, y = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
@@ -2907,6 +3122,7 @@ def SolidTorusMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False,
 ):
     """Generate a solid toroidal mesh (with axis z) periodically extruding a disk mesh
 
@@ -2925,6 +3141,8 @@ def SolidTorusMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if ``None``, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
     """
     if nR < 3:
         raise ValueError("Must have at least 3 cells in the major direction")
@@ -2934,7 +3152,8 @@ def SolidTorusMesh(
                         distribution_parameters=distribution_parameters,
                         comm=comm,
                         distribution_name=distribution_name,
-                        permutation_name=permutation_name)
+                        permutation_name=permutation_name,
+                        use_fuse=use_fuse)
     x, y = ufl.SpatialCoordinate(unit)
     V = unit.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
@@ -2966,6 +3185,7 @@ def CylinderMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generates a cylinder mesh.
 
@@ -2989,6 +3209,8 @@ def CylinderMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -3116,6 +3338,7 @@ def CylinderMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        use_fuse=use_fuse
     )
 
 
@@ -3134,6 +3357,7 @@ def PartiallyPeriodicRectangleMesh(
     name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
+    use_fuse=False
 ):
     """Generate a RectangleMesh that is periodic in the x or y direction.
 
@@ -3156,6 +3380,8 @@ def PartiallyPeriodicRectangleMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -3189,6 +3415,7 @@ def PartiallyPeriodicRectangleMesh(
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        use_fuse=use_fuse
     )
 
 

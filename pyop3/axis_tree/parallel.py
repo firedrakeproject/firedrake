@@ -9,6 +9,7 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 
+import pyop3.visitors
 from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest, create_petsc_section_sf
@@ -81,9 +82,8 @@ def _collect_sf_graphs_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePat
         elif subaxis := axis_tree.node_map.get(path_):
             if isinstance(size := component.size, numbers.Integral) and size > 1:
                 raise NotImplementedError("This will be very inefficient")
-
-            # FIXME: Only need to call the inner bit once and repeatedly add?
-            for point in range(component.local_size):
+            # have to use .size here because .local_size means we deadlock
+            for point in range(component.size):
                 sfs.extend(
                     _collect_sf_graphs_rec(axis_tree, path_, indices | {axis.label: point})
                 )
@@ -162,7 +162,7 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
 
     ilocal = np.concatenate(local_leaf_indicess)
     iremote = np.concatenate(remote_leaf_indicess)
-    comm = utils.single_comm(star_forests, "comm")
+    comm = pyop3.visitors.single_comm(*star_forests)
     return StarForest.from_graph(total_size, ilocal, iremote, comm)
 
     # old code, it fixed some bug or other...
@@ -186,7 +186,7 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
 
         ilocal = np.concatenate(local_leaf_indicess)
         iremote = np.concatenate(remote_leaf_indicess)
-        comm = utils.single_comm(star_forests, "comm")
+        comm = pyop3.visitors.single_comm(*star_forests)
         return StarForest.from_graph(size, ilocal, iremote, comm)
 
     # because ghost points are already at the back?

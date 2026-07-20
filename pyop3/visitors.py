@@ -11,9 +11,12 @@ from collections.abc import Hashable
 from typing import Any
 
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
+from petsc4py import PETSc
 
 import pyop3.node
 import pyop3.obj
+import pyop3.sf
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 
@@ -195,3 +198,64 @@ def get_instruction_executor_cache_key(obj: pyop3.obj.Pyop3Object) -> Hashable:
     the buffers at the top-level.
     """
     return InstructionExecutorCacheKeyGetter()(obj)
+
+
+@functools.singledispatch
+def get_comm(obj: Any, /) -> MPI.Comm:
+    """Return the communicator associated with an object.
+
+    If no communicator is available (e.g. trying to get the comm of an integer)
+    then ``COMM_SELF`` is used.
+
+    """
+    utils.raise_visitor_type_error(obj)
+
+
+@get_comm.register
+def _(comm: MPI.Comm, /) -> MPI.Comm:
+    return comm
+
+
+@get_comm.register
+def _(obj: PETSc.Object, /) -> MPI.Comm:
+    return obj.comm
+
+
+@get_comm.register
+def _(sf: pyop3.sf.AbstractStarForest, /) -> MPI.Comm:
+    return sf.comm
+
+
+@get_comm.register
+def _(obj: pyop3.obj.Pyop3Object, /) -> MPI.Comm:
+    return obj.comm
+
+
+@get_comm.register
+def _(num: numbers.Number | types.NoneType, /) -> MPI.Comm:
+    return MPI.COMM_SELF
+
+
+def common_comm(*objects: Iterable[Any]) -> MPI.Comm:
+    """Return a communicator valid for all objects.
+
+    The valid communicator is defined as the one with the largest size.
+
+    Parameters
+    ----------
+    objects
+        Communicator-carrying objects to inspect. All object must define
+        a ``comm`` attribute.
+
+    Returns
+    -------
+    MPI.Comm
+        A communicator that the provided objects are safely collective over.
+
+    """
+    return pyop3.mpi.common_comm(*(map(get_comm, objects)))
+
+
+def single_comm(*objects: Iterable[Any]) -> MPI.Comm:
+    """Return the single comm shared by all objects."""
+    return utils.single_valued(map(get_comm, objects))

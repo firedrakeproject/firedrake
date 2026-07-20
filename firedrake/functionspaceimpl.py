@@ -49,7 +49,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType, deprecated
 
 
-def check_element(element, top=True):
+def check_element(element, top=True, use_fuse=False):
     """Run some checks on the provided element.
 
     The :class:`finat.ufl.mixedelement.VectorElement` and
@@ -82,7 +82,7 @@ def check_element(element, top=True):
        type(element) is not finat.ufl.MixedElement:
         raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "Real"]:
+       element.family() not in ["Q", "DQ", "Real", "IT"] and not use_fuse:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
@@ -99,11 +99,11 @@ def check_element(element, top=True):
     else:
         inner = ()
     for e in inner:
-        check_element(e, top=False)
+        check_element(e, top=False, use_fuse=use_fuse)
 
 
-def create_element(ufl_element):
-    finat_element = _create_element(ufl_element)
+def create_element(ufl_element, use_fuse=False):
+    finat_element = _create_element(ufl_element, use_fuse=use_fuse)
     if isinstance(finat_element, finat.TensorFiniteElement):
         # Retrieve scalar element
         finat_element = finat_element.base_element
@@ -482,6 +482,8 @@ class WithGeometryBase:
     def make_function_space(cls, mesh, element, name=None, _labels=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         topology = mesh.topology
+        if hasattr(element, 'triple') and not mesh._use_fuse:
+            raise NotImplementedError("FUSE defined element not on fuse enabled mesh.")
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             if isinstance(mesh, MeshGeometry):
@@ -497,7 +499,7 @@ class WithGeometryBase:
             if isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
-            check_element(element)
+            check_element(element, use_fuse=mesh._use_fuse)
             if element.family() == "Real":
                 new = RealFunctionSpace(topology, element, name=name, **kwargs)
             else:
@@ -1078,7 +1080,7 @@ class FunctionSpace(AbstractFunctionSpace):
         self.comm = mesh.comm
 
         self.element = element
-        self.finat_element = create_element(element)
+        self.finat_element = create_element(element, use_fuse=mesh._use_fuse)
 
         entity_dofs = self.finat_element.entity_dofs()
         nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))

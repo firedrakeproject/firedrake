@@ -141,20 +141,9 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
     :arg kernel_kwargs: keyword arguments to be passed to the
-        ``pyop2.Kernel`` constructor
+        ``pyop3.Function`` constructor
     :arg kwargs: additional keyword arguments are passed to the underlying
-        ``pyop2.par_loop``
-
-    :kwarg iterate: Optionally specify which region of an
-                    :class:`pyop2.types.set.ExtrudedSet` to iterate over.
-                    Valid values are the following objects from pyop2:
-
-                    - ``ON_BOTTOM``: iterate over the bottom layer of cells.
-                    - ``ON_TOP`` iterate over the top layer of cells.
-                    - ``ALL`` iterate over all cells (the default if unspecified)
-                    - ``ON_INTERIOR_FACETS`` iterate over all the layers
-                      except the top layer, accessing data two adjacent (in
-                      the extruded direction) cells at a time.
+        ``pyop3.loop``
 
     **Example**
 
@@ -302,7 +291,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         domain, = domains
         mesh = domain
 
-    with heavy_caches({mesh.topology}):
+    with heavy_caches([mesh.topology]):
         kernel_domains, instructions = kernel
         function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 

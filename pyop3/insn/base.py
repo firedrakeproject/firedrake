@@ -26,6 +26,7 @@ from petsc4py import PETSc
 import pyop3.compile
 import pyop3.expr
 import pyop3.record
+import pyop3.visitors
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
@@ -33,7 +34,6 @@ from pyop3.node import Node, Terminal, Operator
 from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
 from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
-from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
@@ -98,7 +98,7 @@ class UnprocessedExpressionException(Pyop3Exception):
     """Exception raised when pyop3 expected a preprocessed expression."""
 
 
-class Instruction(Node, DistributedObject, abc.ABC):
+class Instruction(Node, abc.ABC):
 
     def __init__(self) -> None:
         object.__setattr__(self, "_hit_executor_cache", True)
@@ -185,6 +185,10 @@ class Loop(NonTerminalInstruction):
             tuple(map(visitor, self.statements)),
         )
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(self.index, *self.statements)
+
     def __init__(
         self,
         index: LoopIndex,
@@ -204,11 +208,6 @@ class Loop(NonTerminalInstruction):
     @cached_property
     def global_arguments(self) -> OrderedFrozenSet[Tensor]:
         return OrderedFrozenSet().union(*(stmt.global_arguments for stmt in self.statements))
-
-    @property
-    def comm(self) -> MPI.Comm:
-        # TODO: check iterset
-        return utils.common_comm(self.statements, "comm")
 
     # }}}
 
@@ -238,6 +237,10 @@ class InstructionList(NonTerminalInstruction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self.instructions)
+
     def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
         object.__setattr__(self, "instructions", instructions)
@@ -247,10 +250,6 @@ class InstructionList(NonTerminalInstruction):
     # {{{ interface impls
 
     child_attrs = ("instructions",)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm(self.instructions, "comm")
 
     @property
     def global_arguments(self) -> OrderedFrozenSet[Tensor]:
@@ -538,10 +537,6 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
             for arg in self.function.code.default_entrypoint.args
         )
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm(self.arguments, "comm", allow_undefined=True) or MPI.COMM_SELF
-
 
 @pyop3.record.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
@@ -557,6 +552,10 @@ class CalledFunction(AbstractCalledFunction):
             visitor(self._function),
             tuple(map(visitor, self._arguments)),
         )
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self._arguments)
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
@@ -614,6 +613,10 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(*self._arguments)
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
@@ -766,6 +769,10 @@ class Assignment(AbstractAssignment):
             self._assignment_type,
         )
 
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        return pyop3.visitors.common_comm(self._assignee, self._expression)
+
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
@@ -785,10 +792,6 @@ class Assignment(AbstractAssignment):
     assignee: ClassVar[property] = pyop3.record.attr("_assignee")
     expression: ClassVar[property] = pyop3.record.attr("_expression")
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm([self.assignee, self.expression], "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # NOTE: Wrong type here...
     @property

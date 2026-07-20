@@ -227,9 +227,9 @@ def create_matis(Amat, local_mat_type, cellwise=False):
         sub_domain = list(bc.sub_domain)
         if "on_boundary" in sub_domain:
             sub_domain.remove("on_boundary")
-            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
+            sub_domain.extend(V.mesh().unique().facet_markers)
 
-        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
+        valid_markers = Vsub.mesh().unique().facet_markers
         sub_domain = list(set(sub_domain) & set(valid_markers))
         bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
         if cellwise:

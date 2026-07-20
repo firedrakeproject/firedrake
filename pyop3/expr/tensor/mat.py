@@ -18,6 +18,7 @@ from pyop3 import buffer
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
+import pyop3.visitors
 from pyop3 import utils
 from pyop3.cache import cached_method
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
@@ -357,7 +358,7 @@ class Mat(Tensor):
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
-        comm = utils.common_comm((row_axes, column_axes), "comm")
+        comm = pyop3.visitors.common_comm(row_axes, column_axes)
 
         if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes
