@@ -27,7 +27,8 @@ def _make_record_class(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
 
-        cls.__record_init__ = _record_init
+        cls.record_new = _record_new
+        cls.record_init = _record_init
 
         old_init = cls.__init__
 
@@ -39,8 +40,8 @@ def _make_record_class(**kwargs):
         cls.__init__ = custom_init
 
 
-        def _record_method_cache(self):
-            return collections.defaultdict(dict)
+        # def _record_method_cache(self):
+        #     return collections.defaultdict(dict)
 
         # if kwargs.get("frozen", False):
         #     cls.__hash__ = _frozenrecord_hash
@@ -49,18 +50,16 @@ def _make_record_class(**kwargs):
     return wrapper
 
 
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+@classmethod
+def _record_new(cls, **attrs: Mapping[str,Any]) -> Any:
+    """Create and initialise a new record."""
     new_attrs = {}
     attrs_changed = False
-    change_id = False
     for field in dataclasses.fields(self):
         orig_attr = getattr(self, field.name)
         new_attr = attrs.pop(field.name, orig_attr)
         if not utils.safe_equals(new_attr, orig_attr):
             attrs_changed = True
-            # We only have to change the ID for some attrs
-            if field.name not in getattr(self, "non_id_attrs", set()):
-                change_id = True
         new_attrs[field.name] = new_attr
 
     if attrs:
@@ -69,9 +68,9 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
             f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
         )
 
-    if not attrs_changed:
-        return self
-    elif self.__dataclass_params__.frozen and not change_id:
+    new = object.__new__(type(self))
+
+    if self.__dataclass_params__.frozen and not change_id:
         try:
             record = _make_record_maybe_singleton(self, new_attrs, change_id=False)
         except UnhashableObjectException:
@@ -92,27 +91,24 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
 # actually just disable this unless we can prove that it's necessary - it generates a
 # lot of cache misses and probably slows up GC
 # @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF)
-def _make_record_maybe_singleton(self, *args, **kwargs):
-    return _make_record(self, *args, **kwargs)
+# def _make_record_maybe_singleton(self, *args, **kwargs):
+#     return _make_record(self, *args, **kwargs)
 
 
-def _make_record(self, attrs, *, change_id: bool):
-    new = object.__new__(type(self))
+def _record_init(self, attrs: Mapping[str, Any]) -> None:
+    """Initialise a new record."""
     for field_name, attr in attrs.items():
-        object.__setattr__(new, field_name, attr)
-    return new
+        object.__setattr__(self, field_name, attr)
 
 
-def _frozenrecord_hash(self):
-    if hasattr(self, "_cached_hash"):
-        return self._cached_hash
-
-    hash_ = hash(dataclasses.fields(self))
-    object.__setattr__(self, "_cached_hash", hash_)
-    return hash_
+# def _frozenrecord_hash(self):
+#     if hasattr(self, "_cached_hash"):
+#         return self._cached_hash
+#
+#     hash_ = hash(dataclasses.fields(self))
+#     object.__setattr__(self, "_cached_hash", hash_)
+#     return hash_
 
 
 def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
-
-

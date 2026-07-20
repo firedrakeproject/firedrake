@@ -69,9 +69,6 @@ class Mat(Tensor):
             visitor(self._transform),
         )
 
-    # Attributes that do not invalidate the object ID
-    non_id_attrs = ("row_axes", "column_axes", "_transform")
-
     def __init__(
         self,
         row_axes,
