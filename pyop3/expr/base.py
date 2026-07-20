@@ -740,7 +740,7 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     for loop_var in collect_loop_index_vars(expr):
         axis = loop_var.axis
         new_axis_label = f"{axis.label}_{loop_var.loop_index.id}"
-        new_axis = axis.__record_init__(_label=new_axis_label)
+        new_axis = axis.record_new(_label=new_axis_label)
         axes.append(new_axis)
         loop_var_replace_map[loop_var] = AxisVar(new_axis)
     return (AxisTree.from_iterable(axes), loop_var_replace_map)
@@ -772,10 +772,10 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
                 new_regions = []
                 for region in component.regions:
                     new_size = replace(region.size, loop_var_replace_map)
-                    new_regions.append(region.__record_init__(size=new_size))
+                    new_regions.append(region.record_new(size=new_size))
                 new_regions = tuple(new_regions)
-                new_components.append(component.__record_init__(regions=new_regions))
-            new_node_map[path] = axis.__record_init__(components=tuple(new_components))
+                new_components.append(component.record_new(regions=new_regions))
+            new_node_map[path] = axis.record_new(components=tuple(new_components))
         subtree = AxisTree(new_node_map)
         axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)
 

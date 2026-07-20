@@ -50,16 +50,12 @@ def _make_record_class(**kwargs):
     return wrapper
 
 
-@classmethod
-def _record_new(cls, **attrs: Mapping[str,Any]) -> Any:
-    """Create and initialise a new record."""
+def _record_new(self, **attrs: Any) -> Any:
+    """Create and initialise a new record from an existing one."""
     new_attrs = {}
-    attrs_changed = False
     for field in dataclasses.fields(self):
         orig_attr = getattr(self, field.name)
         new_attr = attrs.pop(field.name, orig_attr)
-        if not utils.safe_equals(new_attr, orig_attr):
-            attrs_changed = True
         new_attrs[field.name] = new_attr
 
     if attrs:
@@ -68,23 +64,15 @@ def _record_new(cls, **attrs: Mapping[str,Any]) -> Any:
             f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
         )
 
+    # TODO: cache this
     new = object.__new__(type(self))
 
-    if self.__dataclass_params__.frozen and not change_id:
-        try:
-            record = _make_record_maybe_singleton(self, new_attrs, change_id=False)
-        except UnhashableObjectException:
-            record = _make_record(self, new_attrs, change_id=False)
-    else:
-        record = _make_record(self, new_attrs, change_id=change_id)
+    new.record_init(**new_attrs)
 
-    if hasattr(record, "__post_init__"):
-        record.__post_init__()
-
-    return record
+    return new
 
 
-# NOTE: We use COMM_SELF because __record_init__ isn't always called collectively.
+# NOTE: We use COMM_SELF because record_new isn't always called collectively.
 # I need to think harder about the legality of this. Should I disallow the comm attr
 # for objects where this happens?
 # @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
@@ -95,10 +83,12 @@ def _record_new(cls, **attrs: Mapping[str,Any]) -> Any:
 #     return _make_record(self, *args, **kwargs)
 
 
-def _record_init(self, attrs: Mapping[str, Any]) -> None:
+def _record_init(self, **attrs: Any) -> None:
     """Initialise a new record."""
     for field_name, attr in attrs.items():
         object.__setattr__(self, field_name, attr)
+    if hasattr(self, "__post_init__"):
+        self.__post_init__()
 
 
 # def _frozenrecord_hash(self):

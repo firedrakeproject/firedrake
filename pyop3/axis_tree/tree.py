@@ -453,7 +453,7 @@ class AxisComponent(LabelledNodeComponent):
     @cached_property
     def regionless(self) -> AxisComponent:
         assert False, "old code"
-        return self.__record_init__(regions=(AxisComponentRegion(self.local_size),), sf=None)
+        return self.record_new(regions=(AxisComponentRegion(self.local_size),), sf=None)
 
     @property
     def rank_equal(self) -> bool:
@@ -521,7 +521,7 @@ class AxisComponent(LabelledNodeComponent):
         # TODO: implementation is simplified if region labels are always frozensets
         if self.region_labels == (OWNED_REGION_LABEL, GHOST_REGION_LABEL):
             new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
-            return self.__record_init__(regions=(new_region,), sf=None)
+            return self.record_new(regions=(new_region,), sf=None)
 
         # Region labels are ({"owned", "X"}, {"owned", "Y"}, {"ghost", "X"}, {"ghost", "Y"})
         # Want to combine them into two regions ("X", "Y")
@@ -540,7 +540,7 @@ class AxisComponent(LabelledNodeComponent):
                 new_region = AxisComponentRegion(sum(r.size for r in regions), label=new_label)
                 new_regions.append(new_region)
             new_regions = tuple(new_regions)
-            return self.__record_init__(regions=new_regions, sf=None)
+            return self.record_new(regions=new_regions, sf=None)
 
         else:
             assert self.sf is None
@@ -550,7 +550,7 @@ class AxisComponent(LabelledNodeComponent):
     def regionless(self) -> AxisComponent:
         if len(self.regions) > 1:
             merged_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
-            return self.__record_init__(regions=(merged_region,), sf=None)
+            return self.record_new(regions=(merged_region,), sf=None)
         else:
             assert self.sf is None
             return self
@@ -585,9 +585,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         # relabel components if needed
         if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
             if len(components) > 1:
-                components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
+                components = tuple(c.record_new(_label=i) for i, c in enumerate(components))
             else:
-                components = (utils.just_one(components).__record_init__(_label=None),)
+                components = (utils.just_one(components).record_new(_label=None),)
 
         label = label if label is not PYOP3_DECIDE else self.unique_label()
 
@@ -634,11 +634,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         if len(self.component_labels) == 1:
             return self
         else:
-            return self.__record_init__(components=tuple(c for c in self.components if c.label == component_label))
+            return self.record_new(components=tuple(c for c in self.components if c.label == component_label))
 
     @cached_property
     def regionless(self) -> Axis:
-        return self.__record_init__(components=tuple(c.regionless for c in self.components))
+        return self.record_new(components=tuple(c.regionless for c in self.components))
 
     @property
     def component_labels(self):
@@ -705,11 +705,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
 
     @cached_method()
     def localize(self):
-        return self.__record_init__(components=tuple(c.localize() for c in self.components))
+        return self.record_new(components=tuple(c.localize() for c in self.components))
 
     @cached_method()
     def regionless(self):
-        return self.__record_init__(components=tuple(c.regionless() for c in self.components))
+        return self.record_new(components=tuple(c.regionless() for c in self.components))
 
     @cached_property
     def _tree(self):
@@ -2358,7 +2358,7 @@ class AxisForest(AbstractAxisTreeLike):
 
     @property
     def owned(self) -> AxisForest:
-        return self.__record_init__(_trees=tuple(tree.owned for tree in self.trees))
+        return self.record_new(_trees=tuple(tree.owned for tree in self.trees))
 
     @property
     def unconstrained(self) -> AxisForest:
@@ -2370,7 +2370,7 @@ class AxisForest(AbstractAxisTreeLike):
         new_trees = [tree.unconstrained for tree in self.trees]
         min_size = min(tree.local_size for tree in new_trees)
         new_trees = tuple(tree for tree in new_trees if tree.local_size == min_size)
-        return self.__record_init__(_trees=new_trees)
+        return self.record_new(_trees=new_trees)
 
     def with_region_labels(self, labels, **kwargs) -> AxisForest:
         return type(self)((tree.with_region_labels(labels, **kwargs) for tree in self.trees))
@@ -2923,19 +2923,19 @@ def replace_exprs(treelike, replace_map):
 
 @replace_exprs.register(Axis)
 def _(axis: Axis, /, replace_map):
-    return axis.__record_init__(components=tuple(replace_exprs(c, replace_map) for c in axis.components))
+    return axis.record_new(components=tuple(replace_exprs(c, replace_map) for c in axis.components))
 
 
 @replace_exprs.register(AxisComponent)
 def _(component: AxisComponent, /, replace_map):
-    return component.__record_init__(regions=tuple(replace_exprs(r, replace_map) for r in component.regions))
+    return component.record_new(regions=tuple(replace_exprs(r, replace_map) for r in component.regions))
 
 
 @replace_exprs.register(AxisComponentRegion)
 def _(region: AxisComponentRegion, /, replace_map):
     from pyop3.expr.visitors import replace
 
-    return region.__record_init__(size=replace(region.size, replace_map))
+    return region.record_new(size=replace(region.size, replace_map))
 
 
 def gather_loop_indices_from_targets(targets):

@@ -564,7 +564,7 @@ class CalledFunction(AbstractCalledFunction):
                 loopy_arg = loopy_arg.copy(shape=(arg.size,), dim_tags=None)
             new_loopy_args.append(loopy_arg)
         new_loopy_args = tuple(new_loopy_args)
-        return function.__record_init__(
+        return function.record_new(
             code=function.code.with_kernel(loopy_kernel.copy(args=new_loopy_args))
         )
 

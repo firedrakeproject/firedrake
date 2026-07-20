@@ -68,7 +68,7 @@ def postorder(method):
     return wrapper
 
 
-# maybe implement __record_init__ here?
+# maybe implement record_new here?
 class Node(pyop3.obj.Pyop3Object, abc.ABC):
     # bikeshedding, since this is meant to be inherited from it would be good to 'namespace' it
     @property
@@ -276,7 +276,7 @@ class NodeTransformer(NodeVisitor, abc.ABC):
         ):
             return node
         else:
-            return node.__record_init__(**visited)
+            return node.record_new(**visited)
 
 
 class NodeCollector(NodeVisitor, abc.ABC):

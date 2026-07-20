@@ -524,7 +524,7 @@ def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
     else:
         path = loop_context[loop_index.id]
         linear_iterset = loop_index.iterset.linearize(path)
-        return (loop_index.__record_init__(iterset=linear_iterset),)
+        return (loop_index.record_new(iterset=linear_iterset),)
 
 
 @_as_context_free_indices.register
@@ -575,7 +575,7 @@ def _(
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = {input_path: (output_spec,)}
-            restricted_map = called_map.map.__record_init__(_connectivity=restricted_connectivity)(cf_index)
+            restricted_map = called_map.map.record_new(_connectivity=restricted_connectivity)(cf_index)
             cf_maps.append(restricted_map)
     return tuple(cf_maps)
 

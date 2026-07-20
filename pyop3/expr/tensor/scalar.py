@@ -63,8 +63,7 @@ class Scalar(Tensor):
         if buffer.size != 1:
             raise exc.SizeMismatchException("Expected a buffer with unit size")
 
-        self._name = name
-        self._buffer = buffer
+        self.record_init(_name=name, _buffer=buffer)
 
     # }}}
 
@@ -78,7 +77,7 @@ class Scalar(Tensor):
     def copy(self) -> Scalar:
         name = f"{self.name}_copy"
         buffer = self._buffer.copy()
-        return self.__record_init__(_name=name, _buffer=buffer)
+        return self.record_new(_name=name, _buffer=buffer)
 
     shape = (UNIT_AXIS_TREE,)
     loop_axes = idict()

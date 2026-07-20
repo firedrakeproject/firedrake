@@ -641,7 +641,7 @@ class Slice(Index):
         ):
             label = axis
             components = tuple(
-                c.__record_init__(_label=c.component)
+                c.record_new(_label=c.component)
                 for c in components
             )
         else:
@@ -659,7 +659,7 @@ class Slice(Index):
                 else:
                     component_labels = range(len(components))
                 components = tuple(
-                    c.__record_init__(_label=l)
+                    c.record_new(_label=l)
                     for c, l in zip(components, component_labels, strict=True)
                 )
 
@@ -2145,7 +2145,7 @@ def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple
     # If we wish to take only the ghost points, then the ragged arrays for
     # the dof axis need to be truncated.
     size = expr_replace(selected_region.size, parent_exprs)
-    selected_region = selected_region.__record_init__(label=None, size=size)
+    selected_region = selected_region.record_new(label=None, size=size)
     return (selected_region,)
 
 
@@ -2169,7 +2169,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
         indexed_regions = []
         for region in regions:
             size = expr_replace(region.size, parent_exprs)
-            indexed_region = region.__record_init__(size=size)
+            indexed_region = region.record_new(size=size)
             indexed_regions.append(indexed_region)
         return tuple(indexed_regions)
 

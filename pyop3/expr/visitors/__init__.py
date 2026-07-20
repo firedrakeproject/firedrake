@@ -302,7 +302,7 @@ def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
 @_replace_terminals.register(pyop3.expr.LinearDatBufferExpression)
 def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map) -> pyop3.expr.LinearDatBufferExpression:
     new_layout = _replace_terminals(expr.layout, replace_map)
-    return expr.__record_init__(layout=new_layout)
+    return expr.record_new(layout=new_layout)
 
 
 @_replace_terminals.register(pyop3.expr.BinaryOperator)
@@ -370,7 +370,7 @@ def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map):
     if updated_layout == expr.layout:
         return expr
     else:
-        return expr.__record_init__(layout=updated_layout)
+        return expr.record_new(layout=updated_layout)
 
 
 @_replace.register(pyop3.expr.CompositeDat)
@@ -517,7 +517,7 @@ def _(dat_expr: pyop3.expr.NonlinearDatBufferExpression, /, axis_trees: Iterable
         for path, layout in dat_expr.layouts.items()
         if path in axis_tree.leaf_paths
     })
-    return dat_expr.__record_init__(layouts=pruned_layouts)
+    return dat_expr.record_new(layouts=pruned_layouts)
 
 
 @concretize_layouts.register(pyop3.expr.MatArrayBufferExpression)
@@ -535,7 +535,7 @@ def _(mat_expr: pyop3.expr.MatArrayBufferExpression, /, axis_trees: Iterable[Axi
         })
         pruned_layoutss.append(pruned_layouts)
     row_layouts, column_layouts = pruned_layoutss
-    return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
+    return mat_expr.record_new(row_layouts=row_layouts, column_layouts=column_layouts)
 
 
 class TensorCandidateIndirectionsCollector(ExpressionVisitor):
@@ -732,11 +732,11 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
             if index in selector:
                 return pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
             else:
-                return expr.__record_init__(layout=child)
+                return expr.record_new(layout=child)
         else:
             candidates = []
             for layout_expr, layout_cost, layout_materialization_indices in child:
-                candidate_expr = expr.__record_init__(layout=layout_expr)
+                candidate_expr = expr.record_new(layout=layout_expr)
 
                 # TODO: Only apply penalty for non-affine layouts
                 candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
@@ -784,7 +784,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
     @process.register(pyop3.expr.LinearDatBufferExpression)
     def _(self, buffer_expr: pyop3.expr.LinearDatBufferExpression, index, layouts, key):
         layout = linearize_expr(layouts[key + (index,)])
-        return buffer_expr.__record_init__(layout=layout)
+        return buffer_expr.record_new(layout=layout)
 
 
     @process.register(pyop3.expr.NonlinearDatBufferExpression)
@@ -794,7 +794,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
             layout = layouts[key + ((index, i),)]
             new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
         new_layouts = idict(new_layouts)
-        return buffer_expr.__record_init__(layouts=new_layouts)
+        return buffer_expr.record_new(layouts=new_layouts)
 
 
     @process.register(pyop3.expr.MatPetscMatBufferExpression)
@@ -802,7 +802,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
         # TODO: linearise the layouts here like we do for dats (but with no path)
         row_layout = layouts[key + ((index, 0),)]
         column_layout = layouts[key + ((index, 1),)]
-        return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
+        return mat_expr.record_new(row_layout=row_layout, column_layout=column_layout)
 
 
     @process.register(pyop3.expr.MatArrayBufferExpression)
@@ -815,7 +815,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
                 layout = layouts[key + ((index, i, j),)]
                 new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
             new_buffer_layoutss.append(utils.freeze(new_layouts))
-        return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
+        return buffer_expr.record_new(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
 
 
 def concretize_materialized_tensor_indirections(expr, layouts, key):
@@ -1344,7 +1344,7 @@ def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFroze
 #         buffer = expr.buffer.buffer
 #         if buffer.rank_equal and buffer.size < CONFIG.max_static_array_size:
 #             new_buffer = ConstantBuffer(buffer.data_ro)
-#             return expr.__record_init__(_buffer=new_buffer)
+#             return expr.record_new(_buffer=new_buffer)
 #         else:
 #             return expr
 #
@@ -1482,7 +1482,7 @@ def _(tensor: pyop3.expr.Tensor, /, access_type):
     if not tensor.transform:
         return tensor, ()
     else:
-        bare_tensor = tensor.__record_init__(_transform=None)
+        bare_tensor = tensor.record_new(_transform=None)
         return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
 
 
@@ -1609,14 +1609,14 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 #     @process.register(pyop3.expr.AxisVar)
 #     def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
 #         relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
-#         return axis_var.__record_init__(axis=relabeled_axis)
+#         return axis_var.record_new(axis=relabeled_axis)
 #
 #     @process.register(pyop3.expr.LoopIndexVar)
 #     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
 #         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
 #         relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
 #         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
-#         return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
+#         return loop_var.record_new(loop_index=relabeled_loop_index, axis=relabeled_axis)
 #
 #     @process.register(pyop3.expr.Scalar)
 #     @process.register(pyop3.expr.ScalarBufferExpression)
@@ -1635,12 +1635,12 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 #                     relabeled_prev = self(dat.transform.prev)
 #                 else:
 #                     relabeled_prev = None
-#                 relabeled_transform = dat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+#                 relabeled_transform = dat.transform.record_new(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
 #             else:
 #                 raise NotImplementedError
 #         else:
 #             relabeled_transform = None
-#         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
+#         return dat.record_new(axes=relabeled_axes, _transform=relabeled_transform)
 #
 #     @process.register(pyop3.expr.AggregateDat)
 #     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
@@ -1648,7 +1648,7 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 #         relabeled_subdats = np.asarray(
 #             [self(subdat) for subdat in agg_dat.subdats], dtype=object
 #         )
-#         return agg_dat.__record_init__(subdats=relabeled_subdats, axis=relabeled_axis)
+#         return agg_dat.record_new(subdats=relabeled_subdats, axis=relabeled_axis)
 #
 #     @process.register(pyop3.expr.Mat)
 #     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
@@ -1663,24 +1663,24 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 #                     relabeled_prev = self(mat.transform.prev)
 #                 else:
 #                     relabeled_prev = None
-#                 relabeled_transform = mat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+#                 relabeled_transform = mat.transform.record_new(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
 #             else:
 #                 raise NotImplementedError
 #         else:
 #             relabeled_transform = None
-#         return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
+#         return mat.record_new(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
 #
 #     @process.register(pyop3.expr.LinearDatBufferExpression)
 #     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
 #         relabeled_layout = self(dat_expr.layout)
-#         return dat_expr.__record_init__(layout=relabeled_layout)
+#         return dat_expr.record_new(layout=relabeled_layout)
 #
 #     @process.register(pyop3.expr.NonlinearDatBufferExpression)
 #     def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
 #         relabeled_layouts = idict({
 #             path: self(layout) for path, layout in dat_expr.layouts.items()
 #         })
-#         return dat_expr.__record_init__(layouts=relabeled_layouts)
+#         return dat_expr.record_new(layouts=relabeled_layouts)
 #
 #
 # def canonicalize_labels(expr: ExpressionT, relabeler: Renamer) -> ExpressionT:

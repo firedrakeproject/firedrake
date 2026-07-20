@@ -380,14 +380,14 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: None}
         before = utils.just_one(new_targets[path][0])  # hack to get the right one...
         assert before.axis == "dof"
-        new_targets[path] = [[before.__record_init__(
+        new_targets[path] = [[before.record_new(
             # expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr}, assert_modified=True)
             expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr})
         )]]
 
     new_targets = utils.freeze(new_targets)
 
-    return axes.__record_init__(_targets=new_targets)
+    return axes.record_new(_targets=new_targets)
 
 
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))

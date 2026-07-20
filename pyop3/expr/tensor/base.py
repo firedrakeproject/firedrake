@@ -230,7 +230,7 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
         """
         name = f"{self.name}_copy"
         buffer = self.buffer.duplicate(copy=copy, constant=constant)
-        return self.__record_init__(_name=name, _buffer=buffer)
+        return self.record_new(_name=name, _buffer=buffer)
 
     def copy(self, *, constant: bool | None = None) -> Tensor:
         """Return a copy of the tensor.

@@ -183,14 +183,14 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 # @canonicalize_labels.register(pyop3.axis_tree.AxisTree)
 # def _(axis_tree: pyop3.axis_tree.AxisTree, relabeler: Renamer) -> AxisTree:
 #     node_map = LabelCanonicalizer(relabeler)(axis_tree)
-#     return axis_tree.__record_init__(_node_map=node_map)
+#     return axis_tree.record_new(_node_map=node_map)
 #
 # @canonicalize_labels.register(pyop3.axis_tree.IndexedAxisTree)
 # def _(axes: pyop3.axis_tree.IndexedAxisTree, relabeler):
 #     node_map = LabelCanonicalizer(relabeler)(axes)
 #     unindexed = canonicalize_labels(axes.unindexed, relabeler)
 #     targets = _canonicalize_target_labels(axes.targets, relabeler)
-#     return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
+#     return axes.record_new(_node_map=node_map, _unindexed=unindexed, _targets=targets)
 #
 # @canonicalize_labels.register(pyop3.axis_tree._UnitAxisTree)
 # def _(axes: pyop3.axis_tree.UnitIndexedAxisTree, relabeler):
@@ -204,7 +204,7 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 # def _(axes: pyop3.axis_tree.UnitIndexedAxisTree, relabeler):
 #     unindexed = canonicalize_labels(axes.unindexed, relabeler)
 #     targets = _canonicalize_target_labels(axes.targets, relabeler)
-#     return axes.__record_init__(unindexed=unindexed, _targets=targets)
+#     return axes.record_new(unindexed=unindexed, _targets=targets)
 #
 #
 # @canonicalize_labels.register(pyop3.axis_tree.ContextSensitiveAxisTree)
@@ -224,7 +224,7 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #         relabeled_tree = canonicalize_labels(tree, relabeler)
 #         relabeled_trees[relabeled_ctx] = relabeled_tree
 #     relabeled_trees = idict(relabeled_trees)
-#     return axes.__record_init__(trees=relabeled_trees)
+#     return axes.record_new(trees=relabeled_trees)
 #
 #
 # def _canonicalize_target_labels(targets, relabeler):
@@ -240,7 +240,7 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #         for axis_targets in axis_targetss:
 #              relabeled_axis_targetss.append(
 #                 tuple(
-#                     axis_target.__record_init__(axis=relabeler.add(axis_target.axis, "axis"), expr=relabel_expr(axis_target.expr, relabeler))
+#                     axis_target.record_new(axis=relabeler.add(axis_target.axis, "axis"), expr=relabel_expr(axis_target.expr, relabeler))
 #                     for axis_target in axis_targets
 #                 )
 #             )
@@ -252,7 +252,7 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 # def _(axis, relabeler):
 #     relabeled_label = relabeler.add(axis.label, "axis")
 #     relabeled_components = tuple(canonicalize_labels(c, relabeler) for c in axis.components)
-#     return axis.__record_init__(_label=relabeled_label, components=relabeled_components)
+#     return axis.record_new(_label=relabeled_label, components=relabeled_components)
 #
 # @canonicalize_labels.register(pyop3.axis_tree.AxisComponent)
 # def _(component: pyop3.axis_tree.AxisComponent, relabeler) -> tuple:
@@ -263,11 +263,11 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
 #         relabeled_size = relabel_expr(component._size, relabeler)
 #     else:
 #         relabeled_size = None
-#     return component.__record_init__(regions=relabeled_regions, _size=relabeled_size)
+#     return component.record_new(regions=relabeled_regions, _size=relabeled_size)
 #
 #
 # @canonicalize_labels.register(pyop3.axis_tree.AxisComponentRegion)
 # def _(region: pyop3.axis_tree.AxisComponent, relabeler) -> tuple:
 #     from pyop3.expr.visitors import canonicalize_labels as relabel_expr
 #
-#     return region.__record_init__(size=relabel_expr(region.size, relabeler))
+#     return region.record_new(size=relabel_expr(region.size, relabeler))

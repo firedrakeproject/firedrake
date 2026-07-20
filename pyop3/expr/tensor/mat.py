@@ -86,13 +86,13 @@ class Mat(Tensor):
         column_axes = as_axis_tree_type(column_axes)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.row_axes = row_axes
-        self.column_axes = column_axes
-        self._buffer = buffer
-        self._name = name
-        self._transform = transform
-
-        self.__post_init__()
+        self.record_init(
+            row_axes=row_axes,
+            column_axes=column_axes,
+            _buffer=buffer,
+            _name=name,
+            _transform=transform,
+        )
 
     def __post_init__(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
@@ -233,15 +233,15 @@ class Mat(Tensor):
         #   }
         indexed_row_axes = self.row_axes.getitem(row_index, strict=strict)
         indexed_column_axes = self.column_axes.getitem(column_index, strict=strict)
-        return self.__record_init__(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
+        return self.record_new(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
 
     def with_context(self, context):
         cf_row_axes = self.row_axes.with_context(context)
         cf_column_axes = self.column_axes.with_context(context)
-        return self.__record_init__(row_axes=cf_row_axes, column_axes=cf_column_axes)
+        return self.record_new(row_axes=cf_row_axes, column_axes=cf_column_axes)
 
     def with_axes(self, row_axes, col_axes):
-        return self.__record_init__(row_axes=row_axes, column_axes=col_axes)
+        return self.record_new(row_axes=row_axes, column_axes=col_axes)
 
     def null_like(self, **kwargs) -> Mat:
         return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
@@ -271,7 +271,7 @@ class Mat(Tensor):
         """
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(column_axes, AxisTree), "not indexed"
-        return self.__record_init__(
+        return self.record_new(
             row_axes=row_axes,
             column_axes=column_axes,
             _transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
@@ -426,10 +426,7 @@ class AggregateMat(pyop3.obj.Pyop3Object):
     def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         # TODO: check size 1 for each axis component and # components must match # subdats
-        self.submats = submats
-        self.row_axis = row_axis
-        self.column_axis = column_axis
-        self.name = name
+        self.record_init(submats=submats, row_axis=row_axis, column_axis=column_axis, name=name)
 
     # }}}
 
@@ -455,7 +452,7 @@ class AggregateMat(pyop3.obj.Pyop3Object):
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)
-        return self.__record_init__(submats=cf_submats)
+        return self.record_new(submats=cf_submats)
 
     @cached_property
     def row_axes(self) -> AxisTree:

@@ -129,11 +129,12 @@ class Dat(Tensor):
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        self.axes = axes
-        self._buffer = buffer
-        self._name = name
-        self._transform = transform
-        self.__post_init__()
+        self.record_init(
+                axes = axes,
+                _buffer = buffer,
+                _name = name,
+                _transform = transform,
+        )
 
     def __post_init__(self) -> None:
         # fails for transforms, is that an issue?
@@ -301,7 +302,7 @@ class Dat(Tensor):
 
     def getitem(self, index, *, strict=False):
         indexed_axes = self.axes.getitem(index, strict=strict)
-        return self.__record_init__(axes=indexed_axes)
+        return self.record_new(axes=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -317,7 +318,7 @@ class Dat(Tensor):
 
     @cached_property
     def _localized(self) -> Dat:
-        return self.__record_init__(axes=self.axes.localize(), _buffer=self.buffer.localize())
+        return self.record_new(axes=self.axes.localize(), _buffer=self.buffer.localize())
 
     @property
     def alloc_size(self):
@@ -355,15 +356,15 @@ class Dat(Tensor):
 
         name = f"{self.name}_copy"
         buffer = self._buffer.duplicate(copy=copy, constant=constant)
-        return self.__record_init__(_name=name, _buffer=buffer)
+        return self.record_new(_name=name, _buffer=buffer)
 
     # TODO: dont do this here
     def with_context(self, context):
-        return self.__record_init__(axes=self.axes.with_context(context))
+        return self.record_new(axes=self.axes.with_context(context))
 
     @property
     def context_free(self):
-        return self.__record_init__(axes=self.axes.context_free)
+        return self.record_new(axes=self.axes.context_free)
 
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
@@ -694,7 +695,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
+        return self.record_new(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -712,7 +713,7 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.__record_init__(axes=axes)
+        return self.record_new(axes=axes)
 
     def null_like(self, **kwargs) -> Dat:
         return self.null(self.axes, dtype=self.dtype, **kwargs)
@@ -786,10 +787,11 @@ class AggregateDat(pyop3.obj.Pyop3Object):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         # TODO: check size 1 for each axis component and # components must match # subdats
-
-        self.subdats = subdats
-        self.axis = axis
-        self.name = name
+        self.record_init(
+        subdats = subdats,
+        axis = axis,
+        name = name,
+        )
 
     # }}}
 
@@ -813,7 +815,7 @@ class AggregateDat(pyop3.obj.Pyop3Object):
         cf_subdats = np.empty_like(self.subdats)
         for loc, subdat in np.ndenumerate(self.subdats):
             cf_subdats[loc] = subdat.with_context(context)
-        return self.__record_init__(subdats=cf_subdats)
+        return self.record_new(subdats=cf_subdats)
 
     @cached_property
     def axes(self) -> AxisTree:

@@ -95,13 +95,13 @@ class LoopContextExpander(InstructionTransformer):
     @process.register(pyop3.insn.CalledFunction)
     def _(self, func: pyop3.insn.CalledFunction, /, *, loop_context) -> pyop3.insn.CalledFunction:
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
-        return func.__record_init__(_arguments=new_arguments)
+        return func.record_new(_arguments=new_arguments)
 
     @process.register(pyop3.insn.Assignment)
     def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
         assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
         expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
-        return assignment.__record_init__(_assignee=assignee, _expression=expression)
+        return assignment.record_new(_assignee=assignee, _expression=expression)
 
     @process.register(pyop3.insn.Exscan)  # for now assume we are fine
     def _(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
@@ -133,7 +133,7 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     @_apply.register(pyop3.insn.Loop)
     def _(self, loop: pyop3.insn.Loop) -> pyop3.insn.Loop:
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
-        return loop.__record_init__(statements=new_statements)
+        return loop.record_new(statements=new_statements)
 
     @_apply.register
     def _(self, insn_list: pyop3.insn.InstructionList):
@@ -425,7 +425,7 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         expression_insns += (expression_temp.assign(bare_expression),)
         bare_expression = expression_temp
 
-    bare_assignment = assignment.__record_init__(
+    bare_assignment = assignment.record_new(
         _assignee=bare_assignee,
         _expression=bare_expression,
         _assignment_type=assignment_type,
@@ -470,9 +470,9 @@ def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.Instruction:
 
 @concretize_layouts.register(pyop3.insn.Loop)
 def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop | pyop3.insn.NullInstruction:
-    index = loop.index.__record_init__(iterset=loop.index.iterset.materialize())
+    index = loop.index.record_new(iterset=loop.index.iterset.materialize())
     statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
-    return loop.__record_init__(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
+    return loop.record_new(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
 
 
 @concretize_layouts.register
@@ -708,7 +708,7 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
 
     @process.register(pyop3.insn.Loop)
     def _(self, loop: pyop3.insn.Loop, /, layouts: Mapping[Any, Any]) -> pyop3.insn.Loop:
-        return loop.__record_init__(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
+        return loop.record_new(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
 
 
     @process.register(pyop3.insn.StandaloneCalledFunction)
@@ -783,7 +783,7 @@ class LiteralInserter(NodeTransformer):
 
             new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
-            return assignment.__record_init__(_expression=new_expression)
+            return assignment.record_new(_expression=new_expression)
         else:
             return assignment
 

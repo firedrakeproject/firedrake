@@ -186,13 +186,13 @@ class NullBuffer(AbstractArrayBuffer):
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
 
-        self._shape = shape
-        self._name = name
-        self._dtype = dtype
-        self._max_value = max_value
-        self._ordered = ordered
-
-        self.__post_init__()
+        self.record_init(
+        _shape = shape,
+        _name = name,
+        _dtype = dtype,
+        _max_value = max_value,
+        _ordered = ordered,
+        )
 
     def __post_init__(self) -> None:
         assert isinstance(self.shape, tuple)
@@ -217,7 +217,7 @@ class NullBuffer(AbstractArrayBuffer):
         if constant is None:
             raise NotImplementedError
         name = f"{self.name}_copy"
-        return self.__record_init__(_name=name)
+        return self.record_new(_name=name)
 
     is_nested: ClassVar[bool] = False
 
@@ -367,16 +367,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
-        self._device_arrays_private = device_arrays
-        self._state = state
-        self.sf = sf
-        self._name = name
-        self._constant = constant
-        self._rank_equal = rank_equal
-        self._max_value = max_value
-        self._ordered = ordered
+        self.record_init(
+        _device_arrays_private = device_arrays,
+        sf = sf,
+        _name = name,
+        _constant = constant,
+        _rank_equal = rank_equal,
+        _max_value = max_value,
+        _ordered = ordered,
+        )
 
-        self.__post_init__()
+        self._state = state
 
     # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
@@ -932,7 +933,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @cached_method()
     def localize(self) -> Self:
-        return self.__record_init__(sf=None)
+        return self.record_new(sf=None)
 
     # }}}
 
@@ -1057,11 +1058,12 @@ class PetscMatBuffer(ConcreteBuffer):
     ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.mat = mat
-        self.mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
+        self.record_init(
+        mat = mat,
+        mat_spec = mat_spec,
+        _name = name,
+        _constant = constant,
+        )
         # state tracking
         self._current_insert_mode: pyop3.types.MatInsertMode | None  = None
 
