@@ -2654,7 +2654,7 @@ class MeshTopology(AbstractMeshTopology):
         values = self._renumber_map_fixed(subpoints, from_plex_indices, from_numbering_sec, to_numbering_sec)
         map_name = f"{self.name}_submesh_map_{from_set.label}_{to_set.label}"
         to_label = to_set.component.label
-        map_dat = op3.Dat(from_set, data=values.flatten())
+        map_dat = op3.Dat(from_set, data=values.ravel())
         return op3.ScalarMap(
             {
                 idict({from_set.label: from_set.component.label}): [

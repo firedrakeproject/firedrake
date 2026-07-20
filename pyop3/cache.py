@@ -591,6 +591,9 @@ def parallel_cache(
 
                 key = hashkey(*args, **kwargs)
 
+                # if func.__name__ == "_compile_static":
+                #     breakpoint()
+
                 for cache_idx, cache in enumerate(caches):
                     try:
                         value = cache[key]

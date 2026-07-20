@@ -30,7 +30,8 @@ from pyop3.exceptions import UnhashableObjectException
 
 def record(**kwargs):
     assert "eq" not in kwargs
-    return _make_record_class(eq=False, **kwargs)
+    assert "repr" not in kwargs
+    return _make_record_class(eq=False, repr=False, **kwargs)
 
 
 def frozenrecord(**kwargs):
@@ -38,13 +39,22 @@ def frozenrecord(**kwargs):
     return _make_record_class(frozen=True, **kwargs)
 
 
-def _make_record_class(*, add_record_init: bool = True, **kwargs):
+def _make_record_class(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.record_setup = _record_setup
 
-        if add_record_init:
-            cls.__record_init__ = _record_init
+        cls.__record_init__ = _record_init
+
+        old_init = cls.__init__
+
+        def custom_init(self, *args, **kwargs):
+            # print("calling old init")
+            old_init(self, *args, **kwargs)
+            # print("called")
+
+        cls.__init__ = custom_init
+
 
         def _record_method_cache(self):
             return collections.defaultdict(dict)
@@ -93,9 +103,9 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
 # @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
 # actually just disable this unless we can prove that it's necessary - it generates a
 # lot of cache misses and probably slows up GC
-# @memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
-def _make_record_maybe_singleton(*args, **kwargs):
-    return _make_record(*args, **kwargs)
+@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF)
+def _make_record_maybe_singleton(self, *args, **kwargs):
+    return _make_record(self, *args, **kwargs)
 
 
 def _make_record(self, attrs, *, change_id: bool):

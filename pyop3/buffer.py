@@ -255,7 +255,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-@pyop3.record.record(repr=False, add_record_init=False)
+@pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
 
@@ -285,8 +285,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     _rank_equal: bool
     _ordered: bool
-
-    _state: dict
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -1006,7 +1004,7 @@ class PetscMatAxisSpec:
         return np.prod(self.block_shape, dtype=int)
 
 
-@pyop3.record.record(repr=False, add_record_init=False)
+@pyop3.record.record()
 class PetscMatBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 

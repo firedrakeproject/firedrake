@@ -672,6 +672,9 @@ class MutableLabelledTreeMixin:
         if path not in self.node_map:
             raise TreeMutationException("Provided path does not exist in the tree")
 
+        if path in self.leaf_paths:
+            return type(self)()
+
         trimmed_node_map = self._subtree_node_map(path)
         return self.__record_init__(_node_map=trimmed_node_map)
 

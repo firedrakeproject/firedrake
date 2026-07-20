@@ -145,6 +145,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
 
 def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
+    if axis_tree.is_empty:
+        return idict({idict(): None}), pyop3.sf.NullStarForest(0)
+
     # First traverse the axis tree and compute everything we can.
     to_tabulate = []
     tabulated = {}

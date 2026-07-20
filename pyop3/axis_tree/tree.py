@@ -1479,6 +1479,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     def __post_init__(self) -> None:
         object.__setattr__(self, "_node_map", fixup_node_map(self.node_map))
 
+        # eagerly evaluate this so profiles are comprehensible
+        # self.layouts
+
     # }}}
 
     # {{{ interface impls

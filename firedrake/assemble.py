@@ -1115,7 +1115,7 @@ class ParloopFormAssembler(FormAssembler):
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
-                tensor_id[local_kernel] = subtensor.record_id
+                tensor_id[local_kernel] = subtensor.name
 
                 parloop_builder = ParloopBuilder(
                     self._form,

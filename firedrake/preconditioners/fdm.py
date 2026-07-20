@@ -778,7 +778,7 @@ class FDMPC(PCBase):
                 self.assemblers.setdefault(key, assembler)
 
         args = assembler.statements[0].arguments
-        assembler(**{args[0].record_id: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
+        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
 
 
 class ElementKernel:
@@ -1796,7 +1796,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
     # Now run the same loop but with the allocated matrix
     Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat))
-    assembler(**{mat_args[0].record_id: Dmat_arg})
+    assembler(**{mat_args[0].name: Dmat_arg})
     Dmat.assemble()
     # Dhat.destroy()
     return Dmat

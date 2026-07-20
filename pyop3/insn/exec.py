@@ -156,11 +156,11 @@ class InstructionExecutionContext:
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
-        for arg_id, new_arg in kwargs.items():
-            buffer_ids = self._argument_id_to_buffer_id_map[arg_id]
-            buffers = self._extract_buffers(new_arg)
-            for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
-                new_buffers[buffer_id] = buffer
+        for arg_name, new_arg in kwargs.items():
+            orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
+            new_arg_buffers = self._extract_buffers(new_arg)
+            for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
+                new_buffers[orig_buffer] = new_buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
@@ -168,7 +168,7 @@ class InstructionExecutionContext:
         if not self._has_called_compile:
             assert self._preprocessed is None
 
-        executable(**new_buffers)
+        executable(new_buffers)
 
     def preprocess(self) -> Instruction:
         from .visitors import (
@@ -293,7 +293,7 @@ class InstructionExecutionContext:
 
         executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)
 
-        return executor, self._argument_index_to_buffer_id_map
+        return executor, self._argument_index_to_buffer_map
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
@@ -318,18 +318,28 @@ class InstructionExecutionContext:
 
 
     @cached_property
-    def _argument_index_to_buffer_id_map(self) -> idict[int, str]:
+    def _argument_index_to_buffer_map(self) -> idict[int, str]:
         return idict({
-            i: tuple(buf.record_id for buf in self._extract_buffers(arg))
+            i: self._extract_buffers(arg)
             for i, arg in enumerate(self.root_insn.global_arguments)
         })
 
     @cached_property
-    def _argument_id_to_buffer_id_map(self) -> idict:
-        return idict({
-            arg.record_id: tuple(buf.record_id for buf in self._extract_buffers(arg))
-            for arg in self.root_insn.global_arguments
-        })
+    def _argument_name_to_buffer_map(self) -> dict[str, tuple[AbstractBuffer, ...]]:
+        # This attribute is only used for argument replacement.
+        # We don't want to get conflicts if we pass in two tensors with the same name
+        name_to_buffer_map = {}
+        names_to_skip = set()
+        for arg in self.root_insn.global_arguments:
+            if arg.name in names_to_skip:
+                pass
+            elif arg.name in name_to_buffer_map:
+                # duplicate!
+                del name_to_buffer_map[arg.name]
+                names_to_skip.add(arg.name)
+            else:
+                name_to_buffer_map[arg.name] = self._extract_buffers(arg)
+        return name_to_buffer_map
 
     @cached_property
     def _executor_cache_key(self) -> Hashable:
@@ -404,11 +414,7 @@ class Executable:
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __call__(self, *args: int) -> None:
-        # print("calling")
-        # print(self.code)
         self._callable(*args)
-        # print(self.code)
-        # print("done, didn't die")
 
     @cached_property
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
@@ -482,14 +488,14 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _buffer_global_id_to_name_in_kernel_map(self):
-        return {buffer.record_id: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
+        return {buffer: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
 
     @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
         # This is exactly the same as _buffer_refs!
         return tuple(buffer_ref for buffer_ref in self._buffer_refs)
 
-    def __call__(self, **kwargs) -> None:
+    def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
         """
         Notes
         -----
@@ -501,7 +507,7 @@ class CompiledCodeExecutor:
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
-        if not kwargs:  # shortcut for the most common case
+        if not new_buffers:  # shortcut for the most common case
             buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
         else:
@@ -514,7 +520,7 @@ class CompiledCodeExecutor:
                 for buffer_name, replacement_buffer in kwargs.items():
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
-            for buffer_key, replacement_buffer in kwargs.items():
+            for buffer_key, replacement_buffer in new_buffers.items():
                 index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
                 exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
@@ -639,7 +645,7 @@ class CompiledCodeExecutor:
     @cached_property
     def _buffer_ref_indices(self) -> idict[str, int]:
         return idict({
-            buffer.record_id: i for i, buffer in enumerate(self._buffer_refs)
+            buffer: i for i, buffer in enumerate(self._buffer_refs)
         })
 
     @cached_property

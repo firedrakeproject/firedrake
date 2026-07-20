@@ -421,7 +421,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     return sigma_error, u_error
 
 
-@pytest.mark.parallel(4)
+# @pytest.mark.parallel(4)
 @pytest.mark.parametrize('hexahedral', [False])
 @pytest.mark.parametrize('degree', [4])
 @pytest.mark.parametrize('submesh_region', ["left", "right", "front", "back", "bottom", "top"])
