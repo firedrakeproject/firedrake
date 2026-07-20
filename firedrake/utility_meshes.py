@@ -216,6 +216,85 @@ def TwoTetMesh(
     return m
 
 
+@PETSc.Log.EventDecorator()
+def TwoHexMesh(
+    perm=None,
+    right=None,
+    distribution_parameters=None,
+    reorder=False,
+    comm=COMM_WORLD,
+    name=DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+    use_fuse=False,
+):
+    """
+    Mesh with only two hexahedra, sharing a single quadrilateral face.
+
+    Analogous to :func:`TwoTetMesh`: the two cells share a unit-square
+    face in the ``z == 0`` plane (cell A occupies ``z in [-1, 0]``, cell
+    B occupies ``z in [0, 1]``). Cell B's local vertex ordering is fixed;
+    ``perm`` (if given) is applied to cell A's local vertex list, letting
+    the caller sweep the relative orientation of the shared face through
+    the quadrilateral's full 8-element dihedral symmetry group -- useful
+    for exhaustively testing H(div)/H(curl) orientation handling on
+    hexahedral cells, the way :func:`TwoTetMesh` does for tetrahedra
+    (whose shared triangular face only has a 6-element symmetry group).
+
+    :arg perm: (optional) a callable (e.g. a `sympy.combinatorics.Permutation`
+         of length 8) applied to cell A's local vertex list
+         ``[4, 5, 6, 7, 0, 3, 2, 1]`` (positions 0-3 hold cell A's own
+         private vertices, positions 4-7 the shared-face vertices).
+         ``perm`` must be a symmetry of the cube's vertex-position graph,
+         i.e. a D4 element acting simultaneously on BOTH blocks (the two
+         blocks are matched by the vertical vertex pairing of the DMPlex
+         hexahedron cone convention: bottom position ``i`` sits below top
+         position ``[0, 3, 2, 1][i]``). Permuting only positions 4-7
+         while fixing 0-3 is NOT a cube symmetry: it produces a twisted
+         trilinear cell (cell A's volume comes out != 1 -- 2/3 or 1/3
+         for face rotations, 1/sqrt(3) for face reflections), silently
+         invalidating anything computed on the mesh. Sweeping the paired
+         D4 elements realises all 8 relative orientations of the shared
+         face with valid geometry.
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg use_fuse: Flag indicting if mesh should be created using a fuse cell
+           Default False, mesh is based on the ufc cell.
+    """
+    coords = np.array([
+        [0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0],      # 0-3: shared face
+        [0, 0, -1], [0, 1, -1], [1, 1, -1], [1, 0, -1],  # 4-7: cell A private
+        [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],      # 8-11: cell B private
+    ])
+    cellA = [4, 5, 6, 7, 0, 3, 2, 1]
+    cellB = [0, 1, 2, 3, 8, 9, 10, 11]
+    if perm is not None:
+        cellA = perm(cellA)
+    cells = np.array([cellA, cellB])
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
+    )
+    m = Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+        use_fuse=use_fuse
+    )
+    return m
+
 
 @PETSc.Log.EventDecorator()
 def IntervalMesh(
