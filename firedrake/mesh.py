@@ -3230,10 +3230,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
-        self._bounding_box_coords = None
-        self._rtree = None
-        self._saved_coordinate_dat_version = coordinates.dat.dat_version
-
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
 
@@ -3437,17 +3433,11 @@ values from f.)"""
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = mesh._order_data_by_cell_index(
-            column_list, coords_min.dat.data_ro_with_halos
-        )
-        coords_max = mesh._order_data_by_cell_index(
-            column_list, coords_max.dat.data_ro_with_halos
-        )
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
         return coords_min, coords_max
 
-    @cached_property_until(
-        lambda self: (self.coordinates.dat.dat_version, self.tolerance)
-    )
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
     def rtree(self):
         """Builds an rtree from bounding box coordinates, expanding
@@ -3465,12 +3455,6 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
-            if "bounding_box_coords" in self.__dict__:
-                del self.bounding_box_coords
-        else:
-            if self._rtree:
-                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -3495,7 +3479,6 @@ values from f.)"""
 
         with PETSc.Log.Event("rtree_build"):
             self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._rtree
 
     @PETSc.Log.EventDecorator()
