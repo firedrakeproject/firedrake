@@ -52,3 +52,37 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
         a = inner(u, v) * dx
 
     assemble(a, mat_type=mat_type, diagonal=diagonal)
+
+
+@pytest.mark.parametrize("cell", ["triangle", "tetrahedron"])
+@pytest.mark.parametrize("degree", [1, 3])
+def test_collapsed_quadrature_sum_factorisation(cell, degree):
+    """``dx(scheme="collapsed")`` on a simplicial "DG"/variant="integral"
+    (i.e. `finat.spectral.Legendre`) space must produce the same
+    assembled residual and matrix as the default dense quadrature, even
+    though it takes the sum-factorized (Duffy/lattice) tabulation path
+    in ``tsfc.fem`` rather than the standard dense one.
+    """
+    mesh = {"triangle": UnitSquareMesh(2, 2),
+            "tetrahedron": UnitCubeMesh(1, 1, 1)}[cell]
+    V = FunctionSpace(mesh, "DG", degree, variant="integral")
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    w = Function(V)
+    w.dat.data[:] = np.random.default_rng(0).random(w.dat.data.shape)
+
+    # translate_coefficient path (forward transform): residual with a
+    # derivative, mixing both the coefficient and argument sum-factorized
+    # tabulations.
+    L = inner(grad(w), grad(v)) * dx
+    L_collapsed = inner(grad(w), grad(v)) * dx(scheme="collapsed")
+    b = assemble(L)
+    b_collapsed = assemble(L_collapsed)
+    assert np.allclose(b.dat.data, b_collapsed.dat.data, rtol=1e-10, atol=1e-10)
+
+    # translate_argument path (backward transform): mass matrix.
+    a = inner(u, v) * dx
+    a_collapsed = inner(u, v) * dx(scheme="collapsed")
+    M = assemble(a).M.values
+    M_collapsed = assemble(a_collapsed).M.values
+    assert np.allclose(M, M_collapsed, rtol=1e-10, atol=1e-10)

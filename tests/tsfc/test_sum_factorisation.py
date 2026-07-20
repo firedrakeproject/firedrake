@@ -3,7 +3,7 @@ import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad)
+                 tetrahedron, quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -16,6 +16,18 @@ def helmholtz(cell, degree):
     u = TrialFunction(V)
     v = TestFunction(V)
     return (u*v + dot(grad(u), grad(v)))*dx
+
+
+def simplex_dg_mass(cell, degree):
+    # A simplicial DG element whose nodal basis coincides with the Dubiner
+    # expansion set (finat.spectral.Legendre), so that dx(scheme="collapsed")
+    # takes the sum-factorized (Duffy/lattice) tabulation path in tsfc/fem.py
+    # instead of dense tabulation.
+    m = Mesh(VectorElement('CG', cell, 1))
+    V = FunctionSpace(m, FiniteElement('DG', cell, degree, variant='integral'))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(u, v) * dx(scheme='collapsed')
 
 
 def split_mixed_poisson(cell, degree):
@@ -95,6 +107,20 @@ def test_rhs(cell, order):
     if cell == TensorProductCell(triangle, interval):
         degrees = list(range(3, 6))
     flops = [count_flops(action(helmholtz(cell, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
+def test_simplex_dg_mass_action(cell, order):
+    # Matrix-free DG mass-matrix action (milestone 2 of PLAN.md / DESIGN.md):
+    # the coefficient contraction in translate_coefficient is sum-factorized
+    # via the Duffy/lattice tabulation, targeting O(p^{d+1}) flops. This
+    # tests the *action* (right-hand side, like test_rhs above), not full
+    # bilinear matrix assembly, which is milestone 4 and not yet implemented.
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_dg_mass(cell, degree)))
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
