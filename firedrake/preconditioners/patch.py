@@ -658,7 +658,7 @@ def select_entity(p, dm=None, exclude=None):
         return dm.getLabelValue(exclude, p) == -1
 
 
-class PlaneSmoother(object):
+class PlaneSmoother:
     @staticmethod
     def coords(dm, p, coordinates):
         coordinatesV = coordinates.function_space()
@@ -759,7 +759,7 @@ class PlaneSmoother(object):
                 axis = int(sweep_split[0])
             except ValueError:
                 try:
-                    axis = context.appctx[sweep_split[0]]
+                    axis = context.get_python_option(prefix, sweep_split[0])
                 except KeyError:
                     raise KeyError("PlaneSmoother axis key %s not provided" % sweep_split[0])
 

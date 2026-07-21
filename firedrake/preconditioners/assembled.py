@@ -22,8 +22,8 @@ class AssembledPC(PCBase):
         if pc.type != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        prefix = pc.getOptionsPrefix() or ""
+        fcp = dmhooks.get_appctx(pc.getDM()).get_python_option(prefix, "form_compiler_parameters", None)
 
         V = get_function_space(pc.getDM()).collapse()
         test = TestFunction(V)

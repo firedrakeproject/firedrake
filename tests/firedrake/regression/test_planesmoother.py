@@ -34,22 +34,24 @@ def test_xy_equivalence():
     patch_defined.solve()
     patch_defined_history = patch_defined.snes.ksp.getConvergenceHistory()
 
-    appctx = {}
-    appctx["my_x"] = lambda z: z[0]
-    appctx["my_y"] = lambda z: z[1]
-    user_defined = LinearVariationalSolver(problem,
-                                           options_prefix="",
-                                           solver_parameters={"mat_type": "matfree",
-                                                              "ksp_type": "cg",
-                                                              "pc_type": "python",
-                                                              "pc_python_type": "firedrake.PatchPC",
-                                                              "patch_pc_patch_construct_type": "python",
-                                                              "patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
-                                                              "patch_pc_patch_construct_ps_sweeps": "my_x+10:my_y+10",
-                                                              "patch_sub_ksp_type": "preonly",
-                                                              "patch_sub_pc_type": "lu",
-                                                              "ksp_monitor": None},
-                                           appctx=appctx)
+    user_defined = LinearVariationalSolver(
+        problem,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "cg",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_construct_type": "python",
+            "patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
+            "patch_pc_patch_construct_ps_sweeps": "my_x+10:my_y+10",
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            "patch_my_x": lambda z: z[0],
+            "patch_my_y": lambda z: z[1],
+            "ksp_monitor": None,
+        },
+    )
 
     user_defined.snes.ksp.setConvergenceHistory()
     uh.assign(0)
@@ -89,22 +91,24 @@ def test_divisions_equivalence():
     patch_defined.solve()
     patch_defined_history = patch_defined.snes.ksp.getConvergenceHistory()
 
-    appctx = {}
-    appctx["x_div"] = numpy.linspace(0.0, 1.0, 11)
-    appctx["y_div"] = numpy.linspace(0.0, 1.0, 11)
-    user_defined = LinearVariationalSolver(problem,
-                                           options_prefix="",
-                                           solver_parameters={"mat_type": "matfree",
-                                                              "ksp_type": "cg",
-                                                              "pc_type": "python",
-                                                              "pc_python_type": "firedrake.PatchPC",
-                                                              "patch_pc_patch_construct_type": "python",
-                                                              "patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
-                                                              "patch_pc_patch_construct_ps_sweeps": "0+x_div:1+y_div",
-                                                              "patch_sub_ksp_type": "preonly",
-                                                              "patch_sub_pc_type": "lu",
-                                                              "ksp_monitor": None},
-                                           appctx=appctx)
+    user_defined = LinearVariationalSolver(
+        problem,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "cg",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_construct_type": "python",
+            "patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
+            "patch_pc_patch_construct_ps_sweeps": "0+x_div:1+y_div",
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            "patch_x_div": numpy.linspace(0.0, 1.0, 11),
+            "patch_y_div": numpy.linspace(0.0, 1.0, 11),
+            "ksp_monitor": None,
+        },
+    )
 
     user_defined.snes.ksp.setConvergenceHistory()
     uh.assign(0)
