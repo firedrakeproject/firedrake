@@ -10,8 +10,6 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.netgen import _recurve_netgen_mesh
-from firedrake.redist import (RedistributedMeshTransfer, dm_has_empty_rank,
-                              redistribute_dm)
 
 
 DM_ADAPT_REFINE = 1
@@ -83,53 +81,7 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
         target_mesh.netgen_flags = source_mesh.netgen_flags
 
 
-def _needs_adaptive_redistribution(mesh):
-    """Return whether ``mesh`` has an empty rank."""
-    return dm_has_empty_rank(mesh.topology_dm)
-
-
-def _redistribute_adaptive_refined_mesh(coarse_mesh, transfer_mesh,
-                                        redistribute=True):
-    """Redistribute an adaptively refined mesh if the coarse mesh has empty ranks."""
-    _copy_adaptive_refinement_metadata(coarse_mesh, transfer_mesh)
-
-    needs_redist = (redistribute and coarse_mesh.comm.size > 1
-                    and _needs_adaptive_redistribution(transfer_mesh))
-    if not needs_redist:
-        return transfer_mesh
-
-    redist_parameters = dict(coarse_mesh._distribution_parameters)
-    redist_parameters["partition"] = True
-    redist_dm = transfer_mesh.topology_dm.clone()
-    _, point_sf = redistribute_dm(redist_dm, redist_parameters)
-
-    redist_topology_mesh = Mesh(
-        redist_dm,
-        dim=transfer_mesh.geometric_dimension,
-        reorder=False,
-        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-        comm=transfer_mesh.comm,
-        tolerance=transfer_mesh.tolerance,
-    )
-    _copy_adaptive_refinement_metadata(transfer_mesh, redist_topology_mesh)
-
-    redist_transfer = RedistributedMeshTransfer(
-        transfer_mesh, redist_topology_mesh, point_sf
-    )
-    Vredist = transfer_mesh.coordinates.function_space().reconstruct(
-        mesh=redist_topology_mesh
-    )
-    redist_coordinates = Function(Vredist)
-    redist_transfer.orig2redist(transfer_mesh.coordinates, redist_coordinates)
-    redist_mesh = Mesh(redist_coordinates, name=transfer_mesh.name)
-    _copy_adaptive_refinement_metadata(redist_topology_mesh, redist_mesh)
-    redist_mesh.redist = RedistributedMeshTransfer(
-        transfer_mesh, redist_mesh, point_sf
-    )
-    return redist_mesh
-
-
-def refine_marked_elements(mesh, cell_marker, redistribute=True):
+def refine_marked_elements(mesh, cell_marker):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
@@ -143,9 +95,6 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     cell_marker
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times.
-    redistribute
-        If ``True``, redistribute the refined mesh when the coarse mesh
-        has empty ranks.
 
     Returns
     -------
@@ -199,11 +148,5 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
             final_mesh = _recurve_netgen_mesh(mesh, final_mesh, order)
 
     final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
-    final_mesh = _redistribute_adaptive_refined_mesh(
-        mesh, final_mesh, redistribute=redistribute
-    )
-    final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
-    redist = getattr(final_mesh, "redist", None)
-    if redist is not None:
-        redist.orig._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
+    _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh

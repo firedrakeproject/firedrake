@@ -26,11 +26,6 @@ def test_adapt_basic():
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
-def _adaptive_map_mesh(mesh):
-    redist = getattr(mesh, "redist", None)
-    return redist.orig if redist is not None else mesh
-
-
 def _linear_expr(mesh):
     """A linear expression in the mesh's spatial coordinates, generalizing
     ``x + 2*y`` to any dimension (``x + 2*y + 3*z`` in 3D, etc.)."""
@@ -90,7 +85,7 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     fine_to_coarse = amh.fine_to_coarse_cells[1]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (_adaptive_map_mesh(refined_mesh).cell_set.size, 1)
+    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -158,7 +153,7 @@ def _assert_adapt_after_uniform_refinement(mesh):
     fine_to_coarse = amh.fine_to_coarse_cells[1]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (_adaptive_map_mesh(refined_mesh).cell_set.size, 1)
+    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
 
