@@ -75,18 +75,23 @@ def test_jagged_index_codegen(monkeypatch):
     assert numpy.allclose(u_out, u_ref, rtol=1e-14)
 
 
+@pytest.mark.parametrize("element_name", ["Legendre", "IntegratedLegendre"])
 @pytest.mark.parametrize("cellname,degree", [("triangle", 3), ("tetrahedron", 2)])
-def test_duffy_scatter_and_contract(cellname, degree):
+def test_duffy_scatter_and_contract(cellname, degree, element_name):
     """Route B of the simplex sum-factorization milestone 2 design:
     `finat.duffy.DuffyElement.basis_evaluation` (the `translate_argument`
     path) and `finat.duffy.DuffyElement.duffy_contraction` (the
     `translate_coefficient` path) must reproduce the standard dense FIAT
-    tabulation, via the Morton dof numbering FIAT already uses, from
+    tabulation, via the dof numbering FIAT already uses, from
     `duffy_evaluation`'s lattice-indexed, sum-factorized tabulation.
+    `Legendre` (continuity=None) reads exactly one lattice point per dof
+    (lattice-lexicographic order); `IntegratedLegendre` (continuity="C0")
+    additionally exercises the `FIAT.expansions.C0_basis` recombination,
+    where each dof combines a handful of lattice points.
 
     Verified via `gem.interpreter.evaluate` rather than a compiled loopy
     kernel: the GEM expressions built here (in particular
-    `duffy_contraction`'s `gem.VariableIndex`-based Morton index arithmetic)
+    `duffy_contraction`'s `gem.VariableIndex`-based index arithmetic)
     schedule fine once merged into a real PyOP2 wrapper kernel (as confirmed
     via `firedrake.assemble` on real forms), but are not guaranteed
     schedulable by loopy in isolation -- scheduling an isolated,
@@ -96,13 +101,14 @@ def test_duffy_scatter_and_contract(cellname, degree):
     """
     from FIAT.reference_element import UFCTetrahedron, UFCTriangle
     from finat.quadrature import make_quadrature
-    from finat.spectral import Legendre
+    from finat.spectral import Legendre, IntegratedLegendre
     from gem.gem import Index, Indexed, Variable
     from gem.interpreter import evaluate
     from gem.optimise import remove_componenttensors
 
     cell = {"triangle": UFCTriangle, "tetrahedron": UFCTetrahedron}[cellname]()
-    element = Legendre(cell, degree)
+    element_cls = {"Legendre": Legendre, "IntegratedLegendre": IntegratedLegendre}[element_name]
+    element = element_cls(cell, degree)
     ndof = element.space_dimension()
 
     quad_rule = make_quadrature(cell, 2 * degree, scheme="collapsed")

@@ -18,18 +18,6 @@ def helmholtz(cell, degree):
     return (u*v + dot(grad(u), grad(v)))*dx
 
 
-def simplex_dg_mass(cell, degree):
-    # A simplicial DG element whose nodal basis coincides with the Dubiner
-    # expansion set (finat.spectral.Legendre), so that dx(scheme="collapsed")
-    # takes the sum-factorized (Duffy/lattice) tabulation path in tsfc/fem.py
-    # instead of dense tabulation.
-    m = Mesh(VectorElement('CG', cell, 1))
-    V = FunctionSpace(m, FiniteElement('DG', cell, degree, variant='integral'))
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    return inner(u, v) * dx(scheme='collapsed')
-
-
 def split_mixed_poisson(cell, degree):
     m = Mesh(VectorElement('CG', cell, 1))
     if cell.cellname in ['interval * interval', 'quadrilateral']:
@@ -112,20 +100,6 @@ def test_rhs(cell, order):
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
-def test_simplex_dg_mass_action(cell, order):
-    # Matrix-free DG mass-matrix action (milestone 2 of PLAN.md / DESIGN.md):
-    # the coefficient contraction in translate_coefficient is sum-factorized
-    # via the Duffy/lattice tabulation, targeting O(p^{d+1}) flops. This
-    # tests the *action* (right-hand side, like test_rhs above), not full
-    # bilinear matrix assembly, which is milestone 4 and not yet implemented.
-    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
-    flops = [count_flops(action(simplex_dg_mass(cell, degree)))
-             for degree in degrees]
-    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
-    assert (rates < order).all()
-
-
 @pytest.mark.parametrize(('cell', 'order'),
                          [(quadrilateral, 5),
                           (TensorProductCell(interval, interval), 5),
@@ -194,7 +168,62 @@ def test_vector_laplace_action(cell, order):
     assert (rates < order).all()
 
 
-if __name__ == "__main__":
-    import os
-    import sys
-    pytest.main(args=[os.path.abspath(__file__)] + sys.argv[1:])
+def simplex_mass(cell, family, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant='integral'))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(u, v) * dx(scheme='collapsed')
+
+
+def simplex_laplacian(cell, family, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant='integral'))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(grad(u), grad(v)) * dx(scheme='collapsed')
+
+
+@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
+def test_simplex_mass_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_mass(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
+def test_simplex_laplacian_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_laplacian(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+# Unlike the `_action` tests above, these compile the bilinear form directly
+# (no `action`, so both the test and trial bases are sum-factorized and
+# scattered to their flat dof index simultaneously) -- the configuration
+# that previously exposed a loopy scheduling bug in
+# `finat.duffy._scatter_to_dof_index` (see tsfc/AGENTS.md).
+@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
+def test_simplex_mass_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_mass(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
+def test_simplex_laplacian_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_laplacian(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()

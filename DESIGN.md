@@ -66,12 +66,11 @@ loop bounds — jaggedness is purely a flop optimization.
 
 * `test/FIAT/unit/test_polynomial.py`: `test_tabulate_duffy` (values +
   gradients vs `_tabulate_on_cell`, dims 1–3, variants None/dual, degrees
-  0/1/4, points including the collapsed vertex), `test_principal_functions_bubble`,
-  `test_morton_tables` (`morton_forward_table`/`morton_inverse_table` agree
-  with `morton_index` and are mutual inverses on the simplex lattice).
+  0/1/4, points including the collapsed vertex), `test_principal_functions_bubble`.
 * `test/finat/test_point_evaluation.py`: `test_duffy_evaluation` vs dense
-  `basis_evaluation` through the gem interpreter, checking Morton flat-index
-  agreement and exact zeros outside the lattice.
+  `basis_evaluation` through the gem interpreter, checking lattice-lexicographic
+  flat-index agreement (`FIAT.expansions.lexicographic_multiindices`) and exact
+  zeros outside the lattice.
 * `tests/tsfc/test_codegen.py::test_jagged_index_codegen`: compiles the 2D
   jagged Morton-gather contraction through `compile_gem` -> `tsfc.loopy.generate`,
   executes the C kernel, checks the parametrized ISL domain exists and the
@@ -118,9 +117,10 @@ so the original plan of making `argument_multiindices` itself a lattice
 multiindex (see the old Route-B write-up below) would have changed the local
 tensor's shape and broken that contract. The implementation instead keeps
 `element.index_shape` and `argument_multiindices` exactly as they are today,
-and confines the lattice multiindex — and all the Duffy/Morton machinery — to
-a new `finat/duffy.py` module, reached from `tsfc/fem.py` through ordinary
-FInAT element methods rather than through tsfc-side branching:
+and confines the lattice multiindex — and all the Duffy gather/scatter
+machinery — to a new `finat/duffy.py` module, reached from `tsfc/fem.py`
+through ordinary FInAT element methods rather than through tsfc-side
+branching:
 
 * `finat.duffy.DuffyElement` is a mixin (`finat.spectral.Legendre` is
   currently its only user) providing `duffy_evaluation` (the lattice-indexed,
@@ -130,13 +130,14 @@ FInAT element methods rather than through tsfc-side branching:
     not a macrocell — the only other case `duffy_evaluation` rejects),
     `DuffyElement.basis_evaluation` calls `duffy_evaluation` and scatters the
     lattice tabulation to the standard flat-dof-indexed convention: it
-    introduces one *fresh* flat dof index `r`, builds the *inverse* Morton
-    table (`FIAT.expansions.morton_inverse_table`, shape `(ndof, d)`) to get
-    per-axis lookups `i_t(r)`, and substitutes `multiindex[t] ->
-    VariableIndex(inverse_table[:, t][r])` throughout `duffy_evaluation`'s
-    expression tree via `gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)`
-    (the same substitution mechanism `translate_argument`/`translate_coefficient`
-    use for canonical quadrature-point reordering; `filtered_replace_indices`
+    introduces one *fresh* flat dof index `r`, computes each axis's lattice
+    coordinate as a function of `r` via `_inverse_lex_index_exprs` (small
+    per-axis-prefix tables from `FIAT.expansions.lexicographic_offsets`, not a
+    full `(ndof, d)` inverse table), and substitutes `multiindex[t] ->
+    VariableIndex(i_t(r))` throughout `duffy_evaluation`'s expression tree via
+    `gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)` (the same
+    substitution mechanism `translate_argument`/`translate_coefficient` use
+    for canonical quadrature-point reordering; `filtered_replace_indices`
     recurses into `VariableIndex.expression`, so the nested `m_t` lookups are
     rewritten too). The result, wrapped in `gem.ComponentTensor(..., (r,))`,
     is indistinguishable, from `fiat_to_ufl`/`prepare_arguments`'s point of
@@ -157,10 +158,10 @@ FInAT element methods rather than through tsfc-side branching:
     DuffyElement)`, `ctx.point_set` a `CollapsedTensorProductPointSet`, cell
     interior, `ctx.unsummed_coefficient_indices` empty) before calling
     `element.duffy_contraction(mt.local_derivatives, ctx.point_set, entity,
-    vec, ctx.epsilon)`. `duffy_contraction` builds a forward Morton lookup
-    table (`FIAT.expansions.morton_forward_table`, shape `(degree+1,)^d`,
-    clamped to a valid dof so out-of-lattice reads are merely wasted, never
-    out of bounds — they always multiply a zero tabulation), gathers
+    vec, ctx.epsilon)`. `duffy_contraction` computes the forward flat index
+    via `_flat_index_expr` (the same `lexicographic_offsets` tables, clamped
+    to a valid dof so out-of-lattice reads are merely wasted, never out of
+    bounds — they always multiply a zero tabulation), gathers
     `vec[VariableIndex(table[multiindex])]`, and hands
     `IndexSum(Product(duffy[alpha], vec_r), multiindex)` to
     `gem.optimise.contraction`, exactly as originally planned: the `m_t`

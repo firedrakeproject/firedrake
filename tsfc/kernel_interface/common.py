@@ -14,6 +14,7 @@ import petsctools
 import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
+from finat.duffy import DuffyElement
 from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
@@ -344,6 +345,13 @@ def set_quad_rule(params, cell, integral_type, functions):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
         finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
+        if scheme == "default" and any(isinstance(finat_el, DuffyElement) for finat_el in finat_elements):
+            # Sum-factorized (Duffy/lattice) tabulation only kicks in on a
+            # collapsed-coordinate quadrature rule (see
+            # finat.duffy.DuffyElement._duffy_applies); default to it
+            # automatically instead of requiring users to spell out
+            # dx(scheme="collapsed") to get it.
+            scheme = "collapsed"
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         if any(c.is_macrocell() for c in fiat_cells):
             if len(set(c.get_spatial_dimension() for c in fiat_cells)) > 1:

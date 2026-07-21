@@ -54,18 +54,21 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
     assemble(a, mat_type=mat_type, diagonal=diagonal)
 
 
+@pytest.mark.parametrize("family", ["DG", "CG"])
 @pytest.mark.parametrize("cell", ["triangle", "tetrahedron"])
 @pytest.mark.parametrize("degree", [1, 3])
-def test_collapsed_quadrature_sum_factorisation(cell, degree):
+def test_collapsed_quadrature_sum_factorisation(cell, degree, family):
     """``dx(scheme="collapsed")`` on a simplicial "DG"/variant="integral"
-    (i.e. `finat.spectral.Legendre`) space must produce the same
+    (i.e. `finat.spectral.Legendre`) or "CG"/variant="integral" (i.e.
+    `finat.spectral.IntegratedLegendre`, exercising the
+    `FIAT.expansions.C0_basis` recombination) space must produce the same
     assembled residual and matrix as the default dense quadrature, even
     though it takes the sum-factorized (Duffy/lattice) tabulation path
     in ``tsfc.fem`` rather than the standard dense one.
     """
     mesh = {"triangle": UnitSquareMesh(2, 2),
             "tetrahedron": UnitCubeMesh(1, 1, 1)}[cell]
-    V = FunctionSpace(mesh, "DG", degree, variant="integral")
+    V = FunctionSpace(mesh, family, degree, variant="integral")
     u = TrialFunction(V)
     v = TestFunction(V)
     w = Function(V)
