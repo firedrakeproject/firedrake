@@ -528,9 +528,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     See also :class:`NonlinearVariationalSolver` for nonlinear problems.
     """
 
-    DEFAULT_SNES_PARAMETERS = MappingProxyType({
-        "snes_type": "ksponly",
-    })
+    DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
     # Tighter default tolerance for KSP only.
     DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS
