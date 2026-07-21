@@ -60,7 +60,6 @@ from pyop3.labeled_tree import (
     filter_path,
 )
 from pyop3.utils import (
-    Identified,
     Labelled,
     as_tuple,
     expand_collection_of_iterables,
@@ -89,17 +88,16 @@ class IndexTree(MutableLabelledTreeMixin, LabeledTree):
     _node_map: idict
     _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
-    @property
-    def comm(self):
-        raise NotImplementedError
+    @classmethod
+    def get_comm(cls, **attrs):
+        if comm := attrs["_comm"] is not None:
+            return comm
+        else:
+            return super().get_comm(**attrs)
 
-    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None, comm: MPI.Comm | None = None) -> None:
-        object.__setattr__(self, "_node_map", as_node_map(node_map))
-        object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "_node_map", fixup_node_map(self.node_map))
+    @classmethod
+    def record_prepare_args(cls, node_map: Mapping[PathT, Node] | None | None = None, comm: MPI.Comm | None = None) -> None:
+        return dict(_node_map=as_node_map(node_map), _comm=comm)
 
     # }}}
 
@@ -143,28 +141,22 @@ class AffineSliceComponent(SliceComponent):
     step: numbers.Integral
     _label: ComponentLabelT
 
-    @property
-    def comm(self):
-        return MPI.COMM_SELF
-
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         component: ComponentLabelT,
         start: numbers.Integral = 0,
         stop: numbers.Integral | None = None,
         step: numbers.Integral = 1,
         label: ComponentLabelT = PYOP3_DECIDE,
     ) -> None:
-        object.__setattr__(self, "_component", component)
-        object.__setattr__(self, "start", start)
-        object.__setattr__(self, "stop", stop)
-        object.__setattr__(self, "step", step)
-        object.__setattr__(self, "_label", label)
-
-    def __post_init__(self) -> None:
-        # old API
-        assert self.start is not None
-        assert self.step is not None
+        return dict(
+        _component=component,
+        start= start,
+        stop= stop,
+        step= step,
+        _label= label,
+        )
 
     # }}}
 
@@ -215,20 +207,19 @@ class SubsetSliceComponent(SliceComponent):
     _label: Any
     array: Any
 
-    def __init__(self, component, array, *, label=None):
+    @classmethod
+    def record_prepare_args(cls, component, array, *, label=None):
         from pyop3.expr import as_linear_buffer_expression
 
         array = as_linear_buffer_expression(array)
 
-        object.__setattr__(self, "_component", component)
-        object.__setattr__(self, "_label", label)
-        object.__setattr__(self, "array", array)
+        return dict(
+        _component=component,
+        _label=label,
+        array=array,
+        )
 
     # {{{ interface impls
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.array.comm
 
     @property
     def label(self):
@@ -267,13 +258,15 @@ class RegionSliceComponent(SliceComponent):
     _label: Any
     region: Any
 
-    def __init__(self, component, region: Set, *, label=None) -> None:
-        assert not isinstance(region, str), "old API"
+    @classmethod
+    def record_prepare_args(cls, component, region: Set, *, label=None) -> None:
         region = frozenset(region)
 
-        object.__setattr__(self, "_component", component)
-        object.__setattr__(self, "_label", label)
-        object.__setattr__(self, "region", region)
+        return dict(
+        _component=component,
+        _label=label,
+        region=region,
+        )
 
     # }}}
 
@@ -309,15 +302,7 @@ class UnparsedSlice:
     wrappee: Any  # TODO: Can specialise the type here
 
 
-class MapComponent(Labelled, abc.ABC):
-
-    # target_axis: Any
-    # target_component: Any
-    #
-    # def __init__(self, target_axis, target_component, *, label=utils.PYOP3_DECIDE):
-    #     self.target_axis = target_axis
-    #     self.target_component = target_component
-    #     self.label = label if label != utils.PYOP3_DECIDE else self.unique_label()
+class MapComponent(Labelled, pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
@@ -349,7 +334,8 @@ class TabulatedMapComponent(MapComponent):
     _arity: int
     _label: Any
 
-    def __init__(self, target_axis, target_component, array, *, label=PYOP3_DECIDE):
+    @classmethod
+    def record_prepare_args(cls, target_axis, target_component, array, *, label=PYOP3_DECIDE):
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
@@ -365,17 +351,15 @@ class TabulatedMapComponent(MapComponent):
                 raise ValueError
 
         array = as_linear_buffer_expression(array)
-        label = label if label is not PYOP3_DECIDE else self.unique_label()
+        label = label if label is not PYOP3_DECIDE else cls.unique_label()
 
-        object.__setattr__(self, "_target_axis", target_axis)
-        object.__setattr__(self, "_target_component", target_component)
-        object.__setattr__(self, "array", array)
-        object.__setattr__(self, "_arity", arity)
-        object.__setattr__(self, "_label", label)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        pass
+        return dict(
+        _target_axis=target_axis,
+        _target_component=target_component,
+        array=array,
+        _arity=arity,
+        _label=label,
+        )
 
     target_axis = pyop3.record.attr("_target_axis")
     target_component = pyop3.record.attr("_target_component")
@@ -454,15 +438,11 @@ class LoopIndex(UnitIndex):
             visitor.renamer.add(self.id, "LoopIndex"),
         )
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.get_comm(self.iterset)
+    @classmethod
+    def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree, *, id=PYOP3_DECIDE):
+        id = id if id is not PYOP3_DECIDE else cls.unique_label()
 
-    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=PYOP3_DECIDE):
-        id = id if id is not PYOP3_DECIDE else self.unique_label()
-
-        object.__setattr__(self, "iterset", iterset)
-        object.__setattr__(self, "id", id)
+        return dict(iterset=iterset, id=id)
 
     # }}}
 
@@ -516,13 +496,22 @@ class InvalidIterationSetException(Pyop3Exception):
     pass
 
 
+@pyop3.record.frozenrecord()
 class ScalarIndex(UnitIndex):
 
-    def __init__(self, axis, component, value):
-        self.axis = axis
-        self.component = component
-        self.value = value
-        self._label = self.unique_label()
+    axis: AxisLabelT
+    component: ComponentLabelT
+    value: Any
+    _label: LabelT
+
+    @classmethod
+    def record_prepare_args(cls, axis, component, value):
+        return dict(
+        axis = axis,
+        component = component,
+        value = value,
+        _label = cls.unique_label(),
+        )
 
     @property
     def label(self):
@@ -620,8 +609,9 @@ class Slice(Index):
     components: SliceComponentsT
     _label: AxisLabelT
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         axis: AxisLabelT,
         components: SliceComponentsT,
         *,
@@ -646,7 +636,7 @@ class Slice(Index):
             )
         else:
             if label is PYOP3_DECIDE:
-                label = self.unique_label()
+                label = cls.unique_label()
             if any(c.label is PYOP3_DECIDE for c in components):
                 if not all(c.label is PYOP3_DECIDE for c in components):
                     raise ValueError(
@@ -663,10 +653,7 @@ class Slice(Index):
                     for c, l in zip(components, component_labels, strict=True)
                 )
 
-        object.__setattr__(self, "axis", axis)
-        object.__setattr__(self, "components", components)
-        object.__setattr__(self, "_label", label)
-        self.__post_init__()
+        return dict(axis=axis, components=components, _label=label)
 
     def __post_init__(self) -> None:
         assert self.label is not PYOP3_DECIDE
@@ -716,7 +703,7 @@ class Slice(Index):
         return merge_dicts([s.datamap for s in self.components])
 
 
-class AbstractMap(abc.ABC):
+class AbstractMap(pyop3.obj.Object):
 
     # {{{ abstract methods
 
@@ -795,15 +782,14 @@ class Map(AbstractMap):
     # a class var
     counter = 0
 
-    def __init__(self, connectivity, name=None) -> None:
-        object.__setattr__(self, "_connectivity", utils.freeze(connectivity))
-
+    @classmethod
+    def record_prepare_args(cls, connectivity, name=None) -> None:
         # TODO delete entirely
         if name is None:
             # lazy unique name
-            name = f"_Map_{self.counter}"
-            self.counter += 1
-        object.__setattr__(self, "name", name)
+            name = f"_Map_{cls.counter}"
+            cls.counter += 1
+        return dict(_connectivity=utils.freeze(connectivity), name=name)
 
     # }}}
 
@@ -887,12 +873,11 @@ class ScalarMap(AbstractMap):
 
     _name: str
 
-    def __init__(self, connectivity, name):
+    @classmethod
+    def record_prepare_args(cls, connectivity, name):
         connectivity = utils.freeze(connectivity)
 
-        object.__setattr__(self, "_connectivity", connectivity)
-        object.__setattr__(self, "_name", name)
-        self.__post_init__()
+        return dict(_connectivity=connectivity, _name=name)
 
     def __post_init__(self) -> None:
         from pyop3.expr import AxisVar
@@ -932,7 +917,7 @@ class UnspecialisedCalledMapException(Pyop3Exception):
 
 
 # TODO: I think these parent types are no longer used/useful
-class AbstractCalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
+class AbstractCalledMap(AxisIndependentIndex, Labelled, LoopIterable):
 
     # {{{ abstract methods
 
@@ -1028,15 +1013,17 @@ class CalledMap(AbstractCalledMap):
     id: Any
     _label: Any
 
-    def __init__(self, map, from_index, *, id=None, label=None):
-        id = id if id is not None else self.unique_id()
-        label = label if label is not None else self.unique_label()
+    @classmethod
+    def record_prepare_args(cls, map, from_index, *, id=None, label=None):
+        id = id if id is not None else cls.unique_id()
+        label = label if label is not None else cls.unique_label()
 
-        object.__setattr__(self, "_map", map)
-        object.__setattr__(self, "_index", from_index)
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "_label", label)
-        self.__post_init__()
+        return dict(
+        _map=map,
+        _index=from_index,
+        id=id,
+        _label=label,
+        )
 
     def __post_init__(self) -> None:
         # Each leaf of the index wrapped by this map must have at least one
@@ -1145,12 +1132,11 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
     _label: Any
 
     # FIXME: do i need label?
-    def __init__(self, map, index, label=None):
-        label = label if label is not None else self.unique_label()
+    @classmethod
+    def record_prepare_args(cls, map, index, label=None):
+        label = label if label is not None else cls.unique_label()
 
-        object.__setattr__(self, "_map", map)
-        object.__setattr__(self, "_index", index)
-        object.__setattr__(self, "_label", label)
+        return dict(_map=map, _index=index, _label=label)
 
     # }}}
 

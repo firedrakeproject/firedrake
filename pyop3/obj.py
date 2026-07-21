@@ -4,6 +4,10 @@ import abc
 from functools import cached_property
 from typing import Hashable
 
+from mpi4py import MPI
+
+import pyop3.mpi
+
 
 class Object(abc.ABC):
     """Abstract class for all objects that appear in pyop3 operations.
@@ -32,26 +36,16 @@ class Object(abc.ABC):
         )
 
     @classmethod
-    def get_custom_comm(cls, **attrs) -> MPI.Comm | None:
-        """Optional communicator over which this object is collective.
-
-        If not provided then the object communicator will be inferred.
-
-        """
-        raise NotImplementedError(
-            f"'get_custom_comm' not implemented for '{cls.__qualname__}'"
-        )
-
-    @classmethod
-    def detect_comm(cls, **attrs) -> MPI.Comm:
+    def get_comm(cls, **attrs) -> MPI.Comm:
         """Determine a valid communicator from the attributes of the object."""
-        raise NotImplementedError(
-            f"'detect_comm' not implemented for '{cls.__qualname__}'"
-        )
+        # Here we use quite a heavyweight approach, subclasses can overwrite
+        # this if they have more information
+        from pyop3.visitors import get_comm
+
+        return pyop3.mpi.common_comm(map(get_comm, attrs.values()), default=MPI.COMM_SELF)
 
     @cached_property
     def comm(self) -> MPI.Comm:
         """The communicator over which this object is collective."""
-        breakpoint()
-        # custom_comm = self.get_custom_comm(???)
-        # return self.detect_comm(???) if custom_comm is None else custom_comm
+        attrs = {name: getattr(self, name) for name in self.__dataclass_fields__}
+        return self.get_comm(**attrs)

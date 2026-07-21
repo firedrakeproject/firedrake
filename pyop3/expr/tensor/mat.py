@@ -69,8 +69,9 @@ class Mat(Tensor):
             visitor(self._transform),
         )
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         row_axes,
         column_axes,
         buffer: AbstractBuffer,
@@ -78,15 +79,15 @@ class Mat(Tensor):
         name=None,
         prefix=None,
         transform=None,
-    ):
+    ) -> dict:
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
         row_axes = as_axis_tree_type(row_axes)
         column_axes = as_axis_tree_type(column_axes)
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
-        self.record_init(
+        return dict(
             row_axes=row_axes,
             column_axes=column_axes,
             _buffer=buffer,
@@ -423,10 +424,11 @@ class AggregateMat(pyop3.obj.Object):
     def comm(self) -> MPI.Comm:
         return utils.single_valued(m.comm for m in self.submats.flatten())
 
-    def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+    @classmethod
+    def record_prepare_args(cls, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
         # TODO: check size 1 for each axis component and # components must match # subdats
-        self.record_init(submats=submats, row_axis=row_axis, column_axis=column_axis, name=name)
+        return dict(submats=submats, row_axis=row_axis, column_axis=column_axis, name=name)
 
     # }}}
 

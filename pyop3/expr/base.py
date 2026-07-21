@@ -186,14 +186,6 @@ class Operator(Expression, metaclass=abc.ABCMeta):
 
     # }}}
 
-    # {{{ interface impls
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self.operands)
-
-    # }}}
-
 
 @pyop3.record.frozenrecord()
 class UnaryOperator(Operator, metaclass=abc.ABCMeta):
@@ -586,10 +578,6 @@ class AxisVar(TerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.axis.comm
-
     @classmethod
     def record_prepare_args(cls, axis: Axis) -> None:
         assert len(axis.components) == 1
@@ -676,10 +664,6 @@ class LoopIndexVar(TerminalExpression):
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([self.loop_index, self.axis])
 
     @classmethod
     def record_prepare_args(cls, loop_index, axis) -> None:

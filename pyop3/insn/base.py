@@ -85,11 +85,6 @@ class Instruction(Node, abc.ABC):
     def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
         """Mapping from name to tensor that is passed in as an argument."""
 
-    @property
-    @abc.abstractmethod
-    def comm(self) -> MPI.Comm:
-        pass
-
     @with_self_heavy_cache
     def __call__(self, *, compiler_parameters=None, **kwargs) -> None:
         self._get_execution_context(compiler_parameters)(**kwargs)
@@ -157,12 +152,9 @@ class Loop(NonTerminalInstruction):
             tuple(map(visitor, self.statements)),
         )
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([self.index, *self.statements])
-
+    @classmethod
     def record_prepare_args(
-        self,
+        cls,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
     ) -> dict[str, Any]:
@@ -207,13 +199,10 @@ class InstructionList(NonTerminalInstruction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self.instructions)
-
-    def __init__(self, instructions: Iterable[Instruction]) -> None:
+    @classmethod
+    def record_prepare_args(cls, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
-        object.__setattr__(self, "instructions", instructions)
+        return dict(instructions=instructions)
 
     # }}}
 
@@ -309,8 +298,13 @@ class Function(pyop3.obj.Object):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(
-        self,
+    @classmethod
+    def get_comm(cls, **attrs):
+        return MPI.COMM_SELF
+
+    @classmethod
+    def record_prepare_args(
+        cls,
         loopy_kernel,
         access_descrs,
         *,
@@ -336,9 +330,11 @@ class Function(pyop3.obj.Object):
             libs=tuple(libs),
         )
 
-        object.__setattr__(self, "code", loopy_kernel)
-        object.__setattr__(self, "_access_descrs", access_descrs)
-        object.__setattr__(self, "_compiler_options", compiler_options)
+        return dict(
+            code=loopy_kernel,
+            _access_descrs=access_descrs,
+            _compiler_options=compiler_options,
+        )
 
     # }}}
 
@@ -523,17 +519,11 @@ class CalledFunction(AbstractCalledFunction):
             tuple(map(visitor, self._arguments)),
         )
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self._arguments)
-
-    def __init__(self, function: Function, arguments: Iterable):
+    @classmethod
+    def record_prepare_args(cls, function: Function, arguments: Iterable):
+        function = cls._fixup_function_argument_shapes(function, arguments)
         arguments = tuple(arguments)
-
-        function = self._fixup_function_argument_shapes(function, arguments)
-
-        object.__setattr__(self, "_function", function)
-        object.__setattr__(self, "_arguments", arguments)
+        return dict(_function=function, _arguments=arguments)
 
     # }}}
 
@@ -584,15 +574,10 @@ class StandaloneCalledFunction(AbstractCalledFunction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self._arguments)
-
-    def __init__(self, function: Function, arguments: Iterable):
+    @classmethod
+    def record_prepare_args(cls, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
-
-        object.__setattr__(self, "_function", function)
-        object.__setattr__(self, "_arguments", arguments)
+        return dict(_function=function, _arguments=arguments)
 
     # }}}
 
@@ -612,9 +597,6 @@ class NullInstruction(TerminalInstruction):
     # }}}
 
     arguments = ()
-
-    # COMM_DYNAMIC?
-    comm = MPI.COMM_SELF
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -727,21 +709,19 @@ class Assignment(AbstractAssignment):
             self._assignment_type,
         )
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([self._assignee, self._expression])
+    @classmethod
+    def get_comm(cls, **attrs) -> MPI.Comm:
+        return pyop3.visitors.common_comm([attrs["_assignee"], attrs["_expression"]])
 
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+    @classmethod
+    def record_prepare_args(cls, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
-        object.__setattr__(self, "_assignment_type", assignment_type)
-        super().__init__()
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-         pass
+        return dict(
+            _assignee=assignee,
+            _expression=expression,
+            _assignment_type=assignment_type,
+        )
 
     # }}}
 
@@ -796,18 +776,21 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     # is this still needed?
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
-    def __init__(self, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
+    @classmethod
+    def get_comm(cls, *, _comm, **attrs):
+        return _comm
+
+    @classmethod
+    def record_prepare_args(cls, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
-        object.__setattr__(self, "_axis_trees", axis_trees)
-        object.__setattr__(self, "_assignment_type", assignment_type)
-        object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
-
-    def __post_init__(self):
-        pass
+        return dict(
+        _assignee=assignee,
+        _expression=expression,
+        _axis_trees=axis_trees,
+        _assignment_type=assignment_type,
+        _comm=comm,
+        )
 
     # }}}
 
@@ -817,7 +800,6 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     expression = pyop3.record.attr("_expression")
     axis_trees = pyop3.record.attr("_axis_trees")
     assignment_type = pyop3.record.attr("_assignment_type")
-    comm = pyop3.record.attr("_comm")
 
     # }}}
 
@@ -849,18 +831,21 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
             self._assignment_type,
         )
 
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
+    @classmethod
+    def get_comm(cls, *, _comm, **attrs):
+        return _comm
+
+    @classmethod
+    def record_prepare_args(cls, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
-        object.__setattr__(self, "_assignment_type", assignment_type)
-        object.__setattr__(self, "_axis_trees", axis_trees)
-        object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
-
-    def __post_init__(self):
-        pass
+        return dict(
+        _assignee=assignee,
+        _expression=expression,
+        _assignment_type=assignment_type,
+        _axis_trees=axis_trees,
+        _comm=comm,
+        )
 
     # }}}
 
@@ -870,7 +855,6 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     expression: ClassVar = pyop3.record.attr("_expression")
     assignment_type: ClassVar = pyop3.record.attr("_assignment_type")
     axis_trees: ClassVar = pyop3.record.attr("_axis_trees")
-    comm: ClassVar = pyop3.record.attr("_comm")
 
     # }}}
 
@@ -911,6 +895,10 @@ class Exscan(TerminalInstruction):
             visitor(self.scan_axis, inside=True),
         )
 
+    @classmethod
+    def get_comm(cls, *, _comm, **attrs):
+        return _comm
+
     # }}}
 
     # {{{ interface impls
@@ -918,10 +906,6 @@ class Exscan(TerminalInstruction):
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self._comm
 
     @cached_property
     def extent(self):

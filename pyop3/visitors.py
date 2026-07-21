@@ -10,10 +10,12 @@ import typing
 from collections.abc import Hashable
 from typing import Any
 
+import loopy as lp
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.constants
 import pyop3.node
 import pyop3.obj
 import pyop3.sf
@@ -157,9 +159,10 @@ def _(comm: MPI.Comm, /) -> MPI.Comm:
     return comm
 
 
-@get_comm.register
-def _(obj: PETSc.Object, /) -> MPI.Comm:
-    return obj.comm
+# this is the internal comm
+# @get_comm.register
+# def _(obj: PETSc.Object, /) -> MPI.Comm:
+#     return obj.comm.tompi4py()
 
 
 @get_comm.register
@@ -172,12 +175,34 @@ def _(obj: pyop3.obj.Object, /) -> MPI.Comm:
     return obj.comm
 
 
-@get_comm.register
-def _(num: numbers.Number | types.NoneType, /) -> MPI.Comm:
+@get_comm.register(str)
+@get_comm.register(numbers.Number)
+@get_comm.register(types.NoneType)
+@get_comm.register(lp.TranslationUnit)
+@get_comm.register(pyop3.constants.Intent)
+@get_comm.register(pyop3.constants._Decide)  # pyop3.DECIDE
+def _(_, /) -> MPI.Comm:
     return MPI.COMM_SELF
 
 
-def common_comm(objects: Iterable[Any]) -> MPI.Comm:
+@get_comm.register
+def _(iterable: tuple | list, /) -> MPI.Comm:
+    return common_comm(iterable, default=MPI.COMM_SELF)
+
+
+@get_comm.register
+def _(mapping: collections.abc.Mapping, /) -> MPI.Comm:
+    return common_comm(mapping.values(), default=MPI.COMM_SELF)
+
+
+@get_comm.register
+def _(set_: collections.abc.Set, /) -> MPI.Comm:
+    assert all(get_comm(item) == MPI.COMM_SELF for item in set_), \
+        "Cannot have parallelism inside a set (unordered)"
+    return MPI.COMM_SELF
+
+
+def common_comm(objects: Iterable[Any], **kwargs) -> MPI.Comm:
     """Return a communicator valid for all objects.
 
     The valid communicator is defined as the one with the largest size.
@@ -194,7 +219,7 @@ def common_comm(objects: Iterable[Any]) -> MPI.Comm:
         A communicator that the provided objects are safely collective over.
 
     """
-    return pyop3.mpi.common_comm(map(get_comm, objects))
+    return pyop3.mpi.common_comm(map(get_comm, objects), **kwargs)
 
 
 def single_comm(*objects: Iterable[Any]) -> MPI.Comm:

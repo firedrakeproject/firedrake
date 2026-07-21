@@ -33,11 +33,11 @@ class OpaqueTerminal(NamedTerminalExpression):
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
 
-    def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None):
-        name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+    @classmethod
+    def record_prepare_args(cls, buffer, *, name: str | None = None, prefix: str | None = None) -> dict:
+        name = pyop3.utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
-        object.__setattr__(self, "buffer", buffer)
-        object.__setattr__(self, "_name", name)
+        return dict(buffer=buffer, _name=name)
 
     # }}}
 

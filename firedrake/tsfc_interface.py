@@ -135,7 +135,7 @@ class TSFCKernel:
 
                 ep = add_likwid_markers(ast.default_entrypoint)
                 ast = ast.with_kernel(ep)
-            ast = ast.with_entrypoints({kernel.name})
+            ast = ast.with_entrypoints(kernel.name)
 
             # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
             #                                      len(kernel.arguments),

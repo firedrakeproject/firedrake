@@ -85,8 +85,9 @@ class Dat(Tensor):
             visitor(self._transform),
         )
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         axes: AxisTreeT,
         buffer: AbstractBuffer | None = None,
         *,
@@ -108,7 +109,7 @@ class Dat(Tensor):
         unindexed_axis_trees = collect_unindexed_axis_trees(axes)
         sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
@@ -129,12 +130,7 @@ class Dat(Tensor):
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        self.record_init(
-                axes = axes,
-                _buffer = buffer,
-                _name = name,
-                _transform = transform,
-        )
+        return dict(axes = axes, _buffer = buffer, _name = name, _transform = transform)
 
     def __post_init__(self) -> None:
         # fails for transforms, is that an issue?
@@ -728,15 +724,11 @@ class CompositeDat(Terminal):
     axis_tree: AxisTree
     exprs: idict[ConcretePathT, ExpressionT]
 
-    def __init__(self, axis_tree, exprs) -> None:
+    @classmethod
+    def record_prepare_args(cls, axis_tree, exprs) -> dict:
         assert len(axis_tree._all_region_labels) == 0
         exprs = idict(exprs)
-        object.__setattr__(self, "axis_tree", axis_tree)
-        object.__setattr__(self, "exprs", exprs)
-        self.__post_init__()
-
-    def __post_init__(self):
-        pass
+        return dict(axis_tree=axis_tree, exprs=exprs)
 
     # }}}
 
@@ -783,11 +775,12 @@ class AggregateDat(pyop3.obj.Object):
     def comm(self) -> MPI.Comm:
         return utils.single_valued(d.comm for d in self.subdats)
 
-    def __init__(self, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+    @classmethod
+    def record_prepare_args(cls, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None) -> dict:
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
         # TODO: check size 1 for each axis component and # components must match # subdats
-        self.record_init(
+        return dict(
         subdats = subdats,
         axis = axis,
         name = name,

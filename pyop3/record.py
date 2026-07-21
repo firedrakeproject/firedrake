@@ -8,6 +8,7 @@ from typing import Any
 from mpi4py import MPI
 
 import pyop3.cache
+import pyop3.obj
 
 
 def record(**kwargs):
@@ -24,6 +25,8 @@ def frozenrecord(maybe_singleton: bool = True, **kwargs):
 def _make_record_class(*, maybe_singleton: bool, **kwargs):
 
     def wrapper(cls):
+        assert issubclass(cls, pyop3.obj.Object)
+
         assert "init" not in kwargs
         cls = dataclasses.dataclass(init=False, **kwargs)(cls)
 
@@ -39,7 +42,7 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
         # Overload __new__ unless the class already does so (and it
         # must then call '_create_record' or '_maybe_create_frozenrecord')
         if cls.__new__ is object.__new__:
-            cls.__new__ = _record_dunder_new
+            cls.__new__ = _record_dunder_new_maybe_pickle
 
         # attach other methods
         if not hasattr(cls, "record_prepare_args"):
@@ -52,6 +55,14 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
         return cls
 
     return wrapper
+
+
+def _record_dunder_new_maybe_pickle(cls, *args, **kwargs):
+    # if not args and not kwargs:
+    if False:
+        return object.__new__(cls)
+    else:
+        return _record_dunder_new(cls, *args, **kwargs)
 
 
 def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs) -> Any:
@@ -67,7 +78,7 @@ def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs
 
 @pyop3.cache.memory_cache(
     heavy=True,
-    get_comm=lambda cls, **attrs: cls.get_custom_comm(**attrs) or cls.detect_comm(**attrs),
+    get_comm=lambda cls, **attrs: cls.get_comm(**attrs),
 )
 def _maybe_create_frozenrecord(cls: Any, **attrs: Any) -> Any:
     return _create_record(cls, **attrs)

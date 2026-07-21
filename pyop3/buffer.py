@@ -169,8 +169,13 @@ class NullBuffer(AbstractArrayBuffer):
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
 
-    def __init__(
-        self,
+    @classmethod
+    def get_comm(cls, **attrs):
+        return MPI.COMM_SELF
+
+    @classmethod
+    def record_prepare_args(
+        cls,
         shape: tuple[numbers.Integral, ...] | numbers.Integral,
         dtype: DTypeT | None = None,
         *,
@@ -181,12 +186,12 @@ class NullBuffer(AbstractArrayBuffer):
     ):
         if isinstance(shape, numbers.Integral):
             shape = (shape,)
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        dtype = utils.as_dtype(dtype, cls.DEFAULT_DTYPE)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
 
-        self.record_init(
+        return dict(
         _shape = shape,
         _name = name,
         _dtype = dtype,
@@ -220,10 +225,6 @@ class NullBuffer(AbstractArrayBuffer):
         return self.record_new(_name=name)
 
     is_nested: ClassVar[bool] = False
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return MPI.COMM_SELF
 
     # }}}
 
@@ -327,8 +328,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
-    def __init__(
-        self,
+    @classmethod
+    def get_comm(cls, **attrs):
+        return attrs["sf"].comm
+
+    @classmethod
+    def record_prepare_args(
+        cls,
         data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
         sf: StarForest | None = None,
         *,
@@ -356,18 +362,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             )
 
         device_arrays = {get_current_device(): data}
-        state = {get_current_device(): 0}
 
         if sf is None:
             sf = NullStarForest(data.size)
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
 
         if rank_equal and not constant:
             raise ValueError
 
-        self.record_init(
+        return dict(
         _device_arrays_private = device_arrays,
         sf = sf,
         _name = name,
@@ -377,11 +382,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         _ordered = ordered,
         )
 
-        self._state = state
-
-    # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
         # state tracking attrs
+        self._state = {pyop3.device.get_current_device(): 0}
         self._state_locks = 0
         self._device_locks = []
 
@@ -457,10 +460,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def handle(self) -> pyop3.types.DeviceArrayT:
         return self._current_device_array
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm if self.sf is not None else MPI.COMM_SELF
 
     def zero(self) -> None:
         self.data_wo[...] = 0
@@ -965,13 +964,13 @@ class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass(frozen=True)
 class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
     block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass(frozen=True)
 class PetscMatNestBufferSpec(PetscMatBufferSpec):
     submat_specs: np.ndarray
 
@@ -984,14 +983,18 @@ class PetscMatNestBufferSpec(PetscMatBufferSpec):
 # into the matrix constructor logic, which belongs on the buffer.
 # @pyop3.record.frozenrecord()
 @pyop3.record.record()
-class FullPetscMatBufferSpec:
+class FullPetscMatBufferSpec(pyop3.obj.Object):
     mat_type: str
     row_spec: PetscMatAxisSpec | "AbstractAxisTree"
     column_spec: PetscMatAxisSpec | "AbstractAxisTree"
-    comm: MPI.Comm
+    _comm: MPI.Comm
+
+    @classmethod
+    def get_comm(cls, *, _comm, **attrs):
+        return _comm
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass()
 class PetscMatAxisSpec:
     size: int
     lgmap: PETSc.LGMap
@@ -1047,8 +1050,9 @@ class PetscMatBuffer(ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         mat: PETSc.Mat,
         *,
         mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
@@ -1056,14 +1060,16 @@ class PetscMatBuffer(ConcreteBuffer):
         prefix: str | None = None,
         constant: bool = False,
     ) -> None:
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
-        self.record_init(
+        return dict(
         mat = mat,
         mat_spec = mat_spec,
         _name = name,
         _constant = constant,
         )
+
+    def __post_init__(self) -> None:
         # state tracking
         self._current_insert_mode: pyop3.types.MatInsertMode | None  = None
 
@@ -1121,8 +1127,6 @@ class PetscMatBuffer(ConcreteBuffer):
             row_axes = row_spec
             column_axes = column_spec
 
-            comm = pyop3.visitors.single_comm(row_axes, column_axes)
-
             if mat_type == "rvec":
                 mode = "row"
                 # a row vec (horizontal) has #columns entries
@@ -1132,14 +1136,12 @@ class PetscMatBuffer(ConcreteBuffer):
                 # a column vec (vertical) has #rows entries
                 sf = row_axes.sf
             mat_context = DensePythonMatContext.empty(mode, sf)
-            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
+            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_spec.comm)
         else:
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
-            comm = pyop3.visitors.single_comm(row_spec.lgmap, column_spec.lgmap)
-
-            mat = PETSc.Mat().create(comm)
+            mat = PETSc.Mat().create(mat_spec.comm)
             mat.setType(mat_type)
             # None is for the global size, PETSc will figure it out for us
             sizes = ((row_spec.size, None), (column_spec.size, None))
@@ -1160,10 +1162,6 @@ class PetscMatBuffer(ConcreteBuffer):
 
     dtype = ScalarType
     rank_equal = False
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
 
     def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
@@ -1468,7 +1466,3 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm

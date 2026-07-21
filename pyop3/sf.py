@@ -11,6 +11,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.obj
 import pyop3.record
 from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
@@ -31,7 +32,7 @@ class BufferSizeMismatchException(Exception):
     pass
 
 
-class AbstractStarForest(abc.ABC):
+class AbstractStarForest(pyop3.obj.Object):
 
     # {{{ abstract methods
 
@@ -98,6 +99,7 @@ class StarForest(AbstractStarForest):
 
     sf: PETSc.SF
     _comm: MPI.Comm
+
     _poisoned: bool = False
     """Debugging attribute, turn exchanges into errors."""
     # only for root values, bcasting is fine I think
@@ -105,6 +107,14 @@ class StarForest(AbstractStarForest):
     @classmethod
     def record_prepare_args(cls, sf, comm):
         return dict(sf=sf, _comm=comm)
+
+    # }}}
+
+    # {{{ pyop3.obj.Object interface impls
+
+    @classmethod
+    def get_comm(cls, **attrs):
+        return attrs["_comm"]
 
     # }}}
 
@@ -136,8 +146,6 @@ class StarForest(AbstractStarForest):
     # }}}
 
     # {{{ interface impls
-
-    comm = pyop3.record.attr("_comm")
 
     def __hash__(self) -> int:
         return hash((

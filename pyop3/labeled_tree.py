@@ -23,7 +23,6 @@ import pyop3.obj
 from pyop3 import utils
 from pyop3.utils import (
     Id,
-    Identified,
     Label,
     Labelled,
     UniqueNameGenerator,

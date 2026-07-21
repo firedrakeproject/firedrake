@@ -222,6 +222,7 @@ class AxisComponentRegion(pyop3.obj.Object):
 
     size: AxisComponentRegionSizeT
     label: frozenset | None = None
+    _custom_comm: MPI.Comm | None = None
 
     def collect_buffers(self, visitor):
         return visitor(self.size)
@@ -230,10 +231,6 @@ class AxisComponentRegion(pyop3.obj.Object):
         return (type(self), ("size", visitor(self.size)), ("label", self.label))
 
     get_instruction_executor_cache_key = get_disk_cache_key
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.get_comm(self.size)
 
     @classmethod
     def record_prepare_args(cls, size, label=None):
@@ -246,7 +243,7 @@ class AxisComponentRegion(pyop3.obj.Object):
         if isinstance(size, Tensor):
             size = size.concretize()
 
-        return dict(size=size, label=label)
+        return dict(size=size, label=label, _custom_comm=None)
 
     def __post_init__(self) -> None:
         from pyop3 import Scalar
@@ -256,6 +253,17 @@ class AxisComponentRegion(pyop3.obj.Object):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):
             assert self.size.value >= 0
+
+    # }}}
+
+    # {{{ pyop3.obj.Object interface impls
+
+    @classmethod
+    def get_comm(cls, **attrs):
+        if comm := attrs["_custom_comm"]:
+            return comm
+        else:
+            return super().get_comm(**attrs)
 
     # }}}
 
@@ -378,10 +386,6 @@ class AxisComponent(LabelledNodeComponent):
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([*self.regions, self.size, self.sf])
 
     @classmethod
     def record_prepare_args(
@@ -566,10 +570,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self._label, "Axis"))
 
     get_instruction_executor_cache_key = get_disk_cache_key
-
-    @cached_property
-    def comm(self) -> MPI.Comm | None:
-        return pyop3.visitors.common_comm(self.components)
 
     @classmethod
     def record_prepare_args(
@@ -1335,10 +1335,10 @@ class AbstractIndexedAxisTree(AbstractAxisTreeLike):
         return StarForest(petsc_sf, self.comm)
 
 
-# TODO: This should take a comm!
+@pyop3.record.frozenrecord()
 class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
 
-    # {{{ instance attrs (there aren't any)
+    # {{{ instance attrs
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return type(self)
@@ -1347,6 +1347,10 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet()
+
+    @classmethod
+    def get_comm(cls):
+        return MPI.COMM_SELF
 
     # }}}
 
@@ -1456,10 +1460,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return (type(self), node_map_key)
 
     get_instruction_executor_cache_key = get_disk_cache_key
-
-    @cached_property
-    def comm(self):
-        return self._comm or pyop3.visitors.common_comm(self._node_map.values())
 
     @classmethod
     def record_prepare_args(
@@ -1743,10 +1743,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = idict(targets_key)
 
         return (type(self), node_map_key, visitor(self._unindexed), targets_key)
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return self._unindexed.comm
 
     # TODO: where to put *, and order?
     @classmethod
@@ -2091,10 +2087,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
 
         return (type(self), visitor(self._unindexed), targets_key)
 
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm([*self._node_maps.values(), self.unindexed])
-
     @classmethod
     def record_prepare_args(
         cls,
@@ -2300,10 +2292,6 @@ class AxisForest(AbstractAxisTreeLike):
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self._trees)))
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self._trees)
 
     def __new__(
         cls,
@@ -2526,10 +2514,6 @@ class ContextSensitiveAxisTree(pyop3.obj.Object, ContextSensitiveLoopIterable):
             trees_key[visitor.relabel_path(path)] = visitor(tree)
         trees_key = idict(trees_key)
         return (type(self), trees_key)
-
-    @cached_property
-    def comm(self) -> MPI.Comm:
-        return pyop3.visitors.common_comm(self.trees.values())
 
     @classmethod
     def record_prepare_args(cls, trees: Mapping):

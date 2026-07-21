@@ -587,7 +587,7 @@ def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
     return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
 
 
-def common_comm(comms: Iterable[MPI.Comm]) -> MPI.Comm:
+def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -> MPI.Comm:
     """Return a communicator valid for all objects.
 
     The valid communicator is defined as the one with the largest size.
@@ -621,8 +621,14 @@ def common_comm(comms: Iterable[MPI.Comm]) -> MPI.Comm:
             small_comm = comm
         assert comm_is_subset(small_comm, big_comm)
         shared_comm = big_comm
-    assert shared_comm is not None
-    return shared_comm
+
+    if shared_comm is not None:
+        return shared_comm
+    elif default is not None:
+        return default
+    else:
+        raise AssertionError
+
 
 
 def finalize_safe_debug():

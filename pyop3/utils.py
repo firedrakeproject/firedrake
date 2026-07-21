@@ -149,15 +149,6 @@ Id = str
 Label = str
 
 
-class Identified(abc.ABC):
-    def __init__(self, id):
-        self.id = id if id is not None else self.unique_id()
-
-    @classmethod
-    def unique_id(cls) -> str:
-        return unique_name(f"_id_{cls.__name__}")
-
-
 class Labelled(abc.ABC):
     # def __init__(self, label):
     #     self.label = label if label is not PYOP3_DECIDE else self.unique_label()
@@ -165,6 +156,10 @@ class Labelled(abc.ABC):
     @classmethod
     def unique_label(cls) -> str:
         return unique_name(f"_label_{cls.__name__}")
+
+    @classmethod
+    def unique_id(cls) -> str:
+        return unique_name(f"_id_{cls.__name__}")
 
 
 def split_at(iterable, index):

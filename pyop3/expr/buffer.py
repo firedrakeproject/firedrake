@@ -34,14 +34,6 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     # }}}
 
-    # {{{ interface impls
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    # }}}
-
     @property
     def name(self) -> str:
         return self.buffer.name
@@ -80,8 +72,13 @@ class ScalarBufferExpression(BufferExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, buffer) -> None:
-        object.__setattr__(self, "_buffer", buffer)
+    @classmethod
+    def get_custom_comm(cls, **attrs) -> None:
+        return None
+
+    @classmethod
+    def detect_comm(cls, **attrs) -> MPI.Comm:
+        return attrs["_buffer"].comm
 
     # }}}
 
@@ -178,10 +175,9 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         return (type(self), visitor(self._buffer), visitor(self.layout, inside=True))
 
-    def __init__(self, buffer, layout):
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "layout", layout)
-        self.__post_init__()
+    @classmethod
+    def get_comm(cls, *, _buffer, **attrs):
+        return _buffer.comm
 
     def __post_init__(self) -> None:
         pass
@@ -238,8 +234,9 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         layouts_key = idict(layouts_key)
         return (type(self), visitor(self._buffer), layouts_key)
 
-    def __post_init__(self) -> None:
-        pass
+    @classmethod
+    def get_comm(cls, *, _buffer, **attrs):
+        return _buffer.comm
 
     # }}}
 
@@ -312,11 +309,6 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
             visitor(self.column_layout),
         )
 
-    def __init__(self, buffer, row_layout, column_layout):
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "row_layout", row_layout)
-        object.__setattr__(self, "column_layout", column_layout)
-
     # }}}
 
     # {{{ class constructors
@@ -377,11 +369,6 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
             for path, layout in self.column_layouts.items()
         })
         return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)
-
-    def __init__(self, buffer, row_layouts, column_layouts) -> None:
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "row_layouts", row_layouts)
-        object.__setattr__(self, "column_layouts", column_layouts)
 
     def __post_init__(self) -> None:
         assert isinstance(self._buffer, AbstractBuffer)

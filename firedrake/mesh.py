@@ -324,7 +324,7 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
-@op3.record.frozenrecord()
+@op3.record.frozenrecord(maybe_singleton=False)
 class MeshLoopIndex(op3.LoopIndex):
     """Object representing a loop over mesh entities."""
 
@@ -332,17 +332,22 @@ class MeshLoopIndex(op3.LoopIndex):
     integral_type: str
     plex_indices_is: PETSc.IS = dataclasses.field(hash=False)
 
-    def __init__(
-        self,
+    @classmethod
+    def get_comm(cls, *, mesh, **attrs):
+        return mesh.comm
+
+    @classmethod
+    def record_prepare_args(
+        cls,
         iterset: op3.IndexedAxisTree,
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS,
-    ) -> None:
-        object.__setattr__(self, "mesh", mesh)
-        object.__setattr__(self, "integral_type", integral_type)
-        object.__setattr__(self, "plex_indices_is", plex_indices_is)
-        super().__init__(iterset)
+    ) -> dict:
+        return (
+            super().record_prepare_args(iterset)
+            | dict(mesh=mesh, integral_type=integral_type, plex_indices_is=plex_indices_is)
+        )
 
     @property
     def plex_indices(self) -> np.ndarray:

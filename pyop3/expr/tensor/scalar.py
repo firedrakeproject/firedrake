@@ -27,8 +27,9 @@ class Scalar(Tensor):
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self._buffer))
 
-    def __init__(
-        self,
+    @classmethod
+    def record_prepare_args(
+        cls,
         value: numbers.Number | None = None,
         comm: MPI.Comm | None=None,
         *,
@@ -37,7 +38,7 @@ class Scalar(Tensor):
         name: str | None = None,
         prefix: str | None = None,
     ):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
         if buffer is not None:
             # clean me up
@@ -58,12 +59,12 @@ class Scalar(Tensor):
                 data = np.asarray([value])
                 buffer = ArrayBuffer(data, **buffer_kwargs)
             else:
-                buffer = ArrayBuffer.empty(1, dtype=self.DEFAULT_DTYPE, **buffer_kwargs)
+                buffer = ArrayBuffer.empty(1, dtype=cls.DEFAULT_DTYPE, **buffer_kwargs)
 
         if buffer.size != 1:
             raise exc.SizeMismatchException("Expected a buffer with unit size")
 
-        self.record_init(_name=name, _buffer=buffer)
+        return dict(_name=name, _buffer=buffer)
 
     # }}}
 
