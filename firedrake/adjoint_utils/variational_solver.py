@@ -1,5 +1,7 @@
 import copy
 from functools import wraps
+import firedrake
+from firedrake import Function, NonlinearVariationalProblem
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from firedrake.ufl_expr import derivative, adjoint
@@ -122,13 +124,54 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import NonlinearVariationalProblem
-        _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
-            problem.J, dependencies, F=problem.F)
-        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u_restrict],
-                                           bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
+        # Build a replace map (and accompanying ad-count map) from the
+        # coefficients in J, F, and the concrete function-like values appearing in bcs.
+        _ad_count_map, replace_map = self._build_count_map(
+            problem.J, dependencies, F=problem.F, bcs=problem.bcs)
+
+        # Ensure the solution Function (u_restrict) is cloned and present in the replace map
+        if problem.u_restrict not in replace_map:
+            u_orig = problem.u_restrict
+            try:
+                if isinstance(u_orig, Function) and u_orig.ufl_element().family() == "Real":
+                    u_clone = copy.deepcopy(u_orig)
+                else:
+                    u_clone = u_orig.copy(deepcopy=True)
+            except Exception:
+                # Fallback: if we cannot clone, fall back to using original (conservative)
+                u_clone = u_orig
+            replace_map[u_orig] = u_clone
+            _ad_count_map[u_clone] = u_orig.count()
+
+        u_clone = replace_map[problem.u_restrict]
+        V_clone = u_clone.function_space()
+
+        # Reconstruct BCs to reference cloned coefficient objects where available.
+        new_bcs = []
+        for bc in problem.bcs or ():
+            if isinstance(bc, firedrake.DirichletBC):
+                g = getattr(bc, "function_arg", None)
+                g_clone = replace_map.get(g, None)
+                # Passing g_clone=None will cause reconstruct to interpolate/project original
+                new_bcs.append(bc.reconstruct(V=V_clone, g=g_clone, sub_domain=bc.sub_domain))
+            elif isinstance(bc, firedrake.EquationBC):
+                # Reconstruct the full EquationBC tree onto the cloned spaces
+                new_bcs.append(bc.reconstruct(V=V_clone, subu=u_clone, u=u_clone, field=None, is_linear=problem.is_linear))
+            else:
+                # Fallback: try to reconstruct if the method exists
+                if hasattr(bc, "reconstruct"):
+                    try:
+                        new_bcs.append(bc.reconstruct(V=V_clone))
+                    except Exception:
+                        new_bcs.append(bc)
+                else:
+                    new_bcs.append(bc)
+
+        # Build the cloned NonlinearVariationalProblem using the replace map
+        nlvp = NonlinearVariationalProblem(replace(problem.F, replace_map),
+                                           u_clone,
+                                           bcs=new_bcs,
+                                           J=replace(problem.J, replace_map))
         nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
@@ -150,10 +193,10 @@ class NonlinearVariationalSolverMixin:
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the
         # `block.adj_F` coefficients.
-        _ad_count_map, J_replace_map, _ = self._build_count_map(
+        _ad_count_map, replace_map = self._build_count_map(
             adj_F, block._dependencies)
         lvp = LinearVariationalProblem(
-            replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
+            replace(tmp_problem.J, replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)
