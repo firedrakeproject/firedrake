@@ -139,14 +139,12 @@ _DEFAULT_KSP_PARAMETERS = petsctools.flatten_parameters({
     "ksp_type": "preonly",
     "ksp_rtol": 1e-7,
     "pc_type": "lu",
-    "pc_factor": _DEFAULT_DIRECT_SOLVER_PARAMETERS,
-    "adaptor_criterion": "refine",
+    "pc_factor": _DEFAULT_DIRECT_SOLVER_PARAMETERS
 })
 
 _DEFAULT_SNES_PARAMETERS = {
     "snes_type": "newtonls",
     "snes_linesearch_type": "basic",
-    "adaptor_criterion": "refine",
     # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSolver class works
 }
 # We also want looser KSP tolerances for non-linear solves
