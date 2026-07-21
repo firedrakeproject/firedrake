@@ -296,14 +296,12 @@ def facet_numbering(PETSc.DM plex, kind,
         PetscInt f, fStart, fEnd, fi, cell, c
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         const PetscInt *cells = NULL
-        np.ndarray facet_cells
-        np.ndarray facet_local_num
         # typed memoryviews so the ~O(nfacets*nclosure) inner scan indexes in C
         # instead of via np.ndarray (Python-level) element access.
         PetscInt[::1] facets_view = facets
         PetscInt[:, ::1] cell_closures_view = cell_closures
-        PetscInt[:, ::1] facet_cells_view
-        PetscInt[:, ::1] facet_local_num_view
+        PetscInt[:, ::1] facet_cells
+        PetscInt[:, ::1] facet_local_num
 
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     nfacets = facets.shape[0]
@@ -316,48 +314,46 @@ def facet_numbering(PETSc.DM plex, kind,
         cells_per_facet = 1
     facet_local_num = np.empty((nfacets, cells_per_facet), dtype=IntType)
     facet_cells = np.empty((nfacets, cells_per_facet), dtype=IntType)
-    facet_cells_view = facet_cells
-    facet_local_num_view = facet_local_num
 
     # First determine the parent cell(s) for each facet
     for f in range(nfacets):
         CHKERR(DMPlexGetSupport(plex.dm, facets_view[f], &cells))
         CHKERR(DMPlexGetSupportSize(plex.dm, facets_view[f], &ncells))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
-        facet_cells_view[f,0] = cell
+        facet_cells[f,0] = cell
         if cells_per_facet > 1:
             if ncells > 1:
                 CHKERR(PetscSectionGetOffset(cell_numbering.sec,
                                              cells[1], &cell))
-                facet_cells_view[f,1] = cell
+                facet_cells[f,1] = cell
             else:
-                facet_cells_view[f,1] = -1
+                facet_cells[f,1] = -1
 
     # Run through the sorted closure to get the
     # local facet number within each parent cell
     for f in range(nfacets):
         # First cell
-        cell = facet_cells_view[f,0]
+        cell = facet_cells[f,0]
         fi = 0
         for c in range(nclosure):
             if cell_closures_view[cell, c] == facets_view[f]:
-                facet_local_num_view[f,0] = fi
+                facet_local_num[f,0] = fi
             if fStart <= cell_closures_view[cell, c] < fEnd:
                 fi += 1
 
         # Second cell
         if cells_per_facet > 1:
-            cell = facet_cells_view[f,1]
+            cell = facet_cells[f,1]
             if cell >= 0:
                 fi = 0
                 for c in range(nclosure):
                     if cell_closures_view[cell, c] == facets_view[f]:
-                        facet_local_num_view[f,1] = fi
+                        facet_local_num[f,1] = fi
                     if fStart <= cell_closures_view[cell, c] < fEnd:
                         fi += 1
             else:
-                facet_local_num_view[f,1] = -1
-    return facet_local_num, facet_cells
+                facet_local_num[f,1] = -1
+    return np.asarray(facet_local_num), np.asarray(facet_cells)
 
 
 cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
@@ -629,8 +625,7 @@ def closure_ordering(PETSc.DM dm,
         const PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
         PetscInt incident
-        np.ndarray cell_closure
-        PetscInt[:, ::1] cell_closure_view
+        PetscInt[:, ::1] cell_closure
 
     dim = get_topological_dimension(dm)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -655,7 +650,6 @@ def closure_ordering(PETSc.DM dm,
         CHKERR(PetscMalloc1(f_per_cell, &faces))
         CHKERR(PetscMalloc1(f_per_cell, &face_indices))
     cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
-    cell_closure_view = cell_closure
 
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -680,9 +674,9 @@ def closure_ordering(PETSc.DM dm,
         for vi in range(v_per_cell):
             if dim == 1:
                 # Correct 1D edge numbering
-                cell_closure_view[cell, vi] = vertices[v_per_cell-vi-1]
+                cell_closure[cell, vi] = vertices[v_per_cell-vi-1]
             else:
-                cell_closure_view[cell, vi] = vertices[vi]
+                cell_closure[cell, vi] = vertices[vi]
         offset = v_per_cell
 
         # Find all edges (dim=1) (only relevant for `DMPlex`)
@@ -708,7 +702,7 @@ def closure_ordering(PETSc.DM dm,
                     for v in range(v_per_cell):
                         incident = 0
                         for vi in range(nface_vertices):
-                            if cell_closure_view[cell,v] == face_vertices[vi]:
+                            if cell_closure[cell,v] == face_vertices[vi]:
                                 incident = 1
                                 break
                         if incident == 0:
@@ -720,7 +714,7 @@ def closure_ordering(PETSc.DM dm,
             CHKERR(PetscSortIntWithArray(f_per_cell,
                                          face_indices, faces))
             for fi in range(nfaces):
-                cell_closure_view[cell, offset+fi] = faces[fi]
+                cell_closure[cell, offset+fi] = faces[fi]
             offset += nfaces
 
         # Calling get_transitive_closure() again invalidates the
@@ -735,7 +729,7 @@ def closure_ordering(PETSc.DM dm,
                 nfacets += 1
 
         # The cell itself is always the first entry in the Plex closure
-        cell_closure_view[cell, cell_offset] = closure[0]
+        cell_closure[cell, cell_offset] = closure[0]
 
         # Now we can deal with facets (only relevant for `DMPlex`)
         if dim > 1:
@@ -755,13 +749,13 @@ def closure_ordering(PETSc.DM dm,
                 for v in range(v_per_cell):
                     incident = 0
                     for vi in range(v_per_cell-1):
-                        if cell_closure_view[cell,v] == facet_vertices[vi]:
+                        if cell_closure[cell,v] == facet_vertices[vi]:
                             incident = 1
                             break
                     # Only one non-incident vertex per facet, so
                     # local facet no. = non-incident vertex no.
                     if incident == 0:
-                        cell_closure_view[cell,offset+v] = facets[f]
+                        cell_closure[cell,offset+v] = facets[f]
                         break
 
             offset += nfacets
@@ -776,7 +770,7 @@ def closure_ordering(PETSc.DM dm,
     CHKERR(PetscFree(faces))
     CHKERR(PetscFree(face_indices))
 
-    return cell_closure
+    return np.asarray(cell_closure)
 
 
 @cython.boundscheck(False)
@@ -1225,9 +1219,8 @@ def entity_orientations(mesh,
         PetscInt *plex_cone_copy = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
-        np.ndarray entity_orientations
         PetscInt[:, ::1] cell_closure_view
-        PetscInt[:, ::1] entity_orientations_view
+        PetscInt[:, ::1] entity_orientations
 
     if type(mesh) is not firedrake.mesh.MeshTopology:
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
@@ -1272,21 +1265,20 @@ def entity_orientations(mesh,
     # typed memoryviews so the hot loop indexes cell_closure / output in C
     # instead of via slow np.ndarray scalar indexing.
     cell_closure_view = cell_closure
-    entity_orientations_view = entity_orientations
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations_view[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
-                                                                     fiat_cone,
-                                                                     plex_cone,
-                                                                     plex_cone_copy,
-                                                                     entity_cone_map,
-                                                                     entity_cone_map_offset)
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
+                                                                fiat_cone,
+                                                                plex_cone,
+                                                                plex_cone_copy,
+                                                                entity_cone_map,
+                                                                entity_cone_map_offset)
     CHKERR(PetscFree(fiat_cone))
     CHKERR(PetscFree(plex_cone))
     CHKERR(PetscFree(plex_cone_copy))
     CHKERR(PetscFree(entity_cone_map))
     CHKERR(PetscFree(entity_cone_map_offset))
-    return entity_orientations
+    return np.asarray(entity_orientations)
 
 
 @cython.boundscheck(False)
@@ -1526,14 +1518,13 @@ def get_cell_nodes(mesh,
         int *flat_index = NULL
         np.ndarray entity_permutations_c
         np.ndarray num_orientations_c
-        np.ndarray cell_nodes
         np.ndarray layer_extents
         np.ndarray cell_closures
         np.ndarray entity_orientations
         bint is_swarm, variable, extruded_periodic_1_layer
         PetscInt[:, ::1] cell_closures_view
         PetscInt[:, ::1] entity_orientations_view
-        PetscInt[:, ::1] cell_nodes_view
+        PetscInt[:, ::1] cell_nodes
         PetscInt[::1] entity_permutations_view
         PetscInt[::1] num_orientations_view
 
@@ -1581,7 +1572,6 @@ def get_cell_nodes(mesh,
     # Fill cell nodes
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
-    cell_nodes_view = cell_nodes
     cell_numbering = mesh._cell_numbering
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -1601,26 +1591,26 @@ def get_cell_nodes(mesh,
                 if entity_permutations is not None:
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes_view[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
                             k += 1
                     else:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes_view[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j]
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j]
                             k += 1
                     perm_offset += ceil_ndofs[i] * num_orientations_view[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes_view[cell, flat_index[k]] = off + j % offset[flat_index[k]]
+                            cell_nodes[cell, flat_index[k]] = off + j % offset[flat_index[k]]
                             k += 1
                     else:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes_view[cell, flat_index[k]] = off + j
+                            cell_nodes[cell, flat_index[k]] = off + j
                             k += 1
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
-    return cell_nodes
+    return np.asarray(cell_nodes)
 
 
 @cython.boundscheck(False)
@@ -2557,16 +2547,14 @@ def get_facets_by_class(PETSc.DM plex, label,
         PETSc.IS class_is = None
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
-        np.ndarray facets
         PetscInt[::1] ordering_view = ordering
-        PetscInt[::1] facets_view
+        PetscInt[::1] facets
 
     dim = get_topological_dimension(plex)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
     nfacets = count_labelled_points(plex, label, fStart, fEnd)
     facets = np.empty(nfacets, dtype=IntType)
-    facets_view = facets
     facet_classes = [0, 0, 0]
     fi = 0
 
@@ -2584,12 +2572,12 @@ def get_facets_by_class(PETSc.DM plex, label,
                 CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
                 CHKERR(DMLabelHasPoint(lbl_class, f, &is_class))
                 if has_point and is_class:
-                    facets_view[fi] = f
+                    facets[fi] = f
                     fi += 1
         facet_classes[i] = fi
         CHKERR(DMLabelDestroyIndex(lbl_class))
     CHKERR(DMLabelDestroyIndex(lbl_facets))
-    return facets, facet_classes
+    return np.asarray(facets), facet_classes
 
 
 @cython.boundscheck(False)
