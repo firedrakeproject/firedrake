@@ -19,8 +19,7 @@ class MassInvPC(AssembledPC):
     For Stokes problems, to be spectrally equivalent to the Schur
     complement, the mass matrix should be weighted by the viscosity.
     This can be provided (defaulting to constant viscosity) by
-    providing a field defining the viscosity in the application
-    context, keyed on ``"mu"``.
+    providing a field defining the viscosity, keyed on ``"mu"``.
     """
 
     _prefix = "Mp_"
