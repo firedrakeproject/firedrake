@@ -509,12 +509,12 @@ def test_vertex_only_mesh_particle_ids(redundant):
 
     vom = VertexOnlyMesh(parent_mesh, local_points, redundant=redundant)
 
-    pids = vom.firedrake_particle_ids
+    pids = vom._particle_ids
     assert pids is not None
     assert isinstance(pids, firedrake.Function)
     assert pids.name() == "firedrake_particle_ids"
 
-    local_ids = vom.firedrake_particle_ids.dat.data_ro.copy()
+    local_ids = vom._particle_ids.dat.data_ro.copy()
 
     gathered = parent_mesh.comm.allgather(local_ids)
     all_ids = np.concatenate(gathered)

@@ -560,15 +560,13 @@ class VTKFile:
         if (cell, True) not in cells and (cell, False) not in cells:
             raise ValueError("Unhandled cell type %r" % cell)
 
-        is_vom = mesh.topological_dimension == 0
-
         if self._fnames is not None:
             if tuple(f.name() for f in functions) != self._fnames:
                 raise ValueError("Writing different set of functions")
         else:
             self._fnames = tuple(f.name() for f in functions)
 
-        if is_vom:
+        if mesh.topological_dimension == 0:
             coordinates = OFunction(
                 array=get_array(mesh.coordinates),
                 name=mesh.coordinates.name(),
@@ -579,11 +577,9 @@ class VTKFile:
                 for f in functions
             )
 
-            pids = getattr(mesh, "firedrake_particle_ids", None)
-            if pids is not None:
-                functions += (
-                    OFunction(array=get_array(pids), name=pids.name(), function=pids),
-                )
+            # Write the persistent particle ID
+            pids = mesh._particle_ids
+            functions += (OFunction(array=get_array(pids), name=pids.name(), function=pids),)
 
             self._topology = get_topology(coordinates.function)
         else:
