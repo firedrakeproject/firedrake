@@ -134,6 +134,15 @@ def solve(*args, **kwargs):
 
     To linearise around the initial guess before imposing boundary
     conditions, set the ``pre_apply_bcs`` keyword argument to be False.
+
+    Returns
+    -------
+    firedrake.function.Function or None
+        For a variational problem (cases 2 and 3 above), the (possibly
+        adapted) solution :class:`~.Function`. This may differ from the
+        ``u`` that was passed in if the solver performed mesh adaptation
+        during the solve. `None` is returned when solving a pre-assembled
+        linear system (case 1 above).
     """
 
     assert len(args) > 0

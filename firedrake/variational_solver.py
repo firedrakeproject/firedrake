@@ -171,10 +171,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = MappingProxyType({
-        **DEFAULT_SNES_PARAMETERS,
-        "adaptor_criterion": "refine",
-    })
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
     # TODO: When we drop Python 3.8 replace this mess with
@@ -232,7 +229,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before imposing bcs, and the bcs are appended to the nonlinear system.
         :kwarg marking_callback: An optional callable of the form
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
-               The callback receives the :class:`~.solving_utils._SNESContext`
+               The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
                :class:`.Function` or :class:`.Cofunction` with positive
                values on cells to refine.
@@ -309,8 +306,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
-        self._problem = problem
-
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
@@ -341,12 +336,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._transfer_operators = ()
         self._setup = False
 
+    @property
+    def _problem(self):
+        """The :class:`NonlinearVariationalProblem` to solve"""
+        return self._ctx._problem
+
     def set_marking_callback(self, callback):
         r"""Set the callback used by PETSc-driven adaptive refinement.
 
         The callback is called as ``callback(ctx, u)`` when PETSc asks the
         solution DM to refine, where ``ctx`` is the current
-        :class:`~.solving_utils._SNESContext`. It must return a DG0
+        `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
         mesh, with positive values on cells to refine.
         """
@@ -373,21 +373,32 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
-        :arg bounds: Optional bounds on the solution (lower, upper).
-            ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s.
+        Parameters
+        ----------
+        bounds : tuple of firedrake.function.Function
+            Optional bounds on the solution, given as ``(lower, upper)``.
+            ``lower`` and ``upper`` must both be :class:`~.Function`\s.
 
-        .. note::
+        Returns
+        -------
+        firedrake.function.Function
+            The (possibly adapted) solution. If the solver performed
+            mesh adaptation during the solve, this is the solution
+            :class:`~.Function` on the adapted mesh, which may differ
+            from the ``u`` that was passed in to the
+            :class:`.NonlinearVariationalProblem`.
 
-           If bounds are provided the ``snes_type`` must be set to
-           ``vinewtonssls`` or ``vinewtonrsls``.
+        Notes
+        -----
+        If bounds are provided the ``snes_type`` must be set to
+        ``vinewtonssls`` or ``vinewtonrsls``.
         """
         # Make sure the DM has this solver's callback functions
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
-        problem = self._ctx._problem
+        problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
@@ -519,7 +530,6 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
     DEFAULT_SNES_PARAMETERS = MappingProxyType({
         "snes_type": "ksponly",
-        "adaptor_criterion": "refine",
     })
 
     # Tighter default tolerance for KSP only.
