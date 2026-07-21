@@ -2041,18 +2041,30 @@ class ParloopBuilder:
 
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
+        row_bcs = []
+        col_bcs = []
+        for bc in self._bcs:
+            V = bc.function_space_root()
+            on_row = V == self.test_function_space
+            on_col = V == self.trial_function_space
+            if not on_row and not on_col:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            if on_row:
+                row_bcs.append(bc)
+            if on_col:
+                col_bcs.append(bc)
         if len(self.test_function_space) > 1:
-            bcrow = tuple(bc for bc in self._bcs
+            bcrow = tuple(bc for bc in row_bcs
                           if bc.function_space_index() == row)
         else:
-            bcrow = self._bcs
+            bcrow = tuple(row_bcs)
 
         if len(self.trial_function_space) > 1:
-            bccol = tuple(bc for bc in self._bcs
+            bccol = tuple(bc for bc in col_bcs
                           if bc.function_space_index() == col
                           and isinstance(bc, DirichletBC))
         else:
-            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
+            bccol = tuple(bc for bc in col_bcs if isinstance(bc, DirichletBC))
         return bcrow, bccol
 
     def needs_unrolling(self):
