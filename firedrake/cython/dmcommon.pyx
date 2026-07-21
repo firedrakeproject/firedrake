@@ -1160,8 +1160,6 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         PetscDMPolytopeType ct
 
     p = cell_closure[cell, e]
-    # A single C DMPlexGetCellType replaces the up-to-4 petsc4py dm.getCellType()
-    # Python calls that dominated this ~45M-iteration loop.
     CHKERR(DMPlexGetCellType(dm.dm, p, &ct))
     if ct == DM_POLYTOPE_POINT:
         return 0
