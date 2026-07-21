@@ -52,6 +52,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
+        if "snes_adapt_sequence" in keys:
+            parameters.setdefault("adaptor_criterion", "refine")
         for k, v in ksp_defaults.items():
             if k not in skip:
                 parameters.setdefault(k, v)
