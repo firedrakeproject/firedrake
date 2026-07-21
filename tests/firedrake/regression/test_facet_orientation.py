@@ -7,6 +7,7 @@ from functools import partial
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 cwd = abspath(dirname(__file__))
 
@@ -45,7 +46,7 @@ def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs)
     """
     par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
 
-    assert np.allclose(q.dat.data, 0.0)
+    assert np.allclose(q.dat.data, 0.0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize('mesh_thunk', meshes)

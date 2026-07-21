@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+from firedrake.utils import single_mode
 from scipy.sparse import csr_array
 import petsctools
 from firedrake import *
@@ -192,7 +193,9 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-10
+    # fp32: the round-trip error grows with the autoregressive order m
+    # (each m adds nested solves whose round-off accumulates).
+    tol = ({0: 1e-5, 2: 1e-3, 4: 1e-2}[m] if single_mode else 1e-10)
 
     assert errornorm(w, wcheck) < tol
 
@@ -230,11 +233,13 @@ def test_covariance_inverse_action_hdiv(m):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-8
+    # fp32: round-trip error grows with the autoregressive order m (nested solves).
+    tol = ({0: 1e-5, 2: 1e-3, 4: 1e-2}[m] if single_mode else 1e-8)
 
     assert errornorm(w, wcheck) < tol
 
 
+@pytest.mark.skipsingle  # asserts ksp.its == 1 (exact algebraic inverse); not achievable in fp32
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
@@ -323,6 +328,7 @@ def test_covariance_mat(m, family, operation):
     assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
 
 
+@pytest.mark.skipsingle  # asserts ksp.its == 1 (exact algebraic inverse); not achievable in fp32
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("operation", ("action", "inverse"))
 def test_mixed_covariance(operation):

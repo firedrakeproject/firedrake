@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 
 
@@ -82,6 +83,10 @@ def run_test(degree):
 
 @pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
+    if single_mode and threshold > 2.5:
+        pytest.skip("fp32 round-off accumulated over 200 timesteps on the "
+                    "finest meshes floors the high-order DG advection error, "
+                    "collapsing the convergence rate")
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
 
@@ -91,6 +96,10 @@ def test_periodic_1d_advection(degree, threshold):
 @pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=2)
 def test_periodic_1d_advection_parallel(degree, threshold):
+    if single_mode and threshold > 2.5:
+        pytest.skip("fp32 round-off accumulated over 200 timesteps on the "
+                    "finest meshes floors the high-order DG advection error, "
+                    "collapsing the convergence rate")
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
 

@@ -1,5 +1,8 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])
@@ -47,7 +50,7 @@ def test_multiple_poisson_Pn(quadrilateral, degree):
     u.interpolate(1 + 9*xs[2])
     p.interpolate(8 - 2*xs[0])
 
-    assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
+    assert assemble(inner(w - wexact, w - wexact)*dx) < (1e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])
@@ -94,7 +97,7 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
     u.interpolate(11 - xs[2])
     p.interpolate(2 + 4*xs[2])
 
-    assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
+    assert assemble(inner(w - wexact, w - wexact)*dx) < (1e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize("mat_type", ["nest", "aij"])
@@ -139,7 +142,7 @@ def test_stokes_taylor_hood(mat_type):
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
-                             'fieldsplit_0_ksp_rtol': 1e-8,
+                             'fieldsplit_0_ksp_rtol': 1e-5 if single_mode else 1e-8,
                              'fieldsplit_0_pc_type': 'bjacobi',
                              'fieldsplit_0_sub_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'none',
@@ -150,8 +153,8 @@ def test_stokes_taylor_hood(mat_type):
     uexact = Function(V).interpolate(as_vector([xs[1]*(1 - xs[1]), Constant(0.0)]))
     pexact = Function(P).interpolate(2*(length - xs[0]))
 
-    assert errornorm(u, uexact, degree_rise=0) < 1e-7
-    assert errornorm(p, pexact, degree_rise=0) < 1e-7
+    assert errornorm(u, uexact, degree_rise=0) < (1e-5 if single_mode else 1e-7)
+    assert errornorm(p, pexact, degree_rise=0) < (1e-3 if single_mode else 1e-7)
 
 
 @pytest.mark.parallel

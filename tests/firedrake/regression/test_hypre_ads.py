@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["simplex", "hexahedron"])
@@ -42,7 +43,7 @@ def test_homogeneous_field(V, mat_type, interface):
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(u_exact, u, 'L2') < 1e-10)
+    assert (errornorm(u_exact, u, 'L2') < (1e-3 if single_mode else 1e-10))
 
 
 @pytest.mark.skiphypre

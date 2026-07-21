@@ -1484,7 +1484,9 @@ def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
     rows, cols = numpy.nonzero(sparsity)
     rows = rows.astype(PETSc.IntType)
     cols = cols.astype(PETSc.IntType)
-    vals = A_numpy[sparsity]
+    # Values must be PetscScalar: the dense A_numpy is float64, which petsc4py
+    # refuses to cast to float32 in a single-precision build.
+    vals = A_numpy[sparsity].astype(PETSc.ScalarType)
     A.setValuesRCV(rows[:, None], cols[:, None], vals[:, None], PETSc.InsertMode.INSERT)
     A.assemble()
     return A
@@ -2332,6 +2334,9 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False, comm=None):
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
     If dense_indices is empty, then also include the off-diagonal corners of the matrix.
     """
+    # Values inserted into the Mat must be PetscScalar; the dense input is
+    # typically float64, which petsc4py will not cast to float32 in fp32 builds.
+    A_numpy = numpy.asarray(A_numpy, dtype=PETSc.ScalarType)
     n = A_numpy.shape[0]
     nbase = int(diag) if block else min(n, int(diag) + len(dense_indices))
     nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)

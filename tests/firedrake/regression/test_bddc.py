@@ -3,6 +3,7 @@ import numpy as np
 from functools import reduce
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 
 
 @pytest.fixture
@@ -130,7 +131,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     uh = Function(V, name="solution")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
-    rtol = 1E-8
+    # fp32: the relative energy-norm error floors around 1e-5 (high-energy H(div)/H(curl) degree-3 cases), so an 1e-8 solve is unattainable
+    rtol = 1E-4 if single_mode else 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
@@ -140,7 +142,8 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
     ew = solver.snes.ksp.computeEigenvalues()
-    assert min(ew) >= 1.0
+    # fp32: the BDDC lower eigenvalue bound (theoretically >= 1) dips slightly below 1 from round-off
+    assert min(ew) >= (1.0 - 1e-3 if single_mode else 1.0)
     kappa = max(abs(ew)) / min(abs(ew))
     return kappa ** 0.5
 
@@ -214,7 +217,8 @@ def test_bddc_cellwise_fdm(rg, mh, family, degree, condense):
     variant = "fdm"
     bcs = True
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=True, condense=condense) for m in mh]
-    assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
+    # fp32: the eigenvalue-based condition-number estimate is noisier, so allow slightly more growth
+    assert (np.diff(sqrt_kappa) <= (0.2 if single_mode else 0.1)).all(), str(sqrt_kappa)
 
 
 @pytest.mark.skipcomplex  # max_value does not work in complex mode
@@ -228,7 +232,8 @@ def test_bddc_cellwise_high_aspect_ratio(rg, family, degree):
     # For these meshes it is better to set adaptive BDDC parameters,
     # but here we just test the appctx["primal_markers"] interface
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=True, threshold=2**6) for m in mh]
-    assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
+    # fp32: the eigenvalue-based condition-number estimate is noisier, so allow slightly more growth
+    assert (np.diff(sqrt_kappa) <= (0.2 if single_mode else 0.1)).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel

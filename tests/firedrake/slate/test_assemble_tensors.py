@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.formmanipulation import split_form
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -190,7 +191,9 @@ def test_nested_coefficients_matrix(mesh):
     A = Tensor(form)
     M = assemble(A)
 
-    assert np.allclose(M.M.values, assemble(form).M.values, rtol=1e-14)
+    assert np.allclose(M.M.values, assemble(form).M.values,
+                       rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_mixed_argument_tensor(mesh):
@@ -225,7 +228,9 @@ def test_vector_subblocks(mesh):
     items = [(_E[0], q), (_E[1], p), (_E[2], r)]
 
     for tensor, ref in items:
-        assert np.allclose(assemble(tensor).dat.data, ref.dat.data, rtol=1e-14)
+        assert np.allclose(assemble(tensor).dat.data, ref.dat.data,
+                           rtol=1e-5 if single_mode else 1e-14,
+                           atol=1e-6 if single_mode else 1e-8)
 
 
 def test_matrix_subblocks(mesh):

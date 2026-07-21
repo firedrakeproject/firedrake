@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 from pyop2.mpi import MPI
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
@@ -101,7 +102,7 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         requests = ensemble.iallreduce(urank, u_reduce)
         MPI.Request.Waitall(requests)
 
-    parallel_assert(errornorm(urank_sum, u_reduce) < 1e-12)
+    parallel_assert(errornorm(urank_sum, u_reduce) < (1e-6 if single_mode else 1e-12))
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -184,13 +185,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     error = errornorm(urank_sum, u_reduce)
     rank = ensemble.ensemble_rank
     parallel_assert(
-        error < 1e-12,
+        error < (1e-6 if single_mode else 1e-12),
         participating=(rank == root),
         msg=f"{error=:.5f}"
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
-        error < 1e-12,
+        error < (1e-6 if single_mode else 1e-12),
         participating=(rank != root),
         msg=f"{error=:.5f}"
     )
@@ -281,7 +282,7 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
     # broadcasted function
     u_correct = unique_function(mesh, root, W)
 
-    parallel_assert(errornorm(u_correct, urank) < 1e-12)
+    parallel_assert(errornorm(u_correct, urank) < (1e-6 if single_mode else 1e-12))
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -320,7 +321,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     # Test send/recv between first two spatial comms
     # ie: ensemble.ensemble_comm.rank == 0 and 1
     parallel_assert(
-        error < 1e-12,
+        error < (1e-6 if single_mode else 1e-12),
         participating=ensemble.ensemble_rank in (rank0, rank1),
         msg=f"{error=:.5f}"  # noqa: E203, E251
     )
@@ -348,7 +349,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     if not blocking:
         MPI.Request.Waitall(requests)
 
-    parallel_assert(errornorm(urecv, u_expect) < 1e-12)
+    parallel_assert(errornorm(urecv, u_expect) < (1e-6 if single_mode else 1e-12))
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -379,7 +380,7 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     usum = Function(W)
     ensemble.allreduce(u_separate, usum)
 
-    parallel_assert(errornorm(u_combined, usum) < 1e-8)
+    parallel_assert(errornorm(u_combined, usum) < (1e-6 if single_mode else 1e-8))
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -418,5 +419,5 @@ def test_ensemble_sequential(ensemble, direction):
         msg=f"Failed to send int properly. Expecting {expected} but received {recv_i}")
 
     parallel_assert(
-        abs(float(recv_f)-expected) < 1e-12,
+        abs(float(recv_f)-expected) < (1e-6 if single_mode else 1e-12),
         msg=f"Failed to send Function properly. Expecting {expected} but received {float(recv_f)}")

@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -203,7 +204,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     # We create vertex-only meshes using redundant=True by default so check
     # that vm_input has vertices on rank 0 only
     if MPI.COMM_WORLD.rank == 0:
-        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+        # Read the collective data_ro once to keep ranks balanced.
+        input_ordering_coords = vm_input.coordinates.dat.data_ro
+        assert np.array_equal(
+            input_ordering_coords.reshape(inputvertexcoords.shape),
+            inputvertexcoords.astype(input_ordering_coords.dtype))
     else:
         assert len(vm_input.coordinates.dat.data_ro) == 0
 
@@ -408,14 +413,21 @@ def test_outside_boundary_behaviour(parentmesh):
     if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
         # except here!
         edge_point = negative_coord_furthest_from_origin(parentmesh)
-    inputcoord = np.full((1, parentmesh.geometric_dimension), edge_point-1e-15)
+    # fp32: the fp64 offset/tolerances (1e-15..1e-13) are far below single
+    # precision resolution (eps ~1e-7), so the offset is lost and the tolerances
+    # are meaningless. Scale them up by ~1e9 to probe the same "small tol misses,
+    # large tol catches" logic at an fp32-resolvable scale. fp64 is unchanged.
+    offset = 1e-6 if single_mode else 1e-15
+    tol_small = 1e-7 if single_mode else 1e-16
+    tol_large = 1e-4 if single_mode else 1e-13
+    inputcoord = np.full((1, parentmesh.geometric_dimension), edge_point-offset)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour="ignore")
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=tol_small, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
     # Tolerance is large enough to pick up point - note that we need to go up
     # by 2 orders of magnitude for this to work consistently
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour="ignore")
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=tol_large, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 1
 
 
@@ -431,21 +443,25 @@ def test_partition_behaviour_2d_3procs():
 
 def test_partition_behaviour():
     parentmesh = UnitSquareMesh(1, 1)
-    inputcoords = [[0.0-1e-8, 0.5],
-                   [0.5, 0.0-1e-8],
-                   [0.5, 1.0+1e-8],
-                   [1.0+1e-8, 0.5],
+    # fp32: fp64 offsets/tolerances are below machine eps, so scale up.
+    offset_small = 1e-4 if single_mode else 1e-8
+    tol_large = 1e-3 if single_mode else 1e-6
+    tol_small = 1e-5 if single_mode else 1e-10
+    inputcoords = [[0.0-offset_small, 0.5],
+                   [0.5, 0.0-offset_small],
+                   [0.5, 1.0+offset_small],
+                   [1.0+offset_small, 0.5],
                    [0.5, 0.5],
                    [0.5, 0.5],
                    [0.5+1e-12, 0.5],
                    [0.5, 0.5+1e-12]]
     npts = len(inputcoords)
     # Check that we get all the points with a big enough tolerance
-    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-6)
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=tol_large)
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
     # Check that we lose all but the last 4 points with a small tolerance
     with pytest.warns(UserWarning):
-        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-10, missing_points_behaviour='warn')
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=tol_small, missing_points_behaviour='warn')
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
 
 

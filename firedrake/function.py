@@ -36,9 +36,9 @@ __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
+    _fields_ = [("n_cols", as_ctypes(IntType)),
                 ("extruded", c_int),
-                ("n_layers", c_int),
+                ("n_layers", as_ctypes(IntType)),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
@@ -606,6 +606,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
+        # Point location (libspatialindex) needs float64 coords, not ScalarType.
+        arg = np.asarray(arg, dtype=np.float64)
 
         dont_raise = kwargs.get('dont_raise', False)
 

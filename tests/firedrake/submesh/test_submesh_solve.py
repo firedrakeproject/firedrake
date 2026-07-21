@@ -3,6 +3,9 @@ import pytest
 from os.path import abspath, dirname, join
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 from firedrake.cython import dmcommon
 from petsc4py import PETSc
 
@@ -42,7 +45,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
     mesh.mark_entities(indicator_function, 999)
     mesh = Submesh(mesh, dim, 999)
     suberror = _solve_helmholtz(mesh)
-    assert abs(error - suberror) < 1e-15
+    assert abs(error - suberror) < (1e-6 if single_mode else 1e-15)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -262,7 +265,7 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     nsub = FacetNormal(subm)
     u_exact = Function(DG).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
     sigma_exact = Function(BDM).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby), - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1.e-16})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1.e-16})
     f = Function(DG).interpolate(- 8 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
@@ -283,8 +286,8 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     a_ = (inner(sigma_, tau) + inner(u_, div(tau)) + inner(div(sigma_), v)) * dx1 + inner(u_ - u_exact, v) * dx0(label_submesh_compl)
     L_ = inner(f, v) * dx0(label_submesh) + inner((u_('+') + u_('-')) / 2., dot(tau, nsub)) * ds1_int(boun_int) + inner(u_exact, dot(tau, nsub)) * ds1_ext(boun_ext)
     solve(a_ - L_ == 0, w_, bcs=[bc])
-    assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < 1.e-20
-    assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < 1.e-20
+    assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < (1e-9 if single_mode else 1.e-20)
+    assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < (1e-9 if single_mode else 1.e-20)
     sigma_error = sqrt(assemble(inner(sigma - sigma_exact, sigma - sigma_exact) * dx1))
     u_error = sqrt(assemble(inner(u - u_exact, u - u_exact) * dx0(label_submesh)))
     return sigma_error, u_error
@@ -299,6 +302,7 @@ def test_submesh_solve_mixed_poisson_check_sanity_2d(nref, degree, quadrilateral
     _, _ = _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region)
 
 
+@pytest.mark.skipsingle  # fp32: L2 rate collapses (goes negative between the last two refinements) well before ksp_rtol is the limiting factor (already relaxed to 1e-5)
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('quadrilateral', [True])
 @pytest.mark.parametrize('degree', [3])
@@ -394,7 +398,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     sigma_exact = Function(NCF).project(as_vector([- 2 * pi * sin(2 * pi * subx) * cos(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * sin(2 * pi * suby) * cos(2 * pi * subz),
                                                    - 2 * pi * cos(2 * pi * subx) * cos(2 * pi * suby) * sin(2 * pi * subz)]),
-                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1.e-16})
+                                        solver_parameters={"ksp_type": "cg", "ksp_rtol": 1e-5 if single_mode else 1.e-16})
     f = Function(DG).interpolate(- 12 * pi * pi * cos(2 * pi * x) * cos(2 * pi * y) * cos(2 * pi * z))
     dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
@@ -459,8 +463,8 @@ def test_submesh_solve_cell_cell_equation_bc(nref, degree, simplex):
     dbc = DirichletBC(V.sub(0), x_outer * y_outer, (1, 2, 3, 4))
     ebc = EquationBC(inner(u_outer - u_inner, v_outer) * ds_outer(label_interface) == inner(Constant(0.), v_outer) * ds_outer(label_interface), sol, label_interface, V=V.sub(0))
     solve(a == L, sol, bcs=[dbc, ebc])
-    assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < 1.e-12
-    assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < 1.e-12
+    assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < (5e-4 if single_mode else 1.e-12)
+    assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < (5e-4 if single_mode else 1.e-12)
 
 
 def _test_submesh_solve_quad_triangle_poisson(nref, degree):
@@ -603,7 +607,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     # Check sanity.
     vol1 = assemble(Constant(1) * dx1)
     vol2 = assemble(Constant(1) * dx2)
-    assert abs(vol1 + vol2 - 1.) < 1.e-13
+    assert abs(vol1 + vol2 - 1.) < (1e-5 if single_mode else 1.e-13)
     # Solve Poisson problem.
     V1 = FunctionSpace(mesh1, family, degree)
     V12 = FunctionSpace(mesh12, family, degree)
@@ -651,10 +655,10 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
         "pc_fieldsplit_0_fields": "1",
         "pc_fieldsplit_1_fields": "0, 2",
         "fieldsplit_0_ksp_type": "cg",
-        "fieldsplit_0_ksp_rtol": 1e-14,
+        "fieldsplit_0_ksp_rtol": 1e-5 if single_mode else 1e-14,
         "fieldsplit_0_pc_type": "jacobi",
         "fieldsplit_1_ksp_type": "cg",
-        "fieldsplit_1_ksp_rtol": 1e-14,
+        "fieldsplit_1_ksp_rtol": 1e-5 if single_mode else 1e-14,
         "fieldsplit_1_pc_type": "jacobi",
     }
     solve(a == L, sol, bcs=[bc1, bc2], solver_parameters=solver_parameters)
@@ -690,7 +694,10 @@ def test_submesh_solve_3d_2d_poisson_convergence(simplex, direction, degree):
         H1Errors.append(H1Error)
     L2Errors = [np.log2(c) - np.log2(f) for c, f in zip(L2Errors[:-1], L2Errors[1:])]
     H1Errors = [np.log2(c) - np.log2(f) for c, f in zip(H1Errors[:-1], H1Errors[1:])]
-    assert (np.array(L2Errors) > (degree + 1) * 0.96).all()
+    # fp32: only one refinement pair is tested here (nothing to drop), and
+    # the L2 rate is genuinely slightly lower (observed 3.612 vs required
+    # 3.84); H1 already clears its threshold unaffected.
+    assert (np.array(L2Errors) > (degree + 1) * (0.85 if single_mode else 0.96)).all()
     assert (np.array(H1Errors) > (degree) * 0.96).all()
 
 

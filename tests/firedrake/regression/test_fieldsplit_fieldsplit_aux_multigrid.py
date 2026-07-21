@@ -11,6 +11,7 @@ a fieldsplit within another fieldsplit.
 import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 
 
 def BoundaryConditions(mesh):
@@ -110,7 +111,9 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "ksp_type": "fgmres",
         "ksp_monitor_true_residual": None,
         "ksp_converged_reason": None,
-        "ksp_rtol": 1e-9,
+        # fp32: 1e-9 is below single-precision eps so fgmres stalls at the residual
+        # floor and hits DIVERGED_ITS; relax to a precision-appropriate rtol.
+        "ksp_rtol": 1e-5 if single_mode else 1e-9,
 
         "mat_type": "matfree",
         "pc_type": "fieldsplit",

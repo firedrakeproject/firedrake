@@ -947,7 +947,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
         cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
-        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
+        # Matrix values must be PetscScalar, not IntType: petsc4py rejects an unsafe
+        # int -> float32 cast when PETSc is built in single precision.
+        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=ScalarType))
         mat.assemble()
         if self.forward_reduce and not self.ufl_interpolate.is_adjoint:
             # The mat we have constructed thus far takes us from the input-ordering VOM to the

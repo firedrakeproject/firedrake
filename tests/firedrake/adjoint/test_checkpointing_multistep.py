@@ -7,6 +7,7 @@ from .test_burgers_newton import _check_forward, \
 from checkpoint_schedules import MixedCheckpointSchedule, StorageType
 import numpy as np
 from collections import deque
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +70,8 @@ def test_multisteps(V):
     assert (np.allclose(J_hat(displacement_0), val))
     # Test recompute adjoint-based gradient
     assert np.allclose(dJ.dat.data_ro[:], J_hat.derivative().dat.data_ro[:])
-    assert taylor_test(J_hat, displacement_0, Function(V).assign(1, annotate=False)) > 1.9
+    h_val = 100.0 if single_mode else 1.0
+    assert taylor_test(J_hat, displacement_0, Function(V).assign(h_val, annotate=False)) > 1.9
 
 
 @pytest.mark.skipcomplex

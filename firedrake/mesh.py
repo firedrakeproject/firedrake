@@ -37,7 +37,9 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import as_cstr, IntType, RealType, cached_property_until
+from firedrake.utils import (
+    as_cstr, as_ctypes, IntType, RealType, RealType_c, cached_property_until
+)
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
@@ -422,7 +424,7 @@ def _from_triangle(filename, dim, comm):
                 nodecount = header[0]
                 nodedim = header[1]
                 assert nodedim == dim
-                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
+                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=PETSc.RealType)
                 assert nodecount == coordinates.shape[0]
 
             with open(basename+".ele") as elefile:
@@ -472,12 +474,10 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
-    # These types are /correct/, DMPlexCreateFromCellList wants int
-    # and double (not PetscInt, PetscReal).
     with temp_internal_comm(comm) as icomm:
         if comm.rank == 0:
             cells = np.asarray(cells, dtype=np.int32)
-            coords = np.asarray(coords, dtype=np.double)
+            coords = np.asarray(coords, dtype=PETSc.RealType)
             icomm.bcast(cells.shape, root=0)
             icomm.bcast(coords.shape, root=0)
             # Provide the actual data on rank 0.
@@ -491,7 +491,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
             # A subsequent call to plex.distribute() takes care of parallel partitioning
             plex = PETSc.DMPlex().createFromCellList(dim,
                                                      np.zeros(cell_shape, dtype=np.int32),
-                                                     np.zeros(coord_shape, dtype=np.double),
+                                                     np.zeros(coord_shape, dtype=PETSc.RealType),
                                                      comm=comm)
     if name is not None:
         plex.setName(name)
@@ -2613,7 +2613,8 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         with PETSc.Log.Event("rtree_build"):
-            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
+            # rtree C API requires float64 regardless of PETSc scalar precision.
+            self._rtree = rtree.build_from_aabb(np.asarray(coords_min, dtype=np.float64), np.asarray(coords_max, dtype=np.float64))
         return self._rtree
 
     @PETSc.Log.EventDecorator()
@@ -2660,7 +2661,7 @@ values from f.)"""
             (cell number, reference coordinates) of type (int, numpy array),
             or, when point is not in the domain, (None, None).
         """
-        x = np.asarray(x)
+        x = np.asarray(x, dtype=np.float64)
         if x.size != self.geometric_dimension:
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension))
@@ -2698,11 +2699,12 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        xs = np.asarray(xs, dtype=utils.ScalarType)
+        # Physical coordinates: always float64 (libspatialindex requires double).
+        xs = np.asarray(xs, dtype=np.float64)
         xs = xs.real.copy()
         if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
-        Xs = np.empty_like(xs)
+        Xs = np.empty((len(xs), self.geometric_dimension), dtype=RealType)
         npoints = len(xs)
         if cells_ignore is None or cells_ignore[0][0] is None:
             cells_ignore = np.full((npoints, 1), -1, dtype=IntType, order="C")
@@ -2711,14 +2713,14 @@ values from f.)"""
         if cells_ignore.shape[0] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
-        ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
-        cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
-        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
+        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
             run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
@@ -2736,7 +2738,9 @@ values from f.)"""
             IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
+                /* x is double (not {RealType_c}) because libspatialindex requires double for the
+                   spatial index lookup; xs is always cast to float64 before this call. */
+                {IntTypeC} locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, {IntTypeC}* cells_ignore)
                 {{
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{
@@ -2750,7 +2754,7 @@ values from f.)"""
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
-                        int *cells_ignore_i = cells_ignore + i*ncells_ignore;
+                        {IntTypeC} *cells_ignore_i = cells_ignore + i*ncells_ignore;
                         cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
@@ -2781,13 +2785,13 @@ values from f.)"""
             locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_int),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(IntType)),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
-                                np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
-            locator.restype = ctypes.c_int
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
+            locator.restype = as_ctypes(IntType)
             return cache.setdefault(tolerance, locator)
 
     @cached_property  # TODO: Recalculate if mesh moves. Extend this for regular meshes.
@@ -2968,14 +2972,17 @@ values from f.)"""
                     netgen_flags=netgen_flags)
 
     @PETSc.Log.EventDecorator()
-    def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
+    def curve_field(self, order, permutation_tol=None, cg_field=None):
         '''Return a function containing the curved coordinates of the mesh.
 
         This method requires that the mesh has been constructed from a
         netgen mesh.
 
         :arg order: the order of the curved mesh.
-        :arg permutation_tol: tolerance used to construct the permutation of the reference element.
+        :arg permutation_tol: tolerance used to construct the permutation of the
+            reference element. If ``None`` (the default), 1e-8 is used in double
+            precision and 1e-5 in single precision (1e-8 is below float32
+            resolution, so the curved-node matching fails to find a permutation).
         :arg cg_field: return a CG function field representing the mesh, as opposed to a DG field.
             Defaults to the continuity of the coordinates of the original mesh.
 
@@ -2984,6 +2991,9 @@ values from f.)"""
         from firedrake.netgen import find_permutation, netgen_distribute
         from firedrake.functionspace import FunctionSpace
         from firedrake.function import Function
+
+        if permutation_tol is None:
+            permutation_tol = 1e-5 if utils.single_mode else 1e-8
 
         if not hasattr(self, "netgen_mesh"):
             raise ValueError("Cannot curve a mesh that has not been generated by netgen.")
@@ -3414,7 +3424,7 @@ def Mesh(meshfile, **kwargs):
         # Curve the mesh, if requested
         degree = netgen_flags.get("degree", 1)
         if degree != 1:
-            permutation_tol = netgen_flags.get("permutation_tol", 1e-8)
+            permutation_tol = netgen_flags.get("permutation_tol", None)
             cg = netgen_flags.get("cg", None)
             coordinates = mesh.curve_field(
                 order=degree,

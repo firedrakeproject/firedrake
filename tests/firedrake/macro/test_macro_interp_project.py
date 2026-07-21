@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def interp(u, f):
@@ -59,7 +60,7 @@ def test_projection_scalar_monomial(op, mesh, degree, variant):
     x = SpatialCoordinate(mesh)
     f = sum(x) ** degree
     error = op(u, f)
-    assert error < 1E-7
+    assert error < (2e-3 if single_mode else 1E-7)
 
 
 @pytest.fixture

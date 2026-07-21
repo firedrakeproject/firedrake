@@ -8,6 +8,7 @@ cdef extern from "mpi-compat.h":
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
+    # Nominal hints only: C compiler resolves PetscReal/PetscScalar from petsc.h, so fp32 builds are correct.
     ctypedef double PetscReal
     ctypedef double PetscScalar
     ctypedef enum PetscBool:

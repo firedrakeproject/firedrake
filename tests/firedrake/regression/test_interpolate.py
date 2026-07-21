@@ -2,6 +2,7 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 cwd = abspath(dirname(__file__))
 
@@ -10,7 +11,8 @@ def mat_equals(a, b):
     """Check that two Matrices are equal."""
     a = a.petscmat.copy()
     a.axpy(-1.0, b.petscmat)
-    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
+    tol = 1e-7 if single_mode else 1e-14
+    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < tol
 
 
 def test_constant():
@@ -145,7 +147,8 @@ def test_tensor():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data, h.dat.data,
+                       atol=1e-4 if single_mode else 1e-8)
 
 
 def test_constant_expression():
@@ -189,7 +192,7 @@ def test_restricted_extruded_interval():
     for expr in exprs:
         uf.interpolate(expr)
         ui.interpolate(expr)
-        assert norm(expr - (uf + ui)) < 1E-12
+        assert norm(expr - (uf + ui)) < (1e-7 if single_mode else 1e-12)
 
 
 def test_hdiv_extruded_interval():
@@ -261,7 +264,7 @@ def test_hcurl_2d():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data, h.dat.data, atol=1e-5 if single_mode else 1e-8)
 
 
 def test_cell_orientation():
@@ -291,7 +294,8 @@ def test_cell_orientation_curve():
 
     assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
                                     [-1, 0],
-                                    [1 / 2, -sqrt(3) / 2]])
+                                    [1 / 2, -sqrt(3) / 2]],
+                       atol=1e-4 if single_mode else 1e-8)
 
 
 def test_cellvolume():
@@ -544,8 +548,9 @@ def test_interpolation_on_hex():
     x, y, z = SpatialCoordinate(mesh)
     expr = x**p * y**p * z**p
     f = Function(V).interpolate(expr)
-    assert assemble((f - expr)**2 * dx) < 1e-13
-    assert abs(assemble(f * dx) - 1./(p + 1)**3) < 1e-11
+    tol = 1e-6 if single_mode else None
+    assert assemble((f - expr)**2 * dx) < (tol if tol is not None else 1e-13)
+    assert abs(assemble(f * dx) - 1./(p + 1)**3) < (tol if tol is not None else 1e-11)
 
 
 def test_interpolate_logical_not():

@@ -133,8 +133,9 @@ class JaxOperator(MLOperator):
         J.setSizes([n, m])
         J.setType("dense")
         J.setUp()
-        # Set values using Jacobian computed by JAX
-        J.setValues(range(n), range(m), jac.flatten())
+        # Set values using Jacobian computed by JAX (cast to PetscScalar so
+        # single-precision PETSc builds accept the values).
+        J.setValues(range(n), range(m), jac.flatten().astype(PETSc.ScalarType))
         J.assemble()
         return J
 

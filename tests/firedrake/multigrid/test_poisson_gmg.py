@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy
 import pytest
 import warnings
@@ -109,30 +110,30 @@ def run_poisson(solver_type, rhs_type="form"):
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_poisson_gmg(solver_type):
-    assert run_poisson(solver_type) < 4e-6
+    assert run_poisson(solver_type) < (1e-5 if single_mode else 4e-6)
 
 
 def test_poisson_gmg_cofunction():
-    assert run_poisson("mg", rhs_type="cofunction") < 4e-6
+    assert run_poisson("mg", rhs_type="cofunction") < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_mg():
     errmat = run_poisson("mg")
     errmatfree = run_poisson("mgmatfree")
-    assert numpy.allclose(errmat, errmatfree)
-    assert errmat < 4e-6
-    assert errmatfree < 4e-6
+    assert numpy.allclose(errmat, errmatfree, atol=1e-4 if single_mode else 1e-8)
+    assert errmat < (1e-5 if single_mode else 4e-6)
+    assert errmatfree < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_fas():
-    assert run_poisson("fas") < 4e-6
+    assert run_poisson("fas") < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
-    assert run_poisson("newtonfas") < 4e-6
+    assert run_poisson("newtonfas") < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parametrize("solver_type", ["mg", "mgmatfree"])
@@ -169,7 +170,7 @@ def test_preconditioner_coarsening(solver_type):
     })
     solve(a == L, uh, bcs=bcs, J=a, Jp=Jp, solver_parameters=parameters)
 
-    assert norm(assemble(exact - uh)) < 4e-6
+    assert norm(assemble(exact - uh)) < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parametrize("solver_type",
@@ -178,10 +179,10 @@ def test_preconditioner_coarsening(solver_type):
 def test_baseform_coarsening(solver_type, mixed):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
-    parameters["snes_rtol"] = 1.0E-10
+    parameters["snes_rtol"] = 1e-5 if single_mode else 1.0E-10
     parameters["snes_atol"] = 0.0
     parameters["ksp_type"] = "gmres"
-    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_rtol"] = 1e-6 if single_mode else 1.0E-12
     parameters["ksp_atol"] = 0.0
     base = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(base, 2, refinements_per_level=2)
@@ -213,7 +214,7 @@ def test_baseform_coarsening(solver_type, mixed):
         solutions.append(uh)
 
     for s in solutions[1:]:
-        assert errornorm(s, solutions[0]) < 1E-14
+        assert errornorm(s, solutions[0]) < (1e-6 if single_mode else 1E-14)
 
 
 @pytest.mark.parametrize("solver_type",
@@ -222,7 +223,7 @@ def test_reinjection_mass_then_poisson(solver_type):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
     parameters["ksp_type"] = "gmres"
-    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_rtol"] = 1e-6 if single_mode else 1.0E-12
     parameters["ksp_atol"] = 0.0
 
     base = UnitSquareMesh(10, 10)

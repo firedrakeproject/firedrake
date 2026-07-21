@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 
 
@@ -50,6 +51,8 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
                           (UnitCubedSphereMesh, 'RTCF', 2, (2, 5), 1.7),
                           (UnitCubedSphereMesh, 'RTCF', 3, (2, 5), 1.8)])
 def test_hdiv_l2(MeshClass, hdiv_space, degree, refinement, conv_order):
+    if single_mode and degree >= 3:
+        pytest.skip("ILU-preconditioned high-degree H(div) Schur solve is too ill-conditioned for fp32 on fine meshes")
     errors = [run_hdiv_l2(MeshClass, r, hdiv_space, degree) for r in range(*refinement)]
     errors = np.asarray(errors)
     l2err = errors[:, 0]

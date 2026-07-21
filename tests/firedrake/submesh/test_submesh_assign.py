@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 import finat
 from os.path import abspath, dirname, join
 
@@ -157,27 +158,27 @@ def test_submesh_assign_function_unstructured_8_processes(simplex, distribution_
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert abs(e) / A_l < 1.e-14
+    assert abs(e) / A_l < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert abs(e) / A_r < 1.e-14
+    assert abs(e) / A_r < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert abs(e) / A_l < 1.e-14
+    assert abs(e) / A_l < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert abs(e) / A_r < 1.e-14
+    assert abs(e) / A_r < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert abs(e) / A_m < 1.e-14
+    assert abs(e) / A_m < (1e-5 if single_mode else 1.e-14)
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert abs(e) / A_m < 1.e-14
+    assert abs(e) / A_m < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -215,9 +216,9 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     f_ = Function(V).interpolate(2 * x)
     f_.assign(f_l, subset=subset)
     e = sqrt(assemble(inner(f_ - 2 * x, f_ - 2 * x) * dx(rightright)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(leftleft)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
     # -- mesh -> mesh_l
     subset_indices = np.where(f_l.dat.data_ro_with_halos[:, 0] < 1.001)
     subset = op2.Subset(f_l.node_set, subset_indices)
@@ -225,7 +226,7 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     f_ = Function(V_l).interpolate(2 * x)
     f_.assign(f, subset=subset)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(leftleft)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
     # Test assign on the right two cells.
     # -- mesh_r -> mesh
     subset_indices = np.where(f.dat.data_ro_with_halos[:, 0] > 1.999)
@@ -234,9 +235,9 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     f_ = Function(V).interpolate(2 * x)
     f_.assign(f_r, subset=subset)
     e = sqrt(assemble(inner(f_ - 2 * x, f_ - 2 * x) * dx(leftleft)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(rightright)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
     # -- mesh -> mesh_r
     subset_indices = np.where(f_r.dat.data_ro_with_halos[:, 0] > 1.999)
     subset = op2.Subset(f_r.node_set, subset_indices)
@@ -244,7 +245,7 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     f_ = Function(V_r).interpolate(2 * x)
     f_.assign(f, subset=subset)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(rightright)))
-    assert abs(e) < 1.e-14
+    assert abs(e) < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=2)

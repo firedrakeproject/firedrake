@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=[False, True])
@@ -137,7 +138,7 @@ def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
 
     interior_facet = assemble(form).M.values
 
-    assert np.allclose(interior_facet - exact, 0.0)
+    assert np.allclose(interior_facet - exact, 0.0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize('space', ["RT", "BDM"])
@@ -145,9 +146,9 @@ def test_contravariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
     u = project(Constant((0.0, 1.0)), V)
-    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
+    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
+    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
 
 
 @pytest.mark.parametrize('space', ["N1curl", "N2curl"])
@@ -155,9 +156,9 @@ def test_covariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, space, 1)
     u = project(Constant((0.0, 1.0)), V)
-    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < 1.0e-13
-    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
+    assert abs(assemble(inner(u('+'), u('+'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
+    assert abs(assemble(inner(u('-'), u('-'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
+    assert abs(assemble(inner(u('+'), u('-'))*dS) - sqrt(2)) < (1e-6 if single_mode else 1.0e-13)
 
 
 def test_internal_integral_unit_tri():

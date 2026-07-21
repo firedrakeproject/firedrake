@@ -1,6 +1,12 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
+
+# In single precision, scaling an assembled mass matrix in numpy and assembling
+# the scaled form differ by round-off, which is largest (relative to the entry)
+# for the near-zero entries, so loosen the absolute tolerance.
+_mass_atol = 1e-4 if single_mode else 1e-8
 
 
 @pytest.fixture(scope='module')
@@ -103,11 +109,11 @@ def test_scalar_scaled_mass(m, value, typ, degree):
 
     scaled = assemble(c*inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * value, scaled.M.values)
+    assert np.allclose(mass.M.values * value, scaled.M.values, atol=_mass_atol)
 
     scaled_sum = assemble(c*inner(u, v) * dx + inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
+    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values, atol=_mass_atol)
 
 
 @pytest.mark.parametrize("value",
@@ -143,11 +149,11 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
 
     scaled = assemble(c*inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * value, scaled.M.values)
+    assert np.allclose(mass.M.values * value, scaled.M.values, atol=_mass_atol)
 
     scaled_sum = assemble(c * inner(u, v) * dx + inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
+    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values, atol=_mass_atol)
 
 
 @pytest.mark.parametrize("value",
@@ -177,8 +183,8 @@ def test_tensor_scaled_mass(m, value, typ, degree):
     mass = assemble(inner(u, v) * dx)
     scaled = assemble(c * inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * value, scaled.M.values)
+    assert np.allclose(mass.M.values * value, scaled.M.values, atol=_mass_atol)
 
     scaled_sum = assemble(c * inner(u, v) * dx + inner(u, v) * dx)
 
-    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
+    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values, atol=_mass_atol)

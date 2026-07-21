@@ -9,6 +9,7 @@ on the other 2, opposite, sides.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -43,7 +44,7 @@ def test_bottom_and_top(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.1e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.1e-6)
 
 
 def test_top_and_bottom(P2):
@@ -65,7 +66,7 @@ def test_top_and_bottom(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.1e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.1e-6)
 
 
 def test_left_right(P2):
@@ -87,7 +88,7 @@ def test_left_right(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.1e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.1e-6)
 
 
 def test_near_far(P2):
@@ -109,7 +110,7 @@ def test_near_far(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)
 
 
 def test_2D_bottom_top(P2_2D):
@@ -129,7 +130,7 @@ def test_2D_bottom_top(P2_2D):
     u_exact = Function(P2_2D)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)
 
 
 def test_2D_left_right(P2_2D):
@@ -149,4 +150,4 @@ def test_2D_left_right(P2_2D):
     u_exact = Function(P2_2D)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)

@@ -157,54 +157,41 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         name = mass_ker.kinfo.kernel.name
         blocksize = mass_ker.kinfo.kernel.code[name].args[0].shape[0]
 
+        # Use PETSc's precision-generic BLAS/LAPACK macros and PetscScalar so the
+        # kernel matches the kernel argument precision (e.g. single precision uses
+        # spotrf/sgemv with float arrays rather than the double-precision routines).
         cholesky_code = dedent(
             f"""\
-            extern void dpotrf_(char *UPLO,
-                                int *N,
-                                double *A,
-                                int *LDA,
-                                int *INFO);
-
-            extern void dgemv_(char *TRANS,
-                               int *M,
-                               int *N,
-                               double *ALPHA,
-                               double *A,
-                               int *LDA,
-                               double *X,
-                               int *INCX,
-                               double *BETA,
-                               double *Y,
-                               int *INCY);
+            #include <petscsys.h>
+            #include <petscblaslapack.h>
 
             {mass_code}
 
-            void apply_cholesky(double *__restrict__ z,
-                                double *__restrict__ b,
-                                double const *__restrict__ coords)
+            void apply_cholesky(PetscScalar *__restrict__ z,
+                                PetscScalar *__restrict__ b,
+                                PetscScalar const *__restrict__ coords)
             {{
                 char uplo[1];
-                int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
-                int32_t i=0, j=0;
+                PetscBLASInt N = {blocksize}, LDA = {blocksize}, INFO = 0;
                 uplo[0] = 'u';
-                double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
+                PetscScalar H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
 
                 char trans[1];
-                int32_t stride = 1;
-                double scale = 1.0;
-                double zero = 0.0;
+                PetscBLASInt stride = 1;
+                PetscScalar scale = 1.0;
+                PetscScalar zero = 0.0;
 
                 {mass_ker.kinfo.kernel.name}(H, coords);
 
                 uplo[0] = 'u';
-                dpotrf_(uplo, &N, H, &LDA, &INFO);
-                for (int i = 0; i < N; i++)
-                    for (int j = 0; j < N; j++)
+                LAPACKpotrf_(uplo, &N, H, &LDA, &INFO);
+                for (PetscBLASInt i = 0; i < N; i++)
+                    for (PetscBLASInt j = 0; j < N; j++)
                         if (j>i)
                             H[i*N + j] = 0.0;
 
                 trans[0] = 'T';
-                dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
+                BLASgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
             }}
             """
         )

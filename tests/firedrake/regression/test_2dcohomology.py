@@ -13,9 +13,15 @@ from os.path import abspath, dirname, join
 import numpy.linalg as linalg
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 cwd = abspath(dirname(__file__))
+
+# fp32: the harmonic singular values sit at ~1e-5 (vs ~1e-12 in fp64) while the
+# smallest non-harmonic value is ~2.5e-3, so use a looser zero-threshold that
+# still separates the two bands cleanly.
+_harmonic_tol = 1e-4 if single_mode else 1.0e-5
 
 
 @pytest.fixture
@@ -55,11 +61,11 @@ def test_betti0(space, mesh):
     L0 = assemble(inner(nabla_grad(u), nabla_grad(v))*dx, bcs=[bc0])
 
     u, s, v = linalg.svd(L.M.values)
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     assert nharmonic == 1
 
     u, s, v = linalg.svd(L0.M.values)
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     assert nharmonic == 0
 
 
@@ -110,7 +116,7 @@ def test_betti1(space, mesh):
 
     u, s, v = linalg.svd(A)
 
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     assert nharmonic == 1
 
     dV0 = V0.dof_count
@@ -124,7 +130,7 @@ def test_betti1(space, mesh):
 
     u, s, v = linalg.svd(A0)
 
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     assert nharmonic == 1
 
 
@@ -169,7 +175,7 @@ def test_betti2(space, mesh):
 
     u, s, v = linalg.svd(A)
 
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     print(nharmonic, V1tag[0])
     assert nharmonic == 0
 
@@ -181,5 +187,5 @@ def test_betti2(space, mesh):
 
     u, s, v = linalg.svd(A0)
 
-    nharmonic = sum(s < 1.0e-5)
+    nharmonic = sum(s < _harmonic_tol)
     assert nharmonic == 1

@@ -20,6 +20,9 @@ f = cos(x[0]*pi*2)*cos(x[1]*pi*2)
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 def trace_galerkin_projection(degree, quad=False,
@@ -60,7 +63,7 @@ def trace_galerkin_projection(degree, quad=False,
 
     # Compute the solution
     t = Function(T)
-    solve(a == l, t, solver_parameters={'ksp_rtol': 1e-14})
+    solve(a == l, t, solver_parameters={'ksp_rtol': 1e-5 if single_mode else 1e-14})
 
     # Compute error in trace norm
     trace_error = sqrt(assemble(FacetArea(mesh)*inner((t - f)('+'), (t - f)('+')) * dS))
@@ -76,7 +79,7 @@ def test_trace_galerkin_projection(degree, quad):
     tr_err = trace_galerkin_projection(degree=degree,
                                        quad=quad,
                                        conv_test_flag=0)
-    assert tr_err < 1e-13
+    assert tr_err < (1e-5 if single_mode else 1e-13)
 
 
 @pytest.mark.parametrize(('testdegree', 'convrate'),

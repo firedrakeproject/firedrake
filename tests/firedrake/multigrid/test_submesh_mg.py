@@ -22,6 +22,9 @@ Manufactured solution:
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 from firedrake.mg.utils import has_level, get_level
 
 
@@ -114,7 +117,7 @@ def fieldsplit_gmg_params():
     return {
         "ksp_type": "cg",
         "ksp_monitor": None,
-        "ksp_rtol": 1e-10,
+        "ksp_rtol": 1e-5 if single_mode else 1e-10,
         "ksp_atol": 0,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "additive",
@@ -133,7 +136,7 @@ def monolithic_gmg_params():
     return {
         "ksp_type": "cg",
         "ksp_monitor": None,
-        "ksp_rtol": 1e-10,
+        "ksp_rtol": 1e-5 if single_mode else 1e-10,
         "ksp_atol": 0,
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",

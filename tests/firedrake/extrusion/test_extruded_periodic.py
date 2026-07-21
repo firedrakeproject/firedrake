@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, single_mode
 from firedrake.mesh import make_mesh_from_coordinates
 import numpy as np
 
@@ -23,25 +23,25 @@ def test_extruded_periodic_facet_integrals():
                                 conditional(And(x < 2.0, z < 1.0), 7.0,  # noqa: E128
                                 conditional(And(x < 2.0, z < 2.0), 11.0, 13.0))))))  # noqa: E128
     val = assemble(f('-')*dS_h)
-    assert abs(val - 41.) < 1.e-12
+    assert abs(val - 41.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f('+')*dS_h)
-    assert abs(val - 41.) < 1.e-12
+    assert abs(val - 41.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f('-') * dS_v)
-    assert abs(val - 31.) < 1.e-12
+    assert abs(val - 31.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f('+') * dS_v)
-    assert abs(val - 10.) < 1.e-12
+    assert abs(val - 10.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_v(1))
-    assert abs(val - 10.) < 1.e-12
+    assert abs(val - 10.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_v(2))
-    assert abs(val - 31.) < 1.e-12
+    assert abs(val - 31.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_v(3))
-    assert abs(val - 41.) < 1.e-12
+    assert abs(val - 41.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_v(4))
-    assert abs(val - 41.) < 1.e-12
+    assert abs(val - 41.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_b)
-    assert abs(val - 9.) < 1.e-12
+    assert abs(val - 9.) < (1e-5 if single_mode else 1.e-12)
     val = assemble(f * ds_t)
-    assert abs(val - 18.) < 1.e-12
+    assert abs(val - 18.) < (1e-5 if single_mode else 1.e-12)
 
 
 def test_extruded_periodic_boundary_nodes():
@@ -108,7 +108,7 @@ def test_extruded_periodic_poisson():
     bc = DirichletBC(V, exact, (1, 2))
     sol = Function(V)
     solve(a == L, sol, bcs=[bc])
-    assert sqrt(assemble(inner(sol - exact, sol - exact) * dx)) < 1.e-7
+    assert sqrt(assemble(inner(sol - exact, sol - exact) * dx)) < (1e-4 if single_mode else 1.e-7)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -132,15 +132,15 @@ def test_extruded_periodic_annulus():
     x1, y1 = SpatialCoordinate(mesh1)
     vol0 = assemble(Constant(1) * dx(domain=mesh0))
     vol1 = assemble(Constant(1) * dx(domain=mesh1))
-    assert abs(vol1 - vol0) < 1.e-12
+    assert abs(vol1 - vol0) < (1e-4 if single_mode else 1.e-12)
     # Check projection
     RTCF0 = FunctionSpace(mesh0, "RTCF", 3)
     RTCF1 = FunctionSpace(mesh1, "RTCF", 3)
-    f0 = Function(RTCF0).project(as_vector([sin(x0) + 2.0, cos(y0) + 3.0]), solver_parameters={"ksp_rtol": 1.e-13})
-    f1 = Function(RTCF1).project(as_vector([sin(x1) + 2.0, cos(y1) + 3.0]), solver_parameters={"ksp_rtol": 1.e-13})
+    f0 = Function(RTCF0).project(as_vector([sin(x0) + 2.0, cos(y0) + 3.0]), solver_parameters={"ksp_rtol": 1.e-5 if single_mode else 1.e-13})
+    f1 = Function(RTCF1).project(as_vector([sin(x1) + 2.0, cos(y1) + 3.0]), solver_parameters={"ksp_rtol": 1.e-5 if single_mode else 1.e-13})
     int0 = assemble(inner(f0, as_vector([x0 + 5.0, y0 + 7.0])) * dx)
     int1 = assemble(inner(f1, as_vector([x1 + 5.0, y1 + 7.0])) * dx)
-    assert abs(int1 - int0) < 1.e-12
+    assert abs(int1 - int0) < (1e-4 if single_mode else 1.e-12)
     # Check mixed poisson
     inner_boun_id0 = "bottom"
     outer_boun_id0 = "top"
@@ -175,7 +175,7 @@ def test_extruded_periodic_annulus():
     # -- Check solutions
     uint0 = assemble(inner(w0.sub(0), as_vector([sin(x0) + 0.2, cos(y0) + 0.3])) * dx)
     uint1 = assemble(inner(w1.sub(0), as_vector([sin(x1) + 0.2, cos(y1) + 0.3])) * dx)
-    assert abs(uint1 - uint0) < 1.e-12
+    assert abs(uint1 - uint0) < (1e-4 if single_mode else 1.e-12)
     pint0 = assemble(inner(w0.sub(1), x0 * y0 + 2.0) * dx)
     pint1 = assemble(inner(w1.sub(1), x1 * y1 + 2.0) * dx)
-    assert abs(pint1 - pint0) < 1.e-12
+    assert abs(pint1 - pint0) < (1e-4 if single_mode else 1.e-12)

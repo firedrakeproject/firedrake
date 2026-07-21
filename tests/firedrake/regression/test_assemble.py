@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import TwoFormAssembler
-from firedrake.utils import ScalarType, IntType
+from firedrake.utils import ScalarType, IntType, single_mode
 
 
 @pytest.fixture(scope='module')
@@ -62,15 +62,15 @@ def test_one_form(M, f):
     assert isinstance(one_form, Cofunction)
     for f in one_form.subfunctions:
         if f.function_space().rank == 2:
-            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < (1e-6 if single_mode else 1.0e-12)
         else:
-            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < (1e-6 if single_mode else 1.0e-12)
 
 
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
-    assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+    assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < (1e-6 if single_mode else 1.0e-12)
 
 
 def test_assemble_with_tensor(mesh):

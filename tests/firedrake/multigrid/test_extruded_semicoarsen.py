@@ -1,5 +1,8 @@
+import numpy as np
 from firedrake import *
-import numpy
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 def test_semicoarsened_poisson():
@@ -15,7 +18,7 @@ def test_semicoarsened_poisson():
     v = TestFunction(H1)
     F = (inner(grad(u), grad(v)) - inner(f, v)) * dx
     params = {'snes_type': 'ksponly',
-              'ksp_rtol': 1e-8,
+              'ksp_rtol': 1e-5 if single_mode else 1e-8,
               'ksp_type': 'cg',
               'pc_type': 'mg'}
     solve(F == 0, u, bcs=[DirichletBC(H1, g, 1)], solver_parameters=params)
@@ -24,5 +27,5 @@ def test_semicoarsened_poisson():
     u.assign(0)
     solve(F == 0, u, bcs=[DirichletBC(H1, g, 1)])
 
-    assert numpy.allclose(uh.dat.data_ro, u.dat.data_ro)
+    assert np.allclose(uh.dat.data_ro, u.dat.data_ro, atol=1e-4 if single_mode else 1e-8)
     assert errornorm(uh, g) < 0.04

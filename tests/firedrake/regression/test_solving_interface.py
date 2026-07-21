@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
+from firedrake.utils import single_mode
 from numpy.linalg import norm as np_norm
 import gc
 
@@ -47,7 +48,12 @@ def test_linear_solver_api(a_L_out):
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     assert solver.snes.getKSP().getType() == solver.snes.getKSP().Type.CG
     rtol, _, _, _ = solver.snes.getKSP().getTolerances()
-    assert rtol == solver.parameters['ksp_rtol']
+    if single_mode:
+        # PETSc stores rtol in working precision, so in single precision the
+        # returned value is the float32 rounding of the requested tolerance.
+        assert np.isclose(rtol, solver.parameters['ksp_rtol'])
+    else:
+        assert rtol == solver.parameters['ksp_rtol']
 
 
 def test_petsc_options_cleared(a_L_out):
@@ -91,7 +97,7 @@ def test_linear_solve_zero_rhs(a_L_out):
 
     out.assign(1)
     solve(a == 0, out)
-    assert np_norm(out.dat.data_ro) < 1E-13
+    assert np_norm(out.dat.data_ro) < (1e-6 if single_mode else 1E-13)
 
 
 def test_nonlinear_solver_gced(a_L_out):
@@ -115,7 +121,11 @@ def test_nonlinear_solver_api(a_L_out):
 
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
-    assert rtol == 1e-8
+    if single_mode:
+        # The default SNES rtol is relaxed to 1e-5 in the single precision build.
+        assert np.isclose(rtol, 1e-5)
+    else:
+        assert rtol == 1e-8
 
 
 def test_nonlinear_solver_flattens_params(a_L_out):
@@ -200,13 +210,13 @@ def test_constant_jacobian_lvs():
 
     lvs.solve()
 
-    assert norm(assemble(out - f)) < 1e-7
+    assert norm(assemble(out - f)) < (1e-3 if single_mode else 1e-7)
 
     q.assign(5)
 
     lvs.solve()
 
-    assert norm(assemble(out*5 - f)) < 2e-7
+    assert norm(assemble(out*5 - f)) < (1e-5 if single_mode else 2e-7)
 
     q.assign(1)
 
@@ -216,7 +226,7 @@ def test_constant_jacobian_lvs():
 
     lvs.solve()
 
-    assert norm(assemble(out - f)) < 1e-7
+    assert norm(assemble(out - f)) < (1e-3 if single_mode else 1e-7)
 
     q.assign(5)
 
@@ -246,7 +256,7 @@ def test_solve_cofunction_rhs(mesh):
 
     w = Function(V)
     solve(a == L, w, bcs=bcs)
-    assert errornorm(x, w) < 1E-10
+    assert errornorm(x, w) < (1E-5 if single_mode else 1E-10)
     assert np.allclose(L.dat.data, Lold.dat.data)
 
 
@@ -263,7 +273,7 @@ def test_solve_empty_form_rhs(mesh):
 
     w = Function(V)
     solve(a == L, w, bcs)
-    assert errornorm(x, w) < 1E-10
+    assert errornorm(x, w) < (1E-5 if single_mode else 1E-10)
 
 
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
@@ -289,7 +299,7 @@ def test_solve_assembled_lhs(mesh, mat_type):
     for L in (form, cofun, empty, zbf):
         w.zero()
         solve(A == L, w)
-        assert errornorm(x, w) < 1E-10
+        assert errornorm(x, w) < (1E-5 if single_mode else 1E-10)
 
     # Test that we raise an error when passing bcs twice
     with pytest.raises(RuntimeError):
@@ -360,11 +370,11 @@ def test_solve_pre_apply_bcs(mesh, mixed):
     F = derivative(W, z)
     z.zero()
     solve(F == 0, z, bcs, pre_apply_bcs=False)
-    assert errornorm(g, uh) < 1E-10
+    assert errornorm(g, uh) < (1E-5 if single_mode else 1E-10)
 
     # Test that pre_apply_bcs=False works with a linear problem
     a = derivative(F, z)
     L = Form([])
     z.zero()
     solve(a == L, z, bcs, pre_apply_bcs=False)
-    assert errornorm(g, uh) < 1E-10
+    assert errornorm(g, uh) < (1E-5 if single_mode else 1E-10)

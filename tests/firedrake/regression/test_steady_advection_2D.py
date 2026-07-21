@@ -6,6 +6,7 @@ facet integrals.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True],
@@ -66,7 +67,7 @@ def run_left_to_right(mesh, DGDPC0, W):
     # we only use inflow at the left wall, but since the velocity field
     # is parallel to the coordinate axis, the exact solution matches
     # the inflow function
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1.2e-7
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1.2e-7)
 
 
 def test_left_to_right(mesh, DGDPC0, W):
@@ -103,7 +104,7 @@ def run_up_to_down(mesh, DGDPC1, W):
     out = Function(DGDPC1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1.1e-6
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1.1e-6)
 
 
 def test_up_to_down(mesh, DGDPC1, W):

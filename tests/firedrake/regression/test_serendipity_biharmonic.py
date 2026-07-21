@@ -1,8 +1,13 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
+from firedrake.utils import single_mode
 import numpy
+import pytest
 
 
+@pytest.mark.skipif(single_mode,
+                    reason="fp32 round-off floors the biharmonic error on the "
+                           "finest (40x40) mesh, collapsing the convergence rate")
 def test_serendipity_biharmonic():
 
     sp = {

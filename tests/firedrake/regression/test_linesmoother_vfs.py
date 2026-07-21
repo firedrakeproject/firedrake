@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def test_linesmoother_vfs():
@@ -31,4 +32,9 @@ def test_linesmoother_vfs():
                                      solver_parameters=test_parameters)
     solver.solve()
     nits = solver.snes.ksp.getIterationNumber()
-    assert nits == 17
+    if single_mode:
+        # fp32: the additive line-smoother is less effective near the round-off
+        # floor, so CG needs more iterations (17 in fp64).
+        assert nits <= 35
+    else:
+        assert nits == 17

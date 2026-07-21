@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.utils import RealType
+from firedrake.utils import RealType, single_mode
 
 
 def integrate_assemble_p0(family, degree):
@@ -51,4 +51,4 @@ def integrate_assemble_p0(family, degree):
 @pytest.mark.parametrize(('family', 'degree'), [('DG', 0)])
 def test_firedrake_extrusion_assemble(family, degree):
 
-    assert integrate_assemble_p0(family, degree) < 1.0e-13
+    assert integrate_assemble_p0(family, degree) < (1e-4 if single_mode else 1.0e-13)

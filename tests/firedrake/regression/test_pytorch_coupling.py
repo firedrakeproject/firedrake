@@ -1,6 +1,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
@@ -9,6 +10,10 @@ try:
     import torch
     import torch.nn.functional as torch_func
     from torch.nn import Module, Flatten, Linear
+
+    # Match the torch model precision to Firedrake's: float32 data fed into a
+    # double-precision model raises "mat1 and mat2 must have the same dtype".
+    torch_dtype = torch.float32 if single_mode else torch.float64
 
     class EncoderDecoder(Module):
         """Build a simple toy model"""
@@ -114,8 +119,8 @@ def test_pytorch_loss_backward(V, f_exact):
     # Instantiate model
     model = EncoderDecoder(V.dim())
 
-    # Set double precision
-    model.double()
+    # Match model precision to Firedrake's scalar type
+    model.to(torch_dtype)
 
     # Check that gradients are initially set to None
     assert all([pi.grad is None for pi in model.parameters()])
@@ -168,8 +173,8 @@ def test_firedrake_loss_backward(V):
     # Instantiate model
     model = EncoderDecoder(V.dim())
 
-    # Set double precision
-    model.double()
+    # Match model precision to Firedrake's scalar type
+    model.to(torch_dtype)
 
     # Check that gradients are initially set to None
     assert all([pi.grad is None for pi in model.parameters()])
@@ -215,6 +220,10 @@ def test_firedrake_loss_backward(V):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
+# fp32: gradcheck requires double-precision inputs (eps=1e-6 finite differences);
+# the single-precision FEM operator cannot meet gradcheck's tolerances (Taylor
+# test, deferred).
+@pytest.mark.skipsingle
 def test_taylor_fem_operator(firedrake_operator, V):
     """Taylor test for the torch operator"""
 

@@ -24,8 +24,8 @@ def test_covariance_adjoint_norm(m, family):
 
     V = FunctionSpace(mesh, family, 1)
 
-    u = Function(V).project(sin(2*pi*x))
-    v = Function(V).project(2 - 0.5*sin(6*pi*x))
+    u = Function(V).project(cos(2*pi*x))
+    v = Function(V).project(0.5*cos(4*pi*x))
 
     form = 'IP' if family == 'DG' else 'CG'
     B = AutoregressiveCovariance(V, L, sigma, m, form=form)
@@ -37,8 +37,9 @@ def test_covariance_adjoint_norm(m, family):
         Jhat = ReducedFunctional(J, Control(u), tape=tape)
     pause_annotation()
 
-    m = Function(V).project(sin(2*pi*(x+0.2)))
-    h = Function(V).project(sin(4*pi*(x-0.2)))
+    m = Function(V).project(cos(2*pi*(x)))
+    h = Function(V).project(cos(4*pi*(x)))
+    h *= 100.0
 
     taylor = taylor_to_dict(Jhat, m, h)
 

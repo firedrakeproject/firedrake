@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.mesh import plex_from_cell_list
-from firedrake.utils import IntType
+from firedrake.utils import IntType, single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -199,7 +199,7 @@ def test_update_bc_constant(a, u, V, f):
 
     # Homogenized bcs shouldn't be overridden by the constant
     # changing.
-    assert np.allclose(u.dat.data_ro, 0.0)
+    assert np.allclose(u.dat.data_ro, 0.0, atol=1e-4 if single_mode else 1e-8)
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])

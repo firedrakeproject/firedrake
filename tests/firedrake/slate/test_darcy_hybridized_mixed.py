@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -58,5 +59,5 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (1e-5 if single_mode else 1e-8)
+    assert u_err < (1e-5 if single_mode else 1e-8)

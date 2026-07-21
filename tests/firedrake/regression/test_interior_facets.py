@@ -2,9 +2,11 @@ import numpy as np
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test():
+    atol = 1e-4 if single_mode else 1e-8
     mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
     U = VectorFunctionSpace(mesh, 'DG', 1)
@@ -24,8 +26,8 @@ def run_test():
 
     solve(F == 0, sol)
 
-    assert np.allclose(sol.dat[0].data, [1., 0.])
-    assert np.allclose(sol.dat[1].data, 0.0)
+    assert np.allclose(sol.dat[0].data, [1., 0.], atol=atol)
+    assert np.allclose(sol.dat[1].data, 0.0, atol=atol)
 
 
 def test_interior_facet_solve():

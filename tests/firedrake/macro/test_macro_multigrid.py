@@ -1,7 +1,7 @@
 import numpy
 import pytest
 from firedrake import *
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, single_mode
 
 
 @pytest.fixture(params=("square", "cube"))
@@ -108,7 +108,8 @@ def run_restriction(hierarchy, space, degrees, variant):
             coarse_functional = functional(coarse_primal, coarse_dual)
             fine_functional = functional(fine_primal, fine_dual)
 
-            assert numpy.allclose(fine_functional, coarse_functional)
+            assert numpy.allclose(fine_functional, coarse_functional,
+                                  rtol=1e-4 if single_mode else 1e-5)
 
 
 def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type):
@@ -221,6 +222,7 @@ def non_nested_hierarchy():
     return mh
 
 
+@pytest.mark.skipsingle  # fp32: prolong's cell-location search on this perturbed (non-nested) mesh produces NaN/wrong-cell results, same as test_locate_cell's warped-mesh fp32 limitation
 @pytest.mark.parametrize("family,degree,variant", [("CG", 1, "alfeld"), ("DG", 1, "alfeld")])
 def test_macro_non_nested_hierarchy(non_nested_hierarchy, family, degree, variant):
 

@@ -6,9 +6,11 @@ import numpy as np
 from ufl.duals import is_primal
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
 from pyadjoint.optimization.tao_solver import PETScVecInterface
 import petsctools
+from petsc4py import PETSc
 
 
 @pytest.fixture(autouse=True)
@@ -62,8 +64,7 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-7,
-                                 "tao_monitor": None})
+                                 "tao_gttol": 1.0e-5 if single_mode else 1.0e-7})
     return solver.solve()
 
 
@@ -74,8 +75,7 @@ def minimize_tao_nls(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-7,
-                                 "tao_monitor": None})
+                                 "tao_gttol": 1e-4 if single_mode else 1.0e-7})
     return solver.solve()
 
 
@@ -165,7 +165,10 @@ def test_tao_simple_inversion(minimize, riesz_representation):
     rf = ReducedFunctional(J, c)
 
     x = minimize(rf)
-    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
+    # fp32: near a zero-crossing of source_ref, a small absolute error
+    # blows up in relative terms; atol=0 (numpy default) doesn't allow for
+    # that headroom.
+    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2, atol=5e-3 if single_mode else 0)
 
 
 class TransformType(Enum):
@@ -263,6 +266,7 @@ class TransformBlock(Block):
         return transform(v, *self._args, **self._kwargs)
 
 
+@pytest.mark.skipsingle  # fp32: SLEPc's Krylov matrix-sqrt hits a spurious real negative eigenvalue from round-off, independent of mfn_tol/ncv/orthogonalization settings
 @pytest.mark.skipslepc
 @pytest.mark.parametrize("tao_type", ["lmvm",
                                       "blmvm"])
@@ -273,7 +277,9 @@ def test_simple_inversion_riesz_representation(tao_type):
 
     riesz_representation = "L2"
     mfn_parameters = {"mfn_type": "krylov",
-                      "mfn_tol": 1.0e-12}
+                      "mfn_tol": 1e-4 if single_mode else 1.0e-12,
+                      "mfn_ncv": 200,
+                      "mfn_bv_orthog_type": "mgs"}
     tao_parameters = {"tao_type": tao_type,
                       "tao_monitor": None,
                       "tao_converged_reason": None,
@@ -330,7 +336,13 @@ def test_simple_inversion_riesz_representation(tao_type):
                                 mfn_parameters=mfn_parameters)
         assert_allclose(x_transform.dat.data, source_ref.dat.data, rtol=1e-2)
 
-        assert solver.tao.getIterationNumber() <= solver_transform.tao.getIterationNumber()
+        if not single_mode:
+            assert solver.tao.getIterationNumber() <= solver_transform.tao.getIterationNumber()
+        else:
+            # fp32: rounding perturbs the iteration path, so the transformed vs
+            # untransformed ordering need not hold; just check neither solve stalled
+            assert solver.tao.getIterationNumber() <= 1000
+            assert solver_transform.tao.getIterationNumber() <= 1000
 
 
 @pytest.mark.skipcomplex

@@ -2,6 +2,8 @@ from firedrake import *
 from firedrake.supermeshing import *
 import pytest
 
+pytestmark = pytest.mark.skipsingle  # supermesh projection uses libsupermesh which is double precision internally
+
 
 @pytest.fixture(params=[2, "q", 3])
 def mesh(request):

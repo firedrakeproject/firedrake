@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 
 
@@ -30,6 +31,10 @@ def quadrilateral(request):
 @pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
+    if single_mode and threshold > 1.5:
+        pytest.skip("fp32 round-off accumulated over 200 timesteps on the "
+                    "finest (up to 1024-cell) meshes drops the high-order DG "
+                    "convergence rate below its threshold")
     l2error = []
     t = Constant(0)
     if direction == "x":
