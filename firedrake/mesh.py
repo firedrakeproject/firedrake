@@ -2906,15 +2906,17 @@ values from f.)"""
         return self
 
     @PETSc.Log.EventDecorator()
-    def refine_marked_elements(self, mark):
+    def refine_marked_elements(self, mark, redistribute=True):
         """Adaptively refine a mesh using a DG0 marking function.
 
         :arg mark: the marking function, a Firedrake DG0 function on
             this mesh; cells with a positive value are refined.
+        :arg redistribute: if ``True``, redistribute the refined mesh
+            when the coarse mesh has empty ranks.
 
         """
         from firedrake.adapt import refine_marked_elements
-        return refine_marked_elements(self, mark)
+        return refine_marked_elements(self, mark, redistribute)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
