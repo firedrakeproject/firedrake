@@ -280,17 +280,17 @@ def count_labelled_points(PETSc.DM dm, name,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray facets,
+                    np.ndarray facets_np,
                     PETSc.Section cell_numbering,
-                    np.ndarray cell_closures):
+                    np.ndarray cell_closures_np):
     """Compute the parent cell(s) and the local facet number within
     each parent cell for each given facet.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     :arg kind: String indicating the facet kind (interior or exterior)
-    :arg facets: Array of input facets
+    :arg facets_np: Array of input facets
     :arg cell_numbering: Section describing the global cell numbering
-    :arg cell_closures: 2D array of ordered cell closures
+    :arg cell_closures_np: 2D array of ordered cell closures
     """
     cdef:
         PetscInt f, fStart, fEnd, fi, cell, c
@@ -298,8 +298,8 @@ def facet_numbering(PETSc.DM plex, kind,
         const PetscInt *cells = NULL
         # typed memoryviews so the ~O(nfacets*nclosure) inner scan indexes in C
         # instead of via np.ndarray (Python-level) element access.
-        PetscInt[::1] facets_view = facets
-        PetscInt[:, ::1] cell_closures_view = cell_closures
+        PetscInt[::1] facets = facets_np
+        PetscInt[:, ::1] cell_closures = cell_closures_np
         PetscInt[:, ::1] facet_cells
         PetscInt[:, ::1] facet_local_num
 
@@ -317,8 +317,8 @@ def facet_numbering(PETSc.DM plex, kind,
 
     # First determine the parent cell(s) for each facet
     for f in range(nfacets):
-        CHKERR(DMPlexGetSupport(plex.dm, facets_view[f], &cells))
-        CHKERR(DMPlexGetSupportSize(plex.dm, facets_view[f], &ncells))
+        CHKERR(DMPlexGetSupport(plex.dm, facets[f], &cells))
+        CHKERR(DMPlexGetSupportSize(plex.dm, facets[f], &ncells))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
         facet_cells[f,0] = cell
         if cells_per_facet > 1:
@@ -336,9 +336,9 @@ def facet_numbering(PETSc.DM plex, kind,
         cell = facet_cells[f,0]
         fi = 0
         for c in range(nclosure):
-            if cell_closures_view[cell, c] == facets_view[f]:
+            if cell_closures[cell, c] == facets[f]:
                 facet_local_num[f,0] = fi
-            if fStart <= cell_closures_view[cell, c] < fEnd:
+            if fStart <= cell_closures[cell, c] < fEnd:
                 fi += 1
 
         # Second cell
@@ -347,9 +347,9 @@ def facet_numbering(PETSc.DM plex, kind,
             if cell >= 0:
                 fi = 0
                 for c in range(nclosure):
-                    if cell_closures_view[cell, c] == facets_view[f]:
+                    if cell_closures[cell, c] == facets[f]:
                         facet_local_num[f,1] = fi
-                    if fStart <= cell_closures_view[cell, c] < fEnd:
+                    if fStart <= cell_closures[cell, c] < fEnd:
                         fi += 1
             else:
                 facet_local_num[f,1] = -1
@@ -1197,11 +1197,11 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
 @cython.wraparound(False)
 @cython.cdivision(True)
 def entity_orientations(mesh,
-                        np.ndarray cell_closure):
+                        np.ndarray cell_closure_np):
     """Compute entity orientations.
 
     :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
-    :arg cell_closure: The two-dimensional array, each row of which contains
+    :arg cell_closure_np: The two-dimensional array, each row of which contains
         the closure of the associated cell
     :returns: A 2D array of the same shape as cell_closure, each row of which
         contains orientations of the entities in the closure of the associated cell
@@ -1219,7 +1219,7 @@ def entity_orientations(mesh,
         PetscInt *plex_cone_copy = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
-        PetscInt[:, ::1] cell_closure_view
+        PetscInt[:, ::1] cell_closure = cell_closure_np
         PetscInt[:, ::1] entity_orientations
 
     if type(mesh) is not firedrake.mesh.MeshTopology:
@@ -1256,18 +1256,15 @@ def entity_orientations(mesh,
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]
     numEntities = cell_closure.shape[1]
-    entity_orientations = np.zeros_like(cell_closure)
+    entity_orientations = np.zeros_like(cell_closure_np)
     # Define work arrays to avoid repeated mallocs/frees.
     CHKERR(DMPlexGetMaxSizes(dm.dm, &maxConeSize, NULL))
     CHKERR(PetscMalloc1(maxConeSize, &fiat_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
-    # typed memoryviews so the hot loop indexes cell_closure / output in C
-    # instead of via slow np.ndarray scalar indexing.
-    cell_closure_view = cell_closure
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell, e,
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,
@@ -1516,28 +1513,28 @@ def get_cell_nodes(mesh,
         PetscInt entity_permutations_size, num_orientations_size, perm_offset
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        np.ndarray entity_permutations_c
-        np.ndarray num_orientations_c
+        np.ndarray entity_permutations_c_np
+        np.ndarray num_orientations_c_np
         np.ndarray layer_extents
-        np.ndarray cell_closures
-        np.ndarray entity_orientations
+        np.ndarray cell_closures_np
+        np.ndarray entity_orientations_np
         bint is_swarm, variable, extruded_periodic_1_layer
-        PetscInt[:, ::1] cell_closures_view
-        PetscInt[:, ::1] entity_orientations_view
+        PetscInt[:, ::1] cell_closures
+        PetscInt[:, ::1] entity_orientations
         PetscInt[:, ::1] cell_nodes
-        PetscInt[::1] entity_permutations_view
-        PetscInt[::1] num_orientations_view
+        PetscInt[::1] entity_permutations_c
+        PetscInt[::1] num_orientations_c
 
     dm = mesh.topology_dm
     is_swarm = isinstance(dm, PETSc.DMSwarm)
     variable = mesh.variable_layers
-    cell_closures = mesh.cell_closure
-    entity_orientations = mesh.entity_orientations
-    if not is_swarm and entity_orientations is None:
+    cell_closures_np = mesh.cell_closure
+    entity_orientations_np = mesh.entity_orientations
+    if not is_swarm and entity_orientations_np is None:
         raise ValueError("entity_orientations can only be None for swarm meshes")
-    cell_closures_view = cell_closures
+    cell_closures = cell_closures_np
     if not is_swarm:
-        entity_orientations_view = entity_orientations
+        entity_orientations = entity_orientations_np
     if variable:
         layer_extents = mesh.layer_extents
         if offset is None:
@@ -1566,9 +1563,9 @@ def get_cell_nodes(mesh,
         flat_index[i] = flat_index_list[i]
     # Preprocess entity_permutations
     if entity_permutations is not None:
-        entity_permutations_c, num_orientations_c = _make_entity_permutations_c(entity_dofs, entity_permutations)
-        entity_permutations_view = entity_permutations_c
-        num_orientations_view = num_orientations_c
+        entity_permutations_c_np, num_orientations_c_np = _make_entity_permutations_c(entity_dofs, entity_permutations)
+        entity_permutations_c = entity_permutations_c_np
+        num_orientations_c = num_orientations_c_np
     # Fill cell nodes
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
@@ -1578,8 +1575,8 @@ def get_cell_nodes(mesh,
         k = 0
         perm_offset = 0
         for i in range(nclosure):
-            entity = cell_closures_view[cell, i]
-            orient = 0 if is_swarm else entity_orientations_view[cell, i]
+            entity = cell_closures[cell, i]
+            orient = 0 if is_swarm else entity_orientations[cell, i]
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
@@ -1591,13 +1588,13 @@ def get_cell_nodes(mesh,
                 if entity_permutations is not None:
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j] % offset[flat_index[k]]
                             k += 1
                     else:
                         for j in range(ceil_ndofs[i]):
-                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_view[perm_offset + ceil_ndofs[i] * orient + j]
+                            cell_nodes[cell, flat_index[k]] = off + entity_permutations_c[perm_offset + ceil_ndofs[i] * orient + j]
                             k += 1
-                    perm_offset += ceil_ndofs[i] * num_orientations_view[i]
+                    perm_offset += ceil_ndofs[i] * num_orientations_c[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
                     if extruded_periodic_1_layer:
@@ -2532,12 +2529,12 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
-                        np.ndarray ordering):
+                        np.ndarray ordering_np):
     """Builds a list of all facets ordered according to PyOP2 entity
     classes and computes the respective class offsets.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg ordering: An array giving the global traversal order of facets
+    :arg ordering_np: An array giving the global traversal order of facets
     :arg label: Label string that marks the facets to order
     """
     cdef:
@@ -2547,7 +2544,7 @@ def get_facets_by_class(PETSc.DM plex, label,
         PETSc.IS class_is = None
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
-        PetscInt[::1] ordering_view = ordering
+        PetscInt[::1] ordering = ordering_np
         PetscInt[::1] facets
 
     dim = get_topological_dimension(plex)
@@ -2567,8 +2564,8 @@ def get_facets_by_class(PETSc.DM plex, label,
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
-            for o in range(ordering_view.shape[0]):
-                f = ordering_view[o]
+            for o in range(ordering.shape[0]):
+                f = ordering[o]
                 CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
                 CHKERR(DMLabelHasPoint(lbl_class, f, &is_class))
                 if has_point and is_class:
