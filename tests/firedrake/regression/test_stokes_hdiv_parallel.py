@@ -16,7 +16,7 @@ def element_pair(request):
     return request.param
 
 
-@pytest.mark.parallel
+# @pytest.mark.parallel
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
     err_p = []
@@ -103,14 +103,14 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
             "fieldsplit_0": {
                 "ksp_type": "preonly",
                 "pc_type": "python",
-                "pc_python_type": "firedrake.AssembledPC",
+                "pc_python_type": AssembledPC,
                 "assembled_pc_type": "lu",
                 "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",
                 "pc_type": "python",
-                "pc_python_type": "firedrake.MassInvPC",
+                "pc_python_type": MassInvPC,
                 "Mp_mat_type": "matfree",
                 "Mp_pc_type": "jacobi",
                 "Mp_mu": mu,

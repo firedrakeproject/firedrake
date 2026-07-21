@@ -100,7 +100,7 @@ in dense format. ::
 
   patch_relax = mg_params({
       "pc_type": "python",
-      "pc_python_type": "firedrake.PatchPC",
+      "pc_python_type": PatchPC,
       "patch": {
           "pc_patch": {
 	      "construct_type": "star",
@@ -121,7 +121,7 @@ for low-order discretizations ::
 
   tinyasm_relax = mg_params({
       "pc_type": "python",
-      "pc_python_type": "firedrake.ASMStarPC",
+      "pc_python_type": ASMStarPC,
       "pc_star_backend": "tinyasm"})
 
 If the backend option is not specified, PETSc's ASM framework will set up a KSP for each patch.
@@ -135,7 +135,7 @@ overhead costs of calling the sparse factorization library many times. ::
 
   color_relax = mg_params({
       "pc_type": "python",
-      "pc_python_type": "firedrake.ASMStarPC",
+      "pc_python_type": ASMStarPC,
       "pc_star_use_coloring": True})
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
