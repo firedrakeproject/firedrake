@@ -11,6 +11,8 @@ from petsc4py import PETSc
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
+import FIAT.expansions
+import FIAT.precision
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -19,6 +21,9 @@ FIREDRAKE_UID = MPI.Comm.Create_keyval()
 RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
+
+# Reference cells are always float64, so calibrate for our real precision instead.
+FIAT.expansions.calibrate_tolerance = lambda tol, dtype=None: FIAT.precision.calibrate_tolerance(tol, RealType)
 
 complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 single_mode = (petsctools.get_petscvariables()["PETSC_PRECISION"].lower() == "single")
