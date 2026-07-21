@@ -186,7 +186,7 @@ class BCBase(object):
                 logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
                             "Did you choose the right label?")
 
-        return bcnodes
+        return bcnodes.astype(PETSc.IntType, copy=False)
 
     @cached_property
     def node_set(self):
@@ -759,9 +759,7 @@ def bcdofs(bc, ghost=True):
     # Return the global dofs fixed by a DirichletBC
     # in the numbering given by concatenation of all the
     # subspaces of a mixed function space
-    Z = bc.function_space()
-    while Z.parent is not None:
-        Z = Z.parent
+    Z = bc.function_space_root()
 
     indices = bc._indices
     offset = 0
