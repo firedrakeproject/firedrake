@@ -337,6 +337,7 @@ exact. ::
 
   sp = {
       'mat_type': 'matfree',
+      'pmat_type': 'nest',
       'snes_monitor': None,
       'snes_converged_reason': None,
       'snes_max_it': 20,
@@ -357,24 +358,20 @@ exact. ::
       'fieldsplit_ksp_type': 'preonly',
       'fieldsplit_0_pc_type': 'jacobi',
       'fieldsplit_1': {
-          'pc_type': 'python',
-          'pc_python_type': 'firedrake.AssembledPC',
-          'assembled': {
-             'pc_use_amat': False,
-             'pc_type': 'mg',
-             'pc_mg_type': 'full',
-             'mg_coarse_mat_type': 'aij',
-             'mg_coarse_pc_type': 'lu',
-             'mg_coarse_pc_factor_mat_solver_type': 'mumps',
-             'mg_coarse_mat_mumps_icntl_14': 1000,
-             'mg_levels': {
-                 'ksp_convergence_test': 'skip',
-                 'ksp_max_it': 5,
-                 'ksp_type': 'gmres',
-                 'pc_type': 'python',
-                 'pc_python_type': 'firedrake.ASMStarPC',
-             },
-          },
+         'pc_use_amat': False,
+         'pc_type': 'mg',
+         'pc_mg_type': 'full',
+         'mg_coarse_mat_type': 'aij',
+         'mg_coarse_pc_type': 'lu',
+         'mg_coarse_pc_factor_mat_solver_type': 'mumps',
+         'mg_coarse_mat_mumps_icntl_14': 1000,
+         'mg_levels': {
+             'ksp_convergence_test': 'skip',
+             'ksp_max_it': 5,
+             'ksp_type': 'gmres',
+             'pc_type': 'python',
+             'pc_python_type': 'firedrake.ASMStarPC',
+         },
       },
   }
 
