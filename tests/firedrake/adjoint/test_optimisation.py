@@ -7,7 +7,7 @@ from ufl.duals import is_primal
 from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
-from pyadjoint.optimization.tao_solver import PETScVecInterface
+from pyadjoint.optimization.tao_solver import PETScVecInterface, RieszMapPC
 import petsctools
 
 
@@ -166,6 +166,45 @@ def test_tao_simple_inversion(minimize, riesz_representation):
 
     x = minimize(rf)
     assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
+
+
+@pytest.mark.skipcomplex
+def test_tao_nls_riesz_map_pc():
+    """Test RieszMapPC preconditioning the inner KSP of TAO/NLS."""
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    source_ref = Function(V)
+    x = SpatialCoordinate(mesh)
+    source_ref.interpolate(cos(pi*x**2))
+
+    # compute reference solution
+    with stop_annotating():
+        u_ref = _simple_helmholz_model(V, source_ref)
+
+    # now rerun annotated model with zero source
+    source = Function(V)
+    c = Control(source, riesz_map="L2")
+    u = _simple_helmholz_model(V, source)
+
+    J = assemble(1e6 * (u - u_ref)**2*dx)
+    rf = ReducedFunctional(J, c)
+
+    problem = MinimizationProblem(rf)
+    solver = TAOSolver(problem, {"tao_type": "nls",
+                                 "tao_gatol": 1.0e-5,
+                                 "tao_grtol": 0.0,
+                                 "tao_gttol": 1.0e-7,
+                                 "tao_nls_pc_type": "python",
+                                 "tao_nls_pc_python_type":
+                                 "pyadjoint.optimization.tao_solver.RieszMapPC"})
+    m = solver.solve()
+
+    # the preconditioner is installed on the inner KSP, not silently ignored
+    pc = solver.tao.getKSP().getPC()
+    assert isinstance(pc.getPythonContext(), RieszMapPC)
+
+    # and the optimiser recovers the reference source
+    assert_allclose(m.dat.data, source_ref.dat.data, rtol=1e-2)
 
 
 class TransformType(Enum):
