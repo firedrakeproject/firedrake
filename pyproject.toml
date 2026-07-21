@@ -32,7 +32,7 @@ dependencies = [
   "petsctools>=2026.0",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.4.0",
+  "pyadjoint-ad @ git+https://github.com/bj-chang/pyadjoint.git@riesz-map-pc",
   "pycparser",
   "pytools[siphash]",
   "requests",
