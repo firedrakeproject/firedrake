@@ -42,7 +42,7 @@ class BufferCollector(pyop3.node.NodeCollector):
         return OrderedFrozenSet()
 
     @process.register
-    def _(self, obj: pyop3.obj.Pyop3Object, /) -> OrderedFrozenSet:
+    def _(self, obj: pyop3.obj.Object, /) -> OrderedFrozenSet:
         return obj.collect_buffers(self)
 
 
@@ -77,7 +77,7 @@ class DiskCacheKeyGetter(CacheKeyGetter):
         return obj
 
     @process.register
-    def _(self, obj: pyop3.obj.Pyop3Object, /) -> Hashable:
+    def _(self, obj: pyop3.obj.Object, /) -> Hashable:
         return obj.get_disk_cache_key(self)
 
 
@@ -85,7 +85,7 @@ class DiskCacheKeyGetter(CacheKeyGetter):
 # TODO: This cache key is slightly too restrictive. For instance an axis tree and
 # indexed axis tree can be used identically in places (the output code is unchanged
 # and you'd get the same result) but currently these hash differently.
-def get_disk_cache_key(obj: pyop3.obj.Pyop3Object) -> Hashable:
+def get_disk_cache_key(obj: pyop3.obj.Object) -> Hashable:
     return DiskCacheKeyGetter()(obj)
 
 
@@ -123,11 +123,11 @@ class InstructionExecutorCacheKeyGetter(CacheKeyGetter):
         return obj
 
     @process.register
-    def _(self, obj: pyop3.obj.Pyop3Object) -> Hashable:
+    def _(self, obj: pyop3.obj.Object) -> Hashable:
         return obj.get_instruction_executor_cache_key(self)
 
 
-def get_instruction_executor_cache_key(obj: pyop3.obj.Pyop3Object) -> Hashable:
+def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
     """
     This cache key is different to, say, a disk cache key because it happens at the start of a calculation
     Also we only care about the top-level input buffers - buffers from things like indirection maps
@@ -168,7 +168,7 @@ def _(sf: pyop3.sf.AbstractStarForest, /) -> MPI.Comm:
 
 
 @get_comm.register
-def _(obj: pyop3.obj.Pyop3Object, /) -> MPI.Comm:
+def _(obj: pyop3.obj.Object, /) -> MPI.Comm:
     return obj.comm
 
 

@@ -13,19 +13,25 @@ import pyop3.cache
 def record(**kwargs):
     assert "eq" not in kwargs
     assert "repr" not in kwargs
-    return _make_record_class(eq=False, repr=False, **kwargs)
+    return _make_record_class(maybe_singleton=False, eq=False, repr=False, **kwargs)
 
 
-def frozenrecord(**kwargs):
+def frozenrecord(maybe_singleton: bool = True, **kwargs):
     assert "frozen" not in kwargs
-    return _make_record_class(frozen=True, **kwargs)
+    return _make_record_class(maybe_singleton=maybe_singleton, frozen=True, **kwargs)
 
 
-def _make_record_class(**kwargs):
-    assert "init" not in kwargs
+def _make_record_class(*, maybe_singleton: bool, **kwargs):
 
     def wrapper(cls):
+        assert "init" not in kwargs
         cls = dataclasses.dataclass(init=False, **kwargs)(cls)
+
+        if maybe_singleton:
+            assert kwargs.get("frozen", False)
+            cls._record_maybe_singleton = True
+        else:
+            cls._record_maybe_singleton = False
 
         assert cls.__init__ is object.__init__, \
             f"'{cls.__qualname__}' should not define its own '__init__'"
@@ -44,6 +50,7 @@ def _make_record_class(**kwargs):
         #     cls.__hash__ = _frozenrecord_hash
 
         return cls
+
     return wrapper
 
 
@@ -52,7 +59,7 @@ def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs
         kwargs = cls.record_prepare_args(*args, **kwargs)
     else:
         assert not args
-    if cls.__dataclass_params__.frozen:
+    if cls.__dataclass_params__.frozen and cls._record_maybe_singleton:
         return _maybe_create_frozenrecord(cls, **kwargs)
     else:
         return _create_record(cls, **kwargs)
@@ -60,7 +67,7 @@ def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs
 
 @pyop3.cache.memory_cache(
     heavy=True,
-    # get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF, TODO
+    get_comm=lambda cls, **attrs: cls.get_custom_comm(**attrs) or cls.detect_comm(**attrs),
 )
 def _maybe_create_frozenrecord(cls: Any, **attrs: Any) -> Any:
     return _create_record(cls, **attrs)
@@ -102,34 +109,6 @@ def _record_new(self, **attrs: Any) -> Any:
         )
 
     return type(self)(_record_args_prepared=True, **new_attrs)
-
-
-def _make_record(**attrs: Any):
-    # Try and retrieve a record from the cache
-
-    # If no existing record is found then create one
-
-    # TODO: cache this, but put the cache in record init because we only occasionally call recordnew?
-    new = object.__new__(type(self))
-
-    new.record_init(**new_attrs)
-
-    return new
-
-
-# NOTE: We use COMM_SELF because record_new isn't always called collectively.
-# I need to think harder about the legality of this. Should I disallow the comm attr
-# for objects where this happens?
-# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
-# actually just disable this unless we can prove that it's necessary - it generates a
-# lot of cache misses and probably slows up GC
-# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self._comm or MPI.COMM_SELF)
-# def _make_record_maybe_singleton(self, *args, **kwargs):
-#     return _make_record(self, *args, **kwargs)
-
-
-def _record_init(self, **attrs: Any) -> None:
-    """Initialise a new record."""
 
 
 # def _frozenrecord_hash(self):

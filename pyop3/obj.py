@@ -5,7 +5,7 @@ from functools import cached_property
 from typing import Hashable
 
 
-class Pyop3Object(abc.ABC):
+class Object(abc.ABC):
     """Abstract class for all objects that appear in pyop3 operations.
 
     Having a base class for this allows us to have generic traversal operations
@@ -31,9 +31,27 @@ class Pyop3Object(abc.ABC):
             f"'get_disk_cache_key' not implemented for '{type(self).__qualname__}'"
         )
 
-    @property
+    @classmethod
+    def get_custom_comm(cls, **attrs) -> MPI.Comm | None:
+        """Optional communicator over which this object is collective.
+
+        If not provided then the object communicator will be inferred.
+
+        """
+        raise NotImplementedError(
+            f"'get_custom_comm' not implemented for '{cls.__qualname__}'"
+        )
+
+    @classmethod
+    def detect_comm(cls, **attrs) -> MPI.Comm:
+        """Determine a valid communicator from the attributes of the object."""
+        raise NotImplementedError(
+            f"'detect_comm' not implemented for '{cls.__qualname__}'"
+        )
+
+    @cached_property
     def comm(self) -> MPI.Comm:
         """The communicator over which this object is collective."""
-        raise NotImplementedError(
-            f"'comm' not implemented for '{type(self).__qualname__}'"
-        )
+        breakpoint()
+        # custom_comm = self.get_custom_comm(???)
+        # return self.detect_comm(???) if custom_comm is None else custom_comm

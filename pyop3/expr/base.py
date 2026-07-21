@@ -9,6 +9,7 @@ from typing import NoReturn
 
 import numpy as np
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
 
 import pyop3.collections
 import pyop3.record
@@ -620,17 +621,21 @@ class AxisVar(TerminalExpression):
 @pyop3.record.frozenrecord()
 class NaN(TerminalExpression):
 
-    # {{{ interface impls
+    # {{{ pyop3.obj.Object interface impls
 
     def disk_cache_key(self, renamer):
         return (type(self),)
 
-    def instruction_executor_cache_key(self, renamer):
-        return (type(self),)
+    instruction_executor_cache_key = disk_cache_key
 
-    @property
-    def comm(self) -> MPI.Comm:
+    @classmethod
+    def get_custom_comm(cls) -> MPI.Comm:
         return MPI.COMM_SELF
+
+    # }}}
+
+    # {{{ interface impls
+
 
     @property
     def local_max(self) -> NoReturn:

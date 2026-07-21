@@ -401,7 +401,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
 # TODO: Should inherit from SymbolicTensor/SymbolicMat
 @pyop3.record.record()
-class AggregateMat(pyop3.obj.Pyop3Object):
+class AggregateMat(pyop3.obj.Object):
     """A matrix formed of multiple submatrices concatenated together."""
 
     # {{{ instance attrs

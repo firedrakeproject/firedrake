@@ -216,7 +216,7 @@ class UnrecognisedAxisException(ValueError):
 
 
 @pyop3.record.frozenrecord()
-class AxisComponentRegion(pyop3.obj.Pyop3Object):
+class AxisComponentRegion(pyop3.obj.Object):
 
     # {{{ instance attrs
 
@@ -724,7 +724,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
 
 
 @pyop3.record.frozenrecord()
-class AxisTarget(pyop3.obj.Pyop3Object):
+class AxisTarget(pyop3.obj.Object):
     """TODO.
 
     (this is hard to explain)
@@ -2514,7 +2514,7 @@ class AxisForest(AbstractAxisTreeLike):
 
 
 @pyop3.record.frozenrecord()
-class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterable):
+class ContextSensitiveAxisTree(pyop3.obj.Object, ContextSensitiveLoopIterable):
 
     # {{{ instance attrs
 

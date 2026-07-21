@@ -69,7 +69,7 @@ def postorder(method):
 
 
 # maybe implement record_new here?
-class Node(pyop3.obj.Pyop3Object, abc.ABC):
+class Node(pyop3.obj.Object, abc.ABC):
     # bikeshedding, since this is meant to be inherited from it would be good to 'namespace' it
     @property
     @abc.abstractmethod

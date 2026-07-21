@@ -250,7 +250,7 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
-class TensorTransform(pyop3.obj.Pyop3Object, abc.ABC):
+class TensorTransform(pyop3.obj.Object, abc.ABC):
 
     @property
     @abc.abstractmethod

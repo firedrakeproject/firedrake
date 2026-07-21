@@ -76,7 +76,7 @@ def _check_finalizer(func):
 
 
 
-class AbstractBuffer(pyop3.obj.Pyop3Object):
+class AbstractBuffer(pyop3.obj.Object):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType

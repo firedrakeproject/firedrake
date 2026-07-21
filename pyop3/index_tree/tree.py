@@ -426,7 +426,7 @@ class UnitIndex(AxisIndependentIndex):
 LoopIndexIdT = Hashable
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.frozenrecord(maybe_singleton=False)
 class LoopIndex(UnitIndex):
     """
     Parameters

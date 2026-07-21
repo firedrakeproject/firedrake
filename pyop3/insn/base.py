@@ -291,7 +291,7 @@ class FunctionArgument(abc.ABC):
 
 
 @pyop3.record.frozenrecord()
-class Function(pyop3.obj.Pyop3Object):
+class Function(pyop3.obj.Object):
     """A callable function."""
 
     # {{{ instance attrs

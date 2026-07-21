@@ -61,14 +61,14 @@ class Node:
     pass
 
 
-class LabelledNodeComponent(pyop3.obj.Pyop3Object, abc.ABC):
+class LabelledNodeComponent(pyop3.obj.Object, abc.ABC):
     @property
     @abc.abstractmethod
     def label(self) -> ComponentLabelT:
         pass
 
 
-class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Pyop3Object):
+class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
@@ -93,7 +93,7 @@ class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Pyop3Object):
         return just_one(self.component_labels)
 
 
-class AbstractLabeledTreeLike(pyop3.obj.Pyop3Object):
+class AbstractLabeledTreeLike(pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
