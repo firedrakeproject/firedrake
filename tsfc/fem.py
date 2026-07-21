@@ -11,10 +11,9 @@ import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
 from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
-from finat.duffy import DuffyElement
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
-from finat.point_set import CollapsedTensorProductPointSet, PointSet, PointSingleton
+from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
@@ -708,45 +707,6 @@ def fiat_to_ufl(fiat_dict, order):
     return gem.ComponentTensor(tensor, sigma + delta)
 
 
-def _use_duffy_contraction(element, ctx):
-    """Whether the sum-factorized (Duffy/lattice) coefficient contraction
-    applies.
-
-    This holds exactly when `element` is a simplicial DG element whose
-    nodal basis coincides with the Dubiner expansion set (any
-    `finat.duffy.DuffyElement`), evaluation points come from a collapsed
-    tensor-product quadrature rule (requested via
-    ``dx(scheme="collapsed")``), and the integral is over the cell
-    interior.  In that case `DuffyElement.duffy_contraction` contracts a
-    `Coefficient` against the element in O(p^d) space/time using the
-    lattice multi-index, whereas the standard dense contraction
-    materializes all O(p^d) basis functions at all O(p^d) points before
-    contracting.
-
-    The argument (basis evaluation) side needs no such dispatch: it is
-    handled transparently by `DuffyElement.basis_evaluation`, reached
-    through the usual `~.PointSetContext.basis_evaluation` call.
-
-    Parameters
-    ----------
-    element : finat.finiteelementbase.FiniteElementBase
-        The element being tabulated.
-    ctx : ContextBase
-        The translation context.
-
-    Returns
-    -------
-    bool
-        Whether to use `DuffyElement.duffy_contraction` in place of the
-        standard dense contraction.
-    """
-    return (isinstance(element, DuffyElement)
-            and isinstance(ctx, PointSetContext)
-            and isinstance(ctx.point_set, CollapsedTensorProductPointSet)
-            and ctx.integration_dim == ctx.fiat_cell.get_dimension()
-            and not ctx.unsummed_coefficient_indices)
-
-
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
@@ -785,51 +745,45 @@ def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
-    if _use_duffy_contraction(element, ctx):
-        entity_id, = ctx.entity_ids(domain)
-        value_dict = element.duffy_contraction(mt.local_derivatives, ctx.point_set,
-                                               (ctx.integration_dim, entity_id),
-                                               vec, ctx.epsilon)
+    # Collect FInAT tabulation for all entities
+    per_derivative = collections.defaultdict(list)
+    for entity_id in ctx.entity_ids(domain):
+        finat_dict = ctx.basis_evaluation(element, mt, entity_id)
+        for alpha, table in finat_dict.items():
+            # Filter out irrelevant derivatives
+            if sum(alpha) == mt.local_derivatives:
+                # A numerical hack that FFC used to apply on FIAT
+                # tables still lives on after ditching FFC and
+                # switching to FInAT.
+                table = ffc_rounding(table, ctx.epsilon)
+                per_derivative[alpha].append(table)
+
+    # Merge entity tabulations for each derivative
+    if len(ctx.entity_ids(domain)) == 1:
+        def take_singleton(xs):
+            x, = xs  # asserts singleton
+            return x
+        per_derivative = {alpha: take_singleton(tables)
+                          for alpha, tables in per_derivative.items()}
     else:
-        # Collect FInAT tabulation for all entities
-        per_derivative = collections.defaultdict(list)
-        for entity_id in ctx.entity_ids(domain):
-            finat_dict = ctx.basis_evaluation(element, mt, entity_id)
-            for alpha, table in finat_dict.items():
-                # Filter out irrelevant derivatives
-                if sum(alpha) == mt.local_derivatives:
-                    # A numerical hack that FFC used to apply on FIAT
-                    # tables still lives on after ditching FFC and
-                    # switching to FInAT.
-                    table = ffc_rounding(table, ctx.epsilon)
-                    per_derivative[alpha].append(table)
+        f = ctx.entity_number(domain, mt.restriction)
+        per_derivative = {alpha: gem.select_expression(tables, f)
+                          for alpha, tables in per_derivative.items()}
 
-        # Merge entity tabulations for each derivative
-        if len(ctx.entity_ids(domain)) == 1:
-            def take_singleton(xs):
-                x, = xs  # asserts singleton
-                return x
-            per_derivative = {alpha: take_singleton(tables)
-                              for alpha, tables in per_derivative.items()}
-        else:
-            f = ctx.entity_number(domain, mt.restriction)
-            per_derivative = {alpha: gem.select_expression(tables, f)
-                              for alpha, tables in per_derivative.items()}
-
-        # Coefficient evaluation
-        beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
-        zeta = element.get_value_indices()
-        vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
-        value_dict = {}
-        for alpha, table in per_derivative.items():
-            table_qi = gem.Indexed(table, beta + zeta)
-            summands = []
-            for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
-                indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
-                value = gem.IndexSum(gem.Product(expr, var), indices)
-                summands.append(gem.optimise.contraction(value))
-            optimised_value = gem.optimise.make_sum(summands)
-            value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
+    # Coefficient evaluation
+    beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
+    zeta = element.get_value_indices()
+    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
+    value_dict = {}
+    for alpha, table in per_derivative.items():
+        table_qi = gem.Indexed(table, beta + zeta)
+        summands = []
+        for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
+            indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
+            value = gem.IndexSum(gem.Product(expr, var), indices)
+            summands.append(gem.optimise.contraction(value))
+        optimised_value = gem.optimise.make_sum(summands)
+        value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)

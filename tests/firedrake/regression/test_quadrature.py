@@ -62,9 +62,19 @@ def test_collapsed_quadrature_sum_factorisation(cell, degree, family):
     (i.e. `finat.spectral.Legendre`) or "CG"/variant="integral" (i.e.
     `finat.spectral.IntegratedLegendre`, exercising the
     `FIAT.expansions.C0_basis` recombination) space must produce the same
-    assembled residual and matrix as the default dense quadrature, even
+    assembled residual and matrix as ``dx(scheme="canonical")``, even
     though it takes the sum-factorized (Duffy/lattice) tabulation path
     in ``tsfc.fem`` rather than the standard dense one.
+
+    ``"canonical"`` is the same collapsed Gauss-Jacobi rule as
+    ``"collapsed"`` (same points, same weights,
+    `finat.quadrature.collapsed_gauss_jacobi_quadrature`), but as a plain
+    `finat.point_set.PointSet` rather than a `CollapsedTensorProductPointSet`
+    -- so `finat.duffy.DuffyElement._duffy_applies` is `False` and it always
+    takes the dense FIAT tabulation path. Comparing against it (rather than
+    the default scheme, a different quadrature rule entirely for these
+    degrees) isolates any discrepancy to the sum-factorized tabulation
+    itself, not to a difference in quadrature choice.
     """
     mesh = {"triangle": UnitSquareMesh(2, 2),
             "tetrahedron": UnitCubeMesh(1, 1, 1)}[cell]
@@ -77,14 +87,14 @@ def test_collapsed_quadrature_sum_factorisation(cell, degree, family):
     # translate_coefficient path (forward transform): residual with a
     # derivative, mixing both the coefficient and argument sum-factorized
     # tabulations.
-    L = inner(grad(w), grad(v)) * dx
+    L = inner(grad(w), grad(v)) * dx(scheme="canonical")
     L_collapsed = inner(grad(w), grad(v)) * dx(scheme="collapsed")
     b = assemble(L)
     b_collapsed = assemble(L_collapsed)
     assert np.allclose(b.dat.data, b_collapsed.dat.data, rtol=1e-10, atol=1e-10)
 
     # translate_argument path (backward transform): mass matrix.
-    a = inner(u, v) * dx
+    a = inner(u, v) * dx(scheme="canonical")
     a_collapsed = inner(u, v) * dx(scheme="collapsed")
     M = assemble(a).M.values
     M_collapsed = assemble(a_collapsed).M.values

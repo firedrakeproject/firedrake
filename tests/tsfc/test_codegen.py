@@ -79,19 +79,21 @@ def test_jagged_index_codegen(monkeypatch):
 @pytest.mark.parametrize("cellname,degree", [("triangle", 3), ("tetrahedron", 2)])
 def test_duffy_scatter_and_contract(cellname, degree, element_name):
     """Route B of the simplex sum-factorization milestone 2 design:
-    `finat.duffy.DuffyElement.basis_evaluation` (the `translate_argument`
-    path) and `finat.duffy.DuffyElement.duffy_contraction` (the
-    `translate_coefficient` path) must reproduce the standard dense FIAT
-    tabulation, via the dof numbering FIAT already uses, from
-    `duffy_evaluation`'s lattice-indexed, sum-factorized tabulation.
-    `Legendre` (continuity=None) reads exactly one lattice point per dof
-    (lattice-lexicographic order); `IntegratedLegendre` (continuity="C0")
-    additionally exercises the `FIAT.expansions.C0_basis` recombination,
-    where each dof combines a handful of lattice points.
+    `finat.duffy.DuffyElement.basis_evaluation` must reproduce the standard
+    dense FIAT tabulation, via the dof numbering FIAT already uses, from
+    `duffy_evaluation`'s lattice-indexed, sum-factorized tabulation, and a
+    generic contraction of that same flat-dof-indexed result against a
+    coefficient vector (as `tsfc.fem.translate_coefficient` performs
+    uniformly for every FInAT element, `DuffyElement` included) must
+    reproduce the dense tensordot. `Legendre` (continuity=None) reads
+    exactly one lattice point per dof (lattice-lexicographic order);
+    `IntegratedLegendre` (continuity="C0") additionally exercises the
+    `FIAT.expansions.C0_basis` recombination, where each dof combines a
+    handful of lattice points.
 
     Verified via `gem.interpreter.evaluate` rather than a compiled loopy
     kernel: the GEM expressions built here (in particular
-    `duffy_contraction`'s `gem.VariableIndex`-based index arithmetic)
+    `duffy_evaluation`'s `gem.VariableIndex`-based scatter index arithmetic)
     schedule fine once merged into a real PyOP2 wrapper kernel (as confirmed
     via `firedrake.assemble` on real forms), but are not guaranteed
     schedulable by loopy in isolation -- scheduling an isolated,
@@ -102,7 +104,7 @@ def test_duffy_scatter_and_contract(cellname, degree, element_name):
     from FIAT.reference_element import UFCTetrahedron, UFCTriangle
     from finat.quadrature import make_quadrature
     from finat.spectral import Legendre, IntegratedLegendre
-    from gem.gem import Index, Indexed, Variable
+    from gem.gem import Index, Indexed, IndexSum, Product, Variable
     from gem.interpreter import evaluate
     from gem.optimise import remove_componenttensors
 
@@ -133,18 +135,19 @@ def test_duffy_scatter_and_contract(cellname, degree, element_name):
         assert u_out.fids == (r,) + point_indices
         assert numpy.allclose(u_out.arr, dense, rtol=1e-12, atol=1e-12)
 
-    # translate_coefficient path: contraction against a coefficient vector,
-    # dispatched through duffy_contraction
+    # translate_coefficient path: generic contraction of the same
+    # flat-dof-indexed basis_evaluation result against a coefficient vector
+    # (no element-specific dispatch, see tsfc.fem.translate_coefficient)
     c = Variable("c", (ndof,))
-    for order in (0, 1):
-        contracted_dict = element.duffy_contraction(order, point_set, entity, c, epsilon=0.0)
-        for alpha, contracted in contracted_dict.items():
-            dense = dense_dict[alpha].reshape((ndof,) + point_shape)
-            value, = remove_componenttensors([Indexed(contracted, ())])
-            v_out, = evaluate([value], bindings={c: coefficients})
-            assert v_out.fids == point_indices
-            v_ref = numpy.tensordot(coefficients, dense, axes=(0, 0))
-            assert numpy.allclose(v_out.arr, v_ref, rtol=1e-12, atol=1e-12)
+    r = Index(extent=ndof)
+    for alpha, dense in dense_dict.items():
+        dense = dense.reshape((ndof,) + point_shape)
+        table, = remove_componenttensors([Indexed(scattered_dict[alpha], (r,))])
+        value = IndexSum(Product(Indexed(c, (r,)), table), (r,))
+        v_out, = evaluate([value], bindings={c: coefficients})
+        assert v_out.fids == point_indices
+        v_ref = numpy.tensordot(coefficients, dense, axes=(0, 0))
+        assert numpy.allclose(v_out.arr, v_ref, rtol=1e-12, atol=1e-12)
 
 
 if __name__ == "__main__":
