@@ -98,6 +98,7 @@ class LoopyCodegenContext(CodegenContext):
             depends_on=self._depends_on,
             depends_on_is_final=True,
         )
+
         self._add_instruction(insn)
 
     def add_cinstruction(self, insn_str, read_variables=frozenset()):
@@ -208,8 +209,6 @@ class LoopyCodegenContext(CodegenContext):
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
         # can be shared.
-        global mlir_context
-
         can_reuse = initializer is not None and read_only
         if can_reuse:
             key = initializer.data.tobytes()
@@ -425,36 +424,43 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
 
-    if pyop3.debug_flags.hit_assign:
-        breakpoint()
-
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
-    noop = lp.CInstruction(
-        (),
-        "",
-        read_variables=frozenset({a.name for a in context.arguments}),
-        within_inames=frozenset(),
-        within_inames_is_final=True,
-        depends_on=context._depends_on,
-    )
-    context._instructions.append(noop)
+    # NOTE: Obviously to improve this ugly if-operation
+    if compiler_parameters.codegen == "loopy":
+        noop = lp.CInstruction(
+            (),
+            "",
+            read_variables=frozenset({a.name for a in context.arguments}),
+            within_inames=frozenset(),
+            within_inames_is_final=True,
+            depends_on=context._depends_on,
+        )
+        context._instructions.append(noop)
 
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
     ]
 
-    translation_unit = lp.make_kernel(
-        context.domains,
-        context.instructions,
-        context.arguments,
-        name=function_name,
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-        preambles=preambles,
-    )
-    translation_unit = lp.merge((translation_unit, *context.subkernels))
+    if compiler_parameters.codegen == "mlir":
+        mlir_unit = context.make_kernel()
+    else:
+        translation_unit = lp.make_kernel(
+            context.domains,
+            context.instructions,
+            context.arguments,
+            name=function_name,
+            target=LOOPY_TARGET,
+            lang_version=LOOPY_LANG_VERSION,
+            preambles=preambles,
+        )
+        translation_unit = lp.merge((translation_unit, *context.subkernels))
+    
+    if compiler_parameters.codegen == "mlir":
+        breakpoint()
+        raise NotImplementedError("Still at generation stage")
+
 
     entrypoint = translation_unit.default_entrypoint
     if compiler_parameters.add_likwid_markers:
@@ -473,9 +479,11 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         buffer_index = op.preprocessed_buffers.index(buffer_ref)
         intent = context.global_buffer_intents[buffer_key]
         buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
+    
+    if pyop3.debug_flags.hit_assign:
+        breakpoint()
 
     return translation_unit, buffer_index_map
-
 
 
 # put into a class in transform.py?

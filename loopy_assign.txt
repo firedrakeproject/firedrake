@@ -1,0 +1,38 @@
+---------------------------------------------------------------------------
+KERNEL: pyop3_loop
+---------------------------------------------------------------------------
+ARGUMENTS:
+dat_0: ArrayArg, type: np:dtype('float64'), shape: unknown in/out aspace: global
+dat_1: ArrayArg, type: np:dtype('float64'), shape: unknown in aspace: global
+idat_0: ArrayArg, type: np:dtype('int32'), shape: unknown in aspace: global
+idat_1: ArrayArg, type: np:dtype('int32'), shape: unknown in aspace: global
+idat_2: ArrayArg, type: np:dtype('int32'), shape: unknown in aspace: global
+idat_3: ArrayArg, type: np:dtype('int32'), shape: unknown in aspace: global
+---------------------------------------------------------------------------
+DOMAINS:
+{ [i_0] : 0 <= i_0 <= 17 }
+{ [i_1] : 1 = 0 }
+{ [i_2] : 0 <= i_2 <= 15 }
+{ [i_3] : 0 <= i_3 <= 32 }
+{ [i_4] : 1 = 0 }
+---------------------------------------------------------------------------
+INAME TAGS:
+i_0: None
+i_1: None
+i_2: None
+i_3: None
+i_4: None
+---------------------------------------------------------------------------
+INSTRUCTIONS:
+   for i_1, i_0
+↱      dat_0[0 + 1*(idat_0[0 + 1*idat_1[0 + 1*i_0]] + i_1)] = 2*dat_1[0 + 1*(idat_0[0 + 1*idat_1[0 + 1*i_0]] + i_1)] {id=insn_0}
+│  end i_1, i_0
+│  for i_2
+└↱   dat_0[0 + 1*(idat_0[0 + 1*idat_2[0 + 1*i_2]] + 0)] = 2*dat_1[0 + 1*(idat_0[0 + 1*idat_2[0 + 1*i_2]] + 0)  {id=insn_1}
+ │ end i_2
+ │ for i_4, i_3
+↱└     dat_0[0 + 1*(idat_0[0 + 1*idat_3[0 + 1*i_3]] + i_4) = 2*dat_1[0 + 1*(idat_0[0 + 1*idat_3[0 + 1*i_3]] + i_4)  {id=insn_2}
+│  end i_4, i_3
+└  CODE(idat_2, dat_0, idat_0, idat_1, dat_1, idat_3|) {id=insn}
+   
+---------------------------------------------------------------------------

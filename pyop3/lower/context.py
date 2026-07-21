@@ -9,7 +9,7 @@ class CodegenContext(ABC):
     def __init__(self, *, check_negatives):
         self.check_negatives = check_negatives
 
-        self._domains = []
+        self._domains = [] 
         self._instructions = []
         self._arguments = []
         self._subkernels = []

@@ -13,7 +13,7 @@ g = Function(V)
 gpu = op3.CUDAGPU()
 
 pyop3.debug_flags.hit_assign = True
-g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile")
+g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile", compiler_parameters={"codegen": "mlir"})
 pyop3.debug_flags.hit_assign = False
 # with op3.offloading(gpu):
 # 	g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile")

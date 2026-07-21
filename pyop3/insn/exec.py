@@ -107,7 +107,7 @@ def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> Parse
         return compiler_parameters
 
     if compiler_parameters is None:
-        compiler_parameters = {"codegen": "mlir"}
+        compiler_parameters = {}
     else:
         # TODO: nice error message
         assert pyop3.collections.is_ordered_mapping(compiler_parameters)
