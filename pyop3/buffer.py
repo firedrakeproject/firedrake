@@ -1026,6 +1026,7 @@ class PetscMatBuffer(ConcreteBuffer):
     mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
     _name: str
     _constant: bool
+    _comm: MPI.Comm
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -1051,10 +1052,15 @@ class PetscMatBuffer(ConcreteBuffer):
             return self
 
     @classmethod
+    def get_comm(self, *, _comm, **attrs):
+        return _comm
+
+    @classmethod
     def record_prepare_args(
         cls,
         mat: PETSc.Mat,
         *,
+        comm: MPI.Comm,
         mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
         name: str | None = None,
         prefix: str | None = None,
@@ -1063,10 +1069,11 @@ class PetscMatBuffer(ConcreteBuffer):
         name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
         return dict(
-        mat = mat,
-        mat_spec = mat_spec,
-        _name = name,
-        _constant = constant,
+            mat=mat,
+            mat_spec=mat_spec,
+            _name=name,
+            _constant=constant,
+            _comm=comm,
         )
 
     def __post_init__(self) -> None:
@@ -1256,7 +1263,7 @@ class PetscMatBuffer(ConcreteBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        return PetscMatBuffer(mat)
+        return PetscMatBuffer(mat, comm=self.comm)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
         if template.type == PETSc.Mat.Type.NEST:

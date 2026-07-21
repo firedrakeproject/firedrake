@@ -147,7 +147,7 @@ class Mat(Tensor):
             buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
 
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, **buffer_kwargs)
+        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=full_spec.comm, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod

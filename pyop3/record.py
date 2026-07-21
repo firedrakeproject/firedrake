@@ -42,7 +42,9 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
         # Overload __new__ unless the class already does so (and it
         # must then call '_create_record' or '_maybe_create_frozenrecord')
         if cls.__new__ is object.__new__:
-            cls.__new__ = _record_dunder_new_maybe_pickle
+            cls.__new__ = _record_dunder_new
+
+        cls.__getnewargs_ex__ = _record_getnewargs_ex
 
         # attach other methods
         if not hasattr(cls, "record_prepare_args"):
@@ -57,14 +59,6 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
     return wrapper
 
 
-def _record_dunder_new_maybe_pickle(cls, *args, **kwargs):
-    # if not args and not kwargs:
-    if False:
-        return object.__new__(cls)
-    else:
-        return _record_dunder_new(cls, *args, **kwargs)
-
-
 def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs) -> Any:
     if not _record_args_prepared:
         kwargs = cls.record_prepare_args(*args, **kwargs)
@@ -74,6 +68,15 @@ def _record_dunder_new(cls, *args, _record_args_prepared: bool = False, **kwargs
         return _maybe_create_frozenrecord(cls, **kwargs)
     else:
         return _create_record(cls, **kwargs)
+
+
+def _record_getnewargs_ex(self):
+    args = ()
+    kwargs = {
+        name: getattr(self, name) for name in self.__dataclass_fields__
+    }
+    kwargs |= {"_record_args_prepared": True}
+    return (args, kwargs)
 
 
 @pyop3.cache.memory_cache(
