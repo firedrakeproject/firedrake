@@ -467,15 +467,16 @@ def test_action_bcs(preassembled):
 
     M = inner(q, v) * dx  # Q x V -> R
     I = interpolate(u, Q)  # V x Q^* -> R
+    bc = DirichletBC(V, 0, "on_boundary")
     if preassembled:
         M = assemble(M)
         I = assemble(I)
     A = action(M, I)  # V x V^* -> R
     A_mat = assemble(A).petscmat[:, :]
-    A_mat = np.delete(A_mat, bc.nodes, axis=0)
-    A_mat = np.delete(A_mat, bc.nodes, axis=1)
+    A_mat[bc.nodes, :] = 0
+    A_mat[:, bc.nodes] = 0
+    A_mat[bc.nodes, bc.nodes] = 1
 
-    bc = DirichletBC(V, 0, "on_boundary")
     A_bcs = assemble(A, bcs=[bc]).petscmat[:, :]
 
     assert np.allclose(A_bcs, A_mat)
