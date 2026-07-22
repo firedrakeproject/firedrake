@@ -1,6 +1,6 @@
 import ufl
 from ufl.corealg.dag_traverser import DAGTraverser
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, as_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, singledispatchmethod, partial
@@ -19,22 +19,6 @@ __all__ = ["coarsen", "refine"]
 class ReconstructionError(Exception):
     """Exception raised when reconstructing symbolic information fails."""
     pass
-
-
-def get_cache(direction, old):
-    if direction is coarsen:
-        return getattr(old, "_coarse", None)
-    elif direction is refine:
-        return getattr(old, "_fine", None)
-    return None
-
-
-def set_cache(direction, old, new):
-    if direction is coarsen:
-        old._coarse = new
-    elif direction is refine:
-        old._fine = new
-    return new
 
 
 class ReconstructIntegrand(DAGTraverser):
@@ -102,6 +86,43 @@ def refine(expr, self, coefficient_mapping=None):
     return _reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
 
 
+def as_ufl_domain(obj):
+    """Return the underlying ufl domain"""
+    if isinstance(obj, _SNESContext):
+        obj = obj._problem
+    if isinstance(obj, firedrake.NonlinearVariationalProblem):
+        obj = obj.u
+    elif isinstance(obj, firedrake.LinearEigenproblem):
+        obj = obj.output_space
+    return as_domain(obj)
+
+
+def get_relative(dispatch, old):
+    """Return old._coarse or old._fine depending on dispatch
+       if they share the same hierarchy, otherwise None."""
+    new = None
+    if dispatch is coarsen:
+        new = getattr(old, "_coarse", None)
+    elif dispatch is refine:
+        new = getattr(old, "_fine", None)
+
+    if new is not None:
+        new_hierarchy, _ = utils.get_level(as_ufl_domain(new))
+        old_hierarchy, _ = utils.get_level(as_ufl_domain(old))
+        if new_hierarchy is not old_hierarchy:
+            new = None
+    return new
+
+
+def attach_relative(dispatch, old, new):
+    """Set old._coarse or old._fine to new depending on dispatch."""
+    if dispatch is coarsen:
+        old._coarse = new
+    elif dispatch is refine:
+        old._fine = new
+    return new
+
+
 @coarsen.register(ufl.Mesh)
 @coarsen.register(ufl.MeshSequence)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
@@ -117,6 +138,8 @@ def refine_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
         raise ReconstructionError("No mesh hierarchy available")
+    if len(hierarchy) <= level + 1:
+        raise ReconstructionError("Cannot refine the finest mesh")
     return hierarchy[level + 1]
 
 
@@ -194,36 +217,37 @@ def reconstruct_equation_bc(ebc, self, coefficient_mapping=None):
     return type(ebc)(lhs == rhs, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
 
 
-@coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
-@refine.register(firedrake.functionspaceimpl.WithGeometryBase)
+@_reconstruct.register(firedrake.functionspaceimpl.WithGeometryBase)
 def reconstruct_function_space(V, self, coefficient_mapping=None):
+    V_new = get_relative(self, V)
+    if V_new is not None:
+        return V_new
+
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
-    cached = get_cache(self, V)
-    if cached is not None and cached.mesh() == new_mesh:
-        return cached
 
     reverse = coarsen if self is refine else refine
     V_parent = V
-    while get_cache(reverse, V_parent) is not None:
-        V_parent = get_cache(reverse, V_parent)
+    while get_relative(reverse, V_parent) is not None:
+        V_parent = get_relative(reverse, V_parent)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    set_cache(reverse, V_new, V)
-    set_cache(self, V, V_new)
+    attach_relative(reverse, V_new, V)
+    attach_relative(self, V, V_new)
     return V_new
 
 
-@coarsen.register(firedrake.Cofunction)
-@coarsen.register(firedrake.Function)
-def coarsen_function(expr, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.Cofunction)
+@_reconstruct.register(firedrake.Function)
+def reconstruct_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
+
     if new is None:
         V = expr.function_space()
         Vnew = self(V, self)
@@ -233,35 +257,8 @@ def coarsen_function(expr, self, coefficient_mapping=None):
                 name, prev_level = name.split("_level_")
             except ValueError:
                 prev_level = 0
-            level = int(prev_level) - 1
-            name = f"{name}_level_{level}"
-
-        new = firedrake.Function(Vnew, name=name)
-        manager = get_transfer_manager(V.dm)
-        if is_dual(expr):
-            manager.restrict(expr, new)
-        else:
-            manager.inject(expr, new)
-        coefficient_mapping[expr] = new
-    return new
-
-
-@refine.register(firedrake.Cofunction)
-@refine.register(firedrake.Function)
-def refine_function(expr, self, coefficient_mapping=None):
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    new = coefficient_mapping.get(expr)
-    if new is None:
-        V = expr.function_space()
-        Vnew = self(V, self)
-        name = expr.name()
-        if name is not None:
-            try:
-                name, prev_level = name.split("_level_")
-            except ValueError:
-                prev_level = 0
-            level = int(prev_level) + 1
+            level_inc = 1 if self is refine else -1
+            level = int(prev_level) + level_inc
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
@@ -271,11 +268,9 @@ def refine_function(expr, self, coefficient_mapping=None):
 
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
-    # Have we done this already?
-    mh, _ = utils.get_level(problem.u.function_space().mesh())
-    cached = get_cache(self, problem)
-    if cached is not None and mh is utils.get_level(cached.u.function_space().mesh())[0]:
-        return cached
+    new_problem = get_relative(self, problem)
+    if new_problem is not None:
+        return new_problem
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
@@ -326,17 +321,15 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = firedrake.NonlinearVariationalProblem(
         F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
         form_compiler_parameters=problem.form_compiler_parameters)
-    set_cache(self, problem, new_problem)
+    attach_relative(self, problem, new_problem)
     return new_problem
 
 
 @_reconstruct.register(firedrake.LinearEigenproblem)
 def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
-    # Have we done this already?
-    mh, _ = utils.get_level(problem.output_space.mesh())
-    cached = get_cache(self, problem)
-    if cached is not None and mh is utils.get_level(cached.output_space.mesh())[0]:
-        return cached
+    new_problem = get_relative(self, problem)
+    if new_problem is not None:
+        return new_problem
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -346,7 +339,7 @@ def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
     M = self(problem.M, self, coefficient_mapping=coefficient_mapping)
     new_problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
                                                bc_shift=problem.bc_shift, restrict=problem.restrict)
-    set_cache(self, problem, new_problem)
+    attach_relative(self, problem, new_problem)
     return new_problem
 
 
@@ -381,15 +374,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
-    if self == refine:
-        new_attr = "_fine"
-        old_attr = "_coarse"
-    else:
-        new_attr = "_coarse"
-        old_attr = "_fine"
-
-    # Have we already done this?
-    new_context = getattr(context, new_attr)
+    new_context = get_relative(self, context)
     if new_context is not None:
         return new_context
 
@@ -407,9 +392,10 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 new_appctx[k] = v
 
     # Get options prefix for current level
+    reverse = coarsen if self is refine else refine
     parent_context = context
-    while getattr(parent_context, old_attr, None):
-        parent_context = getattr(parent_context, old_attr, None)
+    while get_relative(reverse, parent_context):
+        parent_context = get_relative(reverse, parent_context)
 
     parent_prefix = parent_context.options_prefix
     opts = PETSc.Options(parent_prefix)
@@ -447,8 +433,8 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       options_prefix=options_prefix,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
-    setattr(new_context, old_attr, context)
-    setattr(context, new_attr, new_context)
+    attach_relative(reverse, new_context, context)
+    attach_relative(self, context, new_context)
 
     solutiondm = context._problem.u_restrict.function_space().dm
     parentdm = get_parent(solutiondm)

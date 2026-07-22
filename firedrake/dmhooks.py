@@ -448,7 +448,11 @@ def coarsen(dm, comm):
     return cdm
 
 
-def _adaptively_refine(dm, comm):
+def _refine_adaptive(dm):
+    """
+    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
+    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    """
     from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
@@ -458,6 +462,8 @@ def _adaptively_refine(dm, comm):
     dm.incRef()
 
     ctx = get_appctx(dm)
+    if ctx is None:
+        raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
     mesh = current_solution.function_space().mesh()
     hierarchy, level = get_level(mesh)
@@ -478,7 +484,8 @@ def _adaptively_refine(dm, comm):
         M = markers.function_space()
         if M.mesh() is not mesh:
             raise ValueError("marking callback must return markers on the current solution mesh")
-        if M.finat_element.space_dimension() != 1:
+        num_dofs_per_cell = M.finat_element.space_dimension()
+        if num_dofs_per_cell != 1:
             raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
         hierarchy.add_mesh(mesh.refine_marked_elements(markers))
@@ -508,6 +515,16 @@ def _adaptively_refine(dm, comm):
     return refined_ctx._problem.dm
 
 
+def _refine_from_hierarchy(dm):
+    """Return the DM of the refined function space."""
+    from firedrake.mg.ufl_utils import refine
+    V = get_function_space(dm)
+    if V is None:
+        raise RuntimeError("No FunctionSpace found on DM")
+    Vfine = refine(V, refine)
+    return Vfine.dm
+
+
 @PETSc.Log.EventDecorator()
 def refine(dm, comm):
     """Callback to refine a DM.
@@ -515,27 +532,11 @@ def refine(dm, comm):
     :arg DM: The DM to refine.
     :arg comm: The communicator for the new DM (ignored)
     """
-    ctx = get_appctx(dm)
-    if ctx is not None and ctx._marking_callback is not None:
-        return _adaptively_refine(dm, comm)
-
-    from firedrake.mg.ufl_utils import get_cache, set_cache
-    from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen, refine as symbolic_refine
-    from firedrake.mg.utils import get_level
-    V = get_function_space(dm)
-    if V is None:
-        raise RuntimeError("No functionspace found on DM")
-    hierarchy, level = get_level(V.mesh())
-    if hierarchy is None:
-        raise RuntimeError("No mesh hierarchy available")
-    if level >= len(hierarchy) - 1:
-        raise RuntimeError("Cannot refine finest DM")
-    Vfine = get_cache(symbolic_refine, V)
-    if Vfine is None:
-        Vfine = V.reconstruct(mesh=hierarchy[level + 1])
-        set_cache(symbolic_refine, V, Vfine)
-        set_cache(symbolic_coarsen, Vfine, V)
-    return Vfine.dm
+    from firedrake.mg.ufl_utils import ReconstructionError
+    try:
+        return _refine_from_hierarchy(dm)
+    except ReconstructionError:
+        return _refine_adaptive(dm)
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
