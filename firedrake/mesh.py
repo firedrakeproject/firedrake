@@ -2371,6 +2371,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._function_counter = itertools.count()
 
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+        self._init_particle_ids()
 
     def _distribute(self):
         pass
@@ -2387,6 +2388,18 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             # all entities as pyop2 core, which mark_entity_classes will do.
             assert isinstance(self._parent_mesh, VertexOnlyMeshTopology)
             dmcommon.mark_entity_classes(self.topology_dm)
+
+    def _init_particle_ids(self):
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.function import CoordinatelessFunction
+
+        # Attach persistent IDs to VOM points
+        P0 = FunctionSpace(self, "DG", 0)
+        pid = CoordinatelessFunction(P0, dtype=IntType, name="firedrake_particle_ids")
+        n_owned = self.cell_set.size
+        offset = self.comm.scan(n_owned) - n_owned
+        pid.dat.data_wo[:] = np.arange(offset, offset + n_owned, dtype=IntType)
+        self._particle_ids = pid
 
     @cached_property
     def _ufl_cell(self):
@@ -4062,14 +4075,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     )
     vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
-
-    # Attach persistent particle IDs
-    P0 = FunctionSpace(vmesh_out, "DG", 0)
-    pid = Function(P0, dtype=IntType, name="firedrake_particle_ids")
-    n_owned = vmesh_out.cell_set.size
-    offset = vmesh_out.comm.scan(n_owned) - n_owned
-    pid.dat.data_wo[:] = np.arange(offset, offset + n_owned, dtype=IntType)
-    vmesh_out._particle_ids = pid
 
     return vmesh_out
 
