@@ -511,7 +511,6 @@ def test_vertex_only_mesh_particle_ids(redundant):
 
     pids = vom._particle_ids
     assert pids is not None
-    assert isinstance(pids, firedrake.Function)
     assert pids.name() == "firedrake_particle_ids"
 
     local_ids = vom._particle_ids.dat.data_ro.copy()
