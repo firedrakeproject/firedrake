@@ -941,8 +941,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
@@ -1602,68 +1603,6 @@ class VomOntoVomMatContext:
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
-
-    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
-        """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
-        its input ordering vertex-only mesh.
-
-        Returns
-        -------
-        PETSc.Mat
-            PETSc seqaij matrix
-        """
-        if mat_type == "baij" and self.target_space.block_size > 1:
-            create = PETSc.Mat().createBAIJ
-        else:
-            create = PETSc.Mat().createAIJ
-        mat = create(
-            size=(self.target_size, self.source_size),
-            bsize=self.target_space.block_size,
-            nnz=1,
-            comm=self.target_space.comm
-        )
-        mat.setUp()
-        # To create the permutation matrix we broadcast an array of indices which are contiguous
-        # across all ranks and then use these indices to set the values of the matrix directly.
-        start = sum(self._local_sizes[:self.target_space.comm.rank])
-        end = start + self.source_size[0]
-        contiguous_indices = numpy.arange(start, end, dtype=IntType)
-        perm = numpy.zeros(self.nleaves, dtype=IntType)  # result stored in here
-        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
-        self.sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
-        self.sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(self.target_size[0] + 1, dtype=IntType)
-        # Vector and Tensor valued functions are stored in a flattened array, so
-        # we need to space out the column indices according to the block size
-        cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
-        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
-        mat.assemble()
-        if self.forward_reduce and not self.is_adjoint:
-            # The mat we have constructed thus far takes us from the input-ordering VOM to the
-            # immersed VOM. If we're going the other way, then we need to transpose it,
-            # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
-            # are defined assuming we're doing forward interpolation.
-            mat.transpose()
-        return mat
-
-    def _wrap_python_mat(self) -> PETSc.Mat:
-        """Wrap this object as a PETSc Mat. Used for matfree interpolation.
-
-        Returns
-        -------
-        PETSc.Mat
-            A PETSc Mat of type python with this object as its context.
-        """
-        mat = PETSc.Mat().create(comm=self.target_space.comm)
-        if self.forward_reduce:
-            mat_size = (self.source_size, self.target_size)
-        else:
-            mat_size = (self.target_size, self.source_size)
-        mat.setSizes(mat_size)
-        mat.setType(mat.Type.PYTHON)
-        mat.setPythonContext(self)
-        mat.setUp()
-        return mat
 
     def duplicate(self, mat: PETSc.Mat | None = None, op: PETSc.Mat.DuplicateOption | None = None) -> PETSc.Mat:
         """Duplicate the matrix. Needed to wrap as a PETSc Python Mat.
