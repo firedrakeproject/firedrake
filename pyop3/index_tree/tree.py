@@ -94,25 +94,37 @@ class IndexTree(MutableLabelledTreeMixin, LabeledTree):
     def record_prepare_args(
         cls,
         node_map: Mapping[PathT, Node] | None | None = None,
+        *,
         comm: MPI.Comm | None = None,
     ) -> None:
         return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
 
     # }}}
 
-    # {{{ interface impls
+    # {{{ factory methods
 
+    @classmethod
+    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> Self:
+        node_map = cls._node_map_from_iterable(iterable)
+        return cls(node_map, comm=comm)
+
+    @classmethod
+    def from_nest(cls, nest: Any, *, comm: MPI.Comm | None = None) -> Self:
+        node_map = cls._node_map_from_nest(nest)
+        return cls(node_map, comm=comm)
+
+    # NOTE: This sort of should live on the Index class and be attached here
     @functools.singledispatchmethod
     @classmethod
-    def as_node(cls, obj: Any) -> Index:
-        raise TypeError(f"No handler defined for {type(obj).__name__}")
+    def _as_index(cls, obj: Any, /) -> Index:
+        utils.raise_missing_dispatch_handler(obj)
 
-    @as_node.register(Index)
+    @_as_index.register(Index)
     @classmethod
-    def _(cls, index: Index) -> Index:
+    def _(cls, index: Index, /) -> Index:
         return index
 
-    # }}}
+    _as_node = _as_index
 
 
 class SliceComponent(LabelledNodeComponent, abc.ABC):
@@ -1385,10 +1397,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
     if not slice_.label.startswith("_node_Slice"):
         axis_label = slice_.label
     else:
-        if len(seen_target_exprs) > 0:
-            breakpoint()
-        else:
-            axis_label = f"axis_{index_count}_0"
+        axis_label = f"axis_{index_count}_{len(seen_target_exprs)}"
     axis = Axis(components, label=axis_label)
 
     # now do target expressions

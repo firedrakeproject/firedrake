@@ -783,7 +783,7 @@ class SameMeshInterpolator(Interpolator):
         loop_index = self.target_mesh.iter("cell")
         op3.loop(
             c := loop_index,
-            pack(sparsity, Vrow, Vcol, loop_index).assign(666),
+            pack(sparsity, loop_index, Vrow, Vcol).assign(666),
             eager=True,
         )
         return sparsity
@@ -1152,11 +1152,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack(tensor, V_dest, loop_index)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack(tensor, V_dest, loop_index)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1174,7 +1174,7 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
 
-        packed_tensor = pack(tensor, Vrow, Vcol, loop_index)
+        packed_tensor = pack(tensor, loop_index, Vrow, Vcol)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:

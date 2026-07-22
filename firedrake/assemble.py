@@ -48,7 +48,6 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 
 @PETSc.Log.EventDecorator()
 @annotate_assemble
-@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def assemble(expr, *args, **kwargs):
     """Assemble.
 
@@ -215,6 +214,7 @@ class ExprAssembler:
     def __init__(self, expr):
         self._expr = expr
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._expr))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the pointwise expression.
 
@@ -413,6 +413,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             assert indices is None
             return tensor
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -1037,6 +1038,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -1471,6 +1473,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @with_heavy_caches(lambda self: get_mesh_topologies(self._form))
     def allocate(self):
         test, trial = self._form.arguments()
         sparsity = self._make_sparsity(
@@ -1551,7 +1554,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             ):
                 op3.loop(
                     loop_index,
-                    pack(sparsity[test_index_, trial_index_], test_space, trial_space, loop_index).assign(666),
+                    pack(sparsity[test_index_, trial_index_], loop_index, test_space, trial_space).assign(666),
                     eager=True,
                 )
 
@@ -1779,6 +1782,7 @@ class MatrixFreeAssembler(FormAssembler):
             options_prefix=self._options_prefix
         )
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self.form))
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
             tensor = self.allocate()
@@ -1973,10 +1977,10 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack(dat, V, self._iterset)
+            return pack(dat, self._iterset, V)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack(mat, *Vs, self._iterset)
+            return pack(mat, self._iterset, *Vs)
         else:
             raise AssertionError
 

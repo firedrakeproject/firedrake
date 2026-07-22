@@ -664,13 +664,13 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_method()
     def _entity_axes_by_name(self, name: str):
-        match name:
-            case "cell":
-                # NOTE: not sure this is necessary
-                cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
-                # return self.points[op3.as_slice(self.cell_label)]
-                return self.points[cell_slice]
+        if name == "cell":
+            # NOTE: not sure this is necessary
+            cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
+            # return self.points[op3.as_slice(self.cell_label)]
+            return self.points[cell_slice]
 
+        match name:
             case "exterior_facet":
                 if isinstance(self, ExtrudedMeshTopology):
                     # TODO: arguably over fussy
@@ -679,12 +679,8 @@ class AbstractMeshTopology(abc.ABC):
                         "'exterior_facets_top' or 'exterior_facets_bottom' instead"
                     )
                 else:
-                    subset = self._facet_subset(
-                        self._entity_indices_is("plex", name="exterior_facet"),
-                        self._plex_to_entity_numbering_sec(stratum=self.dimension-1),
-                        self.facet_label,
-                    )
-                    return self.points[subset]
+                    numbering_sec = self._plex_to_entity_numbering_sec(stratum=self.dimension-1)
+                    label = self.facet_label
 
             case "interior_facet":
                 if isinstance(self, ExtrudedMeshTopology):
@@ -694,62 +690,25 @@ class AbstractMeshTopology(abc.ABC):
                         "'interior_facets_horiz'"
                     )
                 else:
-                    subset = self._facet_subset(
-                        self._entity_indices_is("plex", "interior_facet"),
-                        self._plex_to_entity_numbering_sec(stratum=self.dimension-1),
-                        self.facet_label,
-                    )
-                    return self.points[subset]
+                    numbering_sec = self._plex_to_entity_numbering_sec(stratum=self.dimension-1)
+                    label = self.facet_label
 
-            case "exterior_facet_top":
-                subset = self._facet_subset(
-                    self._entity_indices_is("plex", "exterior_facet_top"),
-                    self._plex_to_entity_numbering_sec("facet_horiz"),
-                    self.facet_horiz_label,
-                )
-                return self.points[subset]
+            case "exterior_facet_top" | "exterior_facet_bottom" | "interior_facet_horiz":
+                numbering_sec = self._plex_to_entity_numbering_sec("facet_horiz")
+                label = self.facet_horiz_label
 
-            case "exterior_facet_bottom":
-                subset = self._facet_subset(
-                    self._entity_indices_is("plex", "exterior_facet_bottom"),
-                    self._plex_to_entity_numbering_sec("facet_horiz"),
-                    self.facet_horiz_label,
-                )
-                return self.points[subset]
-
-            case "exterior_facet_vert":
-                subset = self._facet_subset(
-                    self._entity_indices_is("plex", name="exterior_facet_vert"),
-                    self._plex_to_entity_numbering_sec("facet_vert"),
-                    self.facet_vert_label,
-                )
-                return self.points[subset]
-
-            case "interior_facet_horiz":
-                subset = self._facet_subset(
-                    self._entity_indices_is("plex", "interior_facet_horiz"),
-                    self._plex_to_entity_numbering_sec("facet_horiz"),
-                    self.facet_horiz_label,
-                )
-                return self.points[subset]
-
-            case "interior_facet_vert":
-                subset = self._facet_subset(
-                    self._entity_indices_is("plex", "interior_facet_vert"),
-                    self._plex_to_entity_numbering_sec("facet_vert"),
-                    self.facet_vert_label,
-                )
-                return self.points[subset]
+            case "exterior_facet_vert" | "interior_facet_vert":
+                numbering_sec = self._plex_to_entity_numbering_sec("facet_vert")
+                label = self.facet_vert_label
 
             case _:
                 raise AssertionError
 
-    # TODO: typing for component_label
-    # Maybe doesn't have to be a method either
-    def _facet_subset(self, plex_indices_is: PETSc.IS, component_renumbering: PETSc.Section, component_label) -> op3.Slice:
-        subset_indices = dmcommon.section_offsets(component_renumbering, plex_indices_is, sort=True)
+        plex_indices_is = self._entity_indices_is("plex", name)
+        subset_indices = dmcommon.section_offsets(numbering_sec, plex_indices_is, sort=True)
         subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
-        return op3.Slice(self.name, [op3.Subset(component_label, subset_dat)])
+        subset = op3.Slice(self.name, [op3.Subset(label, subset_dat)], label=name)
+        return self.points[subset]
 
     @cached_property
     def cells(self) -> op3.IndexedAxisTree:
@@ -6585,6 +6544,13 @@ def extract_mesh_topologies(mesh) -> frozenset[MeshTopology]:
         return op3.collections.OrderedFrozenSet([m.topology for m in mesh])
     else:
         return op3.collections.OrderedFrozenSet([mesh.topology])
+
+
+# def mesh_cached(func):
+#     return cached_on(lambda self: extract_mesh_topologies(self))(func)
+#
+#
+# with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.mesh()))
 
 
 # Helper functions to reduce boilerplate

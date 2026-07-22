@@ -13,9 +13,10 @@ from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
 from typing import Any
 
 import cachetools
+import loopy.tools
 import numpy as np
 import pytools
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 
@@ -150,13 +151,6 @@ Label = str
 
 
 class Labelled(abc.ABC):
-    # def __init__(self, label):
-    #     self.label = label if label is not DECIDE else self.unique_label()
-
-    @classmethod
-    def unique_label(cls) -> str:
-        assert False, "probably no"
-        return unique_name(f"_label_{cls.__name__}")
 
     @classmethod
     def unique_id(cls) -> str:
@@ -190,11 +184,11 @@ def is_single_valued(iterable):
         return True
 
 
-def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
+def merge_dicts(dicts: Iterable[Mapping]) -> idict:
     merged = StrictlyUniqueDict()
     for dict_ in dicts:
         merged.update(dict_)
-    return immutabledict(merged)
+    return idict(merged)
 
 
 def has_unique_entries(iterable):
@@ -432,7 +426,7 @@ def expand_collection_of_iterables(compressed: Mapping[Hashable, Sequence[Any]])
         compressed = dict(compressed)
 
     if not compressed:
-        return (immutabledict(),)
+        return (idict(),)
     else:
         compressed_mut = dict(compressed)
         return _expand_dict_of_iterables_rec(compressed_mut)
@@ -445,12 +439,12 @@ def _expand_dict_of_iterables_rec(compressed_mut):
     if compressed_mut:
         subexpanded = _expand_dict_of_iterables_rec(compressed_mut)
         for item in items:
-            entry = immutabledict({key: item})
+            entry = idict({key: item})
             for subentry in subexpanded:
                 expanded.append(entry | subentry)
     else:
         for item in items:
-            entry = immutabledict({key: item})
+            entry = idict({key: item})
             expanded.append(entry)
 
     return tuple(expanded)
@@ -502,16 +496,16 @@ def _(list_: list) -> tuple:
 
 
 @freeze.register
-def _(immutabledict_: immutabledict) -> immutabledict:
-    return immutabledict({
+def _(immutabledict_: idict) -> idict:
+    return idict({
         key: freeze(value)
         for key, value in immutabledict_.items()
     })
 
 
 @freeze.register
-def _(dict_: dict) -> immutabledict:
-    return immutabledict({
+def _(dict_: dict) -> idict:
+    return idict({
         key: freeze(value)
         for key, value in dict_.items()
     })
@@ -608,3 +602,7 @@ def safe_equals(a, b, /) -> bool:
 
 def raise_missing_dispatch_handler(obj: Any) -> None:
     raise TypeError(f"No handler defined for {pretty_type(obj)}")
+
+
+_loopy_key_builder = loopy.tools.LoopyKeyBuilder()
+"""Persistent object for computing hashes of loopy kernels."""

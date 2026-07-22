@@ -149,57 +149,73 @@ class LabeledTree(AbstractLabeledTreeLike):
             assert node.label is not DECIDE
             assert all(cl is not DECIDE for cl in node.component_labels)
 
-    @classmethod
-    @abc.abstractmethod
-    def as_node(self, obj: Any) -> Node:
-        """Convert an object into a tree node."""
-
-    # {{{ constructors
+    # {{{ factory methods
 
     @classmethod
     def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> LabeledTree:
-        if not iterable:
-            return cls(comm=comm)
+        raise NotImplementedError
 
+    @classmethod
+    def _node_map_from_iterable(cls, iterable: Iterable) -> dict:
         node_map = {}
         path = idict()
-        for node in iterable:
-            node = cls.as_node(node)
+        for i, node in enumerate(iterable):
+            node = cls._as_node(node)
+            assert node.degree == 1
+            if node.label is DECIDE:
+                node = node.record_new(label=f"_node_{type(node).__name__}_{i}")
             node_map.update({path: node})
             path = path | {node.label: node.component_label}
-        return cls(node_map, comm=comm)
+        return node_map
 
     @classmethod
-    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node, comm: MPI.Comm | None = None) -> LabeledTree:
-        if isinstance(nest, Node):
-            return cls(nest, comm=comm)
-        else:
-            node_map = cls._node_map_from_nest(nest=nest, path=idict())
-            return cls(node_map, comm=comm)
+    def from_nest(cls, nest: Any, *args, **kwargs) -> LabeledTree:
+        raise NotImplementedError
 
     @classmethod
-    def _node_map_from_nest(cls, *, nest: Mapping[Node, Sequence[Mapping | Node]], path: ConcretePathT) -> ConcretePathT:
+    def _node_map_from_nest(
+        cls,
+        nest: Mapping[NodeLike, Sequence[Mapping | NodeLike]] | NodeLike,
+        *,
+        _path: ConcretePathT = idict(),
+    ) -> dict:
+        def as_labeled_node(nodelike):
+            node = cls._as_node(nodelike)
+            if node.label is DECIDE:
+                depth = len(_path)
+                node = node.record_new(label=f"_node_{type(node).__name__}_{depth}")
+            return node
+
+        if not isinstance(nest, Mapping):
+            node = as_labeled_node(nest)
+            return {_path: node}
+
         if len(nest) > 1:
             raise InvalidTreeException(
                 "Nest contains multiple nodes at the same level"
             )
 
         node, subnests = utils.just_one(nest.items())
-        node = cls.as_node(node)
+        node = as_labeled_node(node)
 
         if isinstance(subnests, Node) and node.degree == 1:
             subnests = (subnests,)
 
-        node_map = {path: node}
+        node_map = {_path: node}
         for component_label, subnest in zip(node.component_labels, subnests, strict=True):
-            path_ = path | {node.label: component_label}
+            path_ = _path | {node.label: component_label}
 
             if isinstance(subnest, Mapping):
-                sub_node_map = cls._node_map_from_nest(nest=subnest, path=path_)
+                sub_node_map = cls._node_map_from_nest(nest=subnest, _path=path_)
             else:
                 sub_node_map = {path_: subnest}
             node_map |= sub_node_map
-        return idict(node_map)
+        return node_map
+
+    @classmethod
+    def _as_node(cls, nodelike) -> Node:
+        """Convert an object into a tree node."""
+        raise NotImplementedError
 
     # }}}
 
@@ -270,13 +286,6 @@ class LabeledTree(AbstractLabeledTreeLike):
             child = self.node_map[child_path]
             children.append(child)
         return tuple(children)
-
-    @staticmethod
-    def _parse_node(node):
-        if isinstance(node, Node):
-            return node
-        else:
-            raise TypeError(f"No handler defined for {type(node).__name__}")
 
     def _stringify(
         self,
@@ -468,13 +477,6 @@ class LabeledTree(AbstractLabeledTreeLike):
                 node_map[node] = [None] * node.degree
         return idict(node_map)
 
-    @staticmethod
-    def _parse_node(node):
-        if isinstance(node, MultiComponentLabelledNode):
-            return node
-        else:
-            raise TypeError(f"No handler defined for {type(node).__name__}")
-
     def to_nest(self) -> idict:
         return self._to_nest_rec(idict())
 
@@ -492,6 +494,10 @@ class LabeledTree(AbstractLabeledTreeLike):
         return idict(nest)
 
     _prepare_node_map = _prepare_node_map
+    _node_map_from_iterable = _node_map_from_iterable
+    _node_map_from_nest = _node_map_from_nest
+
+
 
 
 

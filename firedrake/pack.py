@@ -20,27 +20,33 @@ from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex
 
 
+@op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
+def pack(tensor: Any, loop_info: MeshLoopIndex, *args, **kwargs) -> op3.Tensor:
+    """Prepare a tensor for use inside a pyop3 expression."""
+    return _pack(tensor, loop_info, *args, **kwargs)
+
+
 @functools.singledispatch
-def pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
+def _pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
-@pack.register
+@_pack.register
 def _(const: firedrake.constant.Constant, loop_info: MeshLoopIndex, **kwargs) -> op3.Dat:
     return const.dat
 
 
-@pack.register(Function)
-@pack.register(Cofunction)
-@pack.register(CoordinatelessFunction)
-def _(func, loop_info: MeshLoopIndex, **kwargs):
-    return pack(func.dat, func.function_space(), loop_info, **kwargs)
+@_pack.register(Function)
+@_pack.register(Cofunction)
+@_pack.register(CoordinatelessFunction)
+def _(func, loop_index: MeshLoopIndex, **kwargs):
+    return pack(func.dat, loop_index, func.function_space(), **kwargs)
 
 
-@pack.register(Matrix)
-def _(matrix: Matrix, loop_info, **kwargs):
-    return pack(matrix.M, *matrix.ufl_function_spaces(), loop_info, **kwargs)
+@_pack.register(Matrix)
+def _(matrix: Matrix, loop_index, **kwargs):
+    return pack(matrix.M, loop_index, *matrix.ufl_function_spaces(), **kwargs)
 
 
 def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
@@ -78,11 +84,11 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         return self_map(composed_map)
 
 
-@pack.register(op3.Dat)
+@_pack.register(op3.Dat)
 def _(
     dat: op3.Dat,
-    space: WithGeometry,
     loop_index: MeshLoopIndex,
+    space: WithGeometry,
     **kwargs,
 ):
     # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -96,7 +102,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_index, **kwargs)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], loop_index, subspace, **kwargs)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -106,8 +112,8 @@ def _(
 
 def _pack_dat_nonmixed(
     dat: op3.Dat,
-    space: WithGeometry,
     loop_index: MeshLoopIndex,
+    space: WithGeometry,
     *,
     permutation: collections.abc.Iterable | None = None,
 ) -> op3.Dat:
@@ -117,6 +123,9 @@ def _pack_dat_nonmixed(
     map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
     packed_dat = dat[map_]
+
+    # if loop_index.integral_type == "exterior_facet":
+    #     breakpoint()
 
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
@@ -131,12 +140,12 @@ def _pack_dat_nonmixed(
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
 
-@pack.register(op3.Mat)
+@_pack.register(op3.Mat)
 def _(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: MeshLoopIndex,
 ):
     if isinstance(row_space.topological, RestrictedFunctionSpace):
         row_space = row_space.function_space
@@ -147,7 +156,7 @@ def _(
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
         for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
             packed_mats[ir, ic] = _pack_mat_nonmixed(
-                mat[row_index, column_index], row_subspace, column_subspace, loop_info,
+                mat[row_index, column_index], loop_info, row_subspace, column_subspace,
             )
 
     if packed_mats.size == 1:
@@ -158,9 +167,9 @@ def _(
 
 def _pack_mat_nonmixed(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: MeshLoopIndex,
 ):
     row_map = _pack_map(loop_info, row_space.mesh())
     column_map = _pack_map(loop_info, column_space.mesh())

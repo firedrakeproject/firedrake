@@ -11,20 +11,22 @@ from functools import cached_property
 from typing import Any, Callable, Hashable
 
 import loopy as lp
+import loopy.tools
 import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import petsctools
 
-from pyop3 import utils
 import pyop3.buffer
+import pyop3.cache
 import pyop3.collections
 import pyop3.compile
 import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
-from pyop3.cache import cached_method, memory_cache
+from pyop3 import utils
+from pyop3.cache import cached_method, memory_cache, disk_only_cache
 from pyop3.constants import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 
 
@@ -419,8 +421,6 @@ class Executable:
     @cached_property
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
         """Compile the code and return a function pointer."""
-        device_code = lp.generate_code_v2(self.code).device_code()
-
         # ideally move this logic somewhere else
         cppargs = (
             *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
@@ -441,7 +441,7 @@ class Executable:
             cppargs += ("-DLIKWID_PERFMON",)
             ldargs += ("-llikwid",)
 
-        dll = pyop3.compile.load(device_code, "c", cppargs, ldargs, comm=self.comm)
+        dll = pyop3.compile.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
 
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
@@ -454,6 +454,10 @@ class Executable:
         ]
         func.restype = None
         return func
+
+    @cached_property
+    def _device_code(self):
+        return _loopy_to_c_string(self.code, self.comm)
 
 
 class CompiledCodeExecutor:
@@ -503,7 +507,7 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form" in str(self):
+        # if "exterior_facet" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
@@ -620,7 +624,7 @@ class CompiledCodeExecutor:
         sep = "*" * 80
         str_ = []
         str_.append(sep)
-        str_.append(lp.generate_code_v2(self.executable.code).device_code())
+        str_.append(self.executable._device_code)
         str_.append(sep)
 
         for arg in self.executable.code.default_entrypoint.args:
@@ -836,3 +840,12 @@ def _(arg: lp.ValueArg):
         return ctypes.c_voidp
     else:
         return np.ctypeslib.as_ctypes_type(arg.dtype)
+
+
+# TODO: This should probably get folded into '_compile_static', otherwise we
+# have to get the translation unit from cache, hash it, then get the thing
+# we actually want from the cache.
+@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu))
+@pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
+def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
+    return lp.generate_code_v2(tu).device_code()

@@ -884,6 +884,12 @@ def _(dat, /) -> OrderedFrozenSet:
 def _(dat, /) -> OrderedFrozenSet:
     return OrderedFrozenSet([dat])
 
+# useful debugging
+import collections, atexit
+mycounter = collections.defaultdict(int)
+
+atexit.register(lambda: print(mycounter))
+atexit.register(lambda: print(sum(mycounter.values())))
 
 @memory_cache(heavy=True)
 @pyop3.mpi.collective
@@ -919,6 +925,8 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
 
         assignee_ = assignee[iforest]
 
+        # print("materialising", expr)
+
         if assignee_.size > 0:
             assignee_.assign(
                 expr,
@@ -928,6 +936,9 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
             )
         else:
             to_skip.add(leaf_path)
+
+        # print("giving", assignee.buffer.shape, assignee_.data_ro.sum())
+        mycounter[assignee_.data_ro.sum()] += 1
 
     # step 3: replace axis vars with loop indices in the layouts
     newlayouts = {}

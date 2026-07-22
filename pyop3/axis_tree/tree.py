@@ -907,21 +907,6 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
 
     # {{{ interface impls
 
-    @functools.singledispatchmethod
-    @classmethod
-    def as_node(cls, obj: Any) -> Axis:
-        raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-    @as_node.register(Axis)
-    @classmethod
-    def _(cls, axis: Axis) -> Axis:
-        return axis
-
-    @as_node.register(numbers.Integral)
-    @classmethod
-    def _(cls, num: numbers.Integral) -> Axis:
-        return Axis(AxisComponent(num))
-
     @cached_property
     def region_sets(self) -> tuple[frozenset[str], ...]:
         # First collect the sets of mutually exclusive region labels. For example this could be
@@ -1451,6 +1436,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     def record_prepare_args(
         cls,
         node_map: Mapping[PathT, Node] | None | None = None,
+        *,
         comm: MPI.Comm | None = None,
     ) -> None:
         return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
@@ -1460,6 +1446,38 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
         # eagerly evaluate this so profiles are comprehensible
         # self.layouts
+
+    # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> Self:
+        node_map = cls._node_map_from_iterable(iterable)
+        return cls(node_map, comm=comm)
+
+    @classmethod
+    def from_nest(cls, nest: Any, *, comm: MPI.Comm | None = None) -> Self:
+        node_map = cls._node_map_from_nest(nest)
+        return cls(node_map, comm=comm)
+
+    # NOTE: This sort of should live on the Axis class and be attached here
+    @functools.singledispatchmethod
+    @classmethod
+    def _as_axis(cls, obj: Any, /) -> Axis:
+        utils.raise_missing_dispatch_handler(obj)
+
+    @_as_axis.register
+    @classmethod
+    def _(cls, axis: Axis, /) -> Axis:
+        return axis
+
+    @_as_axis.register
+    @classmethod
+    def _(cls, num: numbers.Integral, /) -> Axis:
+        return Axis(AxisComponent(num))
+
+    _as_node = _as_axis
 
     # }}}
 
@@ -1581,6 +1599,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         return sf_
 
     @cached_property
+    @pyop3.cache.with_self_heavy_cache
     def _layouts_and_sf(self) -> tuple[idict, pyop3.sf.AbstractStarForest]:
         """Initialise the multi-axis by computing the layout functions."""
         from .visitors import compute_layouts

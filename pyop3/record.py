@@ -84,11 +84,21 @@ def _record_getnewargs_ex(self):
     return (args, kwargs)
 
 
+# useful debugging
+import collections, atexit
+mycounter = collections.defaultdict(int)
+#
+# atexit.register(lambda: print(mycounter))
+atexit.register(lambda: print(sum(mycounter.values())))
+
+
+# At the moment this actually slows things down!
 @pyop3.cache.memory_cache(
     heavy=True,
     get_comm=lambda cls, **attrs: cls.get_comm(**attrs),
 )
 def _maybe_create_frozenrecord(cls: Any, **attrs: Any) -> Any:
+    mycounter[cls] += 1
     return _create_record(cls, **attrs)
 
 

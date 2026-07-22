@@ -60,28 +60,6 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
         return self._lazy_expr_getter._safe_call(expr)
 
 
-# @functools.singledispatch
-# def get_disk_cache_key(axis_tree: pyop3.axis_tree.AxisTree, renamer=None) -> Hashable:
-#     return DiskCacheKeyGetter(renamer)(axis_tree)
-
-
-# @get_disk_cache_key.register(pyop3.axis_tree.AxisComponent)
-# def _(component: pyop3.axis_tree.AxisComponent, renamer=None) -> tuple:
-#     if renamer is None:
-#         renamer = Renamer()
-#     return component.disk_cache_key(renamer)
-    # from pyop3.expr.visitors import DiskCacheKeyGetter as ExprDiskCacheKeyGetter
-    # expr_renamer = ExprDiskCacheKeyGetter(renamer)
-    # return (component.label, expr_renamer(component.size))
-
-
-# @get_disk_cache_key.register(pyop3.axis_tree.AxisComponentRegion)
-# def _(component: pyop3.axis_tree.AxisComponent, renamer) -> tuple:
-#     from pyop3.expr.visitors import DiskCacheKeyGetter as ExprDiskCacheKeyGetter
-#     expr_renamer = ExprDiskCacheKeyGetter(renamer)
-#     return (component.label, expr_renamer(component.size))
-
-
 class BufferCollector(LabelledTreeVisitor):
 
     EMPTY = OrderedFrozenSet()

@@ -464,7 +464,10 @@ class Dat(Tensor):
         if isinstance(indices, slice) or mode == "ro":
             # Either using a view or readonly, safe to use numpy indexing as
             # writeback issues are not relevant
-            return array[indices].reshape((-1, *block_shape))
+            array = array[indices]
+            # trick to get around a numpy error for zero sized things
+            shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
+            return array.reshape(shape, copy=False)
         else:
             return pyop3.arrayref.ArrayReference(array, indices, block_shape)
 

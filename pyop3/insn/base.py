@@ -292,7 +292,7 @@ class Function(pyop3.obj.Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            loopy.tools.LoopyKeyBuilder()(self.code),
+            utils._loopy_key_builder(self.code),
             self._access_descrs,
         )
 
