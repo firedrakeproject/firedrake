@@ -1,16 +1,22 @@
 """Specify and solve finite element eigenproblems."""
+import warnings
+from functools import cached_property
+
+from petsc4py import PETSc
 from petsctools import OptionsManager, flatten_parameters
+from ufl import replace, inner, dx
+
 from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
+from firedrake.exceptions import ConvergenceError
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.exceptions import ConvergenceError
-from ufl import replace, inner, dx
-from functools import cached_property
+
 try:
     from slepc4py import SLEPc
 except ImportError:
     SLEPc = None
+
 __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
@@ -96,7 +102,7 @@ class LinearEigenproblem:
             return self.output_space.dm
 
 
-class LinearEigensolver(OptionsManager):
+class LinearEigensolver:
     r"""Solve a LinearEigenproblem.
 
     Parameters
@@ -159,8 +165,33 @@ class LinearEigensolver(OptionsManager):
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
-        super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+
+        self.options_manager = OptionsManager(solver_parameters, options_prefix)
+        self.options_manager.set_from_options(self.es)
+
+    @property
+    def parameters(self) -> dict:
+        return self.options_manager.parameters
+
+    @property
+    def options_prefix(self) -> str:
+        return self.options_manager.options_prefix
+
+    def set_from_options(self, snes: PETSc.SNES) -> None:
+        warnings.warn(
+            "'LinearEigensolver.set_from_options' is deprecated, use "
+            "'LinearEigensolver.options_manager.set_from_options' instead",
+            FutureWarning
+        )
+        self.options_manager.set_from_options(snes)
+
+    def inserted_options(self):
+        warnings.warn(
+            "'LinearEigensolver.inserted_options' is deprecated, use "
+            "'LinearEigensolver.options_manager.inserted_options' instead",
+            FutureWarning
+        )
+        return self.options_manager.inserted_options()
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -193,7 +224,7 @@ class LinearEigensolver(OptionsManager):
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        with self.inserted_options():
+        with self.options_manager.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
