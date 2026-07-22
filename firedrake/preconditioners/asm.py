@@ -245,8 +245,18 @@ class ASMVankaPC(ASMPatchPC):
         V_local_ises_indices = get_local_ises_indices(V)
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
+        # Compute the coloring
+        useCone, useClosure = mesh_dm.getBasicAdjacency()
+        if depth == mesh_dm.getDimension():
+            distance = 2
+            mesh_dm.setBasicAdjacency(True, True)
+        else:
+            distance = 3
+            mesh_dm.setBasicAdjacency(False, True)
+        colors = get_colors(mesh_dm, use_coloring, depth, distance=distance)
+        mesh_dm.setBasicAdjacency(useCone, useClosure)
+
         # Build index sets for the patches
-        colors = get_colors(mesh_dm, use_coloring, depth, distance=3)
         ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
                                     include_star, color) for color in colors]
         return ises
