@@ -20,15 +20,20 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         The coarsest mesh in the hierarchy.
     nested: bool
         A flag to indicate whether the meshes are nested.
+    redistribute: bool
+        If ``True``, redistribute the adaptively-refined mesh
+        when the coarse cell has empty ranks.
 
     """
-    def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
+    def __init__(self, base_mesh: MeshGeometry, nested: bool = True,
+                 redistribute: bool = True):
         self.meshes = []
         self._meshes = []
         self.coarse_to_fine_cells = {}
         self.fine_to_coarse_cells = {Fraction(0, 1): None}
         self.refinements_per_level = 1
         self.nested = nested
+        self.redistribute = redistribute
         self._shared_data_cache = defaultdict(dict)
         self.add_mesh(base_mesh)
 
@@ -51,8 +56,11 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         """
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+            # Adaptive maps live on the parent-owned transfer mesh when redistributed.
+            redist = getattr(mesh, "redist", None)
+            map_mesh = redist.orig if redist is not None else mesh
             coarse_to_fine_cells, fine_to_coarse_cells = getattr(
-                mesh, "_adaptive_cell_maps", (None, None)
+                map_mesh, "_adaptive_cell_maps", (None, None)
             )
 
         self._meshes.append(mesh)
@@ -104,6 +112,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         markers = Function(M)
         markers.dat.data_wo[should_refine] = 1
 
-        refined_mesh = mesh.refine_marked_elements(markers)
+        refined_mesh = mesh.refine_marked_elements(markers,
+                                                   redistribute=self.redistribute)
         self.add_mesh(refined_mesh)
         return self.meshes[-1]

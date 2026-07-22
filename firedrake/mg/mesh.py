@@ -9,27 +9,19 @@ import petsctools
 import firedrake
 from functools import cached_property
 
+from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.redist import (
+    RedistributedMeshTransfer,
+    dm_has_empty_rank,
+    make_unoverlapped_dm,
+    redistribute_dm,
+)
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
-import firedrake.cython.dmcommon as dmcommon
 from .utils import set_level, set_dm_refine_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
-
-
-def make_unoverlapped_dm(dm):
-    """Effectively invert dm.distributeOverlap().
-
-    The resulting plex has the identical data structure as the one before
-    distributeOverlap(). This is algorithmically guaranteed.
-    """
-    tdim = dm.getDimension()
-    dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, True)
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
-    return dm
 
 
 class HierarchyBase(object):
@@ -93,7 +85,8 @@ def MeshHierarchy(mesh, refinement_levels,
                   netgen_flags=False,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh):
+                  mesh_builder=firedrake.Mesh,
+                  redistribute=True):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -113,6 +106,11 @@ def MeshHierarchy(mesh, refinement_levels,
         for details.  If ``None``, use the same distribution
         parameters as were used to distribute the coarse mesh,
         otherwise, these options override the default.
+    redistribute : bool
+        If ``True``, redistribute refined meshes when this is needed to
+        avoid empty ranks.  Transfer operators use an internal
+        parent-owned mesh before moving data to or from the redistributed
+        mesh.
     reorder : bool
         optional flag indicating whether to reorder the
         refined meshes.
@@ -143,12 +141,13 @@ def MeshHierarchy(mesh, refinement_levels,
     else:
         before = after = lambda dm, i: None
 
-    # Refine an unoverlapped plex at each level. Keeping every dm here
-    # unoverlapped means overlap only ever needs to be added once, by
-    # mesh_builder below.
+    # Refine an unoverlapped plex at each level, redistributing (partition
+    # only, no overlap) whenever refinement would otherwise leave empty
+    # ranks.  Keeping every dm here unoverlapped means overlap only ever
+    # needs to be added once, by mesh_builder below.
     cdm = make_unoverlapped_dm(mesh.topology_dm)
     cdm.setRefinementUniform(True)
-    dms = [cdm]
+    dm_entries = [(cdm, cdm, None)]
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
             before(cdm, i)
@@ -165,10 +164,18 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-        dms.append(rdm)
+        rdm_orig = rdm
+        point_sf = None
+        needs_redist = (redistribute and mesh.comm.size > 1
+                        and dm_has_empty_rank(rdm))
+        if needs_redist:
+            rdm = rdm.clone()
+            point_sf, _ = redistribute_dm(rdm, {"partition": True}, grow_overlap=False)
+        dm_entries.append((rdm, rdm_orig, point_sf))
         cdm = rdm
 
-    # Build a mesh for each level, adding overlap here.
+    # Build a mesh for each level, adding overlap (and, where needed, the
+    # transfer between the parent-owned and redistributed meshes) here.
     parameters = {}
     if distribution_parameters is not None:
         parameters.update(distribution_parameters)
@@ -177,7 +184,8 @@ def MeshHierarchy(mesh, refinement_levels,
     parameters["partition"] = False
 
     meshes = [mesh]
-    for rdm in dms[1:]:
+    mesh_origs = [mesh]
+    for rdm, rdm_orig, point_sf in dm_entries[1:]:
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -185,19 +193,39 @@ def MeshHierarchy(mesh, refinement_levels,
             reorder=reorder,
             comm=mesh.comm,
         )
+        if point_sf is not None:
+            fmesh_orig = mesh_builder(
+                rdm_orig,
+                dim=mesh.geometric_dimension,
+                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+                reorder=reorder,
+                comm=mesh.comm,
+            )
+            overlap_sf = fmesh.topology.sfBC
+            if overlap_sf is not None:
+                point_sf = point_sf.compose(overlap_sf)
+            fmesh.redist = RedistributedMeshTransfer(fmesh_orig, fmesh, point_sf)
+        else:
+            fmesh_orig = fmesh
         fmesh._distribution_parameters = parameters
         meshes.append(fmesh)
+        mesh_origs.append(fmesh_orig)
 
     # Build local-to-global maps and coarse/fine cell maps between
     # consecutive levels.
     lgmaps = [
         (impl.create_lgmap(dm), impl.create_lgmap(m.topology_dm))
-        for dm, m in zip(dms, meshes)
+        for (dm, _, _), m in zip(dm_entries, meshes)
+    ]
+    lgmap_origs = [
+        lgmap if point_sf is None else
+        (impl.create_lgmap(rdm_orig), impl.create_lgmap(mesh_orig.topology_dm))
+        for (lgmap, (_, rdm_orig, point_sf), mesh_orig) in zip(lgmaps, dm_entries, mesh_origs)
     ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
+    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], mesh_origs[1:]),
+                                                  zip(lgmaps[:-1], lgmap_origs[1:])):
         c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
