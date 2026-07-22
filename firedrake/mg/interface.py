@@ -272,7 +272,7 @@ def inject(fine, coarse):
         Vf = fine.function_space()
         kernel, dg = kernels.inject_kernel(Vf, Vc)
         if dg and not hierarchy.nested:
-            raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
+            raise NotImplementedError("Multigrid injection does not currently support DG on non-nested hierarchies")
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
