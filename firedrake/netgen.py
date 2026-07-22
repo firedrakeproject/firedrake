@@ -15,7 +15,7 @@ import firedrake
 try:
     import netgen.meshing as ngm
     from netgen.meshing import MeshingParameters
-    from ngsPETSc import MeshMapping
+    from ngsPETSc import MeshMapping, createNetgenMesh
 except ImportError:
     pass
 
@@ -80,8 +80,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
 
 
 @PETSc.Log.EventDecorator()
-def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
-                     tol: float = 1e-5):
+def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     """ Find all permutations between a list of two sets of points.
 
     Given two numpy arrays of shape (ncells, npoints, dim) containing
@@ -95,7 +94,19 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
     if points_a.shape != points_b.shape:
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
-    p = [np.where(cdist(a, b).T < tol)[1] for a, b in zip(points_a, points_b)]
+    # Match in each cell's affine reference frame, avoiding scale-dependent tolerances.
+    dim = points_a.shape[-1]
+    vids = list(range(dim + 1))
+
+    bs = points_a[:, vids[0], :]
+    As = points_a[:, vids[1:], :]
+    As -= bs[:, None, :]
+    Ainvs = np.linalg.inv(As)
+
+    ref_points_a = np.matmul(points_a - bs[:, None, :], Ainvs)
+    ref_points_b = np.matmul(points_b - bs[:, None, :], Ainvs)
+
+    p = [np.argmin(cdist(a, b), axis=0) for a, b in zip(ref_points_a, ref_points_b)]
 
     if len(p) == 0:
         return p
@@ -115,6 +126,32 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
         )
 
     return permutation
+
+
+def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
+    """Re-curve ``fine_mesh`` using ``coarse_mesh``'s Netgen geometry."""
+    # Run createNetgenMesh before Mesh construction renumbers the plex.
+    dm_clone = fine_mesh.topology_dm.clone()
+    fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
+    straight_mesh = firedrake.Mesh(
+        dm_clone,
+        dim=fine_mesh.geometric_dimension,
+        reorder=False,
+        distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
+        comm=fine_mesh.comm,
+        tolerance=fine_mesh.tolerance,
+    )
+    straight_mesh.netgen_mesh = fresh_ngmesh
+    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
+    curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
+    curved_mesh.netgen_mesh = fresh_ngmesh
+    curved_mesh.netgen_flags = straight_mesh.netgen_flags
+    curved_mesh._distribution_parameters = dict(fine_mesh._distribution_parameters)
+    curved_mesh._did_reordering = fine_mesh._did_reordering
+    curved_mesh._tolerance = fine_mesh.tolerance
+    return curved_mesh
 
 
 def splitToQuads(plex, dim, comm):

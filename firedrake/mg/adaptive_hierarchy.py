@@ -1,8 +1,11 @@
+from collections import defaultdict
+from fractions import Fraction
+
 from firedrake.mesh import MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
-from firedrake.mg import HierarchyBase
-from firedrake.mg.utils import set_level
+from firedrake.mg.mesh import HierarchyBase
+from firedrake.mg.utils import set_level, set_dm_refine_level
 
 __all__ = ["AdaptiveMeshHierarchy"]
 
@@ -22,10 +25,16 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
         self.meshes = []
         self._meshes = []
+        self.coarse_to_fine_cells = {}
+        self.fine_to_coarse_cells = {Fraction(0, 1): None}
+        self.refinements_per_level = 1
         self.nested = nested
+        self._shared_data_cache = defaultdict(dict)
         self.add_mesh(base_mesh)
 
-    def add_mesh(self, mesh: MeshGeometry):
+    def add_mesh(self, mesh: MeshGeometry,
+                 coarse_to_fine_cells=None,
+                 fine_to_coarse_cells=None):
         """
         Adds a mesh into the hierarchy.
 
@@ -33,17 +42,32 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         ----------
         mesh
             The mesh to be added to the finest level.
+        coarse_to_fine_cells
+            Optional map from cells on the previous finest level to cells on
+            ``mesh``.
+        fine_to_coarse_cells
+            Optional map from cells on ``mesh`` to cells on the previous
+            finest level.
         """
         level = len(self.meshes)
+        if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+            coarse_to_fine_cells, fine_to_coarse_cells = getattr(
+                mesh, "_adaptive_cell_maps", (None, None)
+            )
+
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
+        set_dm_refine_level(mesh, level)
+
+        if level > 0 and coarse_to_fine_cells is not None and fine_to_coarse_cells is not None:
+            self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
+            self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
 
     def adapt(self, eta: Function | Cofunction, theta: float):
         """
         Adds a new mesh to the hierarchy by locally refining the finest mesh
-        with a simplified variant of Dorfler marking. The finest mesh must
-        come from a netgen mesh.
+        with a simplified variant of Dorfler marking.
 
         Parameters
         ----------
@@ -82,4 +106,4 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
         refined_mesh = mesh.refine_marked_elements(markers)
         self.add_mesh(refined_mesh)
-        return refined_mesh
+        return self.meshes[-1]

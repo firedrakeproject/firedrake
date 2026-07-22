@@ -61,6 +61,7 @@ def test_marking_callback_refine_hook_reconstructs_problem():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
 def test_snes_adapt_sequence_with_adaptive_multigrid():
     from netgen.occ import WorkPlane, Axes, OCCGeometry, X, Z
 
@@ -68,7 +69,6 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     mesh = Mesh(OCCGeometry(rect1 + rect2, dim=2).GenerateMesh(maxh=0.8))
     amh = AdaptiveMeshHierarchy(mesh)
-    atm = AdaptiveTransferManager()
 
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -132,7 +132,6 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     solver = LinearVariationalSolver(problem,
                                      solver_parameters=params,
                                      marking_callback=mark_cells)
-    solver.set_transfer_manager(atm)
     u_adapted = solver.solve()
 
     adapted_mesh = u_adapted.function_space().mesh()

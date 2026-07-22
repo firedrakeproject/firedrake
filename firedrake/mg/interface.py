@@ -68,10 +68,13 @@ def prolong(coarse, fine):
     meshes = hierarchy._meshes
     for j in range(repeat):
         next_level += 1
-        if j == repeat - 1 and not needs_quadrature:
+        fine_mesh = meshes[next_level]
+        redist = getattr(fine_mesh, "redist", None)
+        transfer_mesh = redist.orig if redist is not None else fine_mesh
+        if j == repeat - 1 and not needs_quadrature and redist is None:
             fine = finest
         else:
-            fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
+            fine = Function(Vf.reconstruct(mesh=transfer_mesh))
         Vf = fine.function_space()
         Vc = coarse.function_space()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
@@ -106,8 +109,16 @@ def prolong(coarse, fine):
 
         if needs_quadrature:
             # Transfer to the actual target space
-            new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
+            target_mesh = transfer_mesh if redist is not None else meshes[next_level]
+            new_fine = (finest if j == repeat-1 and redist is None
+                        else Function(Vfinest.reconstruct(mesh=target_mesh)))
             fine = new_fine.interpolate(fine)
+        if redist is not None:
+            # Move from original mesh into the distributed one
+            fine_orig = fine
+            fine = (finest if j == repeat - 1
+                    else Function(Vfinest.reconstruct(mesh=fine_mesh)))
+            redist.orig2redist(fine_orig, fine)
         coarse = fine
     return fine
 
@@ -145,9 +156,19 @@ def restrict(fine_dual, coarse_dual):
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        redist = getattr(fine_mesh, "redist", None)
+        if redist is not None:
+            # Move from redist mesh to original one, so we can restrict
+            Vf_orig = fine_dual.function_space().reconstruct(mesh=redist.orig)
+            fine_dual_orig = Function(Vf_orig)
+            redist.redist2orig(fine_dual, fine_dual_orig)
+            fine_dual = fine_dual_orig
         if needs_quadrature:
             # Transfer to the quadrature source space
-            fine_dual = Function(Vq.reconstruct(mesh=meshes[next_level])).interpolate(fine_dual)
+            fine_dual = Function(
+                Vq.reconstruct(mesh=fine_dual.function_space().mesh())
+            ).interpolate(fine_dual)
 
         next_level -= 1
         if j == repeat - 1:
@@ -230,14 +251,18 @@ def inject(fine, coarse):
         # Introduce an intermediate quadrature target space
         Vc = Vc.quadrature_space()
 
-    kernel, dg = kernels.inject_kernel(Vf, Vc)
-    if dg and not hierarchy.nested:
-        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        redist = getattr(fine_mesh, "redist", None)
+        if redist is not None:
+            # Move from redist mesh to original one, so we can inject
+            Vf_orig = fine.function_space().reconstruct(mesh=redist.orig)
+            fine_orig = Function(Vf_orig)
+            redist.redist2orig(fine, fine_orig)
+            fine = fine_orig
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
@@ -245,6 +270,9 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
+        kernel, dg = kernels.inject_kernel(Vf, Vc)
+        if dg and not hierarchy.nested:
+            raise NotImplementedError("Multigrid injection does not currently support DG on non-nested hierarchies")
         if not dg:
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)

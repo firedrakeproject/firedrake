@@ -1431,8 +1431,9 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
+    @staticmethod
     @PETSc.Log.EventDecorator()
-    def _set_partitioner(self, plex, distribute, partitioner_type=None):
+    def _set_partitioner(plex, distribute, partitioner_type=None):
         """Set partitioner for (re)distributing underlying plex over comm.
 
         :arg distribute: Boolean or (sizes, points)-tuple.  If (sizes, point)-
@@ -2904,68 +2905,16 @@ values from f.)"""
     def unique(self):
         return self
 
-    def refine_marked_elements(self, mark, netgen_flags=None):
-        """Refine a mesh using a DG0 marking function.
+    @PETSc.Log.EventDecorator()
+    def refine_marked_elements(self, mark):
+        """Adaptively refine a mesh using a DG0 marking function.
 
-        This method requires that the mesh has been constructed from a
-        netgen mesh.
-
-        :arg mark: the marking function which is a Firedrake DG0 function
-            with the number of refinements on each cell.
-        :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
-
-        It includes the option:
-            - refine_faces, which is a boolean specifying if you want to refine faces.
+        :arg mark: the marking function, a Firedrake DG0 function on
+            this mesh; cells with a positive value are refined.
 
         """
-        utils.check_netgen_installed()
-
-        if not hasattr(self, "netgen_mesh"):
-            raise ValueError("Adaptive refinement requires a netgen mesh.")
-        if netgen_flags is None:
-            netgen_flags = self.netgen_flags
-        tdim = self.topological_dimension
-        if tdim not in {2, 3}:
-            raise NotImplementedError("No implementation for dimension other than 2 and 3.")
-        with mark.dat.vec as mvec:
-            if self.sfBC_orig is None:
-                cstart, cend = self.topology_dm.getHeightStratum(0)
-                cellNum = list(map(self._cell_numbering.getOffset, range(cstart, cend)))
-                mark_np = mvec.getArray()[cellNum]
-            else:
-                sfBCInv = self.sfBC_orig.createInverse()
-                _, mvec0 = self.topology_dm.distributeField(sfBCInv,
-                                                            self._cell_numbering,
-                                                            mvec)
-                mark_np = mvec0.getArray()
-        max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
-        # Create a copy of the netgen mesh
-        netgen_mesh = self.netgen_mesh.Copy()
-        refine_faces = netgen_flags.get("refine_faces", False)
-        for r in range(max_refs):
-            cells = netgen_mesh.Elements3D() if tdim == 3 else netgen_mesh.Elements2D()
-            cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
-            if tdim == 3:
-                faces = netgen_mesh.Elements2D()
-                faces.NumPy()["refine"] = refine_faces
-            netgen_mesh.Refine(adaptive=True)
-            mark_np -= 1
-            if r < max_refs - 1:
-                parents = netgen_mesh.parentelements if tdim == 3 else netgen_mesh.parentsurfaceelements
-                parents = parents.NumPy()["i"]
-                num_fine_cells = parents.shape[0]
-                num_coarse_cells = mark_np.size
-                indices = np.arange(num_fine_cells, dtype=PETSc.IntType)
-                while (indices >= num_coarse_cells).any():
-                    fine_cells = (indices >= num_coarse_cells)
-                    indices[fine_cells] = parents[indices[fine_cells]]
-                mark_np = mark_np[indices]
-
-        return Mesh(netgen_mesh,
-                    reorder=self._did_reordering,
-                    distribution_parameters=self._distribution_parameters,
-                    comm=self.comm,
-                    netgen_flags=netgen_flags)
+        from firedrake.adapt import refine_marked_elements
+        return refine_marked_elements(self, mark)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
@@ -3009,10 +2958,13 @@ values from f.)"""
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
         nodes = fiat_element.dual_basis()
         ref_pts = []
-        for node in nodes:
-            # Assert singleton point for each node.
-            pt, = node.get_point_dict().keys()
-            ref_pts.append(pt)
+        entity_ids = fiat_element.entity_dofs()
+        for dim in sorted(entity_ids):
+            for entity in sorted(entity_ids[dim]):
+                for i in entity_ids[dim][entity]:
+                    # Assert singleton point for each node.
+                    pt, = nodes[i].get_point_dict().keys()
+                    ref_pts.append(pt)
         reference_points = np.array(ref_pts)
 
         # Construct numpy arrays for physical domain data
@@ -3022,8 +2974,8 @@ values from f.)"""
         curved_points = np.zeros(
             (ng_dimension, reference_points.shape[0], self.geometric_dimension)
         )
+        self.netgen_mesh.Curve(1)
         self.netgen_mesh.CalcElementMapping(reference_points, physical_points)
-        # NOTE: This will segfault for MeshHierarchy on a netgen CSG geometry
         self.netgen_mesh.Curve(order)
         self.netgen_mesh.CalcElementMapping(reference_points, curved_points)
         curved = ng_element.NumPy()["curved"]
@@ -3048,7 +3000,6 @@ values from f.)"""
         permutation = find_permutation(
             own_physical_points,
             new_coordinates.dat.data_ro_with_halos[broken_indices].real,
-            tol=permutation_tol,
         )
         self.comm.Barrier()
         # Apply the permutation to each cell in turn
@@ -3430,6 +3381,8 @@ def Mesh(meshfile, **kwargs):
                         comm=mesh.comm)
             temp.netgen_mesh = mesh.netgen_mesh
             temp.netgen_flags = mesh.netgen_flags
+            temp.sfBC = mesh.sfBC
+            temp.sfBC_orig = mesh.sfBC_orig
             temp._distribution_parameters = mesh._distribution_parameters
             temp._did_reordering = mesh._did_reordering
             mesh = temp

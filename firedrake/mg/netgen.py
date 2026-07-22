@@ -278,7 +278,9 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        cdm = rdm
+        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
+        # it first to keep an unoverlapped dm for the next refinement.
+        cdm = rdm.clone()
         if optMoves:
             # Optimises the mesh, for example smoothing
             if tdim == 2:
@@ -349,5 +351,6 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh._did_reordering = mesh._did_reordering
     tmesh.netgen_mesh = mesh.netgen_mesh
     tmesh.netgen_flags = mesh.netgen_flags
+    tmesh.sfBC = mesh.sfBC
     tmesh.sfBC_orig = mesh.sfBC_orig
     return tmesh

@@ -6,8 +6,7 @@ Contributed by Anurag Rao.
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
 We will first have a look at how to use the :class:`~.AdaptiveMeshHierarchy` to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain.
-Finally, we will show how to use the :class:`~.AdaptiveMeshHierarchy` and :class:`~.AdaptiveTransferManager` to construct a scalable solver. The :class:`~.AdaptiveMeshHierarchy` contains information of the mesh hierarchy and the parent child relations between the meshes.
-The :class:`~.AdaptiveTransferManager` deals with the transfer operator logic across any given levels in the hierarchy.
+Finally, we will show how to use the :class:`~.AdaptiveMeshHierarchy` to construct a scalable solver. The :class:`~.AdaptiveMeshHierarchy` contains information of the mesh hierarchy and the parent child relations between the meshes.
 We begin by importing the necessary libraries ::
 
    from firedrake import *
@@ -34,10 +33,9 @@ It is important to convert the initial Netgen mesh into a Firedrake mesh before 
    :align: center
    :alt: Initial mesh.
 
-We will also initialize the :class:`~.AdaptiveTransferManager` here: ::
+We initialize the :class:`~.AdaptiveMeshHierarchy` here: ::
   
    amh = AdaptiveMeshHierarchy(mesh)
-   atm = AdaptiveTransferManager()
 
 Poisson Problem
 ---------------
@@ -62,15 +60,12 @@ Our approach strongly follows the similar problem in this `lecture course <https
 
       problem = LinearVariationalProblem(a, L, uh, bcs)
       solver = LinearVariationalSolver(problem, solver_parameters=params)
-
-      solver.set_transfer_manager(atm)
       solver.solve()
 
       its = solver.snes.getLinearSolveIterations()
       return uh, its
 
-Note the code after the construction of the :class:`~.LinearVariationalProblem`. To use the :class:`~.AdaptiveMeshHierarchy` with the existing Firedrake solver, we have to set the :class:`~.AdaptiveTransferManager` as the transfer manager of the multigrid solver.
-Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
+To use the :class:`~.AdaptiveMeshHierarchy` in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
 
    solver_params = {
       "mat_type": "matfree",
