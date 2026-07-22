@@ -568,11 +568,7 @@ class VTKFile:
         else:
             self._fnames = tuple(f.name() for f in functions)
 
-<<<<<<< HEAD
-        if is_vom:
-=======
         if mesh.topological_dimension == 0:
->>>>>>> achanbour/vom-vtk-output
             coordinates = OFunction(
                 array=get_array(mesh.coordinates),
                 name=mesh.coordinates.name(),
@@ -583,17 +579,9 @@ class VTKFile:
                 for f in functions
             )
 
-<<<<<<< HEAD
-            pids = getattr(mesh, "firedrake_particle_ids", None)
-            if pids is not None:
-                functions += (
-                    OFunction(array=get_array(pids), name=pids.name(), function=pids),
-                )
-=======
             # Write the persistent particle ID
             pids = mesh._particle_ids
             functions += (OFunction(array=get_array(pids), name=pids.name(), function=pids),)
->>>>>>> achanbour/vom-vtk-output
 
             self._topology = get_topology(coordinates.function)
         else:
