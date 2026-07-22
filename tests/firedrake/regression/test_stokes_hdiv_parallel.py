@@ -16,7 +16,7 @@ def element_pair(request):
     return request.param
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
     err_p = []
@@ -86,6 +86,9 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         subnullspace.orthonormalize()
         nullspace = MixedVectorSpaceBasis(W, [W.sub(0), subnullspace])
 
+        # Scale for the pressure mass matrix
+        mu = 1/gamma
+
         parameters = {
             "mat_type": mat_type,
             "pmat_type": "matfree",
@@ -110,16 +113,12 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "pc_python_type": "firedrake.MassInvPC",
                 "Mp_mat_type": "matfree",
                 "Mp_pc_type": "jacobi",
+                "Mp_mu": mu,
             }
         }
 
-        # Scale for the pressure mass matrix
-        mu = 1/gamma
-        appctx = {"mu": mu}
-
         UP.assign(0)
-        solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
-              appctx=appctx)
+        solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
 
         u, p = UP.subfunctions
         u_error = u - u_exact

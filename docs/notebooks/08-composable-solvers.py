@@ -34,6 +34,7 @@
 
 # %%
 import matplotlib.pyplot as plt
+import petsctools
 
 # %%
 from firedrake import *
@@ -89,7 +90,7 @@ nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True, 
 # Since we're going to look at a bunch of different solver options, let's have a function that builds a solver with the provided options.
 
 # %%
-def create_solver(solver_parameters, *, pmat=None, appctx=None):
+def create_solver(solver_parameters, *, pmat=None):
     p = {}
     if solver_parameters is not None:
         p.update(solver_parameters)
@@ -98,7 +99,7 @@ def create_solver(solver_parameters, *, pmat=None, appctx=None):
     p.setdefault("ksp_rtol", 1e-7)
     problem = NonlinearVariationalProblem(F, w, bcs=bcs, Jp=pmat)
     solver = NonlinearVariationalSolver(problem, nullspace=nullspace, options_prefix="", 
-                                        solver_parameters=p, appctx=appctx)
+                                        solver_parameters=p)
     return solver
 
 
@@ -300,8 +301,9 @@ class MassMatrix(AuxiliaryOperatorPC):
     def form(self, pc, test, trial):
         # Extract the original form and bcs
         a, bcs = super().form(pc, test, trial)
-        # Grab the definition of nu from the user application context (a dict)
-        nu = self.get_appctx(pc)["nu"]
+        # Grab the definition of nu from the options database
+        prefix = pc.getOptionsPrefix() or ""
+        nu = petsctools.Options(prefix)["nu"]
         return (-1/nu * test*trial*dx, bcs)
 
 
@@ -321,15 +323,15 @@ mass_parameters = {
     "fieldsplit_1": {
         "ksp_type": "preonly",
         "pc_type": "python",
-        "pc_python_type": "__main__.MassMatrix",
+        "pc_python_type": f"{__name__}.MassMatrix",
         "mass_pc_type": "lu",
+        "mass_nu": nu,
     }
 }
 
 # %%
-appctx = {"nu": nu} # arbitrary user data that is available inside the user PC object
 w.zero()
-solver = create_solver(mass_parameters, appctx=appctx)
+solver = create_solver(mass_parameters)
 solver.solve()
 convergence(solver)
 
@@ -363,6 +365,7 @@ fieldsplit_mg_parameters = {
         "pc_type": "python",
         "pc_python_type": f"{__name__}.MassMatrix",
         "mass_pc_type": "sor",
+        "mass_nu": nu,
     }
 }
 
@@ -370,9 +373,8 @@ fieldsplit_mg_parameters = {
 # Now, when the solver runs, PETSc will call back in to Firedrake for restriction and prolongation, as well as rediscretising $A$ on the coarser levels.
 
 # %%
-appctx = {"nu": nu} # arbitrary user data that is available inside the user PC object
 w.zero()
-solver = create_solver(fieldsplit_mg_parameters, appctx=appctx)
+solver = create_solver(fieldsplit_mg_parameters)
 solver.solve()
 convergence(solver)
 

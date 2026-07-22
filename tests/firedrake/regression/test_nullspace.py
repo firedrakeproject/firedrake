@@ -286,7 +286,7 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 def test_near_nullspace_mixed(aux_pc, rhs):
@@ -369,6 +369,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
             'Mp_pc_type': 'ksp',
             'Mp_ksp_ksp_type': 'cg',
             'Mp_ksp_pc_type': 'sor',
+            'Mp_mu': mu0,
             'ksp_rtol': '1e-5',
             'ksp_monitor': None,
         }
@@ -376,7 +377,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
 
     problem = LinearVariationalProblem(a, L, w, bcs=bcs, aP=aP)
     solver = LinearVariationalSolver(
-        problem, appctx={'mu': mu0},
+        problem,
         nullspace=pressure_nullspace,
         transpose_nullspace=pressure_nullspace,
         near_nullspace=near_nullmodes_W,

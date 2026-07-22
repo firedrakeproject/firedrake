@@ -1,6 +1,9 @@
+import warnings
 from itertools import chain
+from typing import Any
 
 import numpy
+import petsctools
 import ufl
 
 from pyop2 import op2
@@ -131,7 +134,11 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-class _SNESContext(object):
+_missing = object()
+"""Sentinel value used as a default for when 'None' is potentially meaningful."""
+
+
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -153,7 +160,7 @@ class _SNESContext(object):
         Indicates the matrix type for the sparse blocks in the preconditioner
         if pmat_type='nest', ignored otherwise.
     appctx
-        Any extra information used in the assembler.  For the
+        (Deprecated) Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in ``"state"``.
     pre_jacobian_callback
         User-defined function called immediately before Jacobian assembly.
@@ -226,7 +233,7 @@ class _SNESContext(object):
         appctx.setdefault("state", self._x)
         appctx.setdefault("form_compiler_parameters", self.fcp)
 
-        self.appctx = appctx
+        self._appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
@@ -277,6 +284,44 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
+    @property
+    def appctx(self) -> dict:
+        # Raise a 'DeprecationWarning' here instead of a 'FutureWarning' because
+        # this in an internal detail, not user facing
+        warnings.warn(
+            "'appctx' is now deprecated. Pass Python objects into the "
+            "PETSc options directly.",
+            DeprecationWarning,
+        )
+        return self._appctx
+
+    def get_python_option(
+        self,
+        prefix: str,
+        option: str,
+        default: Any = _missing,
+    ) -> Any:
+        opts = petsctools.Options(prefix)
+        try:
+            value = opts[option]
+        except KeyError:
+            try:
+                value = self._appctx[option]
+            except KeyError:
+                if default is not _missing:
+                    value = default
+                else:
+                    raise KeyError
+            else:
+                warnings.warn(
+                    "Passing Python objects to preconditioners via the 'appctx' kwarg "
+                    "is now deprecated. Pass the objects into the PETSc options "
+                    "directly instead.",
+                    FutureWarning,
+                )
+
+        return value
+
     def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
         """Reconstruct this _SNESContext instance with new arguments."""
         problem = problem or self._problem
@@ -286,7 +331,7 @@ class _SNESContext(object):
         default_options = {
             "sub_mat_type": self.sub_mat_type,
             "sub_pmat_type": self.sub_pmat_type,
-            "appctx": self.appctx,
+            "appctx": self._appctx,
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
@@ -572,7 +617,7 @@ class _SNESContext(object):
         from firedrake.assemble import get_assembler
         return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp,
                              mat_type=self.mat_type, sub_mat_type=self.sub_mat_type,
-                             options_prefix=self.options_prefix, appctx=self.appctx)
+                             options_prefix=self.options_prefix, appctx=self._appctx)
 
     @cached_property
     def _jac(self):
@@ -592,7 +637,7 @@ class _SNESContext(object):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp,
                                  mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
-                                 options_prefix=self.options_prefix, appctx=self.appctx)
+                                 options_prefix=self.options_prefix, appctx=self._appctx)
         else:
             return self._assembler_jac
 

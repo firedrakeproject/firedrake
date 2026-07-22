@@ -1,5 +1,6 @@
-from firedrake.preconditioners.assembled import AssembledPC
 from firedrake import inner, dx
+from firedrake.dmhooks import get_appctx
+from firedrake.preconditioners.assembled import AssembledPC
 
 __all__ = ("MassInvPC", )
 
@@ -18,8 +19,7 @@ class MassInvPC(AssembledPC):
     For Stokes problems, to be spectrally equivalent to the Schur
     complement, the mass matrix should be weighted by the viscosity.
     This can be provided (defaulting to constant viscosity) by
-    providing a field defining the viscosity in the application
-    context, keyed on ``"mu"``.
+    providing a field defining the viscosity, keyed on ``"mu"``.
     """
 
     _prefix = "Mp_"
@@ -27,8 +27,8 @@ class MassInvPC(AssembledPC):
     def form(self, pc, test, trial):
         _, bcs = super(MassInvPC, self).form(pc)
 
-        appctx = self.get_appctx(pc)
-        mu = appctx.get("mu", 1.0)
+        prefix = pc.getOptionsPrefix() or ""
+        mu = get_appctx(pc.getDM()).get_python_option(prefix, "mu", 1.0)
         a = inner((1/mu) * trial, test) * dx
         return a, bcs
 
