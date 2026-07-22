@@ -462,6 +462,8 @@ def _refine_adaptive(dm):
     dm.incRef()
 
     ctx = get_appctx(dm)
+    if ctx is None:
+        raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
     mesh = current_solution.function_space().mesh()
     hierarchy, level = get_level(mesh)
@@ -534,12 +536,6 @@ def refine(dm, comm):
     try:
         return _refine_from_hierarchy(dm)
     except ReconstructionError:
-        # We attempted to refine the finest level
-        ctx = get_appctx(dm)
-        if ctx is None:
-            raise RuntimeError("No _SNESContext found on DM")
-        if ctx._marking_callback is None:
-            raise RuntimeError("marking_callback was not set")
         return _refine_adaptive(dm)
 
 

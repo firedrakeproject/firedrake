@@ -21,22 +21,6 @@ class ReconstructionError(Exception):
     pass
 
 
-def get_relative(dispatch, old):
-    if dispatch is coarsen:
-        return getattr(old, "_coarse", None)
-    elif dispatch is refine:
-        return getattr(old, "_fine", None)
-    return None
-
-
-def attach_relative(dispatch, old, new):
-    if dispatch is coarsen:
-        old._coarse = new
-    elif dispatch is refine:
-        old._fine = new
-    return new
-
-
 class ReconstructIntegrand(DAGTraverser):
 
     """Reconstruct a :class:`ufl.Expr` with coefficients, arguments and
@@ -99,6 +83,22 @@ def coarsen(expr, self, coefficient_mapping=None):
 @singledispatch
 def refine(expr, self, coefficient_mapping=None):
     return _reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
+
+
+def get_relative(dispatch, old):
+    if dispatch is coarsen:
+        return getattr(old, "_coarse", None)
+    elif dispatch is refine:
+        return getattr(old, "_fine", None)
+    return None
+
+
+def attach_relative(dispatch, old, new):
+    if dispatch is coarsen:
+        old._coarse = new
+    elif dispatch is refine:
+        old._fine = new
+    return new
 
 
 @coarsen.register(ufl.Mesh)
@@ -195,8 +195,7 @@ def reconstruct_equation_bc(ebc, self, coefficient_mapping=None):
     return type(ebc)(lhs == rhs, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
 
 
-@coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
-@refine.register(firedrake.functionspaceimpl.WithGeometryBase)
+@_reconstruct.register(firedrake.functionspaceimpl.WithGeometryBase)
 def reconstruct_function_space(V, self, coefficient_mapping=None):
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
@@ -219,12 +218,13 @@ def reconstruct_function_space(V, self, coefficient_mapping=None):
     return V_new
 
 
-@coarsen.register(firedrake.Cofunction)
-@coarsen.register(firedrake.Function)
-def coarsen_function(expr, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.Cofunction)
+@_reconstruct.register(firedrake.Function)
+def reconstruct_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
+
     if new is None:
         V = expr.function_space()
         Vnew = self(V, self)
@@ -234,35 +234,8 @@ def coarsen_function(expr, self, coefficient_mapping=None):
                 name, prev_level = name.split("_level_")
             except ValueError:
                 prev_level = 0
-            level = int(prev_level) - 1
-            name = f"{name}_level_{level}"
-
-        new = firedrake.Function(Vnew, name=name)
-        manager = get_transfer_manager(V.dm)
-        if is_dual(expr):
-            manager.restrict(expr, new)
-        else:
-            manager.inject(expr, new)
-        coefficient_mapping[expr] = new
-    return new
-
-
-@refine.register(firedrake.Cofunction)
-@refine.register(firedrake.Function)
-def refine_function(expr, self, coefficient_mapping=None):
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    new = coefficient_mapping.get(expr)
-    if new is None:
-        V = expr.function_space()
-        Vnew = self(V, self)
-        name = expr.name()
-        if name is not None:
-            try:
-                name, prev_level = name.split("_level_")
-            except ValueError:
-                prev_level = 0
-            level = int(prev_level) + 1
+            level_inc = 1 if self is refine else -1
+            level = int(prev_level) + level_inc
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
