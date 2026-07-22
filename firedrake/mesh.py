@@ -2744,6 +2744,7 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
+                # this function returns an error code which is always a 32-bit int rather than IntType_c.
                 int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
                 {{
                     {IntType_c} j = 0;  /* index into x and X */
