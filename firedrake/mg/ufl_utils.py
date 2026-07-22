@@ -270,7 +270,6 @@ def refine_function(expr, self, coefficient_mapping=None):
 
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
-    # Have we done this already?
     mh, _ = utils.get_level(problem.u.function_space().mesh())
     cached = get_cache(self, problem)
     if cached is not None and mh is utils.get_level(cached.u.function_space().mesh())[0]:

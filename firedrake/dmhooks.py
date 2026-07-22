@@ -448,7 +448,11 @@ def coarsen(dm, comm):
     return cdm
 
 
-def _adaptively_refine(dm, comm):
+def _adaptively_refine(dm):
+    """
+    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
+    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    """
     from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
@@ -478,7 +482,8 @@ def _adaptively_refine(dm, comm):
         M = markers.function_space()
         if M.mesh() is not mesh:
             raise ValueError("marking callback must return markers on the current solution mesh")
-        if M.finat_element.space_dimension() != 1:
+        num_dofs_per_cell = M.finat_element.space_dimension()
+        if num_dofs_per_cell != 1:
             raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
         hierarchy.add_mesh(mesh.refine_marked_elements(markers))
