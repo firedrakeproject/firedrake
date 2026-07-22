@@ -21,18 +21,18 @@ class ReconstructionError(Exception):
     pass
 
 
-def get_cache(direction, old):
-    if direction is coarsen:
+def get_relative(dispatch, old):
+    if dispatch is coarsen:
         return getattr(old, "_coarse", None)
-    elif direction is refine:
+    elif dispatch is refine:
         return getattr(old, "_fine", None)
     return None
 
 
-def set_cache(direction, old, new):
-    if direction is coarsen:
+def attach_relative(dispatch, old, new):
+    if dispatch is coarsen:
         old._coarse = new
-    elif direction is refine:
+    elif dispatch is refine:
         old._fine = new
     return new
 
@@ -116,6 +116,8 @@ def refine_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
         raise ReconstructionError("No mesh hierarchy available")
+    if len(hierarchy) <= level + 1:
+        raise ReconstructionError("Cannot refine the finest mesh")
     return hierarchy[level + 1]
 
 
@@ -199,21 +201,21 @@ def reconstruct_function_space(V, self, coefficient_mapping=None):
     # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
-    cached = get_cache(self, V)
-    if cached is not None and cached.mesh() == new_mesh:
-        return cached
+    V_new = get_relative(self, V)
+    if V_new is not None and V_new.mesh() == new_mesh:
+        return V_new
 
     reverse = coarsen if self is refine else refine
     V_parent = V
-    while get_cache(reverse, V_parent) is not None:
-        V_parent = get_cache(reverse, V_parent)
+    while get_relative(reverse, V_parent) is not None:
+        V_parent = get_relative(reverse, V_parent)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    set_cache(reverse, V_new, V)
-    set_cache(self, V, V_new)
+    attach_relative(reverse, V_new, V)
+    attach_relative(self, V, V_new)
     return V_new
 
 
@@ -271,9 +273,10 @@ def refine_function(expr, self, coefficient_mapping=None):
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     mh, _ = utils.get_level(problem.u.function_space().mesh())
-    cached = get_cache(self, problem)
-    if cached is not None and mh is utils.get_level(cached.u.function_space().mesh())[0]:
-        return cached
+    new_problem = get_relative(self, problem)
+    if (new_problem is not None
+            and mh is utils.get_level(new_problem.u.function_space().mesh())[0]):
+        return new_problem
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
@@ -324,17 +327,16 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = firedrake.NonlinearVariationalProblem(
         F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
         form_compiler_parameters=problem.form_compiler_parameters)
-    set_cache(self, problem, new_problem)
+    attach_relative(self, problem, new_problem)
     return new_problem
 
 
 @_reconstruct.register(firedrake.LinearEigenproblem)
 def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
-    # Have we done this already?
     mh, _ = utils.get_level(problem.output_space.mesh())
-    cached = get_cache(self, problem)
-    if cached is not None and mh is utils.get_level(cached.output_space.mesh())[0]:
-        return cached
+    new_problem = get_relative(self, problem)
+    if new_problem is not None and mh is utils.get_level(new_problem.output_space.mesh())[0]:
+        return new_problem
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -344,7 +346,7 @@ def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
     M = self(problem.M, self, coefficient_mapping=coefficient_mapping)
     new_problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
                                                bc_shift=problem.bc_shift, restrict=problem.restrict)
-    set_cache(self, problem, new_problem)
+    attach_relative(self, problem, new_problem)
     return new_problem
 
 
@@ -386,7 +388,6 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
         new_attr = "_coarse"
         old_attr = "_fine"
 
-    # Have we already done this?
     new_context = getattr(context, new_attr)
     if new_context is not None:
         return new_context
