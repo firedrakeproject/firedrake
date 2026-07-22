@@ -17,7 +17,7 @@ from finat.cell_tools import max_complex
 from finat.duffy import DuffyElement
 from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
-from gem.optimise import constant_fold_zero
+from gem.optimise import constant_fold_zero, unflatten_returns
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
 from tsfc import fem
@@ -211,6 +211,8 @@ class KernelBuilderMixin(object):
             assignments.extend(mode.flatten(var_reps.items(), ctx['index_cache']))
 
         if assignments:
+            # Rewrite flat FlattenedTensor scatters as jagged lattice loops
+            assignments = unflatten_returns(assignments)
             return_variables, expressions = zip(*assignments)
         else:
             return_variables = []
