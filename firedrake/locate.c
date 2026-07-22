@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <spatialindex/capi/sidx_api.h>
+#include <rtree-capi.h>
 #include <float.h>
 #include <evaluate.h>
 
@@ -15,7 +15,7 @@ PetscInt locate_cell(struct Function *f,
         size_t ncells_ignore,
         PetscInt* cells_ignore)
 {
-    RTError err;
+    RTreeError err;
     PetscInt cell = -1;
     int cell_ignore_found = 0;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
@@ -31,156 +31,81 @@ PetscInt locate_cell(struct Function *f,
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
-    if (f->sidx) {
-        int64_t *ids = NULL;
-        uint64_t nids = 0;
-        /* We treat our list of candidate cells (ids) from libspatialindex's
-            Index_Intersects_id as our source of truth: the point must be in
-            one of the cells. */
-        err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
-        if (err != RT_None) {
-            fputs("ERROR: Index_Intersects_id failed in libspatialindex!", stderr);
-            return -1;
-        }
-        if (f->extruded == 0) {
-            for (uint64_t i = 0; i < nids; i++) {
-                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-                for (size_t j = 0; j < ncells_ignore; j++) {
-                    if (ids[i] == cells_ignore[j]) {
-                        cell_ignore_found = 1;
-                        break;
-                    }
+    size_t *ids = NULL;
+    size_t nids = 0;
+    err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
+    if (err != Success) {
+        fputs("ERROR: rtree_locate_all_at_point failed.\n", stderr);
+        rtree_free_ids(ids, nids);
+        return -1;
+    }
+    if (f->extruded == 0) {
+        for (size_t i = 0; i < nids; i++) {
+            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+            for (size_t j = 0; j < ncells_ignore; j++) {
+                if (ids[i] == cells_ignore[j]) {
+                    cell_ignore_found = 1;
+                    break;
                 }
-                if (cell_ignore_found) {
-                    cell_ignore_found = 0;
-                    continue;
-                }
-                if (current_ref_cell_dist_l1 <= 0.0) {
-                    /* Found cell! */
+            }
+            if (cell_ignore_found) {
+                cell_ignore_found = 0;
+                continue;
+            }
+            if (current_ref_cell_dist_l1 <= 0.0) {
+                /* Found cell! */
+                cell = ids[i];
+                memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
+                break;
+            }
+            else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
+                /* getting closer... */
+                ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                if (ref_cell_dist_l1 < tolerance) {
+                    /* Close to cell within tolerance so could be this cell */
                     cell = ids[i];
                     memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                    break;
-                }
-                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                    /* getting closer... */
-                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    if (ref_cell_dist_l1 < tolerance) {
-                        /* Close to cell within tolerance so could be this cell */
-                        cell = ids[i];
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                    }
-                }
-            }
-        }
-        else {
-            for (uint64_t i = 0; i < nids; i++) {
-                PetscInt nlayers = f->n_layers;
-                PetscInt c = ids[i] / nlayers;
-                PetscInt l = ids[i] % nlayers;
-                current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                for (size_t j = 0; j < ncells_ignore; j++) {
-                    if (ids[i] == cells_ignore[j]) {
-                        cell_ignore_found = 1;
-                        break;
-                    }
-                }
-                if (cell_ignore_found) {
-                    cell_ignore_found = 0;
-                    continue;
-                }
-                if (current_ref_cell_dist_l1 <= 0.0) {
-                    /* Found cell! */
-                    cell = ids[i];
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                    break;
-                }
-                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                    /* getting closer... */
-                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    if (ref_cell_dist_l1 < tolerance) {
-                        /* Close to cell within tolerance so could be this cell */
-                        cell = ids[i];
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                    }
-                }
-            }
-        }
-        free(ids);
-    } else {
-        if (f->extruded == 0) {
-            for (PetscInt c = 0; c < f->n_cols; c++) {
-                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
-                for (size_t j = 0; j < ncells_ignore; j++) {
-                    if (c == cells_ignore[j]) {
-                        cell_ignore_found = 1;
-                        break;
-                    }
-                }
-                if (cell_ignore_found) {
-                    cell_ignore_found = 0;
-                    continue;
-                }
-                if (current_ref_cell_dist_l1 <= 0.0) {
-                    /* Found cell! */
-                    cell = c;
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                    break;
-                }
-                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                    /* getting closer... */
-                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    if (ref_cell_dist_l1 < tolerance) {
-                        /* Close to cell within tolerance so could be this cell */
-                        cell = c;
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                    }
-                }
-            }
-        }
-        else {
-            for (PetscInt c = 0; c < f->n_cols; c++) {
-                for (PetscInt l = 0; l < f->n_layers; l++) {
-                    current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                    for (size_t j = 0; j < ncells_ignore; j++) {
-                        if (l == cells_ignore[j]) {
-                            cell_ignore_found = 1;
-                            break;
-                        }
-                    }
-                    if (cell_ignore_found) {
-                        cell_ignore_found = 0;
-                        continue;
-                    }
-                    if (current_ref_cell_dist_l1 <= 0.0) {
-                        /* Found cell! */
-                        cell = l;
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-                        break;
-                    }
-                    else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-                        /* getting closer... */
-                        ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                        if (ref_cell_dist_l1 < tolerance) {
-                            /* Close to cell within tolerance so could be this cell */
-                            cell = l;
-                            memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                            found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
-                        }
-                    }
-                }
-                if (cell != -1) {
-                    cell = c * f->n_layers + cell;
-                    break;
+                    found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                 }
             }
         }
     }
+    else {
+        for (size_t i = 0; i < nids; i++) {
+            int nlayers = f->n_layers;
+            int c = ids[i] / nlayers;
+            int l = ids[i] % nlayers;
+            current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+            for (size_t j = 0; j < ncells_ignore; j++) {
+                if (ids[i] == cells_ignore[j]) {
+                    cell_ignore_found = 1;
+                    break;
+                }
+            }
+            if (cell_ignore_found) {
+                cell_ignore_found = 0;
+                continue;
+            }
+            if (current_ref_cell_dist_l1 <= 0.0) {
+                /* Found cell! */
+                cell = ids[i];
+                memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
+                break;
+            }
+            else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
+                /* getting closer... */
+                ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                if (ref_cell_dist_l1 < tolerance) {
+                    /* Close to cell within tolerance so could be this cell */
+                    cell = ids[i];
+                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                    found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
+                }
+            }
+        }
+    }
+    rtree_free_ids(ids, nids);
     return cell;
 }

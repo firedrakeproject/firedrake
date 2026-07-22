@@ -2,7 +2,7 @@
 name = "firedrake"
 # <year>.<month>.<patch>
 # TODO RELEASE
-version = "2026.4.2.dev0"
+version = "2026.5.0.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -12,23 +12,27 @@ maintainers = [
   {name = "Josh Hope-Collins"},
   {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "cachetools",
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # FEniCS may make new minor releases of UFL without warning so we pin each Firedrake
-  # release to a specific UFL minor version (e.g. 2025.3.x)
-  "fenics-ufl>=2025.3,<2025.4",
-  "firedrake-fiat>=2026.4",
+  # TODO RELEASE
+  # Note that FEniCS may make new minor releases of UFL without warning so we pin
+  # each Firedrake release to a specific UFL minor version (e.g. 2025.3.x)
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
+  # TODO RELEASE
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
   "h5py>3.12.1",
+  "firedrake-rtree",
   "immutabledict",
-  "libsupermesh",
+  "libsupermesh>=2026.0",
   "loopy>2024.1",
   "numpy",
   "packaging",
-  "petsc4py==3.25.0",
+  # TODO RELEASE
+  # "petsc4py==3.25.0",
   "petsctools>=2026.0",
   "pkgconfig",
   "progress",
@@ -36,7 +40,6 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
-  "rtree>=1.2",
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
@@ -46,7 +49,6 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -95,9 +97,10 @@ jax = [
 netgen = [
   "ngsPETSc>=0.2.0",
 ]
-slepc = [
-  "slepc4py==3.25.0",
-]
+# TODO RELEASE
+# slepc = [
+#   "slepc4py==3.25.0",
+# ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
 ]
@@ -124,7 +127,8 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.25.0",
+  # TODO RELEASE
+  # "slepc4py==3.25.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -144,22 +148,24 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.25.0",
+  # TODO RELEASE 
+  # "slepc4py==3.25.0",
   "vtk",
 ]
 
 [build-system]
 requires = [
   "Cython>=3.0",
-  "libsupermesh",
+  "firedrake-rtree",
+  "libsupermesh>=2026.0",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
-  "petsc4py==3.25.0",
+  # TODO RELEASE
+  # "petsc4py==3.25.0",
   "petsctools",
   "pkgconfig",
   "pybind11",
-  "rtree>=1.2",
   "setuptools>=77.0.3",
 ]
 build-backend = "setuptools.build_meta"

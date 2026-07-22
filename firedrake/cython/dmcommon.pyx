@@ -280,9 +280,9 @@ def count_labelled_points(PETSc.DM dm, name,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray facets,
+                    const PetscInt[::1] facets,
                     PETSc.Section cell_numbering,
-                    np.ndarray cell_closures):
+                    const PetscInt[:, ::1] cell_closures):
     """Compute the parent cell(s) and the local facet number within
     each parent cell for each given facet.
 
@@ -293,11 +293,11 @@ def facet_numbering(PETSc.DM plex, kind,
     :arg cell_closures: 2D array of ordered cell closures
     """
     cdef:
-        PetscInt f, fStart, fEnd, fi, cell
+        PetscInt f, fStart, fEnd, fi, cell, c
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         const PetscInt *cells = NULL
-        np.ndarray facet_cells
-        np.ndarray facet_local_num
+        PetscInt[:, ::1] facet_cells
+        PetscInt[:, ::1] facet_local_num
 
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     nfacets = facets.shape[0]
@@ -349,7 +349,7 @@ def facet_numbering(PETSc.DM plex, kind,
                         fi += 1
             else:
                 facet_local_num[f,1] = -1
-    return facet_local_num, facet_cells
+    return np.asarray(facet_local_num), np.asarray(facet_cells)
 
 
 cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
@@ -620,7 +620,8 @@ def closure_ordering(PETSc.DM dm,
         PetscInt *face_indices = NULL
         const PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
-        np.ndarray cell_closure
+        PetscInt incident
+        PetscInt[:, ::1] cell_closure
 
     dim = get_topological_dimension(dm)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -765,7 +766,7 @@ def closure_ordering(PETSc.DM dm,
     CHKERR(PetscFree(faces))
     CHKERR(PetscFree(face_indices))
 
-    return cell_closure
+    return np.asarray(cell_closure)
 
 
 @cython.boundscheck(False)
@@ -989,6 +990,15 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
     return cell_closure
 
 
+cdef inline PetscInt _fact(PetscInt m):
+    """Integer factorial (m <= 4 for the cones here); replaces math.factorial to
+    avoid a Python call per entity in the orientation hot loop."""
+    cdef PetscInt r = 1, i
+    for i in range(2, m + 1):
+        r = r * i
+    return r
+
+
 cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
                                                   const PetscInt *plex_cone,
                                                   PetscInt coneSize):
@@ -1054,7 +1064,7 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
         coneSize1 -= 1
     assert n == coneSize
     for k in range(n):
-        o += math.factorial(n - 1 - k) * inds[k]
+        o += _fact(n - 1 - k) * inds[k]
     CHKERR(PetscFree(cone1))
     CHKERR(PetscFree(inds))
     return o
@@ -1106,7 +1116,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
                     io += <PetscInt> (2**(dim - 1 - i)) * 1
                 else:
                     raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
-                eo += math.factorial(dim - 1 - i) * j
+                eo += _fact(dim - 1 - i) * j
                 for k in range(j, dim1 - 1):
                     plex_cone_copy[2 * k] = plex_cone_copy[2 * k + 2]
                     plex_cone_copy[2 * k + 1] = plex_cone_copy[2 * k + 3]
@@ -1118,8 +1128,10 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
     return <PetscInt> (2**dim) * eo + io
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
-                                          np.ndarray cell_closure,
+                                          PetscInt[:, ::1] cell_closure,
                                           PetscInt cell,
                                           PetscInt e,
                                           PetscInt *fiat_cone,
@@ -1145,9 +1157,11 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     cdef:
         PetscInt p, coneSize, offset, i, dim, o
         const PetscInt *cone = NULL
+        PetscDMPolytopeType ct
 
     p = cell_closure[cell, e]
-    if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
+    CHKERR(DMPlexGetCellType(dm.dm, p, &ct))
+    if ct == DM_POLYTOPE_POINT:
         return 0
     CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
     CHKERR(DMPlexGetCone(dm.dm, p, &cone))
@@ -1156,25 +1170,21 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     offset = entity_cone_map_offset[e]
     for i in range(coneSize):
         fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
-    if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
-        # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
-        # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
-        # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
+    if ct == DM_POLYTOPE_SEGMENT or ct == DM_POLYTOPE_TRIANGLE or ct == DM_POLYTOPE_TETRAHEDRON:
+        # UFCInterval / UFCTriangle / UFCTetrahedron
         return _compute_orientation_simplex(fiat_cone, cone, coneSize)
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
-        # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
+    elif ct == DM_POLYTOPE_QUADRILATERAL:
+        # UFCQuadrilateral
         dim = 2
         _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
-        # UFCHexahedron    <- PETSc.DM.PolytopeType.HEXAHEDRON
+    elif ct == DM_POLYTOPE_HEXAHEDRON:
+        # UFCHexahedron
         dim = 3
         _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
     else:
-        raise ValueError(f"Unknown cell type: {dm.getCellType(p)}")
+        raise ValueError(f"Unknown cell type: {ct}")
 
 
 @cython.boundscheck(False)
@@ -1203,7 +1213,8 @@ def entity_orientations(mesh,
         PetscInt *plex_cone_copy = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
-        np.ndarray entity_orientations
+        PetscInt[:, ::1] cell_closure_view
+        PetscInt[:, ::1] entity_orientations
 
     if type(mesh) is not firedrake.mesh.MeshTopology:
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
@@ -1245,9 +1256,12 @@ def entity_orientations(mesh,
     CHKERR(PetscMalloc1(maxConeSize, &fiat_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
+    # typed memoryviews so the hot loop indexes cell_closure / output in C
+    # instead of via slow np.ndarray scalar indexing.
+    cell_closure_view = cell_closure
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell, e,
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,
@@ -1258,7 +1272,7 @@ def entity_orientations(mesh,
     CHKERR(PetscFree(plex_cone_copy))
     CHKERR(PetscFree(entity_cone_map))
     CHKERR(PetscFree(entity_cone_map_offset))
-    return entity_orientations
+    return np.asarray(entity_orientations)
 
 
 @cython.boundscheck(False)
@@ -1496,21 +1510,24 @@ def get_cell_nodes(mesh,
         PetscInt entity_permutations_size, num_orientations_size, perm_offset
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        np.ndarray entity_permutations_c
-        np.ndarray num_orientations_c
-        np.ndarray cell_nodes
         np.ndarray layer_extents
-        np.ndarray cell_closures
-        np.ndarray entity_orientations
+        np.ndarray entity_orientations_np
         bint is_swarm, variable, extruded_periodic_1_layer
+        PetscInt[:, ::1] cell_closures
+        PetscInt[:, ::1] entity_orientations
+        PetscInt[:, ::1] cell_nodes
+        PetscInt[::1] entity_permutations_c
+        PetscInt[::1] num_orientations_c
 
     dm = mesh.topology_dm
     is_swarm = isinstance(dm, PETSc.DMSwarm)
     variable = mesh.variable_layers
     cell_closures = mesh.cell_closure
-    entity_orientations = mesh.entity_orientations
-    if not is_swarm and entity_orientations is None:
+    entity_orientations_np = mesh.entity_orientations
+    if not is_swarm and entity_orientations_np is None:
         raise ValueError("entity_orientations can only be None for swarm meshes")
+    if not is_swarm:
+        entity_orientations = entity_orientations_np
     if variable:
         layer_extents = mesh.layer_extents
         if offset is None:
@@ -1581,7 +1598,7 @@ def get_cell_nodes(mesh,
                             k += 1
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
-    return cell_nodes
+    return np.asarray(cell_nodes)
 
 
 @cython.boundscheck(False)
@@ -2503,7 +2520,7 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
-                        np.ndarray ordering):
+                        const PetscInt[::1] ordering):
     """Builds a list of all facets ordered according to PyOP2 entity
     classes and computes the respective class offsets.
 
@@ -2518,7 +2535,7 @@ def get_facets_by_class(PETSc.DM plex, label,
         PETSc.IS class_is = None
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
-        np.ndarray facets
+        PetscInt[::1] facets
 
     dim = get_topological_dimension(plex)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
@@ -2547,7 +2564,7 @@ def get_facets_by_class(PETSc.DM plex, label,
         facet_classes[i] = fi
         CHKERR(DMLabelDestroyIndex(lbl_class))
     CHKERR(DMLabelDestroyIndex(lbl_facets))
-    return facets, facet_classes
+    return np.asarray(facets), facet_classes
 
 
 @cython.boundscheck(False)
