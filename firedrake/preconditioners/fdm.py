@@ -1023,9 +1023,9 @@ class SchurComplementBlockLU(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its LU factorization to compute S = A11 - (A10 U^-1) (L^-1 A01)."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, bsize, irow, icol, nnz, iswap, *ipiv, *perm;
+        PetscInt m, bsize, irow, icol, nnz, iswap, *perm;
         const PetscInt *ai;
         PetscScalar *vals, *work, *L, *U;
         Mat X;
@@ -1123,9 +1123,9 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its inverse to compute S = A11 - A10 A00^-1 A01."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, irow, bsize, *ipiv;
+        PetscInt m, irow, bsize;
         const PetscInt *ai;
         PetscScalar *vals, *work, *ainv, swork;
         PetscCall(MatProductNumeric(A11));
