@@ -390,7 +390,7 @@ and a persistent particle ID field. In ParaView, for instance, this ID field can
    :alt: Vertex-only mesh particle IDs visualised in ParaView
    :align: center
 
-   Vertex-only mesh data visualised in ParaView, with particles coloured by thier IDs.
+   Vertex-only mesh data visualised in ParaView, with particles coloured by their IDs.
 
 
 .. _Paraview: http://www.paraview.org
