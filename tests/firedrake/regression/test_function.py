@@ -1,5 +1,8 @@
 import pytest
 import numpy as np
+
+import pyop3 as op3
+
 from firedrake import *
 
 
@@ -107,8 +110,8 @@ def test_function_val(V):
 
 
 def test_function_dat(V):
-    """Initialise a Function with an op2.Dat."""
-    f = Function(V, op2.Dat(V.node_set**V.value_size))
+    """Test initialise a function with a dat."""
+    f = Function(V, op3.Dat.empty(V.axes))
     f.interpolate(Constant(1))
     assert (f.dat.data_ro == 1.0).all()
 
@@ -169,14 +172,13 @@ def test_scalar_function_zero(V):
 
 def test_scalar_function_zero_with_subset(V):
     f = Function(V)
-    # create an arbitrary subset consisting of the first two nodes
-    assert V.node_set.size > 2
-    subset = op2.Subset(V.node_set, [0, 1])
 
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
-    f.zero(subset=subset)
+    # create an arbitrary subset consisting of the first two nodes
+    assert V.node_count > 2
+    f.zero(subset=[0, 1])
     assert np.allclose(f.dat.data_ro[:2], 0.0)
     assert np.allclose(f.dat.data_ro[2:], 1.0)
 
@@ -195,13 +197,12 @@ def test_tensor_function_zero(W):
 def test_tensor_function_zero_with_subset(W):
     f = Function(W)
     # create an arbitrary subset consisting of the first three nodes
-    assert W.node_set.size > 3
-    subset = op2.Subset(W.node_set, [0, 1, 2])
+    assert W.node_count > 3
 
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
-    f.zero(subset=subset)
+    f.zero(subset=[0, 1, 2])
     assert np.allclose(f.dat.data_ro[:3], 0.0)
     assert np.allclose(f.dat.data_ro[3:], 1.0)
 
@@ -214,25 +215,27 @@ def test_component_function_zero(W):
 
     g = f.sub(0).zero()
     assert f.sub(0) is g
-    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+
+    for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
         assert np.allclose(f.dat.data_ro[..., i, j], expected)
 
 
 def test_component_function_zero_with_subset(W):
     f = Function(W)
-    # create an arbitrary subset consisting of the first three nodes
-    assert W.node_set.size > 3
-    subset = op2.Subset(W.node_set, [0, 1, 2])
-
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
-    f.sub(0).zero(subset=subset)
-    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+    # make sure there are more than 3 vertices
+    assert W.node_count > 3
+
+    f.sub(0).zero(subset=[0, 1, 2])
+
+    f_data = f.dat.data_ro
+    for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
-        assert np.allclose(f.dat.data_ro[:3, i, j], expected)
-        assert np.allclose(f.dat.data_ro[3:, i, j], 1.0)
+        assert np.allclose(f_data[:3, i, j], expected)
+        assert np.allclose(f_data[3:, i, j], 1.0)
 
 
 @pytest.mark.parametrize("value", [

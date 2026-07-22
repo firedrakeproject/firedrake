@@ -216,13 +216,13 @@ class TransferManager(object):
         try:
             return cache._work_vec[key]
         except KeyError:
-            return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
+            return cache._work_vec.setdefault(key, V.template_vec.duplicate())
 
     def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
         the last time a grid transfer was executed with them."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
-        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        dat_versions = (source.dat.buffer.state, target.dat.buffer.state)
         try:
             return self.cache(V)._dat_versions[key] != dat_versions
         except KeyError:
@@ -231,7 +231,7 @@ class TransferManager(object):
     def cache_dat_versions(self, V, transfer_op, source, target):
         """Record the returned dat_versions of the source and target."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
-        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        dat_versions = (source.dat.buffer.state, target.dat.buffer.state)
         self.cache(V)._dat_versions[key] = dat_versions
 
     @PETSc.Log.EventDecorator()

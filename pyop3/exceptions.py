@@ -1,0 +1,93 @@
+import abc
+
+
+class Pyop3Exception(Exception, abc.ABC):
+    """Base class for all pyop3 exceptions."""
+
+
+class InvalidIndexCountException(Pyop3Exception):
+    """Exception raised when too few/many indices are used to index an object."""
+
+
+class SizeMismatchException(Pyop3Exception):
+    """Exception raised when the size of an array does not match what is expected."""
+
+
+class InvalidIndexTargetException(Pyop3Exception):
+    """Exception raised when we try to match index information to a mismatching axis tree."""
+
+
+class ValueMismatchException(Pyop3Exception):
+    pass
+
+
+class UnhashableObjectException(Pyop3Exception, TypeError):
+    pass
+
+class UnsupportedArrayException(Pyop3Exception, TypeError):
+    pass
+
+
+class EmptyIterableException(Pyop3Exception):
+    pass
+
+
+class NonUnitIterableException(Pyop3Exception):
+    pass
+
+# {{{ expressions
+
+class ExpressionUnchangedException(Pyop3Exception):
+    pass
+
+# }}}
+
+# {{{ axis trees
+
+# NOTE: the same idea as InvalidIndexTargetException
+class IncompatibleAxisTargetException(Pyop3Exception):
+    pass
+
+
+class NonUnitAxisException(Pyop3Exception):
+    pass
+
+# }}}
+
+# {{{ indexing
+
+class InvalidMapTargetException(Pyop3Exception):
+    pass
+
+# }}}
+
+# {{{ caching
+
+class CacheException(Pyop3Exception):
+    """Error during caching."""
+
+# }}}
+
+
+# {{{ code generation
+
+class CompilationException(Pyop3Exception):
+    """Error during compilation."""
+
+
+class EffectlessComputationException(Pyop3Exception):
+    """Error raised if the operation has no effect."""
+
+# }}}
+
+# {{{ parallel
+
+class CommNotFoundException(Pyop3Exception):
+    pass
+
+
+class CommMismatchException(Pyop3Exception):
+    """Exception raised when MPI communicators do not match."""
+
+
+# }}}

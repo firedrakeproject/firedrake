@@ -2,7 +2,7 @@ from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
-from firedrake.parloops import par_loop, READ, RW, MIN, MAX
+from firedrake.parloops import par_loop, READ, RW
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake import utils
@@ -98,8 +98,8 @@ class VertexBasedLimiter(Limiter):
 
         par_loop(self._min_max_loop,
                  dx,
-                 {"maxq": (self.max_field, MAX),
-                  "minq": (self.min_field, MIN),
+                 {"maxq": (self.max_field, RW),
+                  "minq": (self.min_field, RW),
                   "q": (self.centroids, READ)})
 
     def apply_limiter(self, field):

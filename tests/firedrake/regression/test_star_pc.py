@@ -397,8 +397,9 @@ def test_asm_extruded_star(base, periodic, family, degree):
         "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_ksp_type": "chebyshev",
         "pmg_mg_levels_pc_type": "python",
-        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMStarPC",
         "pmg_mg_levels_pc_star_construct_dim": patch_dim,
+        "pmg_mg_levels_pc_star_column": 0,
     }
 
     uh = Function(V)

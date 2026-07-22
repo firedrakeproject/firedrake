@@ -2,10 +2,9 @@ from typing import Any
 from collections.abc import Iterable
 import itertools
 
+import pyop3 as op3
+from pyop3.pyop2_utils import as_tuple
 import ufl
-from pyop2.utils import as_tuple
-from pyop2 import op2
-from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from firedrake.petsc import PETSc
 from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
@@ -31,8 +30,14 @@ def _get_mat_type(petscmat: PETSc.Mat) -> str:
             return "matfree"
         elif isinstance(ctx, _GlobalMatPayload):
             return "global"
-        elif isinstance(ctx, _DatMatPayload):
-            return "dat"
+        elif isinstance(ctx, op3.DensePythonMatContext):
+            # TODO: nicer if row and column was encoded in type system
+            if ctx.mode == "row":
+                # TODO: 'denserow' is much nicer
+                return "rvec"
+            else:
+                # TODO: 'densecol' is much nicer
+                return "cvec"
         elif isinstance(ctx, VomOntoVomMatContext):
             return "vomtovom"
         else:
@@ -173,14 +178,14 @@ class Matrix(MatrixBase):
     def __init__(
         self,
         a: ufl.BaseForm,
-        mat: op2.Mat | PETSc.Mat,
+        mat: op3.Mat | PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,
     ):
         """Initialise a :class:`Matrix`."""
         super().__init__(a, bcs=bcs, fc_params=fc_params)
-        if isinstance(mat, op2.Mat):
+        if isinstance(mat, op3.Mat):
             self.M = mat
         elif isinstance(mat, PETSc.Mat):
             self.M = DummyOP2Mat(mat)

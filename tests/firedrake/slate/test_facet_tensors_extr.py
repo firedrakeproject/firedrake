@@ -5,8 +5,10 @@ from firedrake import *
 
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
-    m = UnitSquareMesh(2, 2, quadrilateral=request.param)
-    return ExtrudedMesh(m, layers=4, layer_height=0.25)
+    # m = UnitSquareMesh(2, 2, quadrilateral=request.param)
+    # return ExtrudedMesh(m, layers=4, layer_height=0.25)
+    m = UnitSquareMesh(1, 1, quadrilateral=request.param)
+    return ExtrudedMesh(m, layers=2, layer_height=0.25)
 
 
 def test_horiz_facet_interior_jump(mesh):

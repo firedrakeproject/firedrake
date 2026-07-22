@@ -1,5 +1,5 @@
 from functools import wraps
-from pyop2.mpi import temp_internal_comm
+from pyop3.mpi import temp_internal_comm
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -277,16 +277,9 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
-        m_a_local = src[offset + range_begin:offset + range_end]
-        if dst.function_space().ufl_element().family() == "Real":
-            # Real space keeps a redundant copy of the data on every rank
-            comm = dst.function_space().mesh().comm
-            with temp_internal_comm(comm) as icomm:
-                dst.dat.data_wo[...] = icomm.bcast(m_a_local, root=0)
-        else:
-            dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
-        offset += dst.dat.dataset.layout_vec.size
+        range_begin, range_end = dst.function_space().template_vec.getOwnershipRange()
+        dst.dat.data_wo[...] = src[offset + range_begin:offset + range_end]
+        offset += range_end - range_begin
         return dst, offset
 
     @staticmethod

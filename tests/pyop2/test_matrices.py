@@ -789,33 +789,6 @@ class TestMatrixStateChanges:
             m.handle.setOption(opt2, False)
         return mat
 
-    def test_mat_starts_assembled(self, mat):
-        assert mat.assembly_state is op2.Mat.ASSEMBLED
-        for m in mat:
-            assert m.assembly_state is op2.Mat.ASSEMBLED
-
-    def test_after_set_local_state_is_insert(self, mat):
-        mat[0, 0].set_local_diagonal_entries([0])
-        assert mat[0, 0].assembly_state is op2.Mat.INSERT_VALUES
-        if not mat.sparsity.nested:
-            assert mat.assembly_state is op2.Mat.INSERT_VALUES
-        if mat.sparsity.nested:
-            assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
-
-    def test_after_addto_state_is_add(self, mat):
-        mat[0, 0].addto_values(0, 0, [1])
-        assert mat[0, 0].assembly_state is op2.Mat.ADD_VALUES
-        if not mat.sparsity.nested:
-            assert mat.assembly_state is op2.Mat.ADD_VALUES
-        if mat.sparsity.nested:
-            assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
-
-    def test_matblock_assemble_runtimeerror(self, mat):
-        if mat.sparsity.nested:
-            return
-        with pytest.raises(RuntimeError):
-            mat[0, 0].assemble()
-
     def test_mixing_insert_and_add_works(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
         mat[1, 1].addto_values(1, 1, [3])

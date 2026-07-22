@@ -1,4 +1,4 @@
-from pyop2 import op2
+import pyop3 as op3
 
 from firedrake import ufl_expr, dmhooks
 from firedrake.function import Function
@@ -74,35 +74,36 @@ def prolong(coarse, fine):
             fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
         Vf = fine.function_space()
         Vc = coarse.function_space()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
 
-        kernel = kernels.prolong_kernel(coarse, Vf)
+        kernel, oriented, needs_cell_sizes = kernels.prolong_kernel(coarse, Vf)
+        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
         kernel_args = [
-            fine.dat(op2.WRITE),
-            coarse.dat(op2.READ, compose_map(coarse)),
-            node_locations.dat(op2.READ),
+            _regionless(fine.dat)[n],
+            _regionless(coarse.dat)[compose_map(coarse)],
+            _regionless(node_locations.dat)[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat(op2.READ, compose_map(coarse_coords)))
-        if kernel.oriented:
+        kernel_args.append(_regionless(coarse_coords.dat)[compose_map(coarse_coords)])
+        if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat(op2.READ, compose_map(co)))
-        if kernel.needs_cell_sizes:
+            kernel_args.append(_regionless(co.dat)[compose_map(co)])
+        if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
+            kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse, coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine.node_set, *kernel_args)
+            d.dat.assemble()
+        op3.loop(n, kernel(*kernel_args), eager=True)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -156,35 +157,36 @@ def restrict(fine_dual, coarse_dual):
             coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vf = fine_dual.function_space()
         Vc = coarse_dual.function_space()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf.dual())
 
-        kernel = kernels.restrict_kernel(Vf, Vc)
+        kernel, oriented, needs_cell_sizes = kernels.restrict_kernel(Vf, Vc)
+        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
+
         kernel_args = [
-            coarse_dual.dat(op2.INC, compose_map(coarse_dual)),
-            fine_dual.dat(op2.READ),
-            node_locations.dat(op2.READ),
+            _regionless(coarse_dual.dat)[compose_map(coarse_dual)],
+            _regionless(fine_dual.dat)[n],
+            _regionless(node_locations.dat)[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat(op2.READ, compose_map(coarse_coords)))
-        if kernel.oriented:
+        kernel_args.append(_regionless(coarse_coords.dat)[compose_map(coarse_coords)])
+        if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat(op2.READ, compose_map(co)))
-        if kernel.needs_cell_sizes:
+            kernel_args.append(_regionless(co.dat)[compose_map(co)])
+        if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
+            kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
-        for d in [coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine_dual.node_set, *kernel_args)
+        coarse_coords.dat.assemble()
+        op3.loop(n, kernel(*kernel_args), eager=True)
         fine_dual = coarse_dual
     return coarse_dual
 
@@ -230,7 +232,7 @@ def inject(fine, coarse):
         # Introduce an intermediate quadrature target space
         Vc = Vc.quadrature_space()
 
-    kernel, dg = kernels.inject_kernel(Vf, Vc)
+    (kernel, oriented, needs_cell_sizes), dg = kernels.inject_kernel(Vf, Vc)
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
 
@@ -246,43 +248,51 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
         if not dg:
-            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
+
+            n = Vc.nodal_axes.blocked(Vc.shape).free.iter()
+            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())(n)
             kernel_args = [
-                coarse.dat(op2.WRITE),
-                fine.dat(op2.READ, compose_map(fine)),
-                node_locations.dat(op2.READ),
+                _regionless(coarse.dat)[n],
+                _regionless(fine.dat)[compose_map(fine)],
+                _regionless(node_locations.dat)[n],
             ]
             # source mesh quantities
             source_mesh = Vf.mesh()
             fine_coords = source_mesh.coordinates
-            kernel_args.append(fine_coords.dat(op2.READ, compose_map(fine_coords)))
-            if kernel.oriented:
+            kernel_args.append(_regionless(fine_coords.dat)[compose_map(fine_coords)])
+            if oriented:
                 co = source_mesh.cell_orientations()
-                kernel_args.append(co.dat(op2.READ, compose_map(co)))
-            if kernel.needs_cell_sizes:
+                kernel_args.append(_regionless(co.dat)[compose_map(co)])
+            if needs_cell_sizes:
                 cs = source_mesh.cell_sizes
-                kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
+                kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, coarse.node_set, *kernel_args)
+                d.dat.assemble()
+            op3.loop(n, kernel(*kernel_args), eager=True)
         else:
-            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
+            c = Vc.mesh().cells.owned.iter()
+            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())(c)
             coarse_coords = Vc.mesh().coordinates
             fine_coords = Vf.mesh().coordinates
+
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, Vc.mesh().cell_set,
-                         coarse.dat(op2.INC, coarse.cell_node_map()),
-                         fine.dat(op2.READ, compose_map(fine)),
-                         fine_coords.dat(op2.READ, compose_map(fine_coords)),
-                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+                d.dat.buffer.assemble()
+            op3.loop(
+                c,
+                kernel(
+                    coarse.dat[coarse.function_space().cell_node_map(c)],
+                    fine.dat[compose_map(fine)],
+                    fine_coords.dat[compose_map(fine_coords)],
+                    coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                ),
+                eager=True,
+            )
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -290,3 +300,14 @@ def inject(fine, coarse):
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
     return coarse
+
+
+# Think this isnt needed any more
+def _regionless(dat):
+    """Drop all region (i.e. unconstrained vs constrained) information from a dat.
+
+    This is needed for multigrid because otherwise the node-wise loops fail.
+
+    """
+    return dat
+    return dat.with_axes(dat.axes.regionless())

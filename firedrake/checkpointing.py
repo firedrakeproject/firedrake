@@ -2,8 +2,7 @@ import functools
 import pickle
 from petsc4py.PETSc import ViewerHDF5
 import finat.ufl
-from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, MPI
+from pyop3.mpi import COMM_WORLD, MPI
 from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
@@ -11,7 +10,6 @@ from firedrake.petsc import PETSc
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, MeshSequenceGeometry, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
-from firedrake.functionspacedata import get_global_numbering, create_element
 from firedrake.function import Function, CoordinatelessFunction
 from firedrake import extrusion_utils as eutils
 from firedrake.embedding import get_embedding_element_for_checkpointing, get_embedding_method_for_checkpointing
@@ -760,22 +758,7 @@ class CheckpointFile:
                 self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
                 self.set_attr(path, PREFIX_EXTRUDED + "_periodic", tmesh.extruded_periodic)
-                self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
-                if tmesh.variable_layers:
-                    # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
-                    # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
-                    cell = base_tmesh.ufl_cell()
-                    element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
-                    layers_tV = impl.FunctionSpace(base_tmesh, element)
-                    self._save_function_space_topology(layers_tV)
-                    # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
-                    layers_iset = PETSc.IS().createGeneral(tmesh.layers[:tmesh.cell_set.size, :], comm=tmesh.comm)
-                    layers_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
-                    self.viewer.pushGroup(path)
-                    layers_iset.view(self.viewer)
-                    self.viewer.popGroup()
-                else:
-                    self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
+                self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
             # -- Save mesh --
             path = self._path_to_meshes(tmesh.name)
             if mesh.name not in self.require_group(path):
@@ -811,10 +794,6 @@ class CheckpointFile:
                 self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
                 self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
                 self._save_function_topology(mesh._coordinates)
-                # Save DMPlex coordinates for a complete representation of the plex.
-                # Practically, plex coordinates will be needed when we checkpoint MeshHierarchy in the future.
-                with self.opts.inserted_options():
-                    tmesh.topology_dm.coordinatesView(viewer=self.viewer)
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
                 # Save cell_orientations for immersed meshes.
                 if hasattr(mesh, "_cell_orientations"):
@@ -843,10 +822,12 @@ class CheckpointFile:
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
         # -- Save DMPlex --
-        topology_dm = tmesh.topology_dm
+        if isinstance(tmesh, ExtrudedMeshTopology):
+            topology_dm = tmesh._base_mesh.topology_dm
+        else:
+            topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
         distribution_name = tmesh._distribution_name
-        perm_is = tmesh._dm_renumbering
         permutation_name = tmesh._permutation_name
         if tmesh_name in self.require_group(self._path_to_topologies()):
             version_str = self.opts.parameters['dm_plex_view_hdf5_storage_version']
@@ -920,12 +901,18 @@ class CheckpointFile:
             with self.opts.inserted_options():
                 topology_dm.distributionSetName(distribution_name)
                 topology_dm.topologyView(viewer=self.viewer)
+                topology_dm.coordinatesView(viewer=self.viewer)
                 topology_dm.distributionSetName(None)
                 topology_dm.labelsView(viewer=self.viewer)
             self.viewer.popFormat()
             path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
             self.require_group(path)
             self.viewer.pushGroup(path)
+            assert not isinstance(tmesh, ExtrudedMeshTopology)
+            # The renumbering is local to each process but the viewer is global
+            perm_is = dmcommon.is_on_comm(
+                tmesh._new_to_old_point_renumbering, self.comm
+            )
             perm_is.setName("permutation")
             perm_is.view(self.viewer)
             perm_is.setName(None)
@@ -1058,7 +1045,10 @@ class CheckpointFile:
                 assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             else:
                 dm = self._get_dm_for_checkpointing(tV)
-                topology_dm = tmesh.topology_dm
+                if isinstance(tmesh, ExtrudedMeshTopology):
+                    topology_dm = tmesh._base_mesh.topology_dm
+                else:
+                    topology_dm = tmesh.topology_dm
                 # If tmesh is an ExtrudedMeshTopology, it inherits plex from the base_tmesh ( = tmesh._base_mesh).
                 # In that case we need to save (section) dm under tmesh.name instead of under base_tmesh.name, so
                 # we need to switch names of the topology_dm.
@@ -1072,7 +1062,7 @@ class CheckpointFile:
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None, timestepping_info={}):
+    def save_function(self, f, idx=None, name=None, timestepping_info=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -1086,6 +1076,9 @@ class CheckpointFile:
             such as time, timestepping that can be stored along a function for
             each index.
         """
+        if timestepping_info is None:
+            timestepping_info = {}
+
         V = f.function_space()
         if name:
             g = Function(V, val=f.dat, name=name)
@@ -1169,7 +1162,10 @@ class CheckpointFile:
             self.require_group(path)
             self.set_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]), tf.dat.data.item())
         else:
-            topology_dm = tmesh.topology_dm
+            if isinstance(tmesh, ExtrudedMeshTopology):
+                topology_dm = tmesh._base_mesh.topology_dm
+            else:
+                topology_dm = tmesh.topology_dm
             dm = self._get_dm_for_checkpointing(tV)
             dm_name = dm.name
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
@@ -1226,30 +1222,7 @@ class CheckpointFile:
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
             periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
-            variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
-            if variable_layers:
-                cell = base_tmesh.ufl_cell()
-                element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
-                _ = self._load_function_space_topology(base_tmesh, element)
-                base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
-                                                                    base_tmesh._distribution_name,
-                                                                    base_tmesh._permutation_name)
-                sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
-                _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
-                nroots, _, _ = lsf.getGraph()
-                layers_a = np.empty(nroots, dtype=utils.IntType)
-                layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self.comm)
-                layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
-                self.viewer.pushGroup(path)
-                layers_a_iset.load(self.viewer)
-                self.viewer.popGroup()
-                layers_a = layers_a_iset.getIndices()
-                layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
-                unit = MPI._typedict[np.dtype(utils.IntType).char]
-                lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
-                lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
-            else:
-                layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
+            layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
             tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name)
             # -- Load mesh --
             path = self._path_to_mesh(tmesh_name, name)
@@ -1274,7 +1247,6 @@ class CheckpointFile:
             else:
                 mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
-            utils._init()
             # -- Load mesh topology --
             if topology is None:
                 tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
@@ -1290,8 +1262,6 @@ class CheckpointFile:
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
             mesh = make_mesh_from_coordinates(coordinates, name)
-            # Load plex coordinates for a complete representation of plex.
-            tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
             # Load cell_orientations for immersed meshes.
             path = self._path_to_mesh_immersed(tmesh.name, name)
             if path in self.h5pyfile:
@@ -1311,7 +1281,7 @@ class CheckpointFile:
                 cell_orientations_a_iset.load(self.viewer)
                 self.viewer.popGroup()
                 cell_orientations_a = cell_orientations_a_iset.getIndices()
-                cell_orientations = np.empty((tmesh.cell_set.total_size, ), dtype=utils.IntType)
+                cell_orientations = np.empty((tmesh.cells.local_size, ), dtype=utils.IntType)
                 unit = MPI._typedict[np.dtype(utils.IntType).char]
                 lsf.bcastBegin(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
                 lsf.bcastEnd(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
@@ -1370,14 +1340,13 @@ class CheckpointFile:
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)
+        plex.coordinatesLoad(self.viewer, sfXB)
         plex.distributionSetName(None)
         plex.labelsLoad(self.viewer, sfXB)
         self.viewer.popFormat()
         # These labels are distribution dependent.
         # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
+        plex.removeLabel("firedrake_is_ghost")
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self.comm)
@@ -1388,12 +1357,13 @@ class CheckpointFile:
             self.viewer.popGroup()
             chart_size = chart_sizes_iset.getIndices().item()
             perm = np.empty(chart_size, dtype=utils.IntType)
-            perm_is = PETSc.IS().createGeneral(perm, comm=self.comm)
             path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
             self.viewer.pushGroup(path)
+            perm_is = PETSc.IS().createGeneral(perm, comm=self.comm)
             perm_is.setName("permutation")
             perm_is.load(self.viewer)
             perm_is.setName(None)
+            perm_is = dmcommon.is_on_comm(perm_is, MPI.COMM_SELF)
             self.viewer.popGroup()
         else:
             perm_is = None
@@ -1452,12 +1422,17 @@ class CheckpointFile:
                                                        tmesh._permutation_name)
         sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
         if tmesh_key + sd_key not in self._function_load_utils:
-            topology_dm = tmesh.topology_dm
+            if isinstance(tmesh, ExtrudedMeshTopology):
+                topology_dm = tmesh._base_mesh.topology_dm
+                perm = tmesh._base_mesh._new_to_old_point_renumbering
+            else:
+                topology_dm = tmesh.topology_dm
+                perm = tmesh._new_to_old_point_renumbering
             dm = PETSc.DMShell().create(comm=tmesh.comm)
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh.comm)
-            section.setPermutation(tmesh._dm_renumbering)
+            section.setPermutation(perm)
             dm.setSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
             sfXC = base_tmesh.sfXC
@@ -1465,12 +1440,6 @@ class CheckpointFile:
             gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, sfXC)
             topology_dm.setName(base_tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
-            # Don't cache if the section has been expanded by block_size
-            if block_size == 1:
-                cached_section = get_global_numbering(tmesh, (nodes_per_entity, real_tensorproduct), global_numbering=dm.getSection())
-                if dm.getSection() is not cached_section:
-                    # The same section has already been cached.
-                    dm.setSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
@@ -1492,12 +1461,13 @@ class CheckpointFile:
             V = self._load_function_space(mesh, V_name)
             base_path = self._path_to_mixed_function(mesh.name, V_name, name)
             fsub_list = []
+            dat = V.make_dat()
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 fsub_name = self.get_attr(path, PREFIX + "_function")
                 fsub = self.load_function(mesh, fsub_name, idx=idx)
-                fsub_list.append(fsub)
-            dat = op2.MixedDat(fsub.dat for fsub in fsub_list)
+                dat_idx = V._labels[i] if len(V) > 1 else Ellipsis
+                dat[dat_idx].assign(fsub.dat, eager=True)
             return Function(V, val=dat, name=name)
         elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
             # Load function space
@@ -1531,7 +1501,10 @@ class CheckpointFile:
     @PETSc.Log.EventDecorator("LoadFunctionTopology")
     def _load_function_topology(self, tmesh, element, tf_name, idx=None):
         tV = self._load_function_space_topology(tmesh, element)
-        topology_dm = tmesh.topology_dm
+        if isinstance(tmesh, ExtrudedMeshTopology):
+            topology_dm = tmesh._base_mesh.topology_dm
+        else:
+            topology_dm = tmesh.topology_dm
         dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
         tf = CoordinatelessFunction(tV, name=tf_name)
         path = self._path_to_vec(tmesh.name, dm_name, tf_name)
@@ -1541,7 +1514,7 @@ class CheckpointFile:
         if element.family() == "Real":
             assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
-            tf.dat.data[...] = value
+            tf.dat.buffer._current_device_array[...] = value
         else:
             if path in self.h5pyfile:
                 timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")
@@ -1580,7 +1553,7 @@ class CheckpointFile:
                         + [str(block_size)])
 
     def _get_shared_data_key_for_checkpointing(self, mesh, ufl_element):
-        finat_element = create_element(ufl_element)
+        finat_element = impl.create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
@@ -1595,13 +1568,11 @@ class CheckpointFile:
 
     def _get_dm_for_checkpointing(self, tV):
         sd_key = self._get_shared_data_key_for_checkpointing(tV.mesh(), tV.ufl_element())
-        if isinstance(tV.ufl_element(), (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            nodes_per_entity, real_tensorproduct, block_size = sd_key
-            global_numbering, _ = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
-            topology_dm = tV.mesh().topology_dm
+        if isinstance(tV.mesh(), ExtrudedMeshTopology):
+            topology_dm = tV.mesh()._base_mesh.topology_dm
             dm = PETSc.DMShell().create(tV.mesh().comm)
             dm.setPointSF(topology_dm.getPointSF())
-            dm.setSection(global_numbering)
+            dm.setSection(tV._base_mesh_section)
         else:
             dm = tV.dm
         dm.setName(self._generate_dm_name(*sd_key))

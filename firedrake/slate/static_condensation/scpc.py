@@ -87,7 +87,7 @@ class SCPC(SCBase):
         """
         self.weight = Function(Vc)
         par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
-        with self.weight.dat.vec as wc:
+        with self.weight.dat.vec_rw as wc:
             wc.reciprocal()
 
         # Get expressions for the condensed linear system

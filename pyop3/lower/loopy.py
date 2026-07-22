@@ -1,0 +1,1184 @@
+from __future__ import annotations
+
+import abc
+import collections
+import contextlib
+import ctypes
+import dataclasses
+import enum
+import functools
+import os
+import numbers
+import textwrap
+import warnings
+import weakref
+from collections.abc import Mapping
+from functools import cached_property
+from typing import Any
+from weakref import WeakValueDictionary
+
+from cachetools import cachedmethod
+from petsc4py import PETSc
+
+import loopy as lp
+import numpy as np
+import pymbolic as pym
+from immutabledict import immutabledict as idict
+
+import pyop3.axis_tree
+import pyop3.cache
+import pyop3.config
+import pyop3.constants
+import pyop3.dtypes
+import pyop3.expr
+from pyop3 import utils, mpi
+from pyop3.cache import memory_and_disk_cache
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.expr import NonlinearDatBufferExpression
+from pyop3.expr.visitors import collect_axis_vars, replace
+from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
+from pyop3.dtypes import IntType
+from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
+from pyop3.insn.base import (
+    AbstractAssignment,
+    Exscan,
+    NullInstruction,
+    assignment_type_as_intent,
+    AssignmentType,
+    ConcretizedNonEmptyArrayAssignment,
+    StandaloneCalledFunction,
+    Loop,
+    InstructionList,
+)
+# TODO: import other way around?
+from pyop3.insn.exec import parse_compiler_parameters
+
+
+# FIXME this needs to be synchronised with TSFC, tricky
+# shared base package? or both set by Firedrake - better solution
+LOOPY_TARGET = lp.CWithGNULibcTarget()
+LOOPY_LANG_VERSION = (2018, 2)
+
+
+class CodegenContext(abc.ABC):
+    pass
+
+
+class LoopyCodegenContext(CodegenContext):
+    def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+        self.propagate_negatives = propagate_negatives
+        self.mask_array_accesses = mask_array_accesses
+
+        self._domains = []
+        self._instructions = []
+        self._arguments = []
+        self._subkernels = []
+
+        self._within_inames = frozenset()
+        self._last_insn_id = None
+
+        self._name_generator = utils.UniqueNameGenerator()
+
+        # buffer name -> name in kernel
+        self._kernel_names = {}
+
+        # buffer name -> buffer
+        self.global_buffers = {}
+        self.global_buffer_intents = {}
+
+        # initializer hash -> temporary name
+        self._reusable_temporaries: dict[int, str] = {}
+
+        # assignee name -> indirection expression
+        self._assignees = {}
+
+    @property
+    def domains(self) -> tuple:
+        return tuple(self._domains)
+
+    @property
+    def instructions(self) -> tuple:
+        return tuple(self._instructions)
+
+    @property
+    def arguments(self) -> tuple:
+        return tuple(sorted(self._arguments, key=lambda arg: arg.name))
+
+    @property
+    def subkernels(self) -> tuple:
+        return tuple(self._subkernels)
+
+    def add_domain(self, iname, *args):
+        nargs = len(args)
+        if nargs == 1:
+            start, stop = 0, args[0]
+        else:
+            assert nargs == 2
+            start, stop = args[0], args[1]
+        domain_str = f"{{ [{iname}]: {start} <= {iname} < {stop} }}"
+        self._domains.append(domain_str)
+
+    def add_assignment(self, assignee, expression, prefix="insn"):
+        insn = lp.Assignment(
+            assignee,
+            expression,
+            id=self._name_generator(prefix),
+            within_inames=frozenset(self._within_inames),
+            depends_on=self._depends_on,
+            depends_on_is_final=True,
+        )
+        self._add_instruction(insn)
+
+    def add_cinstruction(self, insn_str, read_variables=frozenset()):
+        cinsn = lp.CInstruction(
+            (),
+            insn_str,
+            read_variables=frozenset(read_variables),
+            id=self.unique_name("insn"),
+            within_inames=self._within_inames,
+            within_inames_is_final=True,
+            depends_on=self._depends_on,
+        )
+        self._add_instruction(cinsn)
+
+    def add_function_call(self, assignees, expression, prefix="insn"):
+        insn = lp.CallInstruction(
+            assignees,
+            expression,
+            id=self._name_generator(prefix),
+            within_inames=self._within_inames,
+            within_inames_is_final=True,
+            depends_on=self._depends_on,
+            depends_on_is_final=True,
+        )
+
+        self._add_instruction(insn)
+
+    def add_buffer(self, buffer, intent: pyop3.constants.Intent | None = None) -> str:
+        # TODO: This should check to make sure that we do not encounter any
+        # loop-carried dependencies. For that to work we need to track the intent and
+        # the indirection expression. Something like:
+        #
+        #   for i
+        #     dat1[i] = ???
+        #     dat2[i] = dat1[map1[i]]
+        #
+        # is illegal, but
+        #
+        #   for i
+        #     dat1[2*i] = ???
+        #     dat2[i] = dat1[2*i]
+        #
+        # is not.
+        if buffer.is_nested:
+            raise NotImplementedError("Currently handle nesting outside the generated code")
+
+        buffer_key = (buffer.name, buffer.nest_indices)
+        if isinstance(buffer, NullBuffer):
+            assert not buffer.nest_indices
+            # 'intent' is not important for temporaries
+            if buffer_key in self._kernel_names:
+                return self._kernel_names[buffer_key]
+            shape = self._temporary_shapes.get(buffer_key, (buffer.size,))
+            assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
+            name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
+        else:
+            if intent is None:
+                raise ValueError("Global data must declare intent")
+
+            if buffer_key in self._kernel_names:
+                if intent != self.global_buffer_intents[buffer_key]:
+                    # We are accessing a buffer with different intents so have to
+                    # pessimally claim RW access
+                    self.global_buffer_intents[buffer_key] = RW
+                return self._kernel_names[buffer_key]
+
+            if isinstance(buffer.handle, np.ndarray):
+                # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
+                # that it is correctly included in the cache key).
+                # Inject constant buffer data into the generated code if sufficiently small
+                # if (
+                #     buffer.rank_equal
+                #     and isinstance(buffer.size, numbers.Integral)
+                #     and buffer.size < CONFIG.max_static_array_size
+                # ):
+                #     return self.add_temporary(
+                #         "t",
+                #         buffer.dtype,
+                #         initializer=buffer.data_ro,
+                #         shape=buffer.data_ro.shape,
+                #         read_only=True,
+                #     )
+
+                if isinstance(buffer.dtype, np.dtypes.IntDType):
+                    name_in_kernel = self.unique_name("idat")
+                else:
+                    name_in_kernel = self.unique_name("dat")
+
+                # If the buffer is being passed straight through to a function then we
+                # have to make sure that the shapes match
+                shape = self._temporary_shapes.get(buffer_key, None)
+                loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
+            else:
+                assert isinstance(buffer, PetscMatBuffer)
+                assert buffer.mat_type not in {"nest", "python"}
+
+                name_in_kernel = self.unique_name("mat")
+                loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
+
+            self.global_buffers[buffer_key] = buffer
+            self.global_buffer_intents[buffer_key] = intent
+            self._arguments.append(loopy_arg)
+
+        self._kernel_names[buffer_key] = name_in_kernel
+        return name_in_kernel
+
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
+        # If multiple temporaries with the same initializer are used then they
+        # can be shared.
+        can_reuse = initializer is not None and read_only
+        if can_reuse:
+            key = initializer.data.tobytes()
+            if key in self._reusable_temporaries:
+                return self._reusable_temporaries[key]
+
+        name_in_kernel = self.unique_name(prefix)
+        arg = lp.TemporaryVariable(
+            name_in_kernel,
+            dtype=dtype,
+            shape=shape,
+            initializer=initializer,
+            read_only=read_only,
+            address_space=lp.AddressSpace.LOCAL,
+        )
+        self._arguments.append(arg)
+
+        if can_reuse:
+            self._reusable_temporaries[key] = name_in_kernel
+
+        return name_in_kernel
+
+    def add_opaque(self, opaque: OpaqueTerminal, intent) -> str:
+        if opaque in self._kernel_names:
+            return self._kernel_names[opaque]
+
+        name_in_kernel = self.unique_name("opaque")
+        loopy_arg = lp.ValueArg(name_in_kernel, dtype=opaque.dtype)
+
+        self.global_buffers[opaque] = opaque
+        self.global_buffer_intents[opaque] = intent
+        self._arguments.append(loopy_arg)
+        self._kernel_names[opaque] = name_in_kernel
+        return name_in_kernel
+
+    def add_subkernel(self, subkernel):
+        self._subkernels.append(subkernel)
+
+    def unique_name(self, prefix):
+        return self._name_generator(prefix)
+
+    @contextlib.contextmanager
+    def within_inames(self, inames) -> None:
+        orig_within_inames = self._within_inames
+        self._within_inames |= inames
+        yield
+        self._within_inames = orig_within_inames
+
+    # FIXME, bad API but it is context-dependent
+    def set_temporary_shapes(self, shapes):
+        self._temporary_shapes = shapes
+
+    @property
+    def _depends_on(self):
+        return frozenset({self._last_insn_id}) - {None}
+
+    def _add_instruction(self, insn):
+        self._instructions.append(insn)
+        self._last_insn_id = insn.id
+
+
+class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
+    """
+    The LACallable (Linear algebra callable)
+    replaces loopy.CallInstructions to linear algebra functions
+    like solve or inverse by LAPACK calls.
+    """
+    def __init__(self, name=None, arg_id_to_dtype=None,
+                 arg_id_to_descr=None, name_in_target=None):
+        if name is not None:
+            assert name == self.name
+
+        name_in_target = name_in_target if name_in_target else self.name
+        super(LACallable, self).__init__(self.name,
+                                         arg_id_to_dtype=arg_id_to_dtype,
+                                         arg_id_to_descr=arg_id_to_descr,
+                                         name_in_target=name_in_target)
+
+    @abc.abstractproperty
+    def name(self):
+        pass
+
+    @abc.abstractmethod
+    def generate_preambles(self, target):
+        pass
+
+    def with_types(self, arg_id_to_dtype, callables_table):
+        dtypes = {}
+        for i in range(len(arg_id_to_dtype)):
+            if arg_id_to_dtype.get(i) is None:
+                # the types provided aren't mature enough to specialize the
+                # callable
+                return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
+                        callables_table)
+            else:
+                mat_dtype = arg_id_to_dtype[i].numpy_dtype
+                dtypes[i] = lp.types.NumpyType(mat_dtype)
+        dtypes[-1] = lp.types.NumpyType(dtypes[0].dtype)
+
+        return (self.copy(name_in_target=self.name_in_target,
+                arg_id_to_dtype=idict(dtypes)),
+                callables_table)
+
+    def emit_call_insn(self, insn, target, expression_to_code_mapper):
+        assert self.is_ready_for_codegen()
+        assert isinstance(insn, lp.CallInstruction)
+
+        parameters = insn.expression.parameters
+
+        parameters = list(parameters)
+        par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
+
+        parameters.append(insn.assignees[-1])
+        par_dtypes.append(self.arg_id_to_dtype[0])
+
+        mat_descr = self.arg_id_to_descr[0]
+        arg_c_parameters = [
+            expression_to_code_mapper(
+                par,
+                pym.mapper.stringifier.PREC_NONE,
+                lp.expression.dtype_to_type_context(target, par_dtype),
+                par_dtype
+            ).expr
+            for par, par_dtype in zip(parameters, par_dtypes)
+        ]
+        c_parameters = [arg_c_parameters[-1]]
+        c_parameters.extend([arg for arg in arg_c_parameters[:-1]])
+        c_parameters.append(np.int32(mat_descr.shape[1]))  # n
+        return pym.var(self.name_in_target)(*c_parameters), False
+
+
+# Read c files  for linear algebra callables in on import
+if mpi.COMM_WORLD.rank == 0:
+    with open(os.path.dirname(__file__)+"/inverse.c", "r") as myfile:
+        inverse_preamble = myfile.read()
+    with open(os.path.dirname(__file__)+"/solve.c", "r") as myfile:
+        solve_preamble = myfile.read()
+else:
+    solve_preamble = None
+    inverse_preamble = None
+
+inverse_preamble = mpi.COMM_WORLD.bcast(inverse_preamble, root=0)
+solve_preamble = mpi.COMM_WORLD.bcast(solve_preamble, root=0)
+
+
+class INVCallable(LACallable):
+    """
+    The InverseCallable replaces loopy.CallInstructions to "inverse"
+    functions by LAPACK getri.
+    """
+    name = "inverse"
+
+    def generate_preambles(self, target):
+        assert isinstance(target, type(target))
+        yield ("inverse", inverse_preamble)
+
+
+class SolveCallable(LACallable):
+    """
+    The SolveCallable replaces loopy.CallInstructions to "solve"
+    functions by LAPACK getrs.
+    """
+    name = "solve"
+
+    def generate_preambles(self, target):
+        assert isinstance(target, type(target))
+        yield ("solve", solve_preamble)
+
+
+def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+    # NOTE: is config valid to include here?
+    return (op.disk_cache_key, compiler_parameters, pyop3.config)
+
+
+# NOTE: Some of this code is not specific to loopy, could be refactored
+# This is generally a bit nasty and abstraction breaking because it relies on attrs
+# of the InstructionExecutionContext
+@pyop3.cache.memory_and_disk_cache(
+    hashkey=_compile_static_hashkey,
+    get_comm=lambda op, *args, **kwargs: op.comm,
+)
+def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
+    """Compile the operation without regard for specific data values.
+
+    This function is therefore suitable for disk caching.
+
+    Returns
+    -------
+    TU
+    datamap
+
+    """
+    insn = op.preprocess()
+    function_name = "pyop3_loop"  # TODO: Provide as kwarg
+
+    if isinstance(insn, InstructionList):
+        cs_expr = insn.instructions
+    else:
+        cs_expr = (insn,)
+
+    context = LoopyCodegenContext(
+        propagate_negatives=compiler_parameters.propagate_negatives,
+        mask_array_accesses=compiler_parameters.mask_array_accesses,
+    )
+    # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
+    # explicitly dealing with contexts at this point. Can always sniff them out again.
+    # for context, ex in cs_expr:
+    for ex in cs_expr:
+        # ex = expand_implicit_pack_unpack(ex)
+
+        # add external loop indices as kernel arguments
+        # FIXME: removed because cs_expr needs to sniff the context now
+        loop_indices = {}
+
+        for e in utils.as_tuple(ex): # TODO: get rid of this loop
+            # context manager?
+            context.set_temporary_shapes(_collect_temporary_shapes(e))
+            _compile(e, loop_indices, context)
+
+    if not context.global_buffers:
+        raise pyop3.exceptions.EffectlessComputationException(
+            "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
+        )
+
+    # add a no-op instruction touching all of the kernel arguments so they are
+    # not silently dropped
+    noop = lp.CInstruction(
+        (),
+        "",
+        read_variables=frozenset({a.name for a in context.arguments}),
+        within_inames=frozenset(),
+        within_inames_is_final=True,
+        depends_on=context._depends_on,
+    )
+    context._instructions.append(noop)
+
+    preambles = [
+        ("20_debug", "#include <stdio.h>"),  # dont always inject
+        ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
+    ]
+
+    translation_unit = lp.make_kernel(
+        context.domains,
+        context.instructions,
+        context.arguments,
+        name=function_name,
+        target=LOOPY_TARGET,
+        lang_version=LOOPY_LANG_VERSION,
+        preambles=preambles,
+    )
+    translation_unit = lp.merge((translation_unit, *context.subkernels))
+
+    entrypoint = translation_unit.default_entrypoint
+    if compiler_parameters.add_likwid_markers:
+        entrypoint = with_likwid_markers(entrypoint)
+    if compiler_parameters.add_petsc_event:
+        entrypoint = with_petsc_event(entrypoint)
+    if compiler_parameters.attach_debugger:
+        entrypoint = with_attach_debugger(entrypoint)
+    translation_unit = translation_unit.with_kernel(entrypoint)
+
+    kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
+    buffer_index_map = {}
+    for kernel_arg in entrypoint.args:
+        buffer_key = kernel_to_buffer_names[kernel_arg.name]
+        buffer_ref = context.global_buffers[buffer_key]
+        buffer_index = op.preprocessed_buffers.index(buffer_ref)
+        intent = context.global_buffer_intents[buffer_key]
+        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
+
+    return translation_unit, buffer_index_map
+
+
+
+# put into a class in transform.py?
+@functools.singledispatch
+def _collect_temporary_shapes(expr):
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+
+@_collect_temporary_shapes.register(InstructionList)
+def _(insn_list: InstructionList, /) -> idict:
+    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+
+
+@_collect_temporary_shapes.register(Loop)
+def _(loop: Loop, /):
+    shapes = {}
+    for stmt in loop.statements:
+        for temp, shape in _collect_temporary_shapes(stmt).items():
+            if shape is None:
+                continue
+            if temp in shapes:
+                assert shapes[temp] == shape
+            else:
+                shapes[temp] = shape
+    return shapes
+
+
+@_collect_temporary_shapes.register(AbstractAssignment)
+@_collect_temporary_shapes.register(NullInstruction)
+@_collect_temporary_shapes.register(Exscan)  # assume we are fine
+def _(assignment: AbstractAssignment, /) -> idict:
+    return idict()
+
+
+@_collect_temporary_shapes.register
+def _(call: StandaloneCalledFunction):
+    return idict(
+        {
+            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
+            )
+            if isinstance(lp_arg, lp.ArrayArg)
+        }
+    )
+
+
+@functools.singledispatch
+def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+
+@_compile.register(NullInstruction)
+def _(null: NullInstruction, *args, **kwargs):
+    pass
+
+
+@_compile.register(InstructionList)
+def _(insn_list: InstructionList, /, loop_indices, ctx) -> None:
+    for insn in insn_list:
+        _compile(insn, loop_indices, ctx)
+
+
+@_compile.register(Loop)
+def _(
+    loop,
+    loop_indices,
+    codegen_context: LoopyCodegenContext,
+) -> None:
+    parse_loop_properly_this_time(
+        loop,
+        loop.index.iterset,
+        loop_indices,
+        codegen_context,
+    )
+
+
+def parse_loop_properly_this_time(
+    loop,
+    axis_tree,
+    loop_indices,
+    codegen_context,
+    *,
+    axis=None,
+    path=None,
+    iname_map=None,
+) -> None:
+    if axis_tree is UNIT_AXIS_TREE:
+        # NOTE: might need an expression here sometimes
+        for statement in loop.statements:
+            _compile(
+                statement,
+                # loop_indices | dict(loop_exprs),
+                loop_indices,
+                codegen_context,
+            )
+        return
+
+    if utils.strictly_all(x is None for x in {axis, path, iname_map}):
+        axis = axis_tree.root
+        path = idict()
+        iname_map = idict()
+
+    for component in axis.components:
+        path_ = path | {axis.label: component.label}
+
+        if axis_tree.linearize(path_, partial=True).size == 0:
+            continue
+        elif component.size != 1:
+            iname = codegen_context.unique_name("i")
+            domain_var = register_extent(
+                component.size,
+                iname_map,
+                loop_indices,
+                codegen_context,
+            )
+            codegen_context.add_domain(iname, domain_var)
+            iname_replace_map_ = iname_map | {axis.label: pym.var(iname)}
+            within_inames = frozenset({iname})
+        else:
+            iname_replace_map_ = iname_map | {axis.label: 0}
+            within_inames = set()
+
+        with codegen_context.within_inames(within_inames):
+            if subaxis := axis_tree.node_map[path_]:
+                parse_loop_properly_this_time(
+                    loop,
+                    axis_tree,
+                    loop_indices,
+                    codegen_context,
+                    axis=subaxis,
+                    path=path_,
+                    iname_map=iname_replace_map_,
+                )
+            else:
+                loop_indices |= idict({
+                    (loop.index.id, axis_label): iname
+                    for axis_label, iname in iname_replace_map_.items()
+                })
+                for statement in loop.statements:
+                    _compile(
+                        statement,
+                        loop_indices,
+                        codegen_context,
+                    )
+
+
+@_compile.register
+def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext) -> None:
+    subarrayrefs = {}
+    loopy_args = call.function.code.default_entrypoint.args
+    for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+        if isinstance(loopy_arg, lp.ArrayArg):
+            # array arguments to an inner kernel require all strides to be defined
+            indices = []
+            for s in loopy_arg.shape:
+                iname = context.unique_name("i")
+                context.add_domain(iname, s)
+                indices.append(pym.var(iname))
+            indices = tuple(indices)
+            subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+                indices, pym.var(name_in_kernel)[indices]
+            )
+        else:
+            assert isinstance(loopy_arg, lp.ValueArg)
+            subarrayrefs[arg] = pym.var(name_in_kernel)
+
+    assignees = tuple(
+        subarrayrefs[arg]
+        for arg, spec in zip(call.arguments, call.argspec, strict=True)
+        if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
+    )
+    expression = pym.primitives.Call(
+        pym.var(call.function.code.default_entrypoint.name),
+        tuple(
+            subarrayrefs[arg]
+            for arg, spec in zip(call.arguments, call.argspec, strict=True)
+            if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
+        ),
+    )
+
+    context.add_function_call(assignees, expression)
+    subkernel = call.function.code.with_entrypoints(frozenset())
+    context.add_subkernel(subkernel)
+
+
+@_compile.register(ConcretizedNonEmptyArrayAssignment)
+def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
+    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
+        _compile_petsc_mat(assignment, loop_indices, context)
+    else:
+        compile_array_assignment(
+            assignment,
+            loop_indices,
+            context,
+            assignment.axis_trees,
+        )
+
+
+def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
+    # We need to know whether the matrix is the assignee or not because we need
+    # to know whether to put MatGetValues or MatSetValues
+    if isinstance(assignment.assignee.buffer, PetscMatBuffer):
+        mat = assignment.assignee
+        expr = assignment.expression
+        setting_mat_values = True
+    else:
+        mat = assignment.expression
+        expr = assignment.assignee
+        setting_mat_values = False
+
+
+    row_axis_tree, column_axis_tree = assignment.axis_trees
+
+    assert isinstance(expr, pyop3.expr.BufferExpression)
+    array_buffer = expr.buffer
+
+    # now emit the right line of code, this should properly be a lp.ScalarCallable
+    # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
+    mat_name = context.add_buffer(mat.buffer, assignment_type_as_intent(assignment.assignment_type))
+
+    # NOTE: Is this always correct? It is for now.
+    array_name = context.add_buffer(array_buffer, READ)
+
+    rsize = row_axis_tree.size
+    csize = column_axis_tree.size
+
+    # these sizes can be expressions that need evaluating
+    rsize_var = register_extent(
+        rsize,
+        {},
+        loop_indices,
+        context,
+    )
+
+    csize_var = register_extent(
+        csize,
+        {},
+        loop_indices,
+        context,
+    )
+
+    # convert the generic expressions to 
+    # for example:
+    #
+    #   map0[3*i0 + i1]
+    #   map0[3*i0 + i2 + 3]
+    #
+    # to the shared top-level layout:
+    #
+    #   map0[3*i0]
+    #
+    # which is what Mat{Get,Set}Values() needs.
+    layout_exprs = []
+    for layout in [mat.row_layout, mat.column_layout]:
+        subst_sublayout = layout.layouts[idict()]
+        subst_layout = pyop3.expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
+        layout_exprs.append(layout_expr)
+    irow, icol = layout_exprs
+
+    # FIXME:
+    blocked = False
+
+    # hacky
+    myargs = [
+        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+    ]
+    if setting_mat_values:
+        match assignment.assignment_type:
+            case AssignmentType.WRITE:
+                call_str = _petsc_mat_store(*myargs)
+            case AssignmentType.INC:
+                call_str = _petsc_mat_add(*myargs)
+            case _:
+                raise AssertionError
+    else:
+        call_str = _petsc_mat_load(*myargs)
+
+    context.add_cinstruction(call_str)
+
+
+def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+    else:
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+
+
+def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+    else:
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+
+
+def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+    else:
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+
+# TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
+def compile_array_assignment(
+    assignment,
+    loop_indices,
+    codegen_context,
+    axis_trees,
+    *,
+    iname_replace_maps=None,
+    # TODO document these under "Other Parameters"
+    axis_tree=None,
+    paths=None,
+):
+    if paths is None:
+        paths = []
+    if iname_replace_maps is None:
+        iname_replace_maps = []
+
+    if axis_tree is None:
+        axis_tree, *axis_trees = axis_trees
+
+        paths += [idict()]
+        iname_replace_maps += [idict()]
+
+        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, IndexedAxisTree):
+            if axis_trees:
+                raise NotImplementedError("need to refactor code here")
+
+            add_leaf_assignment(
+                assignment,
+                paths,
+                iname_replace_maps,
+                codegen_context,
+                loop_indices,
+            )
+            return
+
+    axis = axis_tree.node_map[paths[-1]]
+
+    for component in axis.components:
+        new_paths = paths.copy()
+        new_paths[-1] = paths[-1] | {axis.label: component.label}
+
+        # If the subtree below this is zero-sized then don't do anything
+        if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
+            continue
+        elif component.size != 1:
+            iname = codegen_context.unique_name("i")
+
+            extent_var = register_extent(
+                component.size,
+                iname_replace_maps[-1],
+                loop_indices,
+                codegen_context,
+            )
+            codegen_context.add_domain(iname, extent_var)
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: pym.var(iname)}
+            within_inames = {iname}
+        else:
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
+            within_inames = set()
+
+        with codegen_context.within_inames(within_inames):
+            if axis_tree.node_map[new_paths[-1]]:
+                compile_array_assignment(
+                    assignment,
+                    loop_indices,
+                    codegen_context,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=axis_tree,
+                    paths=new_paths,
+                )
+            elif axis_trees:
+                compile_array_assignment(
+                    assignment,
+                    loop_indices,
+                    codegen_context,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=None,
+                    paths=new_paths,
+                )
+            else:
+                add_leaf_assignment(
+                    assignment,
+                    new_paths,
+                    new_iname_replace_maps,
+                    codegen_context,
+                    loop_indices,
+                )
+
+
+def add_leaf_assignment(
+    assignment,
+    paths,
+    iname_replace_maps,
+    codegen_context,
+    loop_indices,
+):
+    intent = assignment_type_as_intent(assignment.assignment_type)
+    lexpr = lower_expr(
+        assignment.assignee,
+        iname_replace_maps,
+        loop_indices,
+        codegen_context,
+        intent=intent,
+        paths=paths,
+    )
+    rexpr = lower_expr(
+        assignment.expression,
+        iname_replace_maps,
+        loop_indices,
+        codegen_context,
+        paths=paths,
+    )
+
+    if assignment.assignment_type == AssignmentType.INC:
+        rexpr = lexpr + rexpr
+
+    if codegen_context.mask_array_accesses:
+        # a[off_a] = off_b < 0 ? a[off_a] : b[off_b]
+        offset_expr = _min_subscript_offset(rexpr)
+        # if there are no subcripts then the mask is pointless
+        if offset_expr is not None:
+            cond = pym.primitives.Comparison(offset_expr, "<", 0)
+            rexpr = pym.primitives.If(cond, lexpr, rexpr)
+
+    codegen_context.add_assignment(lexpr, rexpr)
+
+
+@_compile.register(Exscan)
+def _(exscan: Exscan, loop_indices, context) -> None:
+    if exscan.scan_type != "+":
+        raise NotImplementedError
+    domain_var = register_extent(
+        exscan.extent,
+        {},
+        loop_indices,
+        context,
+    )
+    iname = context.unique_name("i")
+    context.add_domain(iname, domain_var)
+
+    lexpr = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)+1}], loop_indices, context, intent=WRITE)
+    lexpr2 = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+    rexpr = lower_expr(exscan.expression, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+
+    rexpr = lexpr2 + rexpr
+    context.add_assignment(lexpr, rexpr)
+
+
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None) -> pym.Expression:
+    return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths)
+
+
+# TODO: use overloadedexpressionevaluator
+@functools.singledispatch
+def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@_lower_expr.register(numbers.Number)
+def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
+    return num
+
+
+@_lower_expr.register(pyop3.expr.Add)
+def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Sub)
+def _(sub: pyop3.expr.Sub, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(sub.a, *args, **kwargs) - _lower_expr(sub.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Mul)
+def _(mul: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Modulo)
+def _(mod: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Or)
+def _(or_: pyop3.expr.Or, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
+
+
+@_lower_expr.register(pyop3.expr.Neg)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
+    return -_lower_expr(neg.a, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.FloorDiv)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Comparison)
+def _(cond, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.Comparison(
+        _lower_expr(cond.a, *args, **kwargs),
+        cond._symbol,
+        _lower_expr(cond.b, *args, **kwargs),
+    )
+
+
+@_lower_expr.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+    return utils.just_one(iname_maps)[axis_var.axis.label]
+
+
+@_lower_expr.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
+    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
+
+
+@_lower_expr.register(pyop3.expr.Scalar)
+def _(scalar: pyop3.expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
+    buffer_ref = scalar.buffer
+    name_in_kernel = context.add_buffer(buffer_ref, intent)
+    return pym.subscript(pym.var(name_in_kernel), (0,))
+
+
+@_lower_expr.register(pyop3.expr.ScalarBufferExpression)
+def _(expr: pyop3.expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [0], iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
+def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
+    path = utils.just_one(paths)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
+def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (mat_expr.row_layout.linearize(row_path), mat_expr.column_layout.linearize(column_path))
+    return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
+def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
+
+
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent) -> pym.Expression:
+    name_in_kernel = context.add_buffer(buffer, intent)
+
+    # At this point we know how to address each axis of the underlying buffer.
+    # This is sufficient to address a flat buffer, but for a buffer with more
+    # dimensions (i.e. a matrix) we have to do more work. As an example
+    # consider accessing a 2D buffer with shape (5, 5) using layout functions
+    # '2*i+1' and 'j+2' for the rows and columns respectively, where
+    # '0<=i<2' and '0<=j<3'. The offset expression that we want from this is:
+    #
+    #     5*(2*i+1) + (j+2)
+    #
+    # Which we can only determine from knowing the underlying buffer shape.
+    offset_expr = sum(
+        stride * lower_expr(layout, [iname_map], loop_indices, context)
+        for stride, layout, iname_map in zip(
+            utils.strides(buffer.shape),
+            layouts,
+            iname_maps,
+            strict=True
+        )
+    )
+
+    # Add some leading zeros to make loopy happy
+    indices = maybe_multiindex(buffer, offset_expr, context)
+
+    subscript = pym.subscript(pym.var(name_in_kernel), indices)
+    if context.propagate_negatives and intent == READ:
+        idx = indices[-1]  # only the final index has meaning
+        is_negative = pym.primitives.Comparison(idx, "<", 0)
+        return pym.primitives.If(is_negative, -1, subscript)
+    else:
+        return subscript
+
+
+def maybe_multiindex(buffer_ref, offset_expr, context):
+    # hack to handle the facbuffer.t that temporaries can have shape but we want to
+    # linearly index it here
+    buffer_key = (buffer_ref.name, buffer_ref.nest_indices)
+    if buffer_key in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer_key]
+        rank = len(shape)
+        extra_indices = (0,) * (rank - 1)
+
+        # also has to be a scalar, not an expression
+        temp_offset_name = context.add_temporary("j")
+        temp_offset_var = pym.var(temp_offset_name)
+        context.add_assignment(temp_offset_var, offset_expr)
+        indices = extra_indices + (temp_offset_var,)
+    else:
+        indices = (offset_expr,)
+
+    return indices
+
+
+@_lower_expr.register(pyop3.expr.Conditional)
+def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
+
+
+class _MinSubscriptOffsetMapper(pym.mapper.IdentityMapper):
+
+    def __init__(self):
+        self.subscript_found = False
+        super().__init__()
+
+    def map_sum(self, expr):
+        assert len(expr.children) == 2
+        a, b = map(self.rec, expr.children)
+        return pym.primitives.If(pym.primitives.Comparison(a, "<", b), a, b)
+
+    def map_subscript(self, expr):
+        self.subscript_found = True
+        # do not recurse
+        return utils.just_one(expr.index_tuple)
+
+
+def _min_subscript_offset(expr: pym.ExpressionNode) -> pym.ExpressionNode | None:
+    """Return an expression for the minimum subscript offset in an expression.
+
+    This is important because we sometimes need to be able to check if we are
+    indexing with negative values (and hence might want to mask the access).
+
+    If no subscripts are found then `None` is returned.
+
+    """
+    mapper = _MinSubscriptOffsetMapper()
+    mapped_expr = mapper(expr)
+    if mapper.subscript_found:
+        return mapped_expr
+    else:
+        return None
+
+
+@functools.singledispatch
+def register_extent(obj: Any, *args, **kwargs):
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@register_extent.register(numbers.Integral)
+def _(num: numbers.Integral, *args, **kwargs):
+    return num
+
+
+@register_extent.register(pyop3.expr.Expression)
+def _(expr: pyop3.expr.Expression, inames, loop_indices, context):
+    pym_expr = lower_expr(expr, [inames], loop_indices, context)
+    extent_name = context.add_temporary("p")
+    context.add_assignment(pym.var(extent_name), pym_expr)
+    return extent_name

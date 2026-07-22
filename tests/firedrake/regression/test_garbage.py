@@ -3,7 +3,7 @@ import re
 
 import pytest
 from mpi4py import MPI
-from pyop2.mpi import temp_internal_comm
+from pyop3.mpi import temp_internal_comm
 from pytest_mpi.parallel_assert import parallel_assert
 
 from firedrake import *

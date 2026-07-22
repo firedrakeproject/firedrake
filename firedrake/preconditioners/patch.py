@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ctypes
+import dataclasses
 import itertools
+import functools
+import numbers
 import textwrap
 import typing
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
@@ -13,7 +17,8 @@ from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
-from pyop2.datatypes import as_cstr
+from pyop3.dtypes import as_cstr
+from typing import Any
 
 import loopy as lp
 
@@ -27,17 +32,51 @@ from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 import petsctools
 
-import ctypes
-import pyop2.compilation
-from pyop2 import op2
-import pyop2.types
-from pyop2.mpi import COMM_SELF
+import pyop3 as op3
+import pyop3.compile
+from pyop3.mpi import COMM_SELF
 
 if typing.TYPE_CHECKING:
     from firedrake import Function
 
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
+
+
+@dataclasses.dataclass(frozen=True)
+class EntityNodeMap:
+    space: WithGeometry
+    integral_type: str
+
+    def __init__(self, space: WithGeometry, integral_type: str) -> None:
+        if len(space) > 1:
+            raise NotImplementedError("Not expecting a mixed space here")
+
+        object.__setattr__(self, "space", space)
+        object.__setattr__(self, "integral_type", integral_type)
+
+    dtype = PETSc.IntType
+
+    @property
+    def values(self) -> np.ndarray:
+        match self.integral_type:
+            case "cell":
+                return self.space.cell_node_map_dat.data_ro
+            case "interior_facet":
+                return self.space.interior_facet_node_map_dat.data_ro
+            case "exterior_facet":
+                return self.space.exterior_facet_node_map_dat.data_ro
+            case _:
+                raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
+
+    @property
+    def arity(self) -> int:
+        _, arity_ = self.values.shape
+        return arity_
+
+    @property
+    def cdim(self) -> int:
+        return self.space.block_size
 
 
 class PatchCallable:
@@ -75,7 +114,7 @@ class PatchCallable:
             "-lm",
         ]
         comm = self.form.arguments()[0].function_space().comm
-        dll = pyop2.compilation.load(
+        dll = pyop3.compile.load(
             self._callback_code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm
         )
         callback_name = "ComputeJacobian" if len(self.form.arguments()) == 2 else "ComputeResidual"
@@ -104,8 +143,8 @@ class PatchCallable:
         return ctypes.addressof(self._ctypes_struct)
 
     def _set_up(self) -> tuple[
-        list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant],
-        dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str],
+        list[tuple[op3.Dat, tuple[Hashable, np.ndarray] | None] | op3.Scalar],
+        dict[Hashable, str],
         int | None,
     ]:
         """Process ``form``, ``kinfo`` and ``state``.
@@ -113,20 +152,20 @@ class PatchCallable:
         Returns
         -------
         args
-            List of PyOP2 objects that are used in the wrapper kernel. The
+            List of pyop3 objects that are used in the wrapper kernel. The
             order matches the order that arguments are passed into the local
             kernel. The output tensor and optional state dat are not included.
             Dats are included as a 2-tuple of ``(dat, map)`` where ``map``
             can be `None`.
         names
-            Mapping from PyOP2 objects to their names in the wrapper kernel.
+            Mapping from pyop3 objects to their names in the wrapper kernel.
         state_index
             Index of the state coefficient in the local kernel. `None` if
             state is not provided.
 
         """
-        args: list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant] = []
-        names: dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str] = {}
+        args: list[tuple[op3.Dat, EntityNodeMap | None] | op3.Scalar] = []
+        names: dict[op3.Dat | op3.Scalar | EntityNodeMap, str] = {}
         state_index: int | None = None
 
         dat_name_counter = itertools.count()
@@ -136,8 +175,10 @@ class PatchCallable:
         def add_dat(dat, map_):
             if dat not in names:
                 names[dat] = f"dat_{next(dat_name_counter)}"
-            if map_ is not None and map_ not in names:
+            if isinstance(map_, EntityNodeMap):
                 names[map_] = f"map_{next(map_name_counter)}"
+            else:
+                assert isinstance(map_, numbers.Integral)
             args.append((dat, map_))
 
         def add_glob(glob):
@@ -146,7 +187,10 @@ class PatchCallable:
             args.append(glob)
 
         def add_coeff(coeff):
-            add_dat(coeff.dat, self._get_map(coeff.function_space()))
+            space = coeff.function_space()
+            if len(space) > 1:
+                raise NotImplementedError("Currently do not support adding mixed coefficients")
+            add_dat(coeff.dat, self._get_map(space))
 
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
@@ -179,9 +223,9 @@ class PatchCallable:
             add_glob(all_constants[constant_index].dat)
 
         if self.kinfo.integral_type == "interior_facet":
-            add_dat(self._mesh.interior_facets.local_facet_dat, None)
+            add_dat(self._mesh.interior_facet_local_facet_indices, 2)
         elif self.kinfo.integral_type == "exterior_facet":
-            add_dat(self._mesh.exterior_facets.local_facet_dat, None)
+            add_dat(self._mesh.exterior_facet_local_facet_indices, 1)
 
         return args, names, state_index
 
@@ -199,7 +243,7 @@ class PatchCallable:
             if isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 flat_args.append(dat)
-                if map_ is not None and map_ not in maps:
+                if isinstance(map_, EntityNodeMap) and map_ not in maps:
                     maps.append(map_)
             else:
                 flat_args.append(arg)
@@ -209,8 +253,8 @@ class PatchCallable:
     def _mesh(self):
         return extract_domains(self.form)[self.kinfo.domain_number]
 
-    def _get_map(self, space):
-        return space.entity_node_map(self._mesh.topological, self.kinfo.integral_type, None, None)
+    def _get_map(self, space: WithGeometry) -> EntityNodeMap:
+        return EntityNodeMap(space, self.kinfo.integral_type)
 
     @cached_property
     def _wrapper_kernel_code(self) -> str:
@@ -225,11 +269,10 @@ class PatchCallable:
         spaces = map(operator.methodcaller("function_space"), self.form.arguments())
         sizes = []
         for space in spaces:
-            map_ = self._get_map(space)
-            size = sum(
-                map_.arity*dset.cdim
-                for map_, dset in zip(map_, space.dof_dset, strict=True)
-            )
+            size = 0
+            for subspace in space:
+                map_ = self._get_map(subspace)
+                size += map_.arity * map_.cdim
             sizes.append(size)
         if len(self.form.arguments()) == 2:
             row_size, column_size = sizes
@@ -268,43 +311,26 @@ for (int32_t k=0; k<{size}; k++) {{
         for arg in self._args:
             if isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
-                cdim = dat.dataset.cdim
+                assert isinstance(dat, op3.Dat)
                 dat_name = self._names[dat]
-                if isinstance(dat, op2.Dat):
-                    if map_ is None:
-                        local_kernel_args.append(f"&({dat_name}[{cdim}*j])")
-                    else:
-                        temp_name = f"t_{next(temp_counter)}"
-                        map_name = self._names[map_]
-                        arity = map_.arity
-                        temps.append((temp_name, (arity, cdim)))
-                        local_kernel_args.append(temp_name)
+                if isinstance(map_, numbers.Integral):
+                    local_kernel_args.append(f"&({dat_name}[{map_}*j])")
+                else:
+                    arity, cdim = map_.arity, map_.cdim
 
-                        pack_insn = f"""\
+                    temp_name = f"t_{next(temp_counter)}"
+                    map_name = self._names[map_]
+                    temps.append((temp_name, (arity, cdim)))
+                    local_kernel_args.append(temp_name)
+
+                    pack_insn = f"""\
 for (int32_t k=0; k<{arity}; k++)
   for (int32_t l=0; l<{cdim}; l++)
     {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
-                        pack_insns.append(pack_insn)
-
-                else:
-                    # Real case, single value but need to duplicate it for interior facets
-                    assert isinstance(dat, op2.Global)
-                    if self.kinfo.integral_type.startswith("interior_facet"):
-                        temp_name = f"t_{next(temp_counter)}"
-                        temps.append((temp_name, (2, cdim)))
-                        local_kernel_args.append(temp_name)
-
-                        pack_insn = f"""\
-for (int32_t l=0; l<{cdim}; l++) {{
-  {temp_name}[l] = {dat_name}[l];
-  {temp_name}[{cdim}+l] = {dat_name}[l];
-}}"""
-                        pack_insns.append(pack_insn)
-                    else:
-                        local_kernel_args.append(self._names[dat])
+                    pack_insns.append(pack_insn)
 
             else:
-                assert isinstance(arg, op2.Global | op2.Constant)
+                assert isinstance(arg, op3.Scalar)
                 local_kernel_args.append(self._names[arg])
 
         # optional state, can be any of the coefficients
@@ -423,6 +449,9 @@ PetscErrorCode ComputeJacobian(PC pc,
     whichPoints     = filtpoints;
     activeDofsArray = filtdofs;
   }}
+
+  for (int i=0; i<npoints; i++) printf("%d, ", whichPoints[i]);
+  printf("\\n");
 
   if (npoints)
     {self._wrapper_kernel_call_insn};
@@ -545,13 +574,13 @@ PetscErrorCode ComputeResidual(PC pc,
         if self.kinfo.integral_type == "cell":
             point2facet = 0
         elif self.kinfo.integral_type == "interior_facet":
-            point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+            point2facet = self._mesh._point_to_interior_facet.ctypes.data
         else:
             assert self.kinfo.integral_type == "exterior_facet"
-            point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
+            point2facet = self._mesh._point_to_exterior_facet.ctypes.data
 
         struct_args = [
-            *(karg for arg in self._wrapper_kernel_args for karg in arg._kernel_args_),
+            *(_get_ctypes_arg(arg) for arg in self._wrapper_kernel_args),
             point2facet,
         ]
         return Struct(*struct_args)
@@ -623,7 +652,7 @@ def bcdofs(bc, ghost=True):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
             else:
-                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).block_size for j in range(idx))
+                offset += sum(Z.sub(j).axes.local_size * Z.sub(j).block_size for j in range(idx))
         else:
             raise NotImplementedError("How are you taking a .sub?")
 
@@ -639,7 +668,7 @@ def bcdofs(bc, ghost=True):
         stop = bs
     nodes = bc.nodes
     if not ghost:
-        nodes = nodes[nodes < Z.dof_dset.size]
+        nodes = nodes[nodes < Z.axes.owned.local_size]
 
     return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 
@@ -658,7 +687,7 @@ def select_entity(p, dm=None, exclude=None):
         return dm.getLabelValue(exclude, p) == -1
 
 
-class PlaneSmoother(object):
+class PlaneSmoother:
     @staticmethod
     def coords(dm, p, coordinates):
         coordinatesV = coordinates.function_space()
@@ -699,9 +728,9 @@ class PlaneSmoother(object):
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
             CGk = V.reconstruct(family="Lagrange")
-            coordinates = assemble(interpolate(coordinates, CGk, access=op2.MAX))
+            coordinates = assemble(interpolate(coordinates, CGk, access=op3.MAX))
 
-        select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
+        select = partial(select_entity, dm=dm, exclude="firedrake_is_ghost")
         entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
@@ -789,7 +818,6 @@ class PlaneSmoother(object):
 class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
-
         ctx = get_appctx(obj.getDM())
         if ctx is None:
             raise ValueError("No context found on form")
@@ -812,7 +840,7 @@ class PatchBase(PCSNESBase):
         self.ctx = ctx
         self.plex.setAttr("__firedrake_ctx__", weakref.proxy(ctx))
 
-        if mesh_unique.cell_set._extruded:
+        if mesh.extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
         # Validate the mesh overlap
@@ -935,17 +963,29 @@ class PatchBase(PCSNESBase):
                     )
 
         patch.setDM(self.plex)
-        patch.setPatchCellNumbering(mesh_unique._cell_numbering)
+        patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
+        if len(V) > 1:
+            # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
+            # like the cell node list instead of things like DMs, ISes and Sections.
+            # This means that things fall apart for mixed because we interleave the spaces.
+            # The answer is to use 'field_ises' for the mixed DM and such to convert
+            # the field-local sections into 'global' offsets.
+            # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
+            raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
+        if any(Vsub.boundary_set for Vsub in V):
+            # same reasoning as above but for restricted function spaces
+            raise NotImplementedError("PCPatch+RFS requires IS-related fixes in PETSc")
+
+        dms = [Vsub.dm for Vsub in V]
+        block_sizes = [Vsub.block_size for Vsub in V]
+        cell_node_maps = [Vsub.cell_node_map_dat.data_ro for Vsub in V]
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
-        patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         numpy.array([W.block_size for
-                                                      W in V], dtype=PETSc.IntType),
-                                         [W.cell_node_list for W in V],
-                                         offsets,
-                                         ghost_bc_nodes,
-                                         global_bc_nodes)
+        patch.setPatchDiscretisationInfo(
+            dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
+        )
+
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=obj)
@@ -1035,3 +1075,18 @@ class PatchSNES(SNESBase, PatchBase):
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
         pop_appctx(self.plex)
+
+
+@functools.singledispatch
+def _get_ctypes_arg(arg: Any):
+    op3.utils.raise_missing_dispatch_handler(arg)
+
+
+@_get_ctypes_arg.register
+def _(dat: op3.Dat):
+    return dat.buffer._lazy_data[op3.HOST_DEVICE].ctypes.data
+
+
+@_get_ctypes_arg.register
+def _(map_: EntityNodeMap):
+    return map_.values.ctypes.data

@@ -9,7 +9,7 @@ from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
 from ufl import grad, SpatialCoordinate
 from finat.ufl import FiniteElement, TensorElement, VectorElement
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 __all__ = ("HypreAMS",)
 

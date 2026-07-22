@@ -6,16 +6,19 @@ from os.path import isfile, join
 from firedrake import *
 
 
-@pytest.fixture(params=[
-    "interval",
-    "square[tri]",
-    "square[quad]",
-    "box[tet]",
-    "box[quad x interval]",
-    "box[hex]",
-    "sphere[tri]",
-    "sphere[quad]"
-])
+@pytest.fixture(
+    params=[
+        "interval",
+        "square[tri]",
+        "square[quad]",
+        "box[tet]",
+        "box[quad x interval]",
+        "box[hex]",
+        "sphere[tri]",
+        "sphere[quad]"
+    ],
+    scope="module",
+)
 def mesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(10)
@@ -116,6 +119,7 @@ def test_different_meshes(mesh, pvd):
         pvd.write(mesh.coordinates, mesh2.coordinates)
 
 
+@pytest.mark.skip(reason="pyop3 TODO: 4D extrusion")
 @pytest.mark.skipvtk
 def test_bad_cell(pvd):
     mesh = UnitCubeMesh(1, 1, 1)

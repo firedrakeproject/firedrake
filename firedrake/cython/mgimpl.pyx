@@ -16,14 +16,14 @@ include "petschdr.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
+def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
     """
     Given a section numbering a type of topological entity, return the
     renumberings from original plex numbers to new firedrake numbers
     (and vice versa)
 
     :arg plex: The DMPlex object
-    :arg section: The Section defining the renumbering
+    :arg numbering: The renumbering
     :arg entity_type: The type of entity (either ``"cell"`` or
         ``"vertex"``)
     """
@@ -44,11 +44,9 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     new_to_old = np.empty(end - start, dtype=PETSc.IntType)
 
     for p in range(start, end):
-        CHKERR(PetscSectionGetDof(section.sec, p, &ndof))
-        if ndof > 0:
-            CHKERR(PetscSectionGetOffset(section.sec, p, &entity))
-            new_to_old[entity] = p - start
-            old_to_new[p - start] = entity
+        entity = numbering.getOffset(p)
+        new_to_old[entity] = p - start
+        old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
 
@@ -58,58 +56,32 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     cdef:
         np.ndarray fine_map, coarse_map, coarse_to_fine_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, l, m, node, fine, layer
+        PetscInt i, j, k, l, m, node, fine
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
-        PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
-        bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_map_dat.data_ro
+    coarse_map = Vc.cell_node_map_dat.data_ro
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
-    extruded = Vc.extruded
-
-    if extruded:
-        coarse_offset = Vc.offset
-        fine_offset = Vf.offset
-        coarse_layers = Vc.mesh().layers - 1
-        fine_layers = Vf.mesh().layers - 1
-
-        ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
     coarse_cells = coarse_map.shape[0]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
 
     ndof = fine_per_cell * fine_cell_per_coarse_cell
-    if extruded:
-        ndof *= ratio
-    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
-                                  ndof),
-                                 -1,
-                                 dtype=IntType)
+    coarse_to_fine_map = np.full(
+        (Vc.axes.local_size//Vc.block_size, ndof),
+        -1,
+        dtype=IntType,
+    )
     for i in range(coarse_cells):
         for j in range(coarse_per_cell):
             node = coarse_map[i, j]
-            if extruded:
-                for coarse_layer in range(coarse_layers):
-                    k = 0
-                    for l in range(fine_cell_per_coarse_cell):
-                        fine = coarse_to_fine_cells[i, l]
-                        for layer in range(ratio):
-                            fine_layer = coarse_layer * ratio + layer
-                            for m in range(fine_per_cell):
-                                coarse_to_fine_map[node + coarse_offset[j]*coarse_layer, k] = (fine_map[fine, m] +
-                                                                                               fine_offset[m]*fine_layer)
-                                k += 1
-            else:
-                k = 0
-                for l in range(fine_cell_per_coarse_cell):
-                    fine = coarse_to_fine_cells[i, l]
-                    for m in range(fine_per_cell):
-                        coarse_to_fine_map[node, k] = fine_map[fine, m]
-                        k += 1
+            k = 0
+            for l in range(fine_cell_per_coarse_cell):
+                fine = coarse_to_fine_cells[i, l]
+                for m in range(fine_per_cell):
+                    coarse_to_fine_map[node, k] = fine_map[fine, m]
+                    k += 1
 
     return coarse_to_fine_map
 
@@ -119,30 +91,17 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
 def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     cdef:
         np.ndarray fine_map, coarse_map, fine_to_coarse_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        PetscInt i, j, k, node
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
-        bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
-
-    extruded = Vc.extruded
-
-    if extruded:
-        coarse_offset = Vc.offset
-        fine_offset = Vf.offset
-        coarse_layers = Vc.mesh().layers - 1
-        fine_layers = Vf.mesh().layers - 1
-
-        ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
+    fine_map = Vf.cell_node_map_dat.data_ro
+    coarse_map = Vc.cell_node_map_dat.data_ro
 
     fine_cells = fine_to_coarse_cells.shape[0]
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+    fine_to_coarse_map = np.full((Vf.axes.local_size // Vf.block_size,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)
@@ -151,14 +110,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
         for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
             for j in range(fine_per_cell):
                 node = fine_map[i, j]
-                if extruded:
-                    for fine_layer in range(fine_layers):
-                        coarse_layer = fine_layer // ratio
-                        for k in range(coarse_per_cell):
-                            fine_to_coarse_map[node + fine_offset[j]*fine_layer, k] = coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_layer
-                else:
-                    for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
+                for k in range(coarse_per_cell):
+                    fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
 
@@ -251,14 +204,16 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         np.ndarray fine_to_coarse
         np.ndarray co2n, fn2o, idx
 
+    assert mc.extruded == mf.extruded == False
+
     cdm = mc.topology_dm
     fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = <PetscInt> 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
-    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
+    ncoarse = mc.cells.owned.local_size
+    nfine = mf.cells.owned.local_size
+    co2n, _ = get_entity_renumbering(cdm, mc._plex_to_entity_numbering_sec("cell"), "cell")
+    _, fn2o = get_entity_renumbering(fdm, mf._plex_to_entity_numbering_sec("cell"), "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
     fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
@@ -274,7 +229,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        idx = np.arange(mc.cells.local_size, dtype=PETSc.IntType)
         # LocalToGlobal
         co.apply(idx, result=idx)
         # GlobalToLocal

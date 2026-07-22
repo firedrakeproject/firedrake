@@ -1,4 +1,5 @@
 from itertools import repeat
+from functools import cached_property
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
@@ -10,15 +11,17 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from functools import cached_property
+from ufl import H1, H2, inner, dx, JacobianDeterminant
+from pyop3.pyop2_utils import as_tuple
+import gem
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
 from finat.ufl import BrokenElement
-from pyop2.mpi import COMM_SELF
-from pyop2.utils import as_tuple
+from pyop3.mpi import COMM_SELF
+from pyop3.pyop2_utils import as_tuple
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -224,9 +227,9 @@ def create_matis(Amat, local_mat_type, cellwise=False):
         sub_domain = list(bc.sub_domain)
         if "on_boundary" in sub_domain:
             sub_domain.remove("on_boundary")
-            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
+            sub_domain.extend(V.mesh().unique().facet_markers)
 
-        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
+        valid_markers = Vsub.mesh().unique().facet_markers
         sub_domain = list(set(sub_domain) & set(valid_markers))
         bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
         if cellwise:

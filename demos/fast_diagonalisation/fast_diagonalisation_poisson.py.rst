@@ -102,7 +102,7 @@ using a sparse direct LU factorization. ::
 Moving on to a more complicated solver, we'll employ a two-level solver with
 the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
 relaxation we define an additive Schwarz method on vertex-star patches
-implemented via :class:`~.ASMExtrudedStarPC` as we have an extruded mesh.
+implemented via :class:`~.ASMStarPC`.
 In addition we specify `"use_coloring"` to group non-overlapping subsets of
 patches into sparse block-diagonal matrices via a mesh coloring, which reduces
 the overhead of calling many KSP solves for each patch.::
@@ -116,7 +116,8 @@ the overhead of calling many KSP solves for each patch.::
           "ksp_max_it": 1,
           "ksp_type": "chebyshev",
           "pc_type": "python",
-          "pc_python_type": "firedrake.ASMExtrudedStarPC",
+          "pc_python_type": "firedrake.ASMStarPC",
+          "pc_star_column": 0,
           "pc_star_use_coloring": True,
           "pc_star_sub_sub_pc_type": "lu",
       },

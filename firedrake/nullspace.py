@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 
 from firedrake import function
 from firedrake.logging import warning
@@ -66,7 +66,7 @@ class VectorSpaceBasis(object):
         if hasattr(self, "_nullspace"):
             return self._nullspace
         if comm:
-            warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
+            warning("Specify comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
                                                    comm=self.comm)
@@ -107,7 +107,7 @@ class VectorSpaceBasis(object):
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec as v:
+        with b.dat.vec_ro as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 

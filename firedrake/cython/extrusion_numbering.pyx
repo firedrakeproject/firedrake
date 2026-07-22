@@ -191,7 +191,6 @@ from firedrake.cython.dmcommon import count_labelled_points
 from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
-from pyop2 import op2
 from firedrake.utils import IntType
 from finat.element_factory import as_fiat_cell
 
@@ -312,162 +311,6 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
 
 @cython.wraparound(False)
-def node_classes(mesh, nodes_per_entity):
-    """Compute the node classes for a given extruded mesh.
-
-    :arg mesh: the extruded mesh.
-    :arg nodes_per_entity: Number of nodes on, and on top of, each
-        type of topological entity on the base mesh for a single cell
-        layer.  Multiplying up by the number of layers happens in this
-        function.
-
-    :returns: A numpy array of shape (3, ) giving the set entity sizes
-        for the given nodes per entity.
-    """
-    cdef:
-        PETSc.DM dm
-        DMLabel label
-        PetscInt p, point, layers, i, j, dimension
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] stratum_bounds
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] node_classes
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
-
-    nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
-
-    node_classes = numpy.zeros(3, dtype=IntType)
-
-    dm = mesh.topology_dm
-    dimension = dm.getDimension()
-    stratum_bounds = numpy.zeros((dimension + 1, 2), dtype=IntType)
-    for i in range(dimension + 1):
-        stratum_bounds[i, :] = dm.getDepthStratum(i)
-
-    for i, lbl in enumerate(["pyop2_core", "pyop2_owned", "pyop2_ghost"]):
-        if dm.getStratumSize(lbl, 1) < 1:
-            continue
-        indices = dm.getStratumIS(lbl, 1).indices
-        for p in range(indices.shape[0]):
-            point = indices[p]
-            layers = layer_extents[point, 1] - layer_extents[point, 0]
-            for j in range(dimension + 1):
-                if stratum_bounds[j, 0] <= point < stratum_bounds[j, 1]:
-                    node_classes[i] += nodes[j, 0]*layers + nodes[j, 1]*(layers - 1)
-                    break
-
-    return numpy.cumsum(node_classes)
-
-
-@cython.wraparound(False)
-def facet_closure_nodes(V, sub_domain):
-    """Extract nodes in the closure of facets with a given marker.
-
-    This works fine for interior as well as exterior facets.
-
-    .. note::
-       Don't call this function directly, but rather call
-       :func:`~.dmcommon.facet_closure_nodes`, which will dispatch
-       here if appropriate.
-
-    :arg V: the function space
-    :arg sub_domain: a mesh marker selecting the part of the boundary
-    :returns: a numpy array of unique nodes on the boundary of the
-        requested subdomain.
-    """
-    cdef:
-        numpy.ndarray[numpy.int32_t, ndim=2, mode="c"] local_nodes
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] offsets
-        numpy.ndarray[numpy.uint32_t, ndim=1] local_facets
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] nodes
-        numpy.ndarray[PetscInt, ndim=2] facet_node_list
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_indices
-        int f, i, j, dof, facet, idx
-        int nfacet, nlocal, layers
-        PetscInt local_facet
-        PetscInt offset
-
-    # We don't have to handle the "on_boundary" case, because the
-    # caller handles it.
-    mesh = V.mesh()
-    facet_dim = mesh.facet_dimension()
-    boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
-
-    local_nodes = numpy.empty((len(boundary_dofs),
-                               len(boundary_dofs[0])),
-                              dtype=numpy.int32)
-    for k, v in boundary_dofs.items():
-        local_nodes[k, :] = v
-
-    all_nodes = []
-    nlocal = local_nodes.shape[1]
-    offsets = V.offset
-    # Walk over both facet types
-    for typ in ["exterior", "interior"]:
-        if typ == "exterior":
-            facets = V.mesh().exterior_facets
-            local_facets = facets.local_facet_dat.data_ro_with_halos
-            facet_node_list = V.exterior_facet_node_map().values_with_halo
-        elif typ == "interior":
-            facets = V.mesh().interior_facets
-            local_facets = facets.local_facet_dat.data_ro_with_halos[:, 0]
-            facet_node_list = V.interior_facet_node_map().values_with_halo
-            facet_node_list = facet_node_list[:, :V.finat_element.space_dimension()]
-
-        subset = facets.subset(sub_domain)
-        facet_indices = subset.indices
-
-        nfacet = subset.total_size
-
-        layer_extents = subset.layers_array
-        maxsize = local_nodes.shape[1] * numpy.sum((layer_extents[:, 1]
-                                                    - layer_extents[:, 0]) - 1)
-        nodes = numpy.empty(maxsize, dtype=IntType)
-        idx = 0
-        for f in range(nfacet):
-            # For each facet, pick up all dofs in the closure
-            facet = facet_indices[f]
-            local_facet = local_facets[facet]
-            layers = layer_extents[f, 1] - layer_extents[f, 0]
-            for i in range(nlocal):
-                dof = local_nodes[local_facet, i]
-                for j in range(layers - 1):
-                    nodes[idx] = facet_node_list[facet, dof] + j*offsets[dof]
-                    idx += 1
-
-        assert idx == nodes.shape[0]
-        all_nodes.append(nodes)
-    nodes = numpy.unique(numpy.concatenate(all_nodes))
-    # We need a halo exchange to determine all bc nodes.
-    # Consider
-    # +----+----+
-    # |\ 1 | 2 /
-    # | \  |  /
-    # |  \ | /
-    # | 0 \|/
-    # +----+
-    # With rank 0 owning cell 0 and rank 1 owning cells 1 and 2.
-    # Imagine now applying a DirichletBC on the right-most facet. That
-    # means that the bottom right node (in a CG1 function space) is
-    # killed. But rank 0 doesn't know that that dof is on a boundary
-    # (because it only sees cell 1 which does not have an external
-    # facet attached to that node).
-    # For all the other bcs, the topological completion of labels to
-    # all mesh points works. But for variable layer extruded meshes,
-    # we need to do this by hand.
-    # See github.com/firedrakeproject/firedrake/issues/1135 for even
-    # more details.
-    d = op2.Dat(V.dof_dset.set, dtype=numpy.int8)
-    d.data_with_halos[nodes] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy.where returns an int64
-    return indices.astype(IntType)
-
-
-@cython.wraparound(False)
 def entity_layers(mesh, height, label=None):
     """Compute the layers for a given entity type.
 
@@ -503,7 +346,7 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
         CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
@@ -518,7 +361,7 @@ def entity_layers(mesh, height, label=None):
             layers[offset, 1] = layer_extents[point, 3]
             offset += 1
 
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers

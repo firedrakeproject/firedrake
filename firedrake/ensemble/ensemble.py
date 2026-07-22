@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from pyop2.mpi import MPI, internal_comm
+from pyop3.mpi import MPI, internal_comm
 
 
 def _ensemble_mpi_dispatch(func):
@@ -171,7 +171,7 @@ class Ensemble:
     def iallreduce(self, f: Function | Cofunction,
                    f_reduced: Function | Cofunction | None = None,
                    op: MPI.Op = MPI.SUM
-                   ) -> list[MPI.Request]:
+                   ) -> MPI.Request:
         """
         Allreduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
 
@@ -187,8 +187,8 @@ class Ensemble:
 
         Returns
         -------
-        list[mpi4py.MPI.Request] :
-            Requests one for each of ``f.subfunctions``.
+        mpi4py.MPI.Request :
+            MPI request.
 
         Raises
         ------
@@ -199,8 +199,7 @@ class Ensemble:
         f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
-        return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
-                for fdat, rdat in zip(f.dat, f_reduced.dat)]
+        return self._ensemble_comm.Iallreduce(f.dat.data_ro, f_reduced.dat.data_rw, op=op)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -251,7 +250,7 @@ class Ensemble:
     def ireduce(self, f: Function | Cofunction,
                 f_reduced: Function | Cofunction | None = None,
                 op: MPI.Op = MPI.SUM, root: int = 0
-                ) -> list[MPI.Request]:
+                ) -> MPI.Request:
         """
         Reduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
 
@@ -269,8 +268,8 @@ class Ensemble:
 
         Returns
         -------
-        list[mpi4py.MPI.Request]
-            Requests one for each of ``f.subfunctions``.
+        mpi4py.MPI.Request
+            MPI request.
 
         Raises
         ------
@@ -281,8 +280,7 @@ class Ensemble:
         f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
-        return [self._ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
-                for fdat, rdat in zip(f.dat, f_reduced.dat)]
+        return self._ensemble_comm.Ireduce(f.dat.data_ro, f_reduced.dat.data_rw, op=op, root=root)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -310,7 +308,7 @@ class Ensemble:
             If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
-        with f.dat.vec as vec:
+        with f.dat.vec_rw as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
 
         return f
@@ -318,7 +316,7 @@ class Ensemble:
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
     def ibcast(self, f: Function | Cofunction, root: int = 0
-               ) -> list[MPI.Request]:
+               ) -> MPI.Request:
         """
         Broadcast (non-blocking) a :class:`.Function` ``f`` over
         ``ensemble_comm`` :attr:`~.Ensemble.ensemble_rank` ``root``.
@@ -332,8 +330,8 @@ class Ensemble:
 
         Returns
         -------
-        list[mpi4py.MPI.Request]
-            Requests one for each of ``f.subfunctions``.
+        mpi4py.MPI.Request
+            MPI request.
 
         Raises
         ------
@@ -341,8 +339,7 @@ class Ensemble:
             If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Ibcast(dat.data, root=root)
-                for dat in f.dat]
+        return self._ensemble_comm.Ibcast(f.dat.data_rw, root=root)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -366,13 +363,12 @@ class Ensemble:
             If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
-        for dat in f.dat:
-            self._ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
+        self._ensemble_comm.Send(f.dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
     def recv(self, f: Function | Cofunction, source: int = MPI.ANY_SOURCE,
-             tag: int = MPI.ANY_TAG, statuses: list[MPI.Status] | MPI.Status = None,
+             tag: int = MPI.ANY_TAG, status: MPI.Status = None,
              ) -> Function | Cofunction:
         """
         Receive (blocking) a :class:`.Function` ``f`` over
@@ -386,9 +382,8 @@ class Ensemble:
             The :attr:`~.Ensemble.ensemble_rank` to receive ``f`` from.
         tag :
             The tag of the message.
-        statuses :
-            The :class:`mpi4py.MPI.Status` of the internal recv calls
-            (one for each of the ``subfunctions`` of ``f``).
+        status :
+            The :class:`mpi4py.MPI.Status` of the internal recv call.
 
         Returns
         -------
@@ -404,18 +399,13 @@ class Ensemble:
             subfunctions of ``f``.
         """
         self._check_function(f)
-        if statuses is not None and isinstance(statuses, MPI.Status):
-            statuses = [statuses]
-        if statuses is not None and len(statuses) != len(f.dat):
-            raise ValueError("Need to provide enough status objects for all parts of the Function")
-        for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
-            self._ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
+        self._ensemble_comm.Recv(f.dat.data_wo, source=source, tag=tag, status=status)
         return f
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
     def isend(self, f: Function | Cofunction, dest: int, tag: int = 0
-              ) -> list[MPI.Request]:
+              ) -> MPI.Request:
         """
         Send (non-blocking) a :class:`.Function` ``f`` over ``ensemble_comm``
         to another :attr:`~.Ensemble.ensemble_rank`.
@@ -431,8 +421,8 @@ class Ensemble:
 
         Returns
         -------
-        list[mpi4py.MPI.Request]
-            Requests one for each of ``f.subfunctions``.
+        mpi4py.MPI.Request
+            MPI request.
 
         Raises
         ------
@@ -440,15 +430,14 @@ class Ensemble:
             If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
-                for dat in f.dat]
+        return self._ensemble_comm.Isend(f.dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
     def irecv(self, f: Function | Cofunction,
               source: int = MPI.ANY_SOURCE,
               tag: int = MPI.ANY_TAG
-              ) -> list[MPI.Request]:
+              ) -> MPI.Request:
         """
         Receive (non-blocking) a :class:`.Function` ``f`` over
         ``ensemble_comm`` from another :attr:`~.Ensemble.ensemble_rank`.
@@ -464,8 +453,8 @@ class Ensemble:
 
         Returns
         -------
-        list[mpi4py.MPI.Request]
-            Requests one for each of ``f.subfunctions``.
+        mpi4py.MPI.Request
+            MPI request.
 
         Raises
         ------
@@ -473,8 +462,7 @@ class Ensemble:
             If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Irecv(dat.data, source=source, tag=tag)
-                for dat in f.dat]
+        return self._ensemble_comm.Irecv(f.dat.data_wo, source=source, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -531,8 +519,8 @@ class Ensemble:
         if statuses is not None and len(statuses) != len(frecv.dat):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
-            self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
-                                         recvbuf=recvvec, source=source, recvtag=recvtag,
+            self._ensemble_comm.Sendrecv(sendvec.array_r, dest, sendtag=sendtag,
+                                         recvbuf=recvvec.array_w, source=source, recvtag=recvtag,
                                          status=statuses)
         return frecv
 
@@ -567,7 +555,7 @@ class Ensemble:
         Returns
         -------
         list[mpi4py.MPI.Request]
-            Requests one for each of ``f.subfunctions``.
+            MPI request objects (one for each of fsend and frecv).
 
         Raises
         ------
@@ -579,13 +567,10 @@ class Ensemble:
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
-
-        requests = []
-        requests.extend([self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=sendtag)
-                         for dat in fsend.dat])
-        requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
-                         for dat in frecv.dat])
-        return requests
+        return [
+            self._ensemble_comm.Isend(fsend.dat.data_ro, dest=dest, tag=sendtag),
+            self._ensemble_comm.Irecv(frecv.dat.data_wo, source=source, tag=recvtag),
+        ]
 
     @contextmanager
     def sequential(self, *, synchronise: bool = False, reverse: bool = False, **kwargs):

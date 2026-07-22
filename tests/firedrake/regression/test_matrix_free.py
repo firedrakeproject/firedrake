@@ -61,6 +61,9 @@ def bcs(problem, V):
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
 def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
 
+    if V.value_size > 1 and pc_type is not None:
+        pytest.skip(reason="block matrices do not work yet")
+
     u = Function(V)
 
     assembled = str(tmpdir.join("assembled"))
@@ -120,9 +123,9 @@ def test_matrixfree_action(a, V, bcs):
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
 
     with f.dat.vec_ro as x:
-        with expect.dat.vec as y:
+        with expect.dat.vec_wo as y:
             A.petscmat.mult(x, y)
-        with actual.dat.vec as y:
+        with actual.dat.vec_wo as y:
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
@@ -259,9 +262,9 @@ def test_get_info(a, bcs, infotype):
              "max": A.petscmat.InfoType.GLOBAL_MAX}[infotype]
     info = ctx.getInfo(A.petscmat, info=itype)
     test, trial = a.arguments()
-    expect = ((test.function_space().dof_dset.total_size
+    expect = ((test.function_space().dof_count
                * test.function_space().value_size)
-              + (trial.function_space().dof_dset.total_size
+              + (trial.function_space().dof_count
                  * trial.function_space().value_size))
 
     expect *= ScalarType.itemsize

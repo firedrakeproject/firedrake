@@ -3,6 +3,9 @@ from petsc4py.PETSc cimport CHKERR, CHKERRMPI
 cimport mpi4py.MPI as MPI
 cimport numpy as np
 
+cdef extern from * nogil:
+     int PetscObjectReference(PETSc.PetscObject)
+
 cdef extern from "mpi-compat.h":
     pass
 
@@ -29,6 +32,7 @@ cdef extern from "petsc.h":
 cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscMalloc1(PetscInt,void*)
     PetscErrorCode PetscMalloc2(PetscInt,void*,PetscInt,void*)
+    PetscErrorCode PetscCalloc1(PetscInt,void*)
     PetscErrorCode PetscFree(void*)
     PetscErrorCode PetscFree2(void*,void*)
     PetscErrorCode PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
@@ -55,6 +59,9 @@ cdef extern from "petscdmtypes.h" nogil:
         DM_NUM_POLYTOPES
 
 cdef extern from "petscdmplex.h" nogil:
+    struct _n_DMLabel
+    ctypedef _n_DMLabel* DMLabel "DMLabel"
+
     PetscErrorCode DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     PetscErrorCode DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     PetscErrorCode DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -79,6 +86,7 @@ cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
     PetscErrorCode DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     PetscErrorCode DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
+    PetscErrorCode DMPlexExtrude(PETSc.PetscDM,PetscInt,PetscReal,PetscBool,PetscBool,PetscBool,PetscReal*,PetscReal*,DMLabel,PETSc.PetscDM*)
 
     PetscErrorCode DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
     PetscErrorCode DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)
@@ -123,25 +131,33 @@ cdef extern from "petscvec.h" nogil:
 
 cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
+    PetscErrorCode PetscSectionSetOffset(PETSc.PetscSection,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     PetscErrorCode PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
-    PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
+    PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt*)
     PetscErrorCode PetscSectionSetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt)
-    PetscErrorCode PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     PetscErrorCode PetscSectionGetConstraintIndices(PETSc.PetscSection,PetscInt, const PetscInt**)
+    PetscErrorCode PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     PetscErrorCode PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
+    PetscErrorCode PetscSectionPermute(PETSc.PetscSection,PETSc.PetscIS,PETSc.PetscSection*)
+    PetscErrorCode PetscSectionSetUpBC(PETSc.PetscSection)
     PetscErrorCode ISGetIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS,PetscInt*)
+    PetscErrorCode ISGetLocalSize(PETSc.PetscIS,PetscInt*)
     PetscErrorCode ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     PetscErrorCode ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)
     PetscErrorCode ISLocalToGlobalMappingGetSize(PETSc.PetscLGMap,PetscInt*)
     PetscErrorCode ISLocalToGlobalMappingGetBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     PetscErrorCode ISLocalToGlobalMappingRestoreBlockIndices(PETSc.PetscLGMap, const PetscInt**)
+    PetscErrorCode ISInvertPermutation(PETSc.PetscIS,PetscInt,PETSc.PetscIS*)
+    PetscErrorCode ISIntersect(PETSc.PetscIS,PETSc.PetscIS,PETSc.PetscIS*)
+    PetscErrorCode ISGeneralFilter(PETSc.PetscIS,PetscInt,PetscInt)
     PetscErrorCode ISDestroy(PETSc.PetscIS*)
+    PetscErrorCode ISOnComm(PETSc.PetscIS,MPI.MPI_Comm,PetscCopyMode,PETSc.PetscIS*)
 
 cdef extern from "petscsf.h" nogil:
     struct PetscSFNode_:
@@ -155,6 +171,9 @@ cdef extern from "petscsf.h" nogil:
     PetscErrorCode PetscSFBcastEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*)
     PetscErrorCode PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     PetscErrorCode PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
+    PetscErrorCode PetscSFCreateSectionSF(PETSc.PetscSF,PETSc.PetscSection,PetscInt*,PETSc.PetscSection,PETSc.PetscSF*)
+    PetscErrorCode PetscSFCreateRemoteOffsets(PETSc.PetscSF,PETSc.PetscSection,PETSc.PetscSection,PetscInt**)
+    PetscErrorCode PetscSFDistributeSection(PETSc.PetscSF,PETSc.PetscSection,PetscInt**,PETSc.PetscSection)
 
 ctypedef PetscErrorCode (*PetscPCPatchComputeFunction)(PETSc.PetscPC,
                                             PetscInt,

@@ -4,8 +4,8 @@ import numpy
 import islpy as isl
 
 import finat
-from pyop2 import op2
-from pyop2.caching import serial_cache
+import pyop3 as op3
+from pyop3.cache import serial_cache, with_heavy_caches
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from finat.element_factory import create_element
@@ -16,6 +16,7 @@ from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
+@with_heavy_caches(lambda extr_top, *a, **kw: [extr_top])
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """
@@ -50,6 +51,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the fixed layer
     height, and the current cell layer.
     """
+    from firedrake.pack import pack
+
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements[0].factor_elements
     if kernel is None and not (vert_space.degree() == 1
                                and vert_space.family() in ['Lagrange',
@@ -65,9 +68,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology.comm)
+    # NOTE: Not sure about this in parallel, needs an SF?
+    layer_height = op3.Dat.from_array(layer_height, comm=extruded_topology.comm)
 
     if kernel is not None:
+        raise NotImplementedError
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
                     ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
@@ -83,16 +88,17 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
     data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=(layer_heights,)))
-    data.append(lp.ValueArg('layer'))
+    # data.append(lp.ValueArg('layer'))
+    data.append(lp.GlobalArg('layer', dtype=IntType, shape=(1,)))
     base_coord_dim = base_coords.function_space().value_size
     # Deal with tensor product cells
     adim = len(ext_shape) - 2
 
     # handle single or variable layer heights
     if layer_heights == 1:
-        height_var = "layer_height[0] * (layer + l)"
+        height_var = "layer_height[0] * (layer[0] + l)"
     else:
-        height_var = "layer_height[layer + l]"
+        height_var = "layer_height[layer[0] + l]"
 
     def _get_arity_axis_inames(_base):
         return tuple(_base + str(i) for i in range(adim))
@@ -109,10 +115,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
         ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
@@ -125,10 +128,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0
@@ -220,62 +220,35 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    hv=height_var)
         name = "pyop2_kernel_radial_hedgehog_extrusion"
     else:
-        raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
+        raise NotImplementedError(f"Unsupported extrusion type '{extrusion_type}'")
 
-    ast = lp.make_function(domains, instructions, data, name=name, target=target,
+    ast = lp.make_kernel(domains, instructions, data, name=name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-    kernel = op2.Kernel(ast, name)
-    op2.ParLoop(kernel,
-                ext_coords.cell_set,
-                ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                base_coords.dat(op2.READ, base_coords.cell_node_map()),
-                layer_height(op2.READ),
-                pass_layer_arg=True).compute()
+    kernel = op3.Function(ast, [op3.WRITE, op3.READ, op3.READ, op3.READ])
+
+    extr_mesh = ext_coords.function_space().mesh()
+    base_mesh = extr_mesh._base_mesh
+
+    loop_index = extr_mesh.iter("cell")
+
+    # trick to pass the right layer through to the local kernel
+    # TODO: make this a mesh attribute
+    my_layer_data = numpy.empty((base_mesh.cells.owned.local_size, extr_mesh.layers-1), dtype=IntType)
+    for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
+        my_layer_data[base_cell, extr_cell] = extr_cell
+    my_layer_dat = op3.Dat(extr_mesh.cells.owned.materialize(), data=my_layer_data.flatten())
 
 
-def flat_entity_dofs(entity_dofs):
-    flat_entity_dofs = {}
-    for b, v in entity_dofs:
-        # v in [0, 1].  Only look at the ones, then grab the data from zeros.
-        if v == 0:
-            continue
-        flat_entity_dofs[b] = {}
-        for i in entity_dofs[(b, v)]:
-            # This line is fairly magic.
-            # It works because an interval has two points.
-            # We pick up the DoFs from the bottom point,
-            # then the DoFs from the interior of the interval,
-            # then finally the DoFs from the top point.
-            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i]
-                                      + entity_dofs[(b, 1)][i]
-                                      + entity_dofs[(b, 0)][2*i+1])
-    return flat_entity_dofs
-
-
-def flat_entity_permutations(entity_permutations):
-    flat_entity_permutations = {}
-    for b in set(b for b, v in entity_permutations):
-        flat_entity_permutations[b] = {}
-        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
-            flat_entity_permutations[b][eb] = {}
-            for ob in set(ob for eo, ob, ov in entity_permutations[(b, 0)][2 * eb]):
-                # eo (extrinsic orientation) is always 0 for:
-                # -- quad x interval,
-                # -- triangle x interval,
-                # -- etc.
-                # eo = {0, 1}, but only eo = 0 is relevant for:
-                # -- interval x interval on dim = (1, 1).
-                eo = 0
-                # Orientation in the extruded direction is always 0
-                ov = 0
-                perm0 = entity_permutations[(b, 0)][2 * eb][(eo, ob, ov)]
-                perm1 = entity_permutations[(b, 1)][eb][(eo, ob, ov)]
-                n0, n1 = len(perm0), len(perm1)
-                flat_entity_permutations[b][eb][ob] = \
-                    list(perm0) + \
-                    [n0 + p for p in perm1] + \
-                    [n0 + n1 + p for p in perm0]
-    return flat_entity_permutations
+    op3.loop(
+        p := loop_index,
+        kernel(
+            pack(ext_coords, loop_index),
+            pack(base_coords, loop_index),
+            layer_height,
+            my_layer_dat[p]
+        ),
+        eager=True,
+    )
 
 
 def entity_indices(cell):
@@ -328,94 +301,6 @@ def entity_closures(cell):
             idx = indices[(e, ent)]
             closure[idx] = list(map(indices.get, vals))
     return closure
-
-
-def make_offset_key(finat_element):
-    from firedrake.functionspacedata import entity_dofs_key
-    # scalar-valued elements only
-    if isinstance(finat_element, finat.TensorFiniteElement):
-        finat_element = finat_element.base_element
-    return entity_dofs_key(finat_element.entity_dofs()), is_real_tensor_product_element(finat_element)
-
-
-@serial_cache(hashkey=make_offset_key)
-def calculate_dof_offset(finat_element):
-    """Return the offset between the neighbouring cells of a
-    column for each DoF.
-
-    :arg finat_element: A FInAT element.
-    :returns: A numpy array containing the offset for each DoF.
-    """
-    # scalar-valued elements only
-    if isinstance(finat_element, finat.TensorFiniteElement):
-        finat_element = finat_element.base_element
-
-    dof_offset = numpy.zeros(finat_element.space_dimension(), dtype=IntType)
-
-    if is_real_tensor_product_element(finat_element):
-        return dof_offset
-
-    entity_offset = [0] * (1 + finat_element.cell.get_dimension()[0])
-    for (b, v), entities in finat_element.entity_dofs().items():
-        entity_offset[b] += len(entities[0])
-
-    for (b, v), entities in finat_element.entity_dofs().items():
-        for dof_indices in entities.values():
-            for i in dof_indices:
-                dof_offset[i] = entity_offset[b]
-    return dof_offset
-
-
-@serial_cache(hashkey=make_offset_key)
-def calculate_dof_offset_quotient(finat_element):
-    """Return the offset quotient for each DoF within the base cell.
-
-    :arg finat_element: A FInAT element.
-    :returns: A numpy array containing the offset quotient for each DoF.
-
-    offset_quotient q of each DoF (in a local cell) is defined as
-    i // o, where i is the local DoF ID of the DoF on the entity and
-    o is the offset of that DoF computed in ``calculate_dof_offset()``.
-
-    Let DOF(e, l, i) represent a DoF on (base-)entity e on layer l that has local ID i
-    and suppose this DoF has offset o and offset_quotient q. In periodic extrusion it
-    is convenient to identify DOF(e, l, i) as DOF(e, l + q, i % o); this transformation
-    allows one to always work with the "unit cell" in which i < o always holds.
-
-    In FEA offset_quotient is 0 or 1.
-
-    Example::
-
-               local ID   offset     offset_quotient
-
-               2--2--2    2--2--2    1--1--1
-               |     |    |     |    |     |
-        CG2    1  1  1    2  2  2    0  0  0
-               |     |    |     |    |     |
-               0--0--0    2--2--2    0--0--0
-
-               +-----+    +-----+    +-----+
-               | 1 3 |    | 4 4 |    | 0 0 |
-        DG1    |     |    |     |    |     |
-               | 0 2 |    | 4 4 |    | 0 0 |
-               +-----+    +-----+    +-----+
-
-    """
-    # scalar-valued elements only
-    if isinstance(finat_element, finat.TensorFiniteElement):
-        finat_element = finat_element.base_element
-    if is_real_tensor_product_element(finat_element):
-        return None
-    dof_offset_quotient = numpy.zeros(finat_element.space_dimension(), dtype=IntType)
-    for (b, v), entities in finat_element.entity_dofs().items():
-        for entity, dof_indices in entities.items():
-            quotient = 1 if v == 0 and entity % 2 == 1 else 0
-            for i in dof_indices:
-                dof_offset_quotient[i] = quotient
-    if (dof_offset_quotient == 0).all():
-        # Avoid unnecessary codegen in pyop2/codegen/builder.
-        dof_offset_quotient = None
-    return dof_offset_quotient
 
 
 def is_real_tensor_product_element(element):

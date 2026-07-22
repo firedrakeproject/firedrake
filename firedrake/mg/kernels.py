@@ -1,10 +1,8 @@
+import textwrap
 import numpy
 import string
-from pyop2 import op2
-from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
-from firedrake.functionspacedata import entity_dofs_key
-from firedrake.functionspaceimpl import FiredrakeDualSpace
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
+from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -18,6 +16,7 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
+import pyop3 as op3
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -125,7 +124,7 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
     kernel = compile_expression_dual_evaluation(expression,
                                                 ufl_element,
                                                 parameters=parameters,
-                                                name="pyop2_kernel_"+name)
+                                                name="pyop3_kernel_"+name)
     return kernel
 
 
@@ -156,18 +155,12 @@ def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
-    if Vc.mesh().extruded:
-        assert Vf.mesh().extruded
-        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
-    else:
-        level_ratio = 1
     if levelf > levelc:
         # prolong
         ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     else:
         # inject
         ncandidate = hierarchy.coarse_to_fine_cells[levelf].shape[1]
-        ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
            + (Vf.block_size,)
@@ -185,13 +178,7 @@ def prolong_kernel(expression, Vf):
         element = create_element(expression.ufl_element())
         num_verts = len(element.cell.get_vertices())
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc
-                                         %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -210,7 +197,6 @@ def prolong_kernel(expression, Vf):
                     bestdist = celldist;
                     bestcell = i;
                 }
-
             }
             if (cell == -1) {
                 /* We didn't find a cell that contained this point exactly.
@@ -232,13 +218,8 @@ def prolong_kernel(expression, Vf):
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
-            pyop2_kernel_evaluate(%(kernel_args)s);
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+            pyop3_kernel_evaluate(%(kernel_args)s);
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -247,10 +228,28 @@ def prolong_kernel(expression, Vf):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
-        transfer_kernel.oriented = kernel.oriented
-        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-        return cache.setdefault(key, transfer_kernel)
+        # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.WRITE),
+            ("f", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
+        func = op3.Function.from_c_string(
+            "pyop3_kernel_prolong",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def restrict_kernel(Vf, Vc):
@@ -276,14 +275,7 @@ def restrict_kernel(Vf, Vc):
         element = create_element(Vc.ufl_element())
         num_verts = len(element.cell.get_vertices())
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc
-                                          %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -291,6 +283,7 @@ def restrict_kernel(Vf, Vc):
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
+
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -323,14 +316,9 @@ def restrict_kernel(Vf, Vc):
 
             {
             const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(%(kernel_args)s);
+            pyop3_kernel_evaluate(%(kernel_args)s);
             }
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -338,10 +326,28 @@ def restrict_kernel(Vf, Vc):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_restrict")
-        transfer_kernel.oriented = kernel.oriented
-        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-        return cache.setdefault(key, transfer_kernel)
+        # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.INC),
+            ("b", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
+        func = op3.Function.from_c_string(
+            "pyop3_kernel_restrict",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def inject_kernel(Vf, Vc):
@@ -364,8 +370,8 @@ def inject_kernel(Vf, Vc):
         try:
             return cache[key]
         except KeyError:
-            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
+            return cache.setdefault(key, ((dg_injection_kernel(Vf, Vc, ncandidate), False, False), True))
     else:
         expression = ufl.Coefficient(Vf)
         return (prolong_kernel(expression, Vc), False)
@@ -583,11 +589,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
-        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+        ScalarType, kernel_name="pyop3_kernel_evaluate", index_names=index_names)
     subkernels.append(eval_kernel)
 
     fill_insn, extra_domains = _generate_call_insn(
-        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        "pyop3_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
         depends_on=depends_on, within_inames_is_final=True)
     instructions.append(fill_insn)
     domains.extend(extra_domains)
@@ -617,14 +623,18 @@ def dg_injection_kernel(Vf, Vc, ncell):
     domains.extend(extra_domains)
     depends_on |= {inv_insn.id}
 
-    kernel_name = "pyop2_kernel_injection_dg"
+    kernel_name = "pyop3_kernel_injection_dg"
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+
+    # return op2.Kernel(
+    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+    #     headers=Ainv.headers, events=Ainv.events)
+    kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
+    return op3.Function(kernel, kernel_intents)
+
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

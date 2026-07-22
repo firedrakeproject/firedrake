@@ -3,7 +3,6 @@ import functools
 import ufl
 
 import firedrake.dmhooks as dmhooks
-import pyop2
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -128,7 +127,7 @@ class HybridizationPC(SCBase):
         n = ufl.FacetNormal(mesh_unique)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        if mesh_unique.cell_set._extruded:
+        if mesh_unique.extruded:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
                      + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
@@ -162,7 +161,7 @@ class HybridizationPC(SCBase):
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
-            if mesh_unique.cell_set._extruded:
+            if mesh_unique.extruded:
                 ds = ufl.ds_v
                 for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
@@ -173,7 +172,7 @@ class HybridizationPC(SCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh_unique.exterior_facets.unique_markers]
+                markers = [int(x) for x in mesh_unique.facet_markers]
                 dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
@@ -188,12 +187,10 @@ class HybridizationPC(SCBase):
             # the exterior boundary. We don't need to do this for boundary-less
             # domains (like a sphere).
             trace_subdomains = []
-            with pyop2.mpi.temp_internal_comm(mesh_unique.comm) as icomm:
-                num_exterior_facets = icomm.allreduce(mesh_unique.exterior_facets.set.size)
-            if num_exterior_facets > 0:
+            if mesh_unique.exterior_facets.global_size > 0:
                 trace_subdomains.append("on_boundary")
             # Extruded cells will have both horizontal and vertical facets
-            if mesh_unique.cell_set._extruded and not mesh_unique.cell_set._extruded_periodic:
+            if mesh_unique.extruded and not mesh_unique.extruded_periodic:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
@@ -331,7 +328,7 @@ class HybridizationPC(SCBase):
             # any projections
             unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
             broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
-            unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+            broken_scalar_data.dat.assign(unbroken_scalar_data.dat, eager=True, eager_strategy="array")
 
             # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
@@ -365,7 +362,7 @@ class HybridizationPC(SCBase):
             # Solve the system for the Lagrange multipliers
             with self.schur_rhs.dat.vec_ro as b:
                 if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec
+                    acc = self.trace_solution.dat.vec_rw
                 else:
                     acc = self.trace_solution.dat.vec_wo
                 with acc as x_trace:
@@ -377,7 +374,6 @@ class HybridizationPC(SCBase):
         :arg pc: a Preconditioner instance.
         :arg y: a PETSc vector for placing the resulting fields.
         """
-
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
         with PETSc.Log.Event("RecoverFirstElim"):
@@ -389,7 +385,7 @@ class HybridizationPC(SCBase):
             # Project the broken solution into non-broken spaces
             broken_pressure = self.broken_solution.subfunctions[self.pidx]
             unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
-            broken_pressure.dat.copy(unbroken_pressure.dat)
+            unbroken_pressure.dat.assign(broken_pressure.dat, eager=True, eager_strategy="array")
 
             # Compute the hdiv projection of the broken hdiv solution
             broken_hdiv = self.broken_solution.subfunctions[self.vidx]
