@@ -37,3 +37,4 @@ element systems.
    Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>
    Coupled volume-surface reaction-diffusion on a torus using Submesh and geometric multigrid.<demos/submesh_reaction_diffusion.py>
    Nonlinear preconditioning using an auxiliary SNES for the Allen-Cahn equation.<demos/nonlinear_pc_allen_cahn.py>
+   Coupled equations on dual meshes.<demos/coupled_equations.py>
