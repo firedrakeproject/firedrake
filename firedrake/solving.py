@@ -161,7 +161,7 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
+        options_prefix, restrict, pre_apply_bcs, marking_callback = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(u, Function):
@@ -197,7 +197,8 @@ def _solve_varproblem(*args, **kwargs):
                            near_nullspace=near_nullspace,
                            options_prefix=options_prefix,
                            appctx=appctx,
-                           pre_apply_bcs=pre_apply_bcs)
+                           pre_apply_bcs=pre_apply_bcs,
+                           marking_callback=marking_callback)
     return solver.solve()
 
 
@@ -291,7 +292,8 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
+                    "options_prefix", "appctx", "restrict", "pre_apply_bcs",
+                    "marking_callback"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -336,10 +338,11 @@ def _extract_args(*args, **kwargs):
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    marking_callback = kwargs.get("marking_callback", None)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs
+        options_prefix, restrict, pre_apply_bcs, marking_callback
 
 
 def _extract_bcs(bcs):

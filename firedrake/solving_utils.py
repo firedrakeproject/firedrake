@@ -218,6 +218,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        self._snes_ref = None
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -302,7 +303,40 @@ class _SNESContext(object):
         for k, v in default_options.items():
             if kwargs.get(k) is None:
                 kwargs[k] = v
-        return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+        ctx = _SNESContext(problem, mat_type, pmat_type, **kwargs)
+        ctx._snes_ref = self._snes_ref
+        return ctx
+
+    def solve_jacobian_transpose(self, rhs, solution):
+        """Solve the transpose of the current SNES Jacobian.
+
+        Parameters
+        ----------
+        rhs
+            The dual right-hand side.
+        solution
+            The Function in which to store the solution.
+        """
+        if self._snes_ref is None:
+            raise RuntimeError("The SNES context is not attached to a solver")
+        snes = self._snes_ref()
+        if snes is None:
+            raise RuntimeError("The SNES attached to this context has been destroyed")
+        with rhs.dat.vec_ro as b, solution.dat.vec_wo as x:
+            if b.norm() == 0:
+                x.set(0)
+                return
+            ksp = snes.getKSP()
+            ksp.solveTranspose(b, x)
+            reason = ksp.getConvergedReason()
+            if reason < 0:
+                raise ConvergenceError(
+                    "Transpose Jacobian solve failed to converge after "
+                    f"{ksp.getIterationNumber()} iterations.\nReason:\n   "
+                    f"{KSPReasons.get(reason, reason)} "
+                    f"(PC type {ksp.getPC().getType()}, "
+                    f"failure {ksp.getPC().getFailedReason()})"
+                )
 
     @property
     def transfer_manager(self):

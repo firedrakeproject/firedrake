@@ -20,6 +20,60 @@ def test_marking_callback_configures_refine_adaptor():
     assert solver._ctx._marking_callback is mark_cells
 
 
+def test_solve_accepts_marking_callback():
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.mesh(), "DG", 0)
+        return Function(M).assign(1)
+
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+
+    result = solve((u - 1.0)*v*dx == 0, u, marking_callback=mark_cells)
+
+    assert result is u
+
+
+@pytest.mark.skipnetgen
+def test_dwr_marking_callback_builds_poisson_markers():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="boundary")
+    mesh = Mesh(geo.GenerateMesh(maxh=0.5))
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - v*dx
+    goal = u*dx
+    direct = {"ksp_type": "preonly", "pc_type": "lu"}
+    callback = dwr_marking_callback(goal)
+    dwr_direct = {
+        f"dwr_{kind}_{key}": value
+        for kind in ("primal", "dual")
+        for key, value in direct.items()
+    }
+    dwr_local = {
+        f"dwr_{kind}_{key}": value
+        for kind in ("cell", "facet")
+        for key, value in {"ksp_type": "cg", "pc_type": "jacobi"}.items()
+    }
+
+    problem = NonlinearVariationalProblem(
+        F, u, bcs=DirichletBC(V, 0, "on_boundary")
+    )
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters={**direct, **dwr_direct, **dwr_local},
+        marking_callback=callback,
+    )
+    result = solver.solve()
+    markers = callback(solver._ctx, result)
+
+    assert markers.function_space().mesh() is mesh
+
+
 @pytest.mark.skipnetgen
 def test_marking_callback_refine_hook_reconstructs_problem():
     from netgen.geom2d import SplineGeometry

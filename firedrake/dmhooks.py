@@ -492,6 +492,9 @@ def _refine_adaptive(dm):
 
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    from firedrake.dwr import DWRMarkingCallback
+    if isinstance(ctx._marking_callback, DWRMarkingCallback):
+        refined_ctx._marking_callback = ctx._marking_callback.reconstruct(coefficient_mapping)
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
