@@ -2949,10 +2949,13 @@ values from f.)"""
                 mark_np = mvec.getArray()[cellNum]
             else:
                 sfBCInv = self.sfBC_orig.createInverse()
-                _, mvec0 = self.topology_dm.distributeField(sfBCInv,
-                                                            self._cell_numbering,
-                                                            mvec)
-                mark_np = mvec0.getArray()
+                section0, mvec0 = self.topology_dm.distributeField(sfBCInv,
+                                                                   self._cell_numbering,
+                                                                   mvec)
+                mark_np = mvec0.getArray().copy()
+                sfBCInv.destroy()
+                section0.destroy()
+                mvec0.destroy()
         max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
         # Create a copy of the netgen mesh
         netgen_mesh = self.netgen_mesh.Copy()
