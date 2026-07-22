@@ -262,6 +262,20 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
 
         new = firedrake.Function(Vnew, name=name)
         coefficient_mapping[expr] = new
+
+        _, old_level = utils.get_level(V.mesh())
+        _, new_level = utils.get_level(Vnew.mesh())
+        manager = get_transfer_manager(V.dm)
+        if is_dual(expr):
+            if old_level > new_level:
+                manager.restrict(expr, new)
+            else:
+                new.interpolate(expr)
+        elif old_level < new_level:
+            manager.prolong(expr, new)
+        else:
+            manager.inject(expr, new)
+
     return new
 
 
