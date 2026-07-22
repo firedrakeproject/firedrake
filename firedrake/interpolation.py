@@ -851,7 +851,8 @@ class SameMeshInterpolator(Interpolator):
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
             if self.rank == 1:
-                index = self.ufl_interpolate.function_space().field_axis.component_labels[indices[0]]
+                # indices[0] is None if the target space is not a MixedFunctionSpace
+                index = Ellipsis if indices[0] is None else self.ufl_interpolate.function_space().field_axis.component_labels[indices[0]]
                 sub_op2_tensor = op2_tensor[index]
             else:
                 sub_op2_tensor = op2_tensor
