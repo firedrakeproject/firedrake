@@ -16,6 +16,8 @@ class Object(abc.ABC):
     and set some abstract methods.
 
     """
+    def __post_init__(self) -> None:
+        pass
 
     # Could just be asserted by the visitor
     def collect_buffers(self, visitor):

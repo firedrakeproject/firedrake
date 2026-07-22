@@ -179,9 +179,6 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def get_comm(cls, *, _buffer, **attrs):
         return _buffer.comm
 
-    def __post_init__(self) -> None:
-        pass
-
     # }}}
 
     # {{{ interface impls

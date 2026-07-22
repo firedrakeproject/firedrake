@@ -409,6 +409,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         self._debug_is_poisoned = False
 
+        super().__post_init__()
+
     # }}}
 
     # {{{ Class attrs

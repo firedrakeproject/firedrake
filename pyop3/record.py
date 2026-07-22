@@ -30,6 +30,11 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
         assert "init" not in kwargs
         cls = dataclasses.dataclass(init=False, **kwargs)(cls)
 
+        # Check that abstract attributes are implemented
+        for abstract_attr in _get_abstract_attrs(cls):
+            assert abstract_attr in cls.__dataclass_fields__, \
+                f"class '{cls.__qualname__}' does not have attribute '{abstract_attr}'"
+
         if maybe_singleton:
             assert kwargs.get("frozen", False)
             cls._record_maybe_singleton = True
@@ -91,8 +96,12 @@ def _create_record(cls: Any, **attrs: Any) -> Any:
     self = object.__new__(cls)
     for field_name, attr in attrs.items():
         object.__setattr__(self, field_name, attr)
-    if hasattr(self, "__post_init__"):
-        self.__post_init__()
+
+    # Run all __post_init__ methods
+    # TODO: make record_post_init?
+    for type_ in cls.__mro__:
+        if hasattr(type_, "__post_init__"):
+            type_.__post_init__(self)
     return self
 
 
@@ -134,5 +143,19 @@ def _record_new(self, **attrs: Any) -> Any:
 #     return hash_
 
 
+# Now we have abstract attrs I don't think we need this any more
 def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
+
+
+def _get_abstract_attrs_per_class(cls: type) -> tuple:
+    # Undo the name mangling that the double underscore introduces
+    return getattr(cls, f"_{cls.__name__}__abstract_record_attrs", ())
+
+def _get_abstract_attrs(cls: type) -> tuple:
+    assert not _get_abstract_attrs_per_class(cls), \
+        "Final class should not define any abstract attributes"
+    attrs = []
+    for parent_class in cls.__mro__[1:]:
+        attrs.extend(_get_abstract_attrs_per_class(parent_class))
+    return tuple(attrs)

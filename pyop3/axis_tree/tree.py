@@ -28,20 +28,18 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.constants
 import pyop3.exceptions
 import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
-from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.labeled_tree import (
-    as_node_map,
-    fixup_node_map,
     LabelledNodeComponent,
     LabeledTree,
     MultiComponentLabelledNode,
@@ -371,7 +369,7 @@ class AxisComponent(LabelledNodeComponent):
 
     regions: Any
     _size: Any
-    _label: Any
+    label: ComponentLabelT
     sf: Any
 
     def collect_buffers(self, visitor):
@@ -382,7 +380,7 @@ class AxisComponent(LabelledNodeComponent):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
-            type(self), ("regions", tuple(map(visitor, self.regions))), ("size", visitor(self._size)), ("label", self.label)
+            type(self), tuple(map(visitor, self.regions)), visitor(self._size), self.label
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -391,7 +389,7 @@ class AxisComponent(LabelledNodeComponent):
     def record_prepare_args(
         cls,
         regions,
-        label=utils.PYOP3_DECIDE,
+        label=pyop3.constants.DECIDE,
         *,
         sf=None,
         size: Any = None,
@@ -423,18 +421,12 @@ class AxisComponent(LabelledNodeComponent):
         return dict(
         regions= regions,
         _size= size,
-        _label= label,
+        label= label,
         sf=sf)
 
     def __post_init__(self) -> None:
         if self.sf is not None:
             assert self.local_size == self.sf.size
-
-    # }}}
-
-    # {{{ interface impls
-
-    label = pyop3.record.attr("_label")
 
     # }}}
 
@@ -561,13 +553,13 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
     # {{{ instance attrs
 
     components: tuple[AxisComponent, ...]
-    _label: Any
+    label: AxisLabelT
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.components)))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self._label, "Axis"))
+        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self.label, "Axis"))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -575,27 +567,19 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
     def record_prepare_args(
         cls,
         components,
-        label=utils.PYOP3_DECIDE,
+        label=pyop3.constants.DECIDE,
     ):
         components = cls._parse_components(components)
         # relabel components if needed
-        if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
+        if utils.strictly_all(c.label is pyop3.constants.DECIDE for c in components):
             if len(components) > 1:
                 components = tuple(c.record_new(_label=i) for i, c in enumerate(components))
             else:
-                components = (utils.just_one(components).record_new(_label=None),)
+                components = (utils.just_one(components).record_new(label=None),)
 
-        label = label if label is not PYOP3_DECIDE else cls.unique_label()
-
-        return dict(components=components, _label=label)
-
-    def __post_init__(self) -> None:
-        assert isinstance(self.components, tuple)
-        super().__post_init__()
+        return dict(components=components, label=label)
 
     # }}}
-
-    label = pyop3.record.attr("_label")
 
     def __getitem__(self, indices):
         # NOTE: This *must* return an axis tree because that is where we attach
@@ -898,6 +882,9 @@ class AbstractUnitAxisTree(AbstractAxisTree):
 class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIterable):
     """Base class for non-unit axis trees."""
 
+    def __post_init__(self):
+        super(LabeledTree, self).__post_init__()
+
     # {{{ abstract methods
 
     @property
@@ -1166,7 +1153,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
 
     def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
-        if not region_labels:
+        if not region_labels or not self._all_region_labels and allow_missing:
             return self
 
         # not sure about this
@@ -1199,17 +1186,16 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
             slice_components.append(slice_component)
 
         # do not change axis label if nothing changes
-        if region_label_matches_all_components:
-            assert matching_labels is not None
-            axis_label = f"{axis.label}_{'_'.join(map(str, matching_labels))}"
-        elif region_label_matches_no_components:
-            axis_label = axis.label
-        else:
-            # match some, generate something
-            axis_label = None
+        # if region_label_matches_all_components:
+        #     assert matching_labels is not None
+        #     axis_label = f"{axis.label}_{'_'.join(map(str, matching_labels))}"
+        # elif region_label_matches_no_components:
+        #     axis_label = axis.label
+        # else:
+        #     # match some, generate something
+        #     axis_label = None
 
-        slice_ = Slice(axis.label, slice_components)
-
+        slice_ = Slice(axis.label, slice_components, label=f"slice{len(path)}")
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_.components, strict=True):
             path_ = path | {axis.label: component.label}
@@ -1446,7 +1432,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
     # {{{ instance attrs
 
-    _node_map: idict
+    node_map: idict
     _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
     def collect_buffers(self, visitor):
@@ -1454,7 +1440,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
-        for path, axis in self._node_map.items():
+        for path, axis in self.node_map.items():
             node_map_key[visitor.relabel_path(path)] = visitor(axis)
         node_map_key = idict(node_map_key)
         return (type(self), node_map_key)
@@ -1467,10 +1453,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         node_map: Mapping[PathT, Node] | None | None = None,
         comm: MPI.Comm | None = None,
     ) -> None:
-        return dict(_node_map=as_node_map(node_map), _comm=comm)
+        return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
 
     def __post_init__(self) -> None:
-        pass
+        super(AbstractNonUnitAxisTree, self).__post_init__()
 
         # eagerly evaluate this so profiles are comprehensible
         # self.layouts
@@ -1478,8 +1464,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     # }}}
 
     # {{{ interface impls
-
-    node_map = pyop3.record.attr("_node_map")
 
     @cached_property
     def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
@@ -1700,14 +1684,14 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ instance attrs
 
-    _node_map: idict[ConcretePathT, Axis]
+    node_map: idict[ConcretePathT, Axis]
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     _unindexed: AxisTree | None
     _targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
         buffers = OrderedFrozenSet()
-        for axis in self._node_map.values():
+        for axis in self.node_map.values():
             buffers |= visitor(axis)
         for path, targetss in self._targets.items():
             for targets in targetss:
@@ -1722,7 +1706,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
-        for path, axis in self._node_map.items():
+        for path, axis in self.node_map.items():
             relabeled_path = idict({
                 visitor.renamer.add(axis_label, "Axis"): component_label
                 for axis_label, component_label in path.items()
@@ -1756,24 +1740,20 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         if isinstance(node_map, AxisTree):
             node_map = node_map.node_map
         else:
-            node_map = as_node_map(node_map)
+            node_map = cls._prepare_node_map(node_map)
 
         targets = complete_axis_targets(targets)
 
         return dict(
-            _node_map=node_map,
+            node_map=node_map,
             _unindexed=unindexed,
             _targets=targets,
         )
-
-    def __post_init__(self) -> None:
-        self.targets
 
     # }}}
 
     # {{{ interface impls
 
-    node_map = pyop3.record.attr("_node_map")
     unindexed = pyop3.record.attr("_unindexed")
 
     @cached_property

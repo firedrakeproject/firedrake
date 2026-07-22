@@ -38,6 +38,7 @@ import pyop3.lower
 import pyop3.insn.visitors as insn_visitors
 
 from pyop3.constants import (   # noqa: F401
+    DECIDE,
     INC,
     MAX_RW,
     MAX_WRITE,

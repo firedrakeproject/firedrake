@@ -26,7 +26,7 @@ import pytools
 from immutabledict import immutabledict as idict
 
 import pyop3.record
-from pyop3.constants import PYOP3_DECIDE
+from pyop3.constants import DECIDE
 from pyop3.axis_tree import (
     Axis,
     AxisComponent,
@@ -50,8 +50,6 @@ from pyop3.axis_tree.tree import (
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
 from pyop3.labeled_tree import (
-    as_node_map,
-    fixup_node_map,
     LabelledNodeComponent,
     LabeledTree,
     MultiComponentLabelledNode,
@@ -85,25 +83,24 @@ class IndexTree(MutableLabelledTreeMixin, LabeledTree):
 
     # {{{ instance attrs
 
-    _node_map: idict
+    node_map: idict
     _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
     @classmethod
-    def get_comm(cls, **attrs):
-        if comm := attrs["_comm"] is not None:
-            return comm
-        else:
-            return super().get_comm(**attrs)
+    def get_comm(cls, *, _comm, **attrs):
+        return _comm if _comm is not None else super().get_comm(**attrs)
 
     @classmethod
-    def record_prepare_args(cls, node_map: Mapping[PathT, Node] | None | None = None, comm: MPI.Comm | None = None) -> None:
-        return dict(_node_map=as_node_map(node_map), _comm=comm)
+    def record_prepare_args(
+        cls,
+        node_map: Mapping[PathT, Node] | None | None = None,
+        comm: MPI.Comm | None = None,
+    ) -> None:
+        return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
 
     # }}}
 
     # {{{ interface impls
-
-    node_map = pyop3.record.attr("_node_map")
 
     @functools.singledispatchmethod
     @classmethod
@@ -139,7 +136,7 @@ class AffineSliceComponent(SliceComponent):
     start: numbers.Integral
     stop: numbers.Integral | None
     step: numbers.Integral
-    _label: ComponentLabelT
+    label: ComponentLabelT
 
     @classmethod
     def record_prepare_args(
@@ -148,14 +145,14 @@ class AffineSliceComponent(SliceComponent):
         start: numbers.Integral = 0,
         stop: numbers.Integral | None = None,
         step: numbers.Integral = 1,
-        label: ComponentLabelT = PYOP3_DECIDE,
+        label: ComponentLabelT = DECIDE,
     ) -> None:
         return dict(
         _component=component,
         start= start,
         stop= stop,
         step= step,
-        _label= label,
+        label= label,
         )
 
     # }}}
@@ -176,10 +173,6 @@ class AffineSliceComponent(SliceComponent):
     @property
     def component(self):
         return self._component
-
-    @property
-    def label(self):
-        return self._label
 
     @property
     def is_full_slice(self) -> bool:
@@ -204,7 +197,7 @@ class AffineSliceComponent(SliceComponent):
 class SubsetSliceComponent(SliceComponent):
 
     _component: Any
-    _label: Any
+    label: Any
     array: Any
 
     @classmethod
@@ -215,15 +208,11 @@ class SubsetSliceComponent(SliceComponent):
 
         return dict(
         _component=component,
-        _label=label,
+        label=label,
         array=array,
         )
 
     # {{{ interface impls
-
-    @property
-    def label(self):
-        return self._label
 
     @property
     def component(self):
@@ -255,7 +244,7 @@ class RegionSliceComponent(SliceComponent):
     # {{{ instance attrs
 
     _component: Any
-    _label: Any
+    label: Any
     region: Any
 
     @classmethod
@@ -264,7 +253,7 @@ class RegionSliceComponent(SliceComponent):
 
         return dict(
         _component=component,
-        _label=label,
+        label=label,
         region=region,
         )
 
@@ -273,7 +262,6 @@ class RegionSliceComponent(SliceComponent):
     # {{{ interface impls
 
     component = pyop3.record.attr("_component")
-    label = pyop3.record.attr("_label")
 
     @property
     def is_full_slice(self) -> bool:
@@ -332,10 +320,10 @@ class TabulatedMapComponent(MapComponent):
     _target_component: Any
     array: Any
     _arity: int
-    _label: Any
+    label: Any
 
     @classmethod
-    def record_prepare_args(cls, target_axis, target_component, array, *, label=PYOP3_DECIDE):
+    def record_prepare_args(cls, target_axis, target_component, array, *, label=DECIDE):
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
@@ -351,20 +339,18 @@ class TabulatedMapComponent(MapComponent):
                 raise ValueError
 
         array = as_linear_buffer_expression(array)
-        label = label if label is not PYOP3_DECIDE else cls.unique_label()
 
         return dict(
         _target_axis=target_axis,
         _target_component=target_component,
         array=array,
         _arity=arity,
-        _label=label,
+        label=label,
         )
 
     target_axis = pyop3.record.attr("_target_axis")
     target_component = pyop3.record.attr("_target_component")
     arity = pyop3.record.attr("_arity")
-    label = pyop3.record.attr("_label")
 
     # old alias
     @property
@@ -423,7 +409,7 @@ class LoopIndex(UnitIndex):
     # {{{ instance attrs
 
     iterset: AbstractNonUnitAxisTree
-    id: Any
+    label: LabelT
 
     def collect_buffers(self, visitor):
         return visitor(self.iterset)
@@ -439,20 +425,17 @@ class LoopIndex(UnitIndex):
         )
 
     @classmethod
-    def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree, *, id=PYOP3_DECIDE):
-        id = id if id is not PYOP3_DECIDE else cls.unique_label()
-
-        return dict(iterset=iterset, id=id)
+    def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree):
+        return dict(iterset=iterset, label=cls.unique_id())
 
     # }}}
 
     dtype = IntType
 
-
     # ick, remove
     @property
-    def label(self):
-        return self.id
+    def id(self):
+        return self.label
 
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
     # index trees
@@ -502,20 +485,11 @@ class ScalarIndex(UnitIndex):
     axis: AxisLabelT
     component: ComponentLabelT
     value: Any
-    _label: LabelT
+    label: LabelT
 
     @classmethod
-    def record_prepare_args(cls, axis, component, value):
-        return dict(
-        axis = axis,
-        component = component,
-        value = value,
-        _label = cls.unique_label(),
-        )
-
-    @property
-    def label(self):
-        return self._label
+    def record_prepare_args(cls, axis, component, value, label=DECIDE):
+        return dict(axis=axis, component=component, value=value, label=label)
 
     @property
     def leaf_target_paths(self):
@@ -607,7 +581,7 @@ class Slice(Index):
 
     axis: AxisLabelT
     components: SliceComponentsT
-    _label: AxisLabelT
+    label: AxisLabelT
 
     @classmethod
     def record_prepare_args(
@@ -615,7 +589,7 @@ class Slice(Index):
         axis: AxisLabelT,
         components: SliceComponentsT,
         *,
-        label=PYOP3_DECIDE,
+        label=DECIDE,
     ):
         if label == axis:
             raise ValueError("The axis and slice labels should not match")
@@ -623,25 +597,23 @@ class Slice(Index):
         components = _parse_slice_components(components)
         # Detect a full slice and relabel accordingly
         if (
-            label is PYOP3_DECIDE
+            label is DECIDE
             and all(
-                c.is_full_slice and c.label is PYOP3_DECIDE
+                c.is_full_slice and c.label is DECIDE
                 for c in components
             )
         ):
             label = axis
             components = tuple(
-                c.record_new(_label=c.component)
+                c.record_new(label=c.component)
                 for c in components
             )
         else:
-            if label is PYOP3_DECIDE:
-                label = cls.unique_label()
-            if any(c.label is PYOP3_DECIDE for c in components):
-                if not all(c.label is PYOP3_DECIDE for c in components):
+            if any(c.label is DECIDE for c in components):
+                if not all(c.label is DECIDE for c in components):
                     raise ValueError(
                         "Either none or all slice components can be labeled "
-                        "PYOP3_DECIDE"
+                        "DECIDE"
                     )
 
                 if len(components) == 1:
@@ -649,21 +621,14 @@ class Slice(Index):
                 else:
                     component_labels = range(len(components))
                 components = tuple(
-                    c.record_new(_label=l)
+                    c.record_new(label=l)
                     for c, l in zip(components, component_labels, strict=True)
                 )
 
-        return dict(axis=axis, components=components, _label=label)
+        return dict(axis=axis, components=components, label=label)
 
     def __post_init__(self) -> None:
-        assert self.label is not PYOP3_DECIDE
-        assert all(c.label is not PYOP3_DECIDE for c in self.components)
-
-    # }}}
-
-    # {{{ interface impls
-
-    label = pyop3.record.attr("_label")
+        assert all(c.label is not DECIDE for c in self.components)
 
     # }}}
 
@@ -1010,19 +975,14 @@ class CalledMap(AbstractCalledMap):
 
     _map: Map
     _index: Any
-    id: Any
-    _label: Any
+    label: Any
 
     @classmethod
-    def record_prepare_args(cls, map, from_index, *, id=None, label=None):
-        id = id if id is not None else cls.unique_id()
-        label = label if label is not None else cls.unique_label()
-
+    def record_prepare_args(cls, map, from_index, *, id=None, label=DECIDE):
         return dict(
         _map=map,
         _index=from_index,
-        id=id,
-        _label=label,
+        label=label,
         )
 
     def __post_init__(self) -> None:
@@ -1045,7 +1005,6 @@ class CalledMap(AbstractCalledMap):
 
     map = pyop3.record.attr("_map")
     index = pyop3.record.attr("_index")
-    label = pyop3.record.attr("_label")
 
     # }}}
 
@@ -1129,14 +1088,12 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
     _map: UnitMap
     _index: UnitMap | LoopIndex
-    _label: Any
+    label: Any
 
     # FIXME: do i need label?
     @classmethod
-    def record_prepare_args(cls, map, index, label=None):
-        label = label if label is not None else cls.unique_label()
-
-        return dict(_map=map, _index=index, _label=label)
+    def record_prepare_args(cls, map, index, label=DECIDE):
+        return dict(_map=map, _index=index, label=label)
 
     # }}}
 
@@ -1144,7 +1101,6 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
     map = pyop3.record.attr("_map")
     index = pyop3.record.attr("_index")
-    label = pyop3.record.attr("_label")
 
     # }}}
 
@@ -1311,7 +1267,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 
 
 @_index_axes_per_index.register
-def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
+def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
     from pyop3.expr import AxisVar
     from pyop3.expr.visitors import replace_terminals, collect_axis_vars
     from pyop3.expr import CompositeDat
@@ -1426,7 +1382,14 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         component = AxisComponent(indexed_regions, label=slice_component.label, sf=sf, size=component_size)
         components.append(component)
 
-    axis = Axis(components, label=slice_.label)
+    if not slice_.label.startswith("_node_Slice"):
+        axis_label = slice_.label
+    else:
+        if len(seen_target_exprs) > 0:
+            breakpoint()
+        else:
+            axis_label = f"axis_{index_count}_0"
+    axis = Axis(components, label=axis_label)
 
     # now do target expressions
     targets = {}
@@ -1455,7 +1418,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             try:
                 subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
             except ValueError:
-                subset_axis_var = just_one(av for av in collect_axis_vars(slice_component.array.layout) if av.axis_label == slice_.label)
+                subset_axis_var = just_one(av for av in collect_axis_vars(slice_component.array.layout) if av.axis_label == axis.label)
 
             if subset_axis_var.axis.label != linear_axis.label:
                 replace_map = {subset_axis_var.axis.label: AxisVar(linear_axis)}
@@ -1631,8 +1594,12 @@ def index_axes(
     #
     # (where each 'component' is also a tuple of *equivalent targets*).
 
-    # construct the new, indexed, axis tree
-    indexed_axes, indexed_targets = make_indexed_axis_tree(index_tree, target_axes)
+    # Now construct the new, indexed, axis tree. To make sure that we get unique
+    # labels we compute the 'index_count' (which is the number of times that the
+    # tree has been indexed from the original unindexed one). Currently we use
+    # the axis targets as a nasty proxy for this
+    index_count = max(map(len, orig_axes.targets.values()))
+    indexed_axes, indexed_targets = make_indexed_axis_tree(index_tree, target_axes, index_count=index_count)
 
     indexed_targets = complete_axis_targets(indexed_targets)
 
@@ -1668,21 +1635,23 @@ def index_axes(
     return retval
 
 
-def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
+def make_indexed_axis_tree(index_tree: IndexTree, target_axes, index_count: int):
     return _make_indexed_axis_tree_rec(
         index_tree,
         target_axes,
         index_path=idict(),
         expr_replace_map=idict(),
+        index_count=index_count,
     )
 
 
-def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
+def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map, index_count):
     index = index_tree.node_map[index_path]
 
     index_axis_tree, per_index_targets = _index_axes_per_index(
         index, target_axes,
         seen_target_exprs=expr_replace_map,
+        index_count=index_count,
     )
 
     targets: dict[ConcretePathT, tuple[AxisTarget, ...]] \
@@ -1713,6 +1682,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
             target_axes_,
             index_path=index_path_,
             expr_replace_map=expr_replace_map_,
+            index_count=index_count,
         )
 
         leaf_axis_key = leaf_path

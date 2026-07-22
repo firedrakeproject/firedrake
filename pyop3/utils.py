@@ -20,10 +20,10 @@ from mpi4py import MPI
 
 
 import pyop3.config
+import pyop3.constants
 import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
 from pyop3.collections import unique, as_tuple
-from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
 from pyop3.mpi import collective
@@ -151,10 +151,11 @@ Label = str
 
 class Labelled(abc.ABC):
     # def __init__(self, label):
-    #     self.label = label if label is not PYOP3_DECIDE else self.unique_label()
+    #     self.label = label if label is not DECIDE else self.unique_label()
 
     @classmethod
     def unique_label(cls) -> str:
+        assert False, "probably no"
         return unique_name(f"_label_{cls.__name__}")
 
     @classmethod
@@ -332,8 +333,8 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
 
 
 
-def pairwise(iterable, *, final=_nothing):
-    if final is not _nothing:
+def pairwise(iterable, *, final=pyop3.constants._nothing):
+    if final is not pyop3.constants._nothing:
         return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
     else:
         return zip(iterable, iterable[1:])

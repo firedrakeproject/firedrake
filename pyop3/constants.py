@@ -3,10 +3,11 @@ import enum
 
 # TODO: rename to just 'DECIDE'
 class _Decide:
-    pass
+    def __repr__(self) -> str:
+        return "DECIDE"
 
 
-PYOP3_DECIDE = _Decide()
+DECIDE = _Decide()
 """Placeholder indicating that a value should be set by pyop3.
 
 This is important in cases where the more traditional `None` is actually
