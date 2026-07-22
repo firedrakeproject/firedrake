@@ -941,8 +941,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size

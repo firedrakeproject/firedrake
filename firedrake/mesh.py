@@ -37,7 +37,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import as_cstr, IntType, RealType, cached_property_until
+from firedrake.utils import IntType, IntType_c, RealType, RealType_c, as_ctypes, cached_property_until
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
@@ -2053,7 +2053,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
+
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+        self._init_particle_ids()
 
     def _distribute(self):
         pass
@@ -2070,6 +2072,18 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             # all entities as pyop2 core, which mark_entity_classes will do.
             assert isinstance(self._parent_mesh, VertexOnlyMeshTopology)
             dmcommon.mark_entity_classes(self.topology_dm)
+
+    def _init_particle_ids(self):
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.function import CoordinatelessFunction
+
+        # Attach persistent IDs to VOM points
+        P0 = FunctionSpace(self, "DG", 0)
+        pid = CoordinatelessFunction(P0, dtype=IntType, name="firedrake_particle_ids")
+        n_owned = self.cell_set.size
+        offset = self.comm.scan(n_owned) - n_owned
+        pid.dat.data_wo[:] = np.arange(offset, offset + n_owned, dtype=IntType)
+        self._particle_ids = pid
 
     @cached_property
     def _ufl_cell(self):
@@ -2698,11 +2712,12 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        xs = np.asarray(xs, dtype=utils.ScalarType)
-        xs = xs.real.copy()
+        # `xs` are the physical coordinates we query the rtree with.
+        # libspatialindex requires these to be of type double
+        xs = np.asarray(xs).real.astype(np.float64, order="C")
         if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
-        Xs = np.empty_like(xs)
+        Xs = np.empty_like(xs, dtype=RealType)
         npoints = len(xs)
         if cells_ignore is None or cells_ignore[0][0] is None:
             cells_ignore = np.full((npoints, 1), -1, dtype=IntType, order="C")
@@ -2711,14 +2726,14 @@ values from f.)"""
         if cells_ignore.shape[0] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
-        ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
-        cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
-        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
+        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
             run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
@@ -2733,13 +2748,13 @@ values from f.)"""
         try:
             return cache[tolerance]
         except KeyError:
-            IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
+            # locator returns an error code which is always a 32-bit int rather than IntType_c.
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
+                int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
                 {{
-                    {IntTypeC} j = 0;  /* index into x and X */
-                    for({IntTypeC} i=0; i<npoints; i++) {{
+                    {IntType_c} j = 0;  /* index into x and X */
+                    for({IntType_c} i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
 
                         /* The type definitions and arguments used here are defined as
@@ -2750,7 +2765,7 @@ values from f.)"""
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
-                        int *cells_ignore_i = cells_ignore + i*ncells_ignore;
+                        {IntType_c} *cells_ignore_i = cells_ignore + i*ncells_ignore;
                         cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
@@ -2781,12 +2796,12 @@ values from f.)"""
             locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_int),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(IntType)),
+                                as_ctypes(IntType),
                                 ctypes.c_size_t,
-                                ctypes.c_size_t,
-                                np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
@@ -3709,6 +3724,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     )
     vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
+
     return vmesh_out
 
 
