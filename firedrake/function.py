@@ -26,7 +26,7 @@ from pyop3.mpi import internal_comm
 import petsctools
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c
+from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
 
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
@@ -152,7 +152,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
-        return utils.readonly(components)
+        return readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -332,7 +332,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
-        return utils.readonly(components)
+        return readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, indices: tuple[int] | int) -> "Function":
@@ -876,7 +876,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     func_shape = np.prod(function.function_space().finat_element.index_shape, dtype=int)
     func_bsize = function.function_space().block_size
 
-    p_ScalarType_c = f"{utils.ScalarType_c}*"
+    p_ScalarType_c = f"{ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
         void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {ScalarType_c} const *__restrict__ dat1, {IntType_c} const *__restrict__ map0, {IntType_c} const *__restrict__ map1)
         {{
