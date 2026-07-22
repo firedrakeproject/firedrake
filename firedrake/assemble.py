@@ -20,8 +20,8 @@ from firedrake import (extrusion_utils as eutils, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
-from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit, bcdofs
-from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
+from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix, _apply_bcs
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_interpolator
@@ -494,10 +494,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 elif isinstance(rhs, MatrixBase):
                     result = tensor.petscmat if tensor else PETSc.Mat()
                     lhs.petscmat.matMult(rhs.petscmat, result=result)
-                    result = self.apply_action_bcs(result, expr.arguments(), bcs)
                     if tensor is None:
                         tensor = Matrix(expr, result, bcs=bcs, options_prefix=self._options_prefix)
-                    return tensor
+                    return _apply_bcs(tensor, bcs, self._weight)
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
@@ -932,36 +931,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
         return ufl.algorithms.ad.expand_derivatives(form)
-
-    def apply_action_bcs(self, mat, args, bcs):
-        if not bcs:
-            return mat
-
-        spaces = tuple(fs.dual() if ufl.duals.is_dual(fs) else fs for fs in (arg.function_space() for arg in args))
-        masks = []
-        boundary_dofs = []
-        for space in spaces:
-            mask = firedrake.Function(space).assign(1)
-            dofs = []
-            for bc in bcs:
-                if isinstance(bc, DirichletBC) and bc.function_space_root() == space:
-                    dofs.append(bcdofs(bc, ghost=False))
-            dofs = numpy.concatenate(dofs).astype(PETSc.IntType, copy=False) if dofs else numpy.empty(0, dtype=PETSc.IntType)
-            with mask.dat.vec as vec:
-                vec.array[dofs] = 0
-            masks.append(mask)
-            boundary_dofs.append(dofs)
-
-        row_mask, col_mask = masks
-        with row_mask.dat.vec_ro as row_vec, col_mask.dat.vec_ro as col_vec:
-            mat.diagonalScale(row_vec, col_vec)
-
-        if spaces[0] == spaces[1] and boundary_dofs[0].size:
-            diag = mat.getDiagonal()
-            diag.array[boundary_dofs[0]] = self._weight
-            mat.setDiagonal(diag, addv=PETSc.InsertMode.INSERT_VALUES)
-            diag.destroy()
-        return mat
 
 
 class FormAssembler(AbstractFormAssembler):

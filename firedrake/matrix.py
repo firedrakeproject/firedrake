@@ -1,13 +1,15 @@
 from typing import Any
 from collections.abc import Iterable
 import itertools
+import numpy as np
 
 import ufl
 from pyop2.utils import as_tuple
 from pyop2 import op2
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from firedrake.petsc import PETSc
-from firedrake.bcs import DirichletBC
+from firedrake.bcs import DirichletBC, bcdofs
+from firedrake.function import Function
 from firedrake.matrix_free import ImplicitMatrixContext
 from firedrake.slate import slate
 
@@ -277,3 +279,52 @@ class AssembledMatrix(MatrixBase):
 
         # this mimics op2.Mat.handle
         self.M = DummyOP2Mat(self.petscmat)
+
+
+def _apply_bcs(mat: Matrix | AssembledMatrix, bcs: Iterable[DirichletBC], weight: float = 1.0) -> Matrix | AssembledMatrix:
+    """Apply dirichlet BCs to an assembled matrix.
+
+    Parameters
+    ----------
+    mat : Matrix | AssembledMatrix
+        The already assembled matrix
+    bcs : Iterable[DirichletBC]
+        The boundary conditions to apply to the matrix.
+    weight : float, optional
+        Diagonal weight to apply when the matrix is square. By default 1.0.
+
+    Returns
+    -------
+    Matrix | AssembledMatrix
+        A matrix with the boundary conditions applied.
+        If no boundary conditions are supplied, returns the original matrix.
+    """
+    if not bcs:
+        return mat
+
+    petscmat = mat.petscmat
+    spaces = tuple(fs.dual() if ufl.duals.is_dual(fs) else fs for fs in (arg.function_space() for arg in mat.arguments()))
+    masks = []
+    boundary_dofs = []
+    for space in spaces:
+        mask = Function(space).assign(1)
+        dofs = []
+        for bc in bcs:
+            if isinstance(bc, DirichletBC) and bc.function_space_root() == space:
+                dofs.append(bcdofs(bc, ghost=False))
+        dofs = np.concatenate(dofs).astype(PETSc.IntType, copy=False) if dofs else np.empty(0, dtype=PETSc.IntType)
+        with mask.dat.vec as vec:
+            vec.array[dofs] = 0
+        masks.append(mask)
+        boundary_dofs.append(dofs)
+
+    row_mask, col_mask = masks
+    with row_mask.dat.vec_ro as row_vec, col_mask.dat.vec_ro as col_vec:
+        petscmat.diagonalScale(row_vec, col_vec)
+
+    if spaces[0] == spaces[1] and boundary_dofs[0].size:
+        diag = petscmat.getDiagonal()
+        diag.array[boundary_dofs[0]] = weight
+        petscmat.setDiagonal(diag, addv=PETSc.InsertMode.INSERT_VALUES)
+        diag.destroy()
+    return mat
