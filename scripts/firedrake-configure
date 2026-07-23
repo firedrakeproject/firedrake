@@ -52,6 +52,7 @@ import dataclasses
 import enum
 import os
 import platform
+import shlex
 from collections.abc import Mapping, Sequence
 
 
@@ -105,21 +106,21 @@ Please consider passing '--os unknown' or building manually.""")
 
     if args.show_system_packages:
         try:
-            arch.show_system_packages()
+            arch.show_system_packages(args.passthrough)
         except InvalidConfigurationError:
             error(
                 "Don't know what system dependencies to install for this arch "
                 f"'{arch_key_str}', please install them manually"
             )
     elif args.show_petsc_configure_options:
-        arch.show_petsc_configure_options()
+        arch.show_petsc_configure_options(args.passthrough)
     elif args.show_petsc_version:
         print_and_stop(SUPPORTED_PETSC_VERSION)
     elif args.show_extra_repo_pkg_url:
-        arch.show_url()
+        arch.show_url(args.passthrough)
     else:
         assert args.show_env
-        arch.show_env()
+        arch.show_env(args.passthrough)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -211,6 +212,16 @@ Please see https://firedrakeproject.org/install for more information."""
         help="Print out the URL of any package required to enable non-OS repo access for this build",
     )
 
+    parser.add_argument(
+        "passthrough",
+        nargs="*",
+        metavar="-- OPTION[=VALUE] ...",
+        help=(
+            "After a literal '--', extra options appended verbatim to the generated "
+            "options. This can be useful to overwrite problematic default options."
+        ),
+    )
+
     return parser
 
 
@@ -283,12 +294,12 @@ class Arch:
     """System packages."""
     extra_petsc_configure_options: Sequence[str] = ()
     """Extra options passed to PETSc configure."""
-    cflags: Sequence[str] = ()
-    """CFLAGS used to compile PETSc and external packages."""
-    cxxflags: Sequence[str] = ()
-    """CXXFLAGS used to compile PETSc and external packages."""
-    fflags: Sequence[str] = ()
-    """FFLAGS used to compile PETSc and external packages."""
+    coptflags: Sequence[str] = ()
+    """Optimisation flags passed to PETSc via --COPTFLAGS."""
+    cxxoptflags: Sequence[str] = ()
+    """Optimisation flags passed to PETSc via --CXXOPTFLAGS."""
+    foptflags: Sequence[str] = ()
+    """Optimisation flags passed to PETSc via --FOPTFLAGS."""
     include_dirs: Sequence[str] = ()
     """Extra include directories used during PETSc configure and install"""
     library_dirs: Sequence[str] = ()
@@ -313,33 +324,37 @@ class Arch:
         "--with-strict-petscerrorcode",
     ]
 
-    def show_system_packages(self) -> None:
+    def show_system_packages(self, extra_options: Sequence[str] = ()) -> None:
         if self.system_packages is None:
             raise InvalidConfigurationError
         else:
-            print_and_stop(" ".join(self.system_packages))
+            packages = [*self.system_packages, *(shlex.quote(option) for option in extra_options)]
+            print_and_stop(" ".join(packages))
 
-    def show_petsc_configure_options(self) -> None:
-        include_dirs = [f"-I{idir}" for idir in self.include_dirs]
-        library_dirs = [f"-L{ldir}" for ldir in self.library_dirs]
-        cflags = " ".join((*self.cflags, *include_dirs, *library_dirs))
-        cxxflags = " ".join((*self.cxxflags, *include_dirs, *library_dirs))
-        fflags = " ".join((*self.fflags, *include_dirs, *library_dirs))
+    def show_petsc_configure_options(self, extra_options: Sequence[str] = ()) -> None:
+        include_dirs = " ".join(f"-I{idir}" for idir in self.include_dirs)
+        library_dirs = " ".join(f"-L{ldir}" for ldir in self.library_dirs)
         opts = [
             f"PETSC_ARCH=arch-firedrake-{self.name}",
-            f"--COPTFLAGS='{cflags}'",
-            f"--CXXOPTFLAGS='{cxxflags}'",
-            f"--FOPTFLAGS='{fflags}'",
+            *([f"--CFLAGS='{include_dirs}'"] if include_dirs else []),
+            *([f"--CXXFLAGS='{include_dirs}'"] if include_dirs else []),
+            *([f"--FFLAGS='{include_dirs}'"] if include_dirs else []),
+            *([f"--LDFLAGS='{library_dirs}'"] if library_dirs else []),
+            f"--COPTFLAGS='{' '.join(self.coptflags)}'",
+            f"--CXXOPTFLAGS='{' '.join(self.cxxoptflags)}'",
+            f"--FOPTFLAGS='{' '.join(self.foptflags)}'",
             *self.common_petsc_configure_options,
             *self.extra_petsc_configure_options,
+            *(shlex.quote(option) for option in extra_options),
         ]
         print_and_stop(" ".join(opts))
 
-    def show_url(self) -> None:
+    def show_url(self, extra_options: Sequence[str] = ()) -> None:
         assert self.extra_url
-        print_and_stop(self.extra_url)
+        parts = [self.extra_url, *(shlex.quote(option) for option in extra_options)]
+        print_and_stop(" ".join(parts))
 
-    def show_env(self) -> None:
+    def show_env(self, extra_options: Sequence[str] = ()) -> None:
         # TODO: inspect the current directory and error if PETSc isn't found
         petsc_dir = f"{os.getcwd()}/petsc"
         petsc_arch = f"arch-firedrake-{self.name}"
@@ -362,8 +377,9 @@ class Arch:
                 value = value.replace(from_, to)
             return value
 
-        env_str = " ".join(f"{name}={replace_vars(value)}" for name, value in env.items())
-        print_and_stop(env_str)
+        env_items = [f"{name}={replace_vars(value)}" for name, value in env.items()]
+        env_items.extend(shlex.quote(option) for option in extra_options)
+        print_and_stop(" ".join(env_items))
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -472,9 +488,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hypre",
             "/usr/include/superlu",
@@ -533,9 +549,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
@@ -586,9 +602,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/superlu",
@@ -652,9 +668,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-zlib",
             "--download-hypre",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hypre",
             "/usr/include/superlu",
@@ -713,9 +729,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/superlu",
             "/usr/include/superlu-dist",
@@ -788,9 +804,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-cxx-dialect=c++17",
             "--download-umpire",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/scotch",
             "/usr/include/superlu",
@@ -851,9 +867,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
             "-download-mumps-avoid-mpi-in-place",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3"],
         extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
     ),
 
@@ -905,9 +921,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
             "-download-mumps-avoid-mpi-in-place",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3"],
         extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
     ),
 
@@ -931,9 +947,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-superlu_dist",
             "--download-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         extra_env_vars={
             "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
             "CC": "mpicc",
@@ -959,9 +975,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-superlu_dist",
             "--download-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         extra_env_vars={
             "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
             "CC": "mpicc",
@@ -987,9 +1003,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--download-superlu_dist",
             "--download-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         extra_env_vars={
             "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
             "CC": "mpicc",
@@ -1052,9 +1068,9 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-zlib",
             "--download-hypre",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
@@ -1114,9 +1130,9 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
@@ -1178,9 +1194,9 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-zlib",
             "--download-hypre",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
@@ -1240,9 +1256,9 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
             "--with-superlu_dist",
             "--with-zlib",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
