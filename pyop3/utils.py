@@ -85,31 +85,6 @@ def unique_id(obj) -> str:
     return _unique_id_generator(type(obj).__name__)
 
 
-
-# does this live here?
-class Renamer:
-    def __init__(self):
-        self.store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def _mykey(self, obj):
-        import pyop3
-        if isinstance(obj, pyop3.Axis|pyop3.LoopIndex):
-            return (type(obj), obj.label)
-        return obj
-
-    def __getitem__(self, key):
-        return self.store[self._mykey(key)]
-
-    def add(self, obj: Any):
-        try:
-            return self.store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[type(obj)])
-            label = f"{type(obj).__name__}_{index}"
-            return self.store.setdefault(self._mykey(obj), label)
-
-
 # NOTE: Python 3.13 has warnings.deprecated
 def deprecated(prefer=None, internal=False):
     def decorator(fn):

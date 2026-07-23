@@ -19,7 +19,7 @@ if typing.TYPE_CHECKING:
     from pyop3.types import LabelT
 
 
-# TODO: inherit from IdentityMapper
+# TODO: inherit from IdentityMapper (not yet implemented)
 class Relabeler(pyop3.node.NodeVisitor):
 
     def __init__(self, relabel_map: Mapping[pyop3.obj.Object, str]) -> None:
@@ -27,28 +27,25 @@ class Relabeler(pyop3.node.NodeVisitor):
         super().__init__()
 
     def _relabel_pathed_mapping(self, mapping: Mapping[ConcretePathT, pyop3.obj.Object]):
-        retval = idict({
-            self._relabel_path(path): self(value)
+        return idict({
+            self.relabel_path(path): self(value)
             for path, value in mapping.items()
         })
-        if "dof0" in str(mapping) and "dof3" in str(mapping):
-            breakpoint()
-        return retval
 
-    def _relabel_path(self, path):
+    def relabel_path(self, path):
         return idict({
-            self._node_relabel_map.get(node): component
+            self._node_label_relabel_map.get(node): component
             for node, component in path.items()
         })
 
     @cached_property
-    def _node_relabel_map(self) -> dict:
-        return {
-            key[1]: new_label
-            for key, new_label in self.relabel_map.items()
-            # if isinstance(obj, pyop3.labeled_tree.MultiComponentLabelledNode)
-            if isinstance(key, tuple)
-        }
+    def _node_label_relabel_map(self) -> dict:
+        relabel_map = {}
+        for key, new_label in self.relabel_map.items():
+            if isinstance(key, tuple):
+                obj_type, orig_label = key
+                relabel_map[orig_label] = new_label
+        return relabel_map
 
     @functools.singledispatchmethod
     def process(self, obj: Any, /):
@@ -78,9 +75,11 @@ class Relabeler(pyop3.node.NodeVisitor):
     @process.register
     def _(self, axis_tree: pyop3.axis_tree.AxisTree, /):
         new_node_map = self._relabel_pathed_mapping(axis_tree.node_map)
-        retval = axis_tree.record_new(node_map=new_node_map)
-        print(retval)
-        return retval
+        return axis_tree.record_new(node_map=new_node_map)
+
+    @process.register
+    def _(self, axis_tree: pyop3.axis_tree._UnitAxisTree, /):
+        return axis_tree
 
     # }}}
 
@@ -117,8 +116,9 @@ class Relabeler(pyop3.node.NodeVisitor):
     def _(self, op: pyop3.expr.BinaryOperator, /):
         return op.record_new(a=self(op.a), b=self(op.b))
 
-    @process.register
-    def _(self, obj: pyop3.expr.NaN, /):
+    @process.register(pyop3.expr.NaN)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    def _(self, obj: pyop3.expr.Expression, /):
         return obj
 
     # }}}

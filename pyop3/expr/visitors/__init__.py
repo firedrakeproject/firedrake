@@ -896,6 +896,8 @@ def materialize_composite_dat(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,
 ) -> pyop3.expr.LinearDatBufferExpression:
+    # return _materialize_composite_dat_cached(composite_dat, comm)
+
     from pyop3.visitors import InstructionExecutorCacheKeyGetter, relabel
 
     # TODO: Current using a very bespoke caching strategy because I don't
@@ -907,16 +909,8 @@ def materialize_composite_dat(
     relabel_map = visitor.renamer.store
     relabeled_composite_dat = relabel(composite_dat, relabel_map)
 
-    # debugging
-    print(composite_dat.axis_tree)
-    print(relabeled_composite_dat.axis_tree)
-
     materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm)
 
-    # new_to_old_relabel_map = {
-    #     node.record_new(label=new_label): node.label
-    #     for node, new_label in relabel_map.items()
-    # }
     new_to_old_relabel_map = {
         (node_type, new_label): old_label
         for (node_type, old_label), new_label in relabel_map.items()
@@ -961,8 +955,6 @@ def _materialize_composite_dat_cached(
 
         assignee_ = assignee[iforest]
 
-        # print("materialising", expr)
-
         if assignee_.size > 0:
             assignee_.assign(
                 expr,
@@ -973,7 +965,6 @@ def _materialize_composite_dat_cached(
         else:
             to_skip.add(leaf_path)
 
-        # print("giving", assignee.buffer.shape, assignee_.data_ro.sum())
         mycounter[assignee_.data_ro.sum()] += 1
 
     # step 3: replace axis vars with loop indices in the layouts

@@ -225,6 +225,9 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
 
         super().__init__(cidx, comm, func)
 
+    def __str__(self) -> str:
+        return f"{type(self.cache).__name__}({self.func_name})"
+
     def __del__(self):
         _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm, self.func, self.hit, self.miss, self.size, self.maxsize)
 

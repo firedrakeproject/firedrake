@@ -1034,11 +1034,7 @@ class PetscMatBuffer(ConcreteBuffer):
         return OrderedFrozenSet([self])
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            visitor.renamer.add(self.name),
-            self._constant,
-        )
+        return (type(self), visitor.renamer.add(self), self._constant)
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # we can hit buffers in multiple places...
@@ -1046,7 +1042,7 @@ class PetscMatBuffer(ConcreteBuffer):
         if visitor.outer:
             return (
                 type(self),
-                visitor.renamer.add(self._name),
+                visitor.renamer.add(self),
                 self._constant,
             )
         else:

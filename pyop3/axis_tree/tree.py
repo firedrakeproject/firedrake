@@ -559,7 +559,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         return OrderedFrozenSet().union(*(map(visitor, self.components)))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self))
+        return (
+            type(self),
+            tuple(map(visitor, self.components)),
+            visitor.renamer.add((type(self), self.label)),
+        )
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -727,7 +731,7 @@ class AxisTarget(pyop3.obj.Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor.node_relabel_map[self.axis],
+            visitor.renamer.add((Axis, self.axis)),
             self.component,
             visitor(self.expr),
         )
@@ -1727,24 +1731,22 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         node_map_key = {}
         for path, axis in self.node_map.items():
             relabeled_path = idict({
-                visitor.node_label_relabel_map[axis_label]: component_label
+                visitor.renamer.add((Axis, axis_label)): component_label
                 for axis_label, component_label in path.items()
             })
             node_map_key[relabeled_path] = visitor(axis)
         node_map_key = idict(node_map_key)
 
         targets_key = {}
-        # TODO: we don't visit these currently because some intermediate axes
-        # do not exist/haven't been visited yet (so the renamer hits a key error)
-        # for path, targetss in self._targets.items():
-        #     relabeled_path = idict({
-        #         visitor.node_relabel_map[axis_label]: component_label
-        #         for axis_label, component_label in path.items()
-        #     })
-        #     targets_key[relabeled_path] = tuple(
-        #         tuple(visitor(target) for target in targets)
-        #         for targets in targetss
-        #     )
+        for path, targetss in self._targets.items():
+            relabeled_path = idict({
+                visitor.renamer.add((Axis, axis_label)): component_label
+                for axis_label, component_label in path.items()
+            })
+            targets_key[relabeled_path] = tuple(
+                tuple(visitor(target) for target in targets)
+                for targets in targetss
+            )
         targets_key = idict(targets_key)
 
         return (type(self), node_map_key, visitor(self._unindexed), targets_key)
@@ -2072,18 +2074,16 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     _targets: Any
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        # TODO: we don't visit these currently because some intermediate axes
-        # do not exist/haven't been visited yet (so the renamer hits a key error)
         targets_key = {}
-        # for path, targetss in self._targets.items():
-        #     relabeled_path = idict({
-        #         visitor.node_relabel_map[axis_label]: component_label
-        #         for axis_label, component_label in path.items()
-        #     })
-        #     targets_key[relabeled_path] = tuple(
-        #         tuple(visitor(target) for target in targets)
-        #         for targets in targetss
-        #     )
+        for path, targetss in self._targets.items():
+            relabeled_path = idict({
+                visitor.renamer.add((Axis, axis_label)): component_label
+                for axis_label, component_label in path.items()
+            })
+            targets_key[relabeled_path] = tuple(
+                tuple(visitor(target) for target in targets)
+                for targets in targetss
+            )
         targets_key = idict(targets_key)
 
         return (type(self), visitor(self._unindexed), targets_key)
