@@ -1764,6 +1764,18 @@ class MeshTopology(AbstractMeshTopology):
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
             return composed_map, integral_type
 
+    @cached_property
+    def _visible_ranks(self):
+        # Get parent mesh rank ownership information.
+        visible_ranks = np.empty(self.cell_set.total_size, dtype=IntType)
+        visible_ranks[:self.cell_set.size] = self.comm.rank
+        visible_ranks[self.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            self.topology_dm, self._cell_numbering, visible_ranks
+        )
+        return visible_ranks
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -2893,7 +2905,7 @@ values from f.)"""
                         }}
                     }}
                     rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
-                    rtree_free_ids(candidate_offsets, npoints + 1);
+                    rtree_free_offsets(candidate_offsets, npoints + 1);
                     return 0;
                 }}
             """)
