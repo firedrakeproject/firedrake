@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ufl
+import weakref
 from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
@@ -312,6 +313,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self._ctx = ctx
+        self._ctx._snes_ref = weakref.ref(self.snes)
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
@@ -357,6 +359,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
+        from firedrake.dwr import DWRMarkingCallback
+        if isinstance(callback, DWRMarkingCallback):
+            with self.inserted_options():
+                callback.setup(self._ctx._problem.u, self.options_prefix)
         self._ctx._marking_callback = callback
 
     def get_solution(self):
@@ -444,6 +450,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
+                self._ctx._snes_ref = weakref.ref(self.snes)
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
