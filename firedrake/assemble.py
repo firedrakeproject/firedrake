@@ -380,20 +380,21 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @cached_property
     def allocation_integral_types(self):
-        if self._allocation_integral_types is None:
-            # Use the most conservative integration types.
-            test, _ = self._form.arguments()
-            integral_types = set()
-            # The test space may be defined on a MeshSequence containing
-            # multiple distinct meshes.
-            for mesh in test.function_space().mesh():
-                if mesh.extruded:
-                    integral_types.update(("interior_facet_vert", "interior_facet_horiz"))
-                else:
-                    integral_types.add("interior_facet")
-            return tuple(integral_types)
-        else:
+        if self._allocation_integral_types is not None:
             return self._allocation_integral_types
+        if len(self._form.arguments()) != 2:
+            return None
+        # Use the most conservative integration types.
+        test, _ = self._form.arguments()
+        integral_types = set()
+        # The test space may be defined on a MeshSequence containing
+        # multiple distinct meshes.
+        for mesh in test.function_space().mesh():
+            if mesh.extruded:
+                integral_types.update(("interior_facet_vert", "interior_facet_horiz"))
+            else:
+                integral_types.add("interior_facet")
+        return tuple(integral_types)
 
     @staticmethod
     def _as_pyop2_type(tensor, indices=None):
