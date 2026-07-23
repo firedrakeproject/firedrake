@@ -605,6 +605,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
+        self._topology_version = 0
+        if self._topology_is_mutable:
+            self._topology_step_sfs = {}
+
     layers = None
     """No layers on unstructured mesh"""
 
@@ -630,6 +634,11 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def _renumber_entities(self, reorder):
         """Renumber entities."""
         pass
+
+    @property
+    @abc.abstractmethod
+    def _topology_is_mutable(self):
+        """Boolean flag indicating whether this mesh's topology may change after construction."""
 
     @property
     def comm(self):
@@ -1070,6 +1079,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
+    _topology_is_mutable = False
 
     @PETSc.Log.EventDecorator("CreateMesh")
     def __init__(
@@ -1840,6 +1850,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # submesh
         self.submesh_parent = None
 
+        # NOTE: Once super().__init__ is implemented, the following line can be removed
+        self._topology_version = 0
+
     @cached_property
     def _ufl_cell(self):
         return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
@@ -2017,6 +2030,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     Representation of a vertex-only mesh topology immersed within
     another mesh.
     """
+    _topology_is_mutable = True
 
     @PETSc.Log.EventDecorator()
     def __init__(self, swarm, parentmesh, name, reorder, input_ordering_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
