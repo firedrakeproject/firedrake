@@ -164,7 +164,7 @@ class NullBuffer(AbstractArrayBuffer):
         return OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), self._shape, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
+        return (type(self), self._shape, visitor.renamer.add(self), self._dtype)
 
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
@@ -294,7 +294,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return (
             type(self),
             self.dtype,
-            visitor.renamer.add(self, "ArrayBuffer"),
+            visitor.renamer.add(self),
             self._constant,
             self._rank_equal,
             self._ordered,
@@ -319,7 +319,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             return (
                 type(self),
                 self.dtype,
-                visitor.renamer.add(self, "ArrayBuffer"),
+                visitor.renamer.add(self),
                 self._constant,
                 self._rank_equal,
                 self._ordered,
@@ -1036,7 +1036,7 @@ class PetscMatBuffer(ConcreteBuffer):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor.renamer.add(self.name, "PetscMatBuffer"),
+            visitor.renamer.add(self.name),
             self._constant,
         )
 
@@ -1046,7 +1046,7 @@ class PetscMatBuffer(ConcreteBuffer):
         if visitor.outer:
             return (
                 type(self),
-                visitor.renamer.add(self._name, "PetscMatBuffer"),
+                visitor.renamer.add(self._name),
                 self._constant,
             )
         else:

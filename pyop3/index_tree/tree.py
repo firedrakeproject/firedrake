@@ -427,14 +427,9 @@ class LoopIndex(UnitIndex):
         return visitor(self.iterset)
 
     def get_disk_cache_key(self, visitor):
-        return (type(self), visitor(self.iterset), visitor.renamer.add(self.id, "LoopIndex"))
+        return (type(self), visitor(self.iterset), visitor.renamer.add(self))
 
-    def get_instruction_executor_cache_key(self, visitor):
-        return (
-            type(self),
-            visitor(self.iterset),
-            visitor.renamer.add(self.id, "LoopIndex"),
-        )
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     @classmethod
     def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree):

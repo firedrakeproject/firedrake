@@ -21,6 +21,9 @@ import pyop3.obj
 import pyop3.sf
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
+from pyop3.labeled_tree import MultiComponentLabelledNode
+
+from .relabel import relabel
 
 if typing.TYPE_CHECKING:
     import pyop3.types
@@ -57,14 +60,32 @@ def collect_buffers(obj) -> OrderedFrozenSet:
 class CacheKeyGetter(pyop3.node.NodeVisitor):
 
     def __init__(self) -> None:
-        self.renamer = utils.Renamer2()
+        self.renamer = utils.Renamer()
         super().__init__()
 
     def relabel_path(self, path: pyop3.types.ConcretePathT) -> pyop3.types.ConcretePathT:
         return idict({
-            self.renamer.add(axis, "Axis"): component
-            for axis, component in path.items()
+            self.node_label_relabel_map[node]: component
+            for node, component in path.items()
         })
+
+    @property
+    def node_label_relabel_map(self) -> dict[LabelT, LabelT]:
+        return {
+            key[1]: new_label
+            for key, new_label in self.renamer.store.items()
+            if isinstance(key, tuple)
+        }
+
+    @property
+    def node_relabel_map(
+        self,
+    ) -> dict[MultiComponentLabelledNode, MultiComponentLabelledNode]:
+        return {
+            node: node.record_new(label=new_label)
+            for node, new_label in self.renamer.store.items()
+            if isinstance(node, MultiComponentLabelledNode)
+        }
 
 
 class DiskCacheKeyGetter(CacheKeyGetter):

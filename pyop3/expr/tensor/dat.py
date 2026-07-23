@@ -727,6 +727,13 @@ class CompositeDat(Terminal):
     axis_tree: AxisTree
     exprs: idict[ConcretePathT, ExpressionT]
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.axis_tree),
+            tuple(map(visitor, self.exprs.values())),
+        )
+
     @classmethod
     def record_prepare_args(cls, axis_tree, exprs) -> dict:
         assert len(axis_tree._all_region_labels) == 0

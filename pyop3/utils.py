@@ -89,39 +89,25 @@ def unique_id(obj) -> str:
 # does this live here?
 class Renamer:
     def __init__(self):
-        self._store = {}
+        self.store = {}
         self._counter_by_type = collections.defaultdict(itertools.count)
 
+    def _mykey(self, obj):
+        import pyop3
+        if isinstance(obj, pyop3.Axis|pyop3.LoopIndex):
+            return (type(obj), obj.label)
+        return obj
+
     def __getitem__(self, key):
-        return self._store[key]
+        return self.store[self._mykey(key)]
 
     def add(self, obj: Any):
         try:
-            return self._store[obj]
+            return self.store[obj]
         except KeyError:
             index = next(self._counter_by_type[type(obj)])
             label = f"{type(obj).__name__}_{index}"
-            return self._store.setdefault(obj, label)
-
-# same as above but takes in strings (except it also takes more now)
-class Renamer2:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def __getitem__(self, key):
-        assert isinstance(key, str)
-        return self._store[key]
-
-    def add(self, obj: Hashable, obj_type: str):
-        assert isinstance(obj_type, str)
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[obj_type])
-            label = f"{obj_type}_{index}"
-            return self._store.setdefault(obj, label)
-
+            return self.store.setdefault(self._mykey(obj), label)
 
 
 # NOTE: Python 3.13 has warnings.deprecated

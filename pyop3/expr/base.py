@@ -573,7 +573,7 @@ class AxisVar(TerminalExpression):
         # need to recurse here, just make sure that the labels match.
         return (
             type(self),
-            ("axis", visitor.renamer.add(self.axis.label, "Axis")),
+            ("axis", visitor.renamer.add(self.axis)),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -611,10 +611,10 @@ class NaN(TerminalExpression):
 
     # {{{ pyop3.obj.Object interface impls
 
-    def disk_cache_key(self, renamer):
+    def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self),)
 
-    instruction_executor_cache_key = disk_cache_key
+    get_instruction_executor_cache_key = get_disk_cache_key
 
     @classmethod
     def get_custom_comm(cls) -> MPI.Comm:
@@ -638,9 +638,6 @@ class NaN(TerminalExpression):
     # }}}
 
 
-NAN = NaN()
-
-
 @pyop3.record.frozenrecord()
 class LoopIndexVar(TerminalExpression):
 
@@ -659,8 +656,8 @@ class LoopIndexVar(TerminalExpression):
         # need to recurse here, just make sure that the labels match.
         return (
             type(self),
-            visitor.renamer.add(self.loop_index.id, "LoopIndex"),
-            visitor.renamer.add(self.axis.label, "Axis"),
+            visitor.renamer.add(self.loop_index),
+            visitor.renamer.add(self.axis),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key

@@ -35,6 +35,7 @@ def _make_record_class(*, maybe_singleton: bool, **kwargs):
             assert abstract_attr in cls.__dataclass_fields__, \
                 f"class '{cls.__qualname__}' does not have attribute '{abstract_attr}'"
 
+        # TODO: remove this behaviour and add back in the ability to reuse objects if nothing is changed
         if maybe_singleton:
             assert kwargs.get("frozen", False)
             cls._record_maybe_singleton = True

@@ -18,7 +18,7 @@ from pyop3.collections import OrderedSet
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
-from pyop3.expr.base import NAN, get_loop_tree, loopified_shape
+from pyop3.expr.base import NaN, get_loop_tree, loopified_shape
 from pyop3.insn import exscan, loop_
 from pyop3.axis_tree import (
     Axis,
@@ -305,7 +305,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         if subtree_has_non_trivial_regions:
             assert layout_expr_acc == 0
             layout_expr_acc_ = 0
-            layouts[path_acc_] = NAN
+            layouts[path_acc_] = NaN()
 
         # At the bottom region - now can compute layouts involving all regions
         elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:

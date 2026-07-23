@@ -891,9 +891,45 @@ mycounter = collections.defaultdict(int)
 atexit.register(lambda: print(mycounter))
 atexit.register(lambda: print(sum(mycounter.values())))
 
+
+def materialize_composite_dat(
+    composite_dat: pyop3.expr.CompositeDat,
+    comm: MPI.Comm,
+) -> pyop3.expr.LinearDatBufferExpression:
+    from pyop3.visitors import InstructionExecutorCacheKeyGetter, relabel
+
+    # TODO: Current using a very bespoke caching strategy because I don't
+    # know how to generically relabel on the way out.
+    visitor = InstructionExecutorCacheKeyGetter()
+    with visitor.inside():  # outermost buffers cannot be replaced, everything must be the same
+        _ = visitor(composite_dat)
+
+    relabel_map = visitor.renamer.store
+    relabeled_composite_dat = relabel(composite_dat, relabel_map)
+
+    # debugging
+    print(composite_dat.axis_tree)
+    print(relabeled_composite_dat.axis_tree)
+
+    materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm)
+
+    # new_to_old_relabel_map = {
+    #     node.record_new(label=new_label): node.label
+    #     for node, new_label in relabel_map.items()
+    # }
+    new_to_old_relabel_map = {
+        (node_type, new_label): old_label
+        for (node_type, old_label), new_label in relabel_map.items()
+    }
+    return relabel(materialized, new_to_old_relabel_map)
+
+
 @memory_cache(heavy=True)
 @pyop3.mpi.collective
-def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.Comm) -> pyop3.expr.LinearDatBufferExpression:
+def _materialize_composite_dat_cached(
+    composite_dat: pyop3.expr.CompositeDat,
+    comm: MPI.Comm,  # needed now?
+) -> pyop3.expr.NonlinearDatBufferExpression:
     axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)

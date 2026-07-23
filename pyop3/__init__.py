@@ -52,7 +52,7 @@ from pyop3.expr.tensor import (  # noqa: F401
     Tensor, Dat, Scalar, Mat, AggregateMat, AggregateDat,
     OutOfPlaceCallableTensorTransform
 )
-from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NAN
+from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NaN
 from pyop3.axis_tree import (  # noqa: F401
     Axis,
     AxisForest,

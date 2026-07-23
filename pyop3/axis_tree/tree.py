@@ -559,7 +559,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         return OrderedFrozenSet().union(*(map(visitor, self.components)))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self.label, "Axis"))
+        return (type(self), tuple(map(visitor, self.components)), visitor.renamer.add(self))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -727,7 +727,7 @@ class AxisTarget(pyop3.obj.Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor.renamer.add(self.axis, "Axis"),
+            visitor.node_relabel_map[self.axis],
             self.component,
             visitor(self.expr),
         )
@@ -1727,22 +1727,24 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         node_map_key = {}
         for path, axis in self.node_map.items():
             relabeled_path = idict({
-                visitor.renamer.add(axis_label, "Axis"): component_label
+                visitor.node_label_relabel_map[axis_label]: component_label
                 for axis_label, component_label in path.items()
             })
             node_map_key[relabeled_path] = visitor(axis)
         node_map_key = idict(node_map_key)
 
         targets_key = {}
-        for path, targetss in self._targets.items():
-            relabeled_path = idict({
-                visitor.renamer.add(axis_label, "Axis"): component_label
-                for axis_label, component_label in path.items()
-            })
-            targets_key[relabeled_path] = tuple(
-                tuple(visitor(target) for target in targets)
-                for targets in targetss
-            )
+        # TODO: we don't visit these currently because some intermediate axes
+        # do not exist/haven't been visited yet (so the renamer hits a key error)
+        # for path, targetss in self._targets.items():
+        #     relabeled_path = idict({
+        #         visitor.node_relabel_map[axis_label]: component_label
+        #         for axis_label, component_label in path.items()
+        #     })
+        #     targets_key[relabeled_path] = tuple(
+        #         tuple(visitor(target) for target in targets)
+        #         for targets in targetss
+        #     )
         targets_key = idict(targets_key)
 
         return (type(self), node_map_key, visitor(self._unindexed), targets_key)
@@ -2060,8 +2062,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     # }}}
 
 
-
-# TODO: Have an abstract indexed axis tree mixin type
 @pyop3.record.frozenrecord()
 class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     """An indexed axis tree representing something indexed down to a scalar."""
@@ -2072,16 +2072,18 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     _targets: Any
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # TODO: we don't visit these currently because some intermediate axes
+        # do not exist/haven't been visited yet (so the renamer hits a key error)
         targets_key = {}
-        for path, targetss in self._targets.items():
-            relabeled_path = idict({
-                visitor.renamer.add(axis_label, "Axis"): component_label
-                for axis_label, component_label in path.items()
-            })
-            targets_key[relabeled_path] = tuple(
-                tuple(visitor(target) for target in targets)
-                for targets in targetss
-            )
+        # for path, targetss in self._targets.items():
+        #     relabeled_path = idict({
+        #         visitor.node_relabel_map[axis_label]: component_label
+        #         for axis_label, component_label in path.items()
+        #     })
+        #     targets_key[relabeled_path] = tuple(
+        #         tuple(visitor(target) for target in targets)
+        #         for targets in targetss
+        #     )
         targets_key = idict(targets_key)
 
         return (type(self), visitor(self._unindexed), targets_key)
@@ -2674,7 +2676,7 @@ def subst_layouts(
     target_paths_and_exprs_acc=None,
     loop_vars=frozenset(),
 ):
-    from pyop3 import NAN
+    from pyop3 import NaN
     from pyop3.expr.visitors import replace_terminals, collect_loop_index_vars
 
     layouts_subst = {}
@@ -2696,7 +2698,7 @@ def subst_layouts(
         else:
             # if we haven't gone far enough down the tree to have found all of the loop
             # indices then we can't really say that we know what the layout function is.
-            layouts_subst[path] = NAN
+            layouts_subst[path] = NaN()
 
         if axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree):
             return layouts_subst
@@ -2717,7 +2719,7 @@ def subst_layouts(
         if accumulated_path in layouts and inner_loop_indices(axes, targets, path) <= loop_vars_:
             layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
         else:
-            layouts_subst[path_] = NAN
+            layouts_subst[path_] = NaN()
 
         if axes.node_map[path_]:
             layouts_subst.update(
