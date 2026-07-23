@@ -5,6 +5,7 @@ from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
+from warnings import warn
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
@@ -90,9 +91,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 bcs = J.bcs
         if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
             restrict = False
-        self.restrict = restrict and bcs
+        self.restrict = restrict and bool(bcs)
 
-        if restrict and bcs:
+        if self.restrict:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
@@ -194,7 +195,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_jacobian_callback=None,
                  pre_function_callback=None,
                  post_function_callback=None,
-                 pre_apply_bcs=True):
+                 pre_apply_bcs=False):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -293,8 +294,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
-                                         options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs)
+                                         options_prefix=self.options_prefix)
+        if pre_apply_bcs:
+            warn("Setting pre_apply_bcs=True is deprecated.", DeprecationWarning, stacklevel=2)
+        self.pre_apply_bcs = pre_apply_bcs
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
@@ -376,7 +379,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
 
-        if self._ctx.pre_apply_bcs:
+        if self.pre_apply_bcs or problem.restrict:
             for bc in problem.dirichlet_bcs():
                 bc.apply(problem.u_restrict)
 
@@ -440,6 +443,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         elif L != 0:
             raise TypeError(f"Provided RHS is a '{type(L).__name__}', not a Form or Slate Tensor")
         F = self.compute_bc_lifting(a, u, L=L)
+        self.L = L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
