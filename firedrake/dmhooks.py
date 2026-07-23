@@ -457,15 +457,12 @@ def _refine_adaptive(dm):
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the AdaptiveMeshHierarchy.
-    dm.incRef()
-
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    solution_mesh = current_solution.function_space().mesh()
+    mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)
     if hierarchy is None:
         hierarchy = AdaptiveMeshHierarchy(mesh)
@@ -489,6 +486,8 @@ def _refine_adaptive(dm):
             raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
         hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+        if isinstance(solution_mesh, MeshSequenceGeometry):
+            solution_mesh.set_hierarchy()
 
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)

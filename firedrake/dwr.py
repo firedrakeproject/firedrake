@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
 import ufl
 from finat.ufl import BrokenElement, FiniteElement
 
 from firedrake.assemble import assemble
+from firedrake.exceptions import ConvergenceError
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.petsc import PETSc
@@ -33,6 +36,12 @@ def _homogeneous_bcs(bcs, V):
 
 def _both(expr):
     return expr("+") + expr("-")
+
+
+def _check_finite(function: Function, name: str) -> None:
+    with function.dat.vec_ro as vec:
+        if not np.isfinite(vec.norm()):
+            raise ConvergenceError(f"{name} contains non-finite values")
 
 
 def _residual_indicators(F, dual_error, residual_degree, options_prefix):
@@ -100,12 +109,12 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     return indicators
 
 
-def _dorfler_mark(indicators, fraction):
+def _dorfler_mark(indicators: Function, fraction: float) -> Function:
     if not 0 < fraction <= 1:
         raise ValueError("marking_fraction must lie in (0, 1]")
     local = indicators.dat.data_ro.copy()
     if not np.isfinite(local).all():
-        raise RuntimeError("DWR error indicators contain non-finite values")
+        raise ConvergenceError("DWR error indicators contain non-finite values")
     gathered = indicators.comm.allgather(local)
     values = np.concatenate(gathered)
     total = values.sum()
@@ -122,7 +131,9 @@ def _dorfler_mark(indicators, fraction):
 class DWRMarkingCallback:
     """Mark cells using an automatically localized dual-weighted residual."""
 
-    def __init__(self, goal_functional, primal=None, enrichment_degree=None):
+    def __init__(self, goal_functional: ufl.BaseForm,
+                 primal: Function | None = None,
+                 enrichment_degree: int | None = None):
         if not isinstance(goal_functional, ufl.BaseForm) or goal_functional.arguments():
             raise ValueError("goal_functional must be a 0-form")
         self.goal_functional = goal_functional
@@ -135,7 +146,7 @@ class DWRMarkingCallback:
                 V, V.ufl_element().degree() + enrichment_degree
             )
 
-    def setup(self, primal, options_prefix):
+    def setup(self, primal: Function, options_prefix: str) -> None:
         options = PETSc.Options(options_prefix)
         self._primal = primal
         self._enrichment_degree = options.getInt("dwr_enrichment_degree", 1)
@@ -144,15 +155,15 @@ class DWRMarkingCallback:
             V, V.ufl_element().degree() + self._enrichment_degree
         )
 
-    def reconstruct(self, coefficient_mapping):
+    def reconstruct(self, coefficient_mapping: dict) -> DWRMarkingCallback:
         goal = replace(self.goal_functional, coefficient_mapping)
         primal = coefficient_mapping[self._primal]
         return type(self)(goal, primal, self._enrichment_degree)
 
-    def __call__(self, ctx, current_solution):
+    def __call__(self, ctx, current_solution: Function) -> Function:
         return self._mark(ctx, current_solution)
 
-    def _mark(self, ctx, current_solution):
+    def _mark(self, ctx, current_solution: Function) -> Function:
         problem = ctx._problem
         V = current_solution.function_space()
         prefix = ctx.options_prefix or ""
@@ -168,8 +179,7 @@ class DWRMarkingCallback:
         goal_derivative = derivative(self.goal_functional, current_solution, direction)
         rhs = assemble(goal_derivative, bcs=_homogeneous_bcs(problem.bcs, V))
         ctx.solve_jacobian_transpose(rhs, dual_low)
-        if not np.isfinite(dual_low.dat.data_ro).all():
-            raise RuntimeError("DWR low-order dual solution contains non-finite values")
+        _check_finite(dual_low, "DWR low-order dual solution")
 
         primal_high = Function(high_space, name="dwr_primal_high")
         primal_high.interpolate(current_solution)
@@ -184,8 +194,7 @@ class DWRMarkingCallback:
             options_prefix=prefix + "dwr_primal_",
         )
         primal_solver.solve()
-        if not np.isfinite(primal_high.dat.data_ro).all():
-            raise RuntimeError("DWR enriched primal solution contains non-finite values")
+        _check_finite(primal_high, "DWR enriched primal solution")
 
         goal_high = replace(self.goal_functional, {current_solution: primal_high})
         dual_high = Function(high_space, name="dwr_dual_high")
@@ -202,8 +211,7 @@ class DWRMarkingCallback:
             options_prefix=prefix + "dwr_dual_",
         )
         dual_solver.solve()
-        if not np.isfinite(dual_high.dat.data_ro).all():
-            raise RuntimeError("DWR enriched dual solution contains non-finite values")
+        _check_finite(dual_high, "DWR enriched dual solution")
 
         dual_error = dual_high - dual_low
         indicators = _residual_indicators(
@@ -212,7 +220,7 @@ class DWRMarkingCallback:
         return _dorfler_mark(indicators, marking_fraction)
 
 
-def dwr_marking_callback(goal_functional: ufl.BaseForm):
+def dwr_marking_callback(goal_functional: ufl.BaseForm) -> DWRMarkingCallback:
     """Construct a dual-weighted residual cell-marking callback.
 
     Parameters

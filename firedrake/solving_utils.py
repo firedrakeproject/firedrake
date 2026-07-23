@@ -307,7 +307,8 @@ class _SNESContext(object):
         ctx._snes_ref = self._snes_ref
         return ctx
 
-    def solve_jacobian_transpose(self, rhs, solution):
+    def solve_jacobian_transpose(self, rhs: Cofunction,
+                                 solution: Function) -> None:
         """Solve the transpose of the current SNES Jacobian.
 
         Parameters

@@ -1,3 +1,5 @@
+import weakref
+
 import pytest
 from firedrake import *
 from firedrake import dmhooks
@@ -18,6 +20,8 @@ def test_marking_callback_configures_refine_adaptor():
 
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
+    assert isinstance(solver._ctx._snes_ref, weakref.ReferenceType)
+    assert solver._ctx._snes_ref() is solver.snes
 
 
 def test_solve_accepts_marking_callback():
@@ -36,13 +40,20 @@ def test_solve_accepts_marking_callback():
 
 
 @pytest.mark.skipnetgen
-def test_dwr_marking_callback_builds_poisson_markers():
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize(
+    ("adapt_option", "criterion"),
+    (("snes_adapt_sequence", "refine"),
+     ("snes_adapt_multigrid", "none")),
+)
+def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
     from netgen.geom2d import SplineGeometry
 
     geo = SplineGeometry()
     geo.AddRectangle((0, 0), (1, 1), bc="boundary")
     mesh = Mesh(geo.GenerateMesh(maxh=0.5))
     V = FunctionSpace(mesh, "CG", 1)
+    old_dim = V.dim()
     u = Function(V)
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - v*dx
@@ -65,13 +76,22 @@ def test_dwr_marking_callback_builds_poisson_markers():
     )
     solver = NonlinearVariationalSolver(
         problem,
-        solver_parameters={**direct, **dwr_direct, **dwr_local},
+        solver_parameters={
+            **direct,
+            **dwr_direct,
+            **dwr_local,
+            adapt_option: 1,
+            "adaptor_criterion": criterion,
+        },
         marking_callback=callback,
     )
     result = solver.solve()
-    markers = callback(solver._ctx, result)
 
-    assert markers.function_space().mesh() is mesh
+    assert result.function_space().mesh() is not mesh
+    assert result.function_space().dim() > old_dim
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 1
+    assert hierarchy[0] is mesh
 
 
 @pytest.mark.skipnetgen
