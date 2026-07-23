@@ -325,7 +325,7 @@ def _extract_args(*args, **kwargs):
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
-    restrict = kwargs.get("restrict", False)
+    restrict = kwargs.get("restrict", True)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
