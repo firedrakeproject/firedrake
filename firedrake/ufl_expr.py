@@ -391,6 +391,8 @@ def extract_domains(f):
             return list(set(mesh._meshes))
         else:
             return [mesh]
+    elif isinstance(f, ufl.core.base_form_operator.BaseFormOperator):
+        return f.ufl_domains()
     elif isinstance(f, (ufl.form.FormSum, ufl.Action)):
         # ufl.domain.extract_domains does not work.
         if f._domains is None:

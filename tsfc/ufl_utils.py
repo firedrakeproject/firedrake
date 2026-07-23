@@ -5,6 +5,7 @@ from functools import singledispatch
 import numpy
 
 import ufl
+from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -21,7 +22,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import (Abs, Argument, CellOrientation,
-                         Expr, FloatValue, Division,
+                         Expr, FloatValue, Division, ReferenceValue,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
@@ -33,6 +34,39 @@ from tsfc.modified_terminals import is_modified_terminal, analyse_modified_termi
 
 
 preserve_geometry_types = (CellVolume, FacetArea)
+
+
+class InterpolateMapper(MultiFunction):
+    """Represent interpolation in the target element's reference frame."""
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def interpolate(self, o: ufl.Interpolate, operand: Expr) -> Expr:
+        dual_arg, _ = o.argument_slots()
+        domain = (
+            extract_unique_domain(operand)
+            or dual_arg.ufl_function_space().ufl_domain()
+        )
+        element = o.ufl_element()
+        operand = apply_mapping(operand, element, domain)
+        expr = o._ufl_expr_reconstruct_(operand, v=dual_arg)
+        return element.pullback.apply(ReferenceValue(expr), domain)
+
+
+def lower_form_interpolations(form: ufl.Form) -> ufl.Form:
+    """Represent interpolation nodes in a form in reference space.
+
+    Parameters
+    ----------
+    form : ufl.Form
+        Form containing interpolation nodes.
+
+    Returns
+    -------
+    ufl.Form
+        Form with target-element mappings made explicit.
+    """
+    return map_integrand_dags(InterpolateMapper(), form)
 
 
 def compute_form_data(form,
@@ -383,6 +417,22 @@ def apply_mapping(expression, element, domain):
     mapping = element.mapping().lower()
     if mapping == "identity":
         rexpression = expression
+    elif isinstance(element.pullback, ufl.MixedPullback):
+        flat = [expression[index] for index in numpy.ndindex(expression.ufl_shape)]
+        reference_components = []
+        offset = 0
+        for subelement, subdomain in zip(element.sub_elements, mesh.iterable_like(element)):
+            physical_shape = subelement.pullback.physical_value_shape(subelement, subdomain)
+            size = int(numpy.prod(physical_shape, dtype=int))
+            piece = as_tensor(numpy.asarray(flat[offset:offset + size]).reshape(physical_shape))
+            mapped = apply_mapping(piece, subelement, subdomain)
+            reference_components.extend(
+                mapped[index] for index in numpy.ndindex(mapped.ufl_shape)
+            )
+            offset += size
+        rexpression = as_tensor(
+            numpy.asarray(reference_components).reshape(element.reference_value_shape)
+        )
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)
