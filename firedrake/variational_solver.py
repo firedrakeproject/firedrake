@@ -96,18 +96,34 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
+
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
+
+            P = interpolate(u_res, V)
+            Pstar = ufl_expr.adjoint(P)
+            u_full = interpolate(self.u_restrict, V)
+
             if isinstance(F, Form):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+                F_full = replace(F, {self.u: u_full})
+                self.F = ufl_expr.action(Pstar, F_full)
 
-            v_arg, u_arg = self.J.arguments()
-            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+            if isinstance(self.J, Form):
+                v_arg, u_arg = self.J.arguments()
+                self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+            else:
+                J_full = replace(self.J, {self.u: u_full})
+                self.J = ufl_expr.action(Pstar, ufl_expr.action(J_full, P))
+
             if self.Jp:
-                v_arg, u_arg = self.Jp.arguments()
-                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+                if isinstance(self.Jp, Form):
+                    v_arg, u_arg = self.Jp.arguments()
+                    self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+                else:
+                    Jp_full = replace(self.Jp, {self.u: u_full})
+                    self.Jp = ufl_expr.action(Pstar, ufl_expr.action(Jp_full, P))
             self.restricted_space = V_res
         else:
             self.u_restrict = u
