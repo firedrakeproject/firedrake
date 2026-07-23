@@ -134,12 +134,21 @@ def solve(*args, **kwargs):
 
     To linearise around the initial guess before imposing boundary
     conditions, set the ``pre_apply_bcs`` keyword argument to be False.
+
+    Returns
+    -------
+    firedrake.function.Function or None
+        For a variational problem (cases 2 and 3 above), the (possibly
+        adapted) solution :class:`~.Function`. This may differ from the
+        ``u`` that was passed in if the solver performed mesh adaptation
+        during the solve. `None` is returned when solving a pre-assembled
+        linear system (case 1 above).
     """
 
     assert len(args) > 0
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
-        _solve_varproblem(*args, **kwargs)
+        return _solve_varproblem(*args, **kwargs)
     else:
         # Solve pre-assembled system
         return _la_solve(*args, **kwargs)
@@ -189,7 +198,7 @@ def _solve_varproblem(*args, **kwargs):
                            options_prefix=options_prefix,
                            appctx=appctx,
                            pre_apply_bcs=pre_apply_bcs)
-    solver.solve()
+    return solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):

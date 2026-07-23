@@ -6,6 +6,7 @@ from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 from finat.element_factory import create_element
+from .utils import get_level
 
 __all__ = ("TransferManager", )
 
@@ -292,6 +293,23 @@ class TransferManager(object):
                     self.V_inv_mass_ksp(Vt).solve(work, t)
         self.cache_dat_versions(Vs, transfer_op, source, target)
 
+    def transfer(self, x, y):
+        """Transfer a function/cofunction.
+
+        :arg x: The source (co)function.
+        :arg y: The target (co)function.
+        """
+        _, xlevel = get_level(x.function_space().mesh())
+        _, ylevel = get_level(y.function_space().mesh())
+        if ufl.duals.is_dual(x):
+            if xlevel > ylevel:
+                return self.restrict(x, y)
+            return y.interpolate(x)
+        elif xlevel < ylevel:
+            return self.prolong(x, y)
+        else:
+            return self.inject(x, y)
+
     def prolong(self, uc, uf):
         """Prolong a function.
 
@@ -309,7 +327,7 @@ class TransferManager(object):
         self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, source, target):
-        """Restrict a dual function.
+        """Restrict a cofunction.
 
         :arg source: The source (fine grid) :class:`.Cofunction`.
         :arg target: The target (coarse grid) :class:`.Cofunction`.
