@@ -328,9 +328,9 @@ class ClosureOrdering(enum.Enum):
 class MeshLoopIndex(op3.LoopIndex):
     """Object representing a loop over mesh entities."""
 
-    mesh: weakref.ProxyType = dataclasses.field(hash=False)
+    mesh: weakref.ProxyType = dataclasses.field(hash=False, compare=False)
     integral_type: str
-    plex_indices_is: PETSc.IS = dataclasses.field(hash=False)
+    plex_indices_is: PETSc.IS = dataclasses.field(hash=False, compare=False)
 
     @classmethod
     def get_comm(cls, *, mesh, **attrs):

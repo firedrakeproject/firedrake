@@ -1999,11 +1999,13 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             prefix="indices",
         )
         for leaf_path in self.leaf_paths:
-            loop(
-                p := self.linearize(leaf_path).iter(),
-                indices_dat[p].assign(just_one(self[p].leaf_subst_layouts.values())),
-                eager=True,
-            )
+            iterset = self.linearize(leaf_path)
+            if iterset.size != 0:
+                loop(
+                    p := iterset.iter(),
+                    indices_dat[p].assign(just_one(self[p].leaf_subst_layouts.values())),
+                    eager=True,
+                )
         indices = np.unique(np.sort(indices_dat.buffer.data_ro))
 
         if not include_ghosts:

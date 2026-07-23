@@ -43,6 +43,8 @@ class Expression(Node, abc.ABC):
 
     # {{{ arithmetic
 
+    # TODO: all of these shortcuts do not work with record_new, need to overwrite __new__
+    # for universal behaviour
     def __add__(self, other: ExpressionT, /) -> Expression:
         if other == 0:
             return self
@@ -68,13 +70,17 @@ class Expression(Node, abc.ABC):
             return Sub(other, self)
 
     def __mul__(self, other) -> Mul | Self:
-        if other == 1:
+        if other == 0:
+            return 0
+        elif other == 1:
             return self
         else:
             return Mul(self, other)
 
     def __rmul__(self, other) -> Mul | Self:
-        if other == 1:
+        if other == 0:
+            return 0
+        elif other == 1:
             return self
         else:
             return Mul(other, self)
