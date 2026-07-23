@@ -329,8 +329,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             return self
 
     @classmethod
-    def get_comm(cls, **attrs):
-        return attrs["sf"].comm
+    def get_comm(cls, *, sf, **attrs):
+        return sf.comm
 
     @classmethod
     def record_prepare_args(
@@ -371,6 +371,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         if rank_equal and not constant:
             raise ValueError
+
+        # if name == "subset_10_buffer":
+        #     print(data)
+        #     breakpoint()
+        # if name == "dat_541_buffer":
+        #     print(data)
+        #     breakpoint()
 
         return dict(
         _device_arrays_private = device_arrays,

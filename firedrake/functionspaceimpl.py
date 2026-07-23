@@ -1383,6 +1383,7 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return self._make_plex_axes_default()
 
+    @_with_mesh_heavy_cache
     def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
@@ -1408,6 +1409,7 @@ class FunctionSpace(AbstractFunctionSpace):
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
         return self.dm_axes[index_tree]
 
+    @_with_mesh_heavy_cache
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except
         # the base mesh exists.
@@ -1527,6 +1529,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
     @cached_property
+    @_with_mesh_heavy_cache
     def nodal_axes(self) -> op3.IndexedAxisTree:
         if self._is_real_tensor_product:
             return self._make_plex_axes_real_tensor_product("nodal")

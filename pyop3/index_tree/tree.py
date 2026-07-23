@@ -1365,8 +1365,10 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
                     subset_loop_axes = get_loop_axes(slice_component.array)
                     if subset_loop_axes:
                         raise NotImplementedError
-                    subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
-                    indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.data_ro
+
+                    # subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
+                    # indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.data_ro
+                    indices = slice_component.array.buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
                     sf = target_component.sf.filter(indices)

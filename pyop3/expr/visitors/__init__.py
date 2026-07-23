@@ -918,9 +918,6 @@ def materialize_composite_dat(
     return relabel(materialized, new_to_old_relabel_map)
 
 
-# saved = []
-
-
 @memory_cache(heavy=True)
 @pyop3.mpi.collective
 def _materialize_composite_dat_cached(
@@ -967,16 +964,6 @@ def _materialize_composite_dat_cached(
             )
         else:
             to_skip.add(leaf_path)
-
-    # if assignee.data_ro.sum() == 153638145:
-    #     print()
-    #     print(assignee.axes)
-    #     for leaf_path in composite_dat.axis_tree.leaf_paths:
-    #         expr = composite_dat.exprs[leaf_path]
-    #         print(expr)
-    #     saved.append(composite_dat)
-    #     # if len(saved) > 1:
-    #     #     breakpoint()
 
     mycounter[assignee.data_ro.sum()] += 1
 

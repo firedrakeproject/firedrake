@@ -324,17 +324,19 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
+# TODO: The interface isn't quite right here. These attributes are codependent.
 @op3.record.frozenrecord(maybe_singleton=False)
 class MeshLoopIndex(op3.LoopIndex):
     """Object representing a loop over mesh entities."""
 
+    # TODO: just set these in __init__, no need to put in the cache key etc
     mesh: weakref.ProxyType = dataclasses.field(hash=False, compare=False)
     integral_type: str
     plex_indices_is: PETSc.IS = dataclasses.field(hash=False, compare=False)
 
-    @classmethod
-    def get_comm(cls, *, mesh, **attrs):
-        return mesh.comm
+    # @classmethod
+    # def get_comm(cls, *, mesh, **attrs):
+    #     return mesh.comm
 
     @classmethod
     def record_prepare_args(
@@ -348,6 +350,10 @@ class MeshLoopIndex(op3.LoopIndex):
             super().record_prepare_args(iterset)
             | dict(mesh=mesh, integral_type=integral_type, plex_indices_is=plex_indices_is)
         )
+
+    def __str__(self) -> str:
+        # TODO: doesn't show plex_indices
+        return f"{self.mesh.name}.iter('{self.integral_type}')"
 
     @property
     def plex_indices(self) -> np.ndarray:
@@ -2589,6 +2595,7 @@ class MeshTopology(AbstractMeshTopology):
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
+    @cached_method()
     def _submesh_make_entity_entity_map(
         self,
         from_selector: str | int | tuple[int, ...],
