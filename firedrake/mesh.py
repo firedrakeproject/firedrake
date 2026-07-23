@@ -325,7 +325,7 @@ class ClosureOrdering(enum.Enum):
 
 
 # TODO: The interface isn't quite right here. These attributes are codependent.
-@op3.record.frozenrecord(maybe_singleton=False)
+@op3.record.frozenrecord()
 class MeshLoopIndex(op3.LoopIndex):
     """Object representing a loop over mesh entities."""
 

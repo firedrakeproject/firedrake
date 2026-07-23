@@ -896,7 +896,8 @@ def materialize_composite_dat(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,
 ) -> pyop3.expr.LinearDatBufferExpression:
-    # return _materialize_composite_dat_cached(composite_dat, comm)
+    # NOTE: This should now be fine given that we relabel on the way in
+    return _materialize_composite_dat_cached(composite_dat, comm)
 
     from pyop3.visitors import InstructionExecutorCacheKeyGetter, relabel
 

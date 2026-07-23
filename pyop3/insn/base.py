@@ -24,7 +24,6 @@ from petsc4py import PETSc
 import pyop3.compile
 import pyop3.expr
 import pyop3.record
-import pyop3.visitors
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
@@ -711,6 +710,8 @@ class Assignment(AbstractAssignment):
 
     @classmethod
     def get_comm(cls, **attrs) -> MPI.Comm:
+        import pyop3.visitors
+
         return pyop3.visitors.common_comm([attrs["_assignee"], attrs["_expression"]])
 
     @classmethod

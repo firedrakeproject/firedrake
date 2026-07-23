@@ -2296,10 +2296,14 @@ class AxisForest(AbstractAxisTreeLike):
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self._trees)))
 
-    def __new__(
-        cls,
-        trees: Sequence[AbstractNonUnitAxisTree]
-    ) -> AbstractAxisTreeLike:
+    def __new__(cls, *args, **kwargs) -> AbstractAxisTreeLike:
+        if args:
+            trees = utils.just_one(args)
+            assert not kwargs
+        else:
+            trees = kwargs.pop("_trees")
+            assert not kwargs
+
         # eagerly consume iterators, as they are empty if reused
         if isinstance(trees, collections.abc.Iterator):
             trees = tuple(trees)
@@ -2312,7 +2316,9 @@ class AxisForest(AbstractAxisTreeLike):
             return utils.just_one(unique_trees)
         else:
             # no argument modification, build as normal
-            return pyop3.record._maybe_create_frozenrecord(cls, _trees=unique_trees)
+            self = object.__new__(cls)
+            object.__setattr__(self, "_trees", unique_trees)
+            return self
 
     # }}}
 

@@ -594,67 +594,87 @@ def parallel_cache(
 
                 key = hashkey(*args, **kwargs)
 
-                # if func.__name__ == "_compile_static":
-                #     breakpoint()
+                if heavy:
+                    for cache_idx, cache in enumerate(caches):
+                        try:
+                            value = cache[key]
+                            break
+                        except KeyError:
+                            pass
+                    else:
+                        cache_idx = None
+                        value = CACHE_MISS
 
-                for cache_idx, cache in enumerate(caches):
-                    try:
-                        value = cache[key]
-                        break
-                    except KeyError:
-                        pass
-                else:
-                    cache_idx = None
-                    value = CACHE_MISS
-
-                if issubclass(cache_type, DictLikeDiskAccess):
-                    if bcast:
-                        # Since disk caches share state between ranks there are extra
-                        # opportunities for mismatching hit/miss results and hence
-                        # deadlocks. These include:
-                        #
-                        # 1. Race conditions
-                        #
-                        # On CI or with ensemble parallelism other processes not in this
-                        # comm may write to disk, so load imbalances on the current comm
-                        # may result in a hit on some ranks but not others.
-                        #
-                        # 2. Eager writing to disk on rank 0
-                        #
-                        # Since broadcasting is non-blocking for the sending rank (rank 0)
-                        # it is possible for it to have written to disk before other ranks
-                        # begin the cache lookup. These ranks register a cache hit.
-                        #
-                        # If ranks disagree on whether it was a hit or miss then some ranks
-                        # will do a broadcast and others will not, ruining MPI synchronisation.
-                        # To fix this we check to see if any ranks have hit cache and, if so,
-                        # nominate that rank as the root of the subsequent broadcast.
-                        root = comm.rank if value is not CACHE_MISS else -1
-                        root = comm.allreduce(root, op=MPI.MAX)
-                        if root >= 0:
-                            # Found a rank with a cache hit, broadcast 'value' from it
-                            value = comm.bcast(value, root=root)
-                else:
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
                     if pyop3.config.spmd_strict:
-                        check_val = value is not CACHE_MISS
-                        if heavy:
-                            # If we are heavy also send the cache index to assert that
-                            # we are getting a cache hit from the same lifetime object
-                            check_val = (cache_idx, check_val)
+                        # If we are heavy also send the cache index to assert that
+                        # we are getting a cache hit from the same lifetime object
+                        check_val = (cache_idx, value is not CACHE_MISS)
                         if not utils.is_single_valued(comm.allgather(check_val)):
                             raise ValueError("Inconsistent cache hit behaviour")
 
-                if value is CACHE_MISS:
-                    if bcast:
-                        value = func(*args, **kwargs) if comm.rank == 0 else None
-                        value = comm.bcast(value, root=0)
-                    else:
+                    if value is CACHE_MISS:
                         value = func(*args, **kwargs)
 
-                for cache in caches:
-                    cache[key] = value
+                    # Insert the result into all of the caches
+                    for i, cache in enumerate(caches):
+                        if i != cache_idx:  # don't insert if we already hit
+                            cache[key] = value
+
+                else:
+                    # We only get multiple caches if 'heavy' is true
+                    value = cache.get(key, CACHE_MISS)
+
+                    if issubclass(cache_type, DictLikeDiskAccess):
+                        if bcast:
+                            # Since disk caches share state between ranks there are extra
+                            # opportunities for mismatching hit/miss results and hence
+                            # deadlocks. These include:
+                            #
+                            # 1. Race conditions
+                            #
+                            # On CI or with ensemble parallelism other processes not in this
+                            # comm may write to disk, so load imbalances on the current comm
+                            # may result in a hit on some ranks but not others.
+                            #
+                            # 2. Eager writing to disk on rank 0
+                            #
+                            # Since broadcasting is non-blocking for the sending rank (rank 0)
+                            # it is possible for it to have written to disk before other ranks
+                            # begin the cache lookup. These ranks register a cache hit.
+                            #
+                            # If ranks disagree on whether it was a hit or miss then some ranks
+                            # will do a broadcast and others will not, ruining MPI synchronisation.
+                            # To fix this we check to see if any ranks have hit cache and, if so,
+                            # nominate that rank as the root of the subsequent broadcast.
+                            root = comm.rank if value is not CACHE_MISS else -1
+                            root = comm.allreduce(root, op=MPI.MAX)
+                            if root >= 0:
+                                # Found a rank with a cache hit, broadcast 'value' from it
+                                value = comm.bcast(value, root=root)
+
+                            if value is CACHE_MISS:
+                                value = func(*args, **kwargs) if comm.rank == 0 else None
+                                value = comm.bcast(value, root=0)
+                                cache[key] = value
+
+                        else:
+                            if value is CACHE_MISS:
+                                value = func(*args, **kwargs)
+                                cache[key] = value
+
+                    else:
+                        # In-memory caches are stashed on the comm and so must always agree
+                        # on their contents.
+                        if pyop3.config.spmd_strict:
+                            check_val = value is not CACHE_MISS
+                            if not utils.is_single_valued(comm.allgather(check_val)):
+                                raise ValueError("Inconsistent cache hit behaviour")
+
+                        if value is CACHE_MISS:
+                            value = func(*args, **kwargs)
+                            cache[key] = value
                 return value
         return wrapper
     return decorator

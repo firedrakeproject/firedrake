@@ -24,7 +24,8 @@ from pyop3.collections import OrderedFrozenSet
 from pyop3.labeled_tree import MultiComponentLabelledNode
 
 import pyop3.visitors.base
-from .relabel import relabel
+
+from pyop3.visitors.canonicalize_labels import canonicalize_labels  # noqa: F401
 
 if typing.TYPE_CHECKING:
     import pyop3.types

@@ -126,11 +126,6 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def max_value(self) -> np.number:
-        pass
-
-    @property
-    @abc.abstractmethod
     def ordered(self) -> bool:
         pass
 
@@ -157,7 +152,6 @@ class NullBuffer(AbstractArrayBuffer):
     _shape: tuple[int, ...]
     _name: str
     _dtype: np.dtype
-    _max_value: np.number | None  # unused?
     _ordered: bool  # unused?
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
@@ -181,21 +175,17 @@ class NullBuffer(AbstractArrayBuffer):
         *,
         name: str | None = None,
         prefix: str | None = None,
-        max_value: numbers.Number | None = None,
         ordered: bool = False,
     ):
         if isinstance(shape, numbers.Integral):
             shape = (shape,)
         name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
         dtype = utils.as_dtype(dtype, cls.DEFAULT_DTYPE)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
 
         return dict(
         _shape = shape,
         _name = name,
         _dtype = dtype,
-        _max_value = max_value,
         _ordered = ordered,
         )
 
@@ -215,7 +205,6 @@ class NullBuffer(AbstractArrayBuffer):
     shape: ClassVar[property] = pyop3.record.attr("_shape")
     name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
-    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
@@ -342,7 +331,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         prefix: str | None = None,
         constant: bool = False,
         rank_equal: bool = False,
-        max_value: numbers.Number | None = None,  # remove?
         ordered: bool = False
     ):
         if isinstance(data, Mapping):
@@ -366,18 +354,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
 
         if rank_equal and not constant:
             raise ValueError
-
-        # if name == "subset_10_buffer":
-        #     print(data)
-        #     breakpoint()
-        # if name == "dat_541_buffer":
-        #     print(data)
-        #     breakpoint()
 
         return dict(
         _device_arrays_private = device_arrays,
@@ -385,7 +364,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         _name = name,
         _constant = constant,
         _rank_equal = rank_equal,
-        _max_value = max_value,
         _ordered = ordered,
         )
 
@@ -431,7 +409,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     name: ClassVar[property] = pyop3.record.attr("_name")
     constant: ClassVar[property] = pyop3.record.attr("_constant")
     rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
-    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     @property

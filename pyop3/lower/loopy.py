@@ -407,7 +407,6 @@ class SolveCallable(LACallable):
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-    # NOTE: is config valid to include here?
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
 
@@ -416,7 +415,7 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
 # of the InstructionExecutionContext
 @pyop3.cache.memory_and_disk_cache(
     hashkey=_compile_static_hashkey,
-    get_comm=lambda op, *args, **kwargs: op.comm,
+    get_comm=lambda op, *a, **kw: op.comm,
 )
 def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
