@@ -459,6 +459,7 @@ def _refine_adaptive(dm):
 
     # DMAdaptorAdapt() unconditionally destroys its input DM, and each
     # adapted input DM remains a level in the AdaptiveMeshHierarchy.
+    # Increase the reference count so the coarse DM survives.
     dm.incRef()
 
     ctx = get_appctx(dm)
@@ -470,26 +471,27 @@ def _refine_adaptive(dm):
     if hierarchy is None:
         hierarchy = AdaptiveMeshHierarchy(mesh)
         level = 0
+
     if not isinstance(hierarchy, AdaptiveMeshHierarchy):
         raise RuntimeError("Adaptive SNES refinement requires an AdaptiveMeshHierarchy")
+    if level+1 != len(hierarchy):
+        raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+    if ctx._marking_callback is None:
+        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
-    if level == len(hierarchy) - 1:
-        if ctx._marking_callback is None:
-            raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
-        markers = ctx._marking_callback(ctx, current_solution)
-        if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
-            raise TypeError(
-                f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
-            )
-        M = markers.function_space()
-        if M.mesh() is not mesh:
-            raise ValueError("marking callback must return markers on the current solution mesh")
-        num_dofs_per_cell = M.finat_element.space_dimension()
-        if num_dofs_per_cell != 1:
-            raise ValueError("marking callback must return a DG0 Function or Cofunction")
+    markers = ctx._marking_callback(ctx, current_solution)
+    if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
+        raise TypeError(
+            f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
+        )
+    M = markers.function_space()
+    if M.mesh() is not mesh:
+        raise ValueError("marking callback must return markers on the current solution mesh")
+    num_dofs_per_cell = M.finat_element.space_dimension()
+    if num_dofs_per_cell != 1:
+        raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-        hierarchy.add_mesh(mesh.refine_marked_elements(markers))
-
+    hierarchy.add_mesh(mesh.refine_marked_elements(markers))
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
     parent = get_parent(dm)
