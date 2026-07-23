@@ -110,18 +110,13 @@ class Visitor(abc.ABC):
         self._compress = compress
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
-        self._seen_nodes = set()
         self.index = -1
 
     # {{{ overrideable interface
 
     def __call__(self, *args, **kwargs):
         """Maybe overload this if you want to set some things up"""
-        # assert self.index == -1  # FIXME: This fails because we sometimes have traversals within traversals
-        try:
-            return self._call(*args, **kwargs)
-        finally:
-            self.index = -1
+        return self._call(*args, **kwargs)
 
     def get_cache_key(self, node, **kwargs) -> Hashable:
         """Maybe overload this if you want to set some things up"""
@@ -162,7 +157,6 @@ class Visitor(abc.ABC):
 
         """
         self.index += 1
-        self._seen_nodes.add(node)
 
         cache_key = self.get_cache_key(node, **kwargs)
         try:
@@ -183,15 +177,6 @@ class Visitor(abc.ABC):
             # Store result in cache
             self._visited_cache[cache_key] = result
             return result
-
-    def _safe_call(self, node, default=None, **kwargs):
-        # doesnt really work
-        # return self._call(*args, **kwargs)
-        return self(node, **kwargs)
-        if node in self._seen_nodes:
-            return default
-        else:
-            return self(node, **kwargs)
 
 
 class LabelledTreeVisitor(Visitor):

@@ -60,7 +60,7 @@ class BufferCollector(LabelledTreeVisitor):
         if self._lazy_expr_collector is None:
             self._lazy_expr_collector = ExprBufferCollector(self, shallow=True)
 
-        return self._lazy_expr_collector._safe_call(expr, OrderedFrozenSet())
+        return self._lazy_expr_collector(expr, OrderedFrozenSet())
 
 
 def collect_buffers(axis_tree: AbstractAxisTree) -> OrderedFrozenSet:

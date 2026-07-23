@@ -177,11 +177,11 @@ class InstructionExecutionContext:
         executable(new_buffers)
 
     def preprocess(self) -> Instruction:
+        import pyop3.visitors
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_transforms,
-            materialize_indirections,
             concretize_layouts,
             insert_literals,
         )
@@ -201,7 +201,7 @@ class InstructionExecutionContext:
 
             insn = concretize_layouts(insn)
             insn = insert_literals(insn)
-            insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
+            insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
             self._preprocessed = insn
 
