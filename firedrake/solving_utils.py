@@ -314,16 +314,28 @@ class _SNESContext(object):
         if self._transfer_manager is None:
             opts = PETSc.Options()
             prefix = self.options_prefix or ""
-            if opts.hasName(prefix + "mg_transfer_manager"):
-                managername = opts[prefix + "mg_transfer_manager"]
-            elif opts.hasName(prefix + "fas_transfer_manager"):
-                managername = opts[prefix + "fas_transfer_manager"]
-            else:
-                managername = None
 
+            def get_transfer_option(mg_name, fas_name, default=None):
+                mg_name = prefix + mg_name
+                fas_name = prefix + fas_name
+                has_mg = opts.hasName(mg_name)
+                has_fas = opts.hasName(fas_name)
+                if has_mg and has_fas:
+                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
+                            f"ignoring '{fas_name}'.")
+                if has_mg:
+                    return opts[mg_name]
+                elif has_fas:
+                    return opts[fas_name]
+                else:
+                    return default
+
+            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
             if managername is None:
                 from firedrake import TransferManager
-                transfer = TransferManager(use_averaging=True)
+                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
+                                               default="matfree")
+                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)

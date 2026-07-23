@@ -1,15 +1,19 @@
 from pyop2 import op2
+from fractions import Fraction
 
 from firedrake import ufl_expr, dmhooks
+from firedrake.assemble import assemble
+from firedrake.interpolation import interpolate
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.matrix import AssembledMatrix
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
 from . import utils
 from . import kernels
 
 
-__all__ = ["prolong", "restrict", "inject"]
+__all__ = ["prolong", "restrict", "inject", "assemble_prolongation_aij"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):
@@ -290,3 +294,74 @@ def inject(fine, coarse):
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
     return coarse
+
+
+def _bc_matches_space(bc, V):
+    fs = bc.function_space()
+    while fs.component is not None and fs.parent is not None:
+        fs = fs.parent
+    return fs == V
+
+
+@PETSc.Log.EventDecorator()
+def assemble_prolongation_aij(Vc, Vf, bcs=None):
+    if len(Vc) > 1 or len(Vc) > 1:
+        raise NotImplementedError("Mixed spaces are handled through TransferManager")
+    arguments = (ufl_expr.TestFunction(Vf.dual()), ufl_expr.TrialFunction(Vc))
+    Vtarget = Vf
+    if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
+        # Introduce an intermediate quadrature target space
+        Vf = Vf.quadrature_space()
+    Vrow, Vcol = Vf, Vc
+
+    hierarchy, levelc = utils.get_level(Vcol.mesh())
+    hierarchyf, levelf = utils.get_level(Vrow.mesh())
+    if hierarchy is None or hierarchy is not hierarchyf:
+        raise ValueError("Mismatching hierarchies")
+    if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
+        raise ValueError("Only implemented on consecutive levels")
+
+    row_map = utils.identity_node_map(Vrow)
+    col_map = utils.fine_node_to_coarse_node_map(Vrow, Vcol)
+    sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                            [(row_map, col_map, None)],
+                            name=f"{Vrow.name}_{Vcol.name}_hierarchy_interpolation_sparsity",
+                            nest=False,
+                            block_sparse=False)
+    mat = op2.Mat(sparsity)
+
+    lgmaps = None
+    if bcs:
+        row_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vrow)]
+        col_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vcol)]
+        if row_bcs or col_bcs:
+            lgmaps = [(Vrow.local_to_global_map(row_bcs), Vcol.local_to_global_map(col_bcs))]
+
+    kernel = kernels.prolong_matrix_kernel(Vcol, Vrow)
+    node_locations = utils.physical_node_locations(Vrow)
+    source_mesh = Vcol.mesh()
+    source_coords = source_mesh.coordinates
+    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vrow, u.function_space())
+    kernel_args = [
+        mat(op2.INC, (row_map, col_map), lgmaps=lgmaps),
+        node_locations.dat(op2.READ),
+        source_coords.dat(op2.READ, compose_map(source_coords)),
+    ]
+    if kernel.oriented:
+        co = source_mesh.cell_orientations()
+        kernel_args.append(co.dat(op2.READ, compose_map(co)))
+    if kernel.needs_cell_sizes:
+        cs = source_mesh.cell_sizes
+        kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
+    source_coords.dat.global_to_local_begin(op2.READ)
+    source_coords.dat.global_to_local_end(op2.READ)
+    op2.par_loop(kernel, Vrow.node_set, *kernel_args)
+    mat.assemble()
+    result = mat.handle
+
+    if needs_quadrature:
+        interp = interpolate(ufl_expr.TrialFunction(Vf), Vtarget)
+        Q = assemble(interp, bcs=bcs, mat_type="aij").petscmat
+        result = Q.matMult(result)
+
+    return AssembledMatrix(arguments, result, bcs=bcs)
