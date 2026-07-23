@@ -27,7 +27,7 @@ def mesh(request):
 def test_bernstein(mesh, degree):
     # Solve with Bernstein polynomials
     B = FunctionSpace(mesh, "Bernstein", degree)
-    xb = helmholtz(B)
+    xb = helmholtz(B, dx(scheme="collapsed"))
 
     # Solve with Lagrange polynomials
     L = FunctionSpace(mesh, "Lagrange", degree)
@@ -39,15 +39,15 @@ def test_bernstein(mesh, degree):
     assert np.allclose(xl.dat.data, xp.dat.data)
 
 
-def helmholtz(V):
+def helmholtz(V, measure=dx):
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Function(V)
     x = SpatialCoordinate(V.mesh())
     f.project(np.prod([cos(2*pi*xi) for xi in x]))
-    a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
-    L = inner(f, v) * dx
+    a = (inner(grad(u), grad(v)) + inner(u, v)) * measure
+    L = inner(f, v) * measure
 
     # Compute solution
     x = Function(V)

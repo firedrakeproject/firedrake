@@ -170,7 +170,8 @@ def test_vector_laplace_action(cell, order):
 
 def simplex_mass(cell, family, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant='integral'))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
     u = TrialFunction(V)
     v = TestFunction(V)
     return inner(u, v) * dx(scheme='collapsed')
@@ -178,13 +179,14 @@ def simplex_mass(cell, family, degree):
 
 def simplex_laplacian(cell, family, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant='integral'))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
     u = TrialFunction(V)
     v = TestFunction(V)
     return inner(grad(u), grad(v)) * dx(scheme='collapsed')
 
 
-@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 @pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
 def test_simplex_mass_action(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
@@ -194,7 +196,7 @@ def test_simplex_mass_action(cell, family, order):
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 @pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
 def test_simplex_laplacian_action(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
@@ -204,7 +206,7 @@ def test_simplex_laplacian_action(cell, family, order):
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 def test_simplex_laplacian_action_compact_codegen(family):
     form = action(simplex_laplacian(triangle, family, 3))
     kernel, = compile_form(form, parameters=dict(mode='spectral'))
@@ -217,7 +219,7 @@ def test_simplex_laplacian_action_compact_codegen(family):
 # scattered to their flat dof index simultaneously) -- the configuration
 # that previously exposed a loopy scheduling bug in
 # `finat.duffy._scatter_to_dof_index` (see tsfc/AGENTS.md).
-@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 @pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
 def test_simplex_mass_bilinear(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
@@ -227,7 +229,7 @@ def test_simplex_mass_bilinear(cell, family, order):
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG"])
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 @pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
 def test_simplex_laplacian_bilinear(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
