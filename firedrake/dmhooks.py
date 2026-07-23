@@ -518,10 +518,10 @@ def _refine_adaptive(dm):
 def _refine_from_hierarchy(dm):
     """Return the DM of the refined function space."""
     from firedrake.mg.ufl_utils import refine
-    V = get_function_space(dm)
-    if V is None:
+    Vcoarse = get_function_space(dm)
+    if Vcoarse is None:
         raise RuntimeError("No FunctionSpace found on DM")
-    Vfine = refine(V, refine)
+    Vfine = refine(Vcoarse, refine)
     return Vfine.dm
 
 
@@ -532,10 +532,11 @@ def refine(dm, comm):
     :arg DM: The DM to refine.
     :arg comm: The communicator for the new DM (ignored)
     """
-    from firedrake.mg.ufl_utils import ReconstructionError
-    try:
+    from firedrake.mg.utils import get_level
+    hierarchy, level = get_level(get_function_space(dm).mesh())
+    if hierarchy is not None and level+1 < len(hierarchy):
         return _refine_from_hierarchy(dm)
-    except ReconstructionError:
+    else:
         return _refine_adaptive(dm)
 
 
