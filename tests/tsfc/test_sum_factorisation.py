@@ -187,7 +187,7 @@ def simplex_laplacian(cell, family, degree):
 
 
 @pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4)])
 def test_simplex_mass_action(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
     flops = [count_flops(action(simplex_mass(cell, family, degree)))
@@ -197,7 +197,7 @@ def test_simplex_mass_action(cell, family, order):
 
 
 @pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 4), (tetrahedron, 6)])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4.4)])
 def test_simplex_laplacian_action(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
     flops = [count_flops(action(simplex_laplacian(cell, family, degree)))
@@ -214,13 +214,8 @@ def test_simplex_laplacian_action_compact_codegen(family):
     assert len(temporaries) < 70
 
 
-# Unlike the `_action` tests above, these compile the bilinear form directly
-# (no `action`, so both the test and trial bases are sum-factorized and
-# scattered to their flat dof index simultaneously) -- the configuration
-# that previously exposed a loopy scheduling bug in
-# `finat.duffy._scatter_to_dof_index` (see tsfc/AGENTS.md).
 @pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
 def test_simplex_mass_bilinear(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
     flops = [count_flops(simplex_mass(cell, family, degree))
@@ -230,7 +225,7 @@ def test_simplex_mass_bilinear(cell, family, order):
 
 
 @pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 6), (tetrahedron, 9)])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
 def test_simplex_laplacian_bilinear(cell, family, order):
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
     flops = [count_flops(simplex_laplacian(cell, family, degree))
