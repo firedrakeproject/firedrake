@@ -163,6 +163,12 @@ def delta_elimination(variable, sum_indices, args, rest, index_replacer):
     args = [f for f in factors if f != one]
 
     assert set(var_indices) == set(variable.free_indices)
+    # Indices newly exposed in the variable by a VariableIndex delta
+    # cancellation (e.g. the nnz index of a `gem.SparseMatrix` row
+    # scatter, ``y[r] -> y[rows[p]]``) are scatter indices, not
+    # contraction indices: they must stay free in the expression to
+    # match the variable.
+    sum_indices = [i for i in sum_indices if i not in variable.free_indices]
     return variable, sum_indices, args, rest
 
 

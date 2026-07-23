@@ -3,7 +3,7 @@ import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad)
+                 tetrahedron, quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -168,7 +168,67 @@ def test_vector_laplace_action(cell, order):
     assert (rates < order).all()
 
 
-if __name__ == "__main__":
-    import os
-    import sys
-    pytest.main(args=[os.path.abspath(__file__)] + sys.argv[1:])
+def simplex_mass(cell, family, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(u, v) * dx(scheme='collapsed')
+
+
+def simplex_laplacian(cell, family, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(grad(u), grad(v)) * dx(scheme='collapsed')
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4)])
+def test_simplex_mass_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_mass(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4.4)])
+def test_simplex_laplacian_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_laplacian(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+def test_simplex_laplacian_action_compact_codegen(family):
+    form = action(simplex_laplacian(triangle, family, 3))
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    assert len(temporaries) < 70
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
+def test_simplex_mass_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_mass(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
+def test_simplex_laplacian_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_laplacian(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
