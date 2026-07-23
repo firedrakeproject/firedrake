@@ -100,9 +100,11 @@ def as_ufl_domain(obj):
         return as_domain(obj)
 
 
-def get_relative(dispatch, old):
+def get_relative(dispatch, old, reverse=False):
     """Return old._coarse or old._fine depending on dispatch
        if they share the same hierarchy, otherwise None."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
     new = None
     if dispatch is coarsen:
         new = getattr(old, "_coarse", None)
@@ -117,8 +119,10 @@ def get_relative(dispatch, old):
     return new
 
 
-def attach_relative(dispatch, old, new):
+def attach_relative(dispatch, old, new, reverse=False):
     """Set old._coarse or old._fine to new depending on dispatch."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
     if dispatch is coarsen:
         old._coarse = new
     elif dispatch is refine:
@@ -229,16 +233,15 @@ def reconstruct_function_space(V, self, coefficient_mapping=None):
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
 
-    reverse = coarsen if self is refine else refine
     V_parent = V
-    while get_relative(reverse, V_parent) is not None:
-        V_parent = get_relative(reverse, V_parent)
+    while get_relative(self, V_parent, reverse=True) is not None:
+        V_parent = get_relative(self, V_parent, reverse=True)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    attach_relative(reverse, V_new, V)
+    attach_relative(self, V_new, V, reverse=True)
     attach_relative(self, V, V_new)
     return V_new
 
@@ -385,10 +388,9 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 new_appctx[k] = v
 
     # Get options prefix for current level
-    reverse = coarsen if self is refine else refine
     parent_context = context
-    while get_relative(reverse, parent_context):
-        parent_context = get_relative(reverse, parent_context)
+    while get_relative(self, parent_context, reverse=True) is not None:
+        parent_context = get_relative(self, parent_context, reverse=True)
 
     parent_prefix = parent_context.options_prefix
     opts = PETSc.Options(parent_prefix)
@@ -426,7 +428,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       options_prefix=options_prefix,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
-    attach_relative(reverse, new_context, context)
+    attach_relative(self, new_context, context, reverse=True)
     attach_relative(self, context, new_context)
 
     solutiondm = context._problem.u_restrict.function_space().dm
