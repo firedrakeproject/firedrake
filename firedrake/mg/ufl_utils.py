@@ -1,7 +1,6 @@
 import ufl
 from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.domain import extract_unique_domain, as_domain
-from ufl.duals import is_dual
 
 from functools import singledispatch, singledispatchmethod, partial
 import firedrake
