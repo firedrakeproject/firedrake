@@ -42,6 +42,7 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     v = TestFunction(V)
     problem = NonlinearVariationalProblem((u - 1.0)*v*dx, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
+    solver.set_transfer_manager(AdaptiveTransferManager())
 
     dm = solver.snes.getDM()
     with dmhooks.add_hooks(dm, solver, appctx=solver._ctx):

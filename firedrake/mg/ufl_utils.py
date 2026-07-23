@@ -90,10 +90,15 @@ def as_ufl_domain(obj):
     if isinstance(obj, _SNESContext):
         obj = obj._problem
     if isinstance(obj, firedrake.NonlinearVariationalProblem):
-        obj = obj.u
+        obj = obj.u.function_space()
     elif isinstance(obj, firedrake.LinearEigenproblem):
         obj = obj.output_space
-    return as_domain(obj)
+
+    if isinstance(obj, (firedrake.functionspaceimpl.WithGeometryBase,
+                        firedrake.functionspaceimpl.MixedFunctionSpace)):
+        return obj.mesh()
+    else:
+        return as_domain(obj)
 
 
 def get_relative(dispatch, old):
@@ -119,7 +124,6 @@ def attach_relative(dispatch, old, new):
         old._coarse = new
     elif dispatch is refine:
         old._fine = new
-    return new
 
 
 @coarsen.register(ufl.Mesh)
@@ -246,7 +250,6 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
-
     if new is None:
         V = expr.function_space()
         Vnew = self(V, self)
@@ -261,21 +264,9 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
-        coefficient_mapping[expr] = new
-
-        _, old_level = utils.get_level(V.mesh())
-        _, new_level = utils.get_level(Vnew.mesh())
         manager = get_transfer_manager(V.dm)
-        if is_dual(expr):
-            if old_level > new_level:
-                manager.restrict(expr, new)
-            else:
-                new.interpolate(expr)
-        elif old_level < new_level:
-            manager.prolong(expr, new)
-        else:
-            manager.inject(expr, new)
-
+        manager.transfer(expr, new)
+        coefficient_mapping[expr] = new
     return new
 
 
@@ -285,41 +276,31 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     if new_problem is not None:
         return new_problem
 
-    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
+    def transfer_callback(fine, restriction, rscale, injection, coarse):
+        cctx = get_appctx(coarse)
+        cmapping = cctx._coefficient_mapping
+        if cmapping is None:
+            return
+
         manager = get_transfer_manager(fine)
-        while coarse:
-            cctx = get_appctx(coarse)
-            cmapping = cctx._coefficient_mapping
-            if cmapping is None:
-                return
-            for c, mapped in cmapping.items():
-                _, clevel = utils.get_level(c.function_space().mesh())
-                _, mlevel = utils.get_level(mapped.function_space().mesh())
-                if is_dual(c):
-                    if clevel > mlevel:
-                        manager.restrict(c, mapped)
-                    else:
-                        mapped.interpolate(c)
-                elif clevel < mlevel:
-                    manager.prolong(c, mapped)
-                else:
-                    manager.inject(c, mapped)
-            # Apply bcs
-            if cctx.pre_apply_bcs:
-                for bc in cctx._problem.dirichlet_bcs():
-                    bc.apply(cctx._x)
-            # When the solution is in the real space
-            # PETSc fails to call this hook on coarse levels.
-            # As a workaround, we inject into all levels.
-            has_real_space = any(Vsub.ufl_element().family() == "Real"
-                                 for Vsub in cctx._x.function_space())
-            coarse = coarse.getCoarseDM() if has_real_space else None
+        for c, mapped in cmapping.items():
+            manager.transfer(c, mapped)
+
+        # Apply bcs
+        if cctx.pre_apply_bcs:
+            for bc in cctx._problem.dirichlet_bcs():
+                bc.apply(cctx._x)
+
+    def coarsen_callback(fine, coarse):
+        if not coarse.getAttr("_coarsen_hook"):
+            coarse.addCoarsenHook(coarsen_callback, transfer_callback)
+            coarse.setAttr("_coarsen_hook", True)
 
     dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
-        dm.addCoarsenHook(None, inject_on_restrict)
+        dm.addCoarsenHook(coarsen_callback, transfer_callback)
         dm.setAttr("_coarsen_hook", True)
 
     if coefficient_mapping is None:
@@ -471,7 +452,6 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     new_context.set_nullspace(new_context._nullspace_T, ises, transpose=True, near=False)
     new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
-
     return new_context
 
 
