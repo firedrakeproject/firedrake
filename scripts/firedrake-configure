@@ -336,10 +336,10 @@ class Arch:
         library_dirs = " ".join(f"-L{ldir}" for ldir in self.library_dirs)
         opts = [
             f"PETSC_ARCH=arch-firedrake-{self.name}",
-            *([f"--CFLAGS='{include_dirs}'"] if include_dirs else []),
-            *([f"--CXXFLAGS='{include_dirs}'"] if include_dirs else []),
-            *([f"--FFLAGS='{include_dirs}'"] if include_dirs else []),
-            *([f"--LDFLAGS='{library_dirs}'"] if library_dirs else []),
+            *([f"--CFLAGS+='{include_dirs}'"] if include_dirs else []),
+            *([f"--CXXFLAGS+='{include_dirs}'"] if include_dirs else []),
+            *([f"--FFLAGS+='{include_dirs}'"] if include_dirs else []),
+            *([f"--LDFLAGS+='{library_dirs}'"] if library_dirs else []),
             f"--COPTFLAGS='{' '.join(self.coptflags)}'",
             f"--CXXOPTFLAGS='{' '.join(self.cxxoptflags)}'",
             f"--FOPTFLAGS='{' '.join(self.foptflags)}'",
