@@ -436,6 +436,10 @@ class LoopIndex(UnitIndex):
     get_instruction_executor_cache_key = get_disk_cache_key
 
     @classmethod
+    def get_comm(cls, *, iterset, **kwargs) -> MPI.Comm:
+        return iterset.comm
+
+    @classmethod
     def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree):
         return dict(iterset=iterset, label=cls.unique_id())
 

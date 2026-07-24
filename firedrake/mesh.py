@@ -325,31 +325,21 @@ class ClosureOrdering(enum.Enum):
 
 
 # TODO: The interface isn't quite right here. These attributes are codependent.
-@op3.record.frozenrecord()
+# @op3.record.frozenrecord()
 class MeshLoopIndex(op3.LoopIndex):
     """Object representing a loop over mesh entities."""
 
-    # TODO: just set these in __init__, no need to put in the cache key etc
-    mesh: weakref.ProxyType = dataclasses.field(hash=False, compare=False)
-    integral_type: str
-    plex_indices_is: PETSc.IS = dataclasses.field(hash=False, compare=False)
-
-    # @classmethod
-    # def get_comm(cls, *, mesh, **attrs):
-    #     return mesh.comm
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         iterset: op3.IndexedAxisTree,
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS,
     ) -> dict:
-        return (
-            super().record_prepare_args(iterset)
-            | dict(mesh=mesh, integral_type=integral_type, plex_indices_is=plex_indices_is)
-        )
+        object.__setattr__(self, "mesh", mesh)
+        object.__setattr__(self, "integral_type", integral_type)
+        object.__setattr__(self, "plex_indices_is", plex_indices_is)
+        super().__init__(iterset)
 
     def __str__(self) -> str:
         # TODO: doesn't show plex_indices
