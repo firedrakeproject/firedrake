@@ -120,7 +120,7 @@ def flatten(var_reps, index_cache):
         yield (variable, expression)
 
 
-finalise_options = dict(replace_delta=False)
+finalise_options = dict(replace_delta=True)
 
 
 def classify(argument_indices, expression, delta_inside):
