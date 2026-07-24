@@ -214,6 +214,19 @@ def test_simplex_laplacian_action_compact_codegen(family):
     assert len(temporaries) < 70
 
 
+def test_bernstein_laplacian_action_compact_literals():
+    degree = 5
+    form = action(simplex_laplacian(tetrahedron, "Bernstein", degree))
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    literals = [numpy.asarray(temporary.initializer)
+                for temporary in temporaries.values()
+                if temporary.initializer is not None]
+    lattice_size = (degree + 1) ** 3
+    assert max(literal.size for literal in literals) <= lattice_size
+    assert sum(literal.size for literal in literals) < 10 * lattice_size
+
+
 @pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
 @pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
 def test_simplex_mass_bilinear(cell, family, order):
