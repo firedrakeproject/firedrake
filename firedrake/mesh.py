@@ -2068,7 +2068,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
-        
+
         # Registry of live functions defined on the VOM
         self._live_functions = weakref.WeakValueDictionary()
         self._function_counter = itertools.count()
@@ -2361,31 +2361,33 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # The leaves have been ordered according to the pyop2 classes with non-halo
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
-    
+
     def _migrate_functions(self, functions_to_migrate=()):
-            """
-            Migrate Function(s) defined on this topology to the current version.
+        """
+        Migrate Function(s) defined on this topology to the current version.
 
-            If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
-            """
-            import gc
+        If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
+        """
+        import gc
 
-            # TODO: parallel set intersection of the live function keys across all ranks
-            # migrate only ones in the intersection (Ask Jack on how to do it properly)
-            gc.collect() # collect reference-cycle garbage identically on all ranks
+        # TODO: do parallel set intersection of the live function keys across all ranks
+        # and migrate only ones in the intersection
 
-            if len(functions_to_migrate) > 0:
-                for f in functions_to_migrate:
-                    f._match_mesh_topology_version()
-                    return
-            
-            keys = [k for k in sorted(self._live_functions.keys())
-                    if self._live_functions.get(k) if not None]
+        # NOTE: This doesn't collect reference-cycle garbage identically on all ranks
+        gc.collect()
 
-            for k in keys:
-                f = self._live_functions.get(k)
-                if f is not None:
-                    f._match_mesh_topology_version()
+        if len(functions_to_migrate) > 0:
+            for f in functions_to_migrate:
+                f._match_mesh_topology_version()
+                return
+
+        keys = [k for k in sorted(self._live_functions.keys())
+                if self._live_functions.get(k) if not None]
+
+        for k in keys:
+            f = self._live_functions.get(k)
+            if f is not None:
+                f._match_mesh_topology_version()
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -2449,10 +2451,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # submesh
         self.submesh_parent = None
-
-        self._bounding_box_coords = None
-        self._rtree = None
-        self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)

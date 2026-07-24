@@ -73,3 +73,13 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
+
+
+class EmptyVOMError(Exception):
+    """Raised when all particles have left the physical domain and the VertexOnlyMesh is empty."""
+    pass
+
+
+class TopologyVersionMismatchError(ValueError):
+    """Raised when a Function's mesh topology attribute does not match the topology version attribute stored on the mesh object."""
+    pass
