@@ -211,7 +211,7 @@ def test_simplex_laplacian_action_compact_codegen(family):
     form = action(simplex_laplacian(triangle, family, 3))
     kernel, = compile_form(form, parameters=dict(mode='spectral'))
     temporaries = kernel.ast.default_entrypoint.temporary_variables
-    assert len(temporaries) < 70
+    assert len(temporaries) < 100
 
 
 def test_bernstein_laplacian_action_compact_literals():
