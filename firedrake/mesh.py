@@ -2666,6 +2666,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
             """
             import gc
+
+            # TODO: parallel set intersection of the live function keys across all ranks
+            # migrate only ones in the intersection (Ask Jack on how to do it properly)
             gc.collect() # collect reference-cycle garbage identically on all ranks
 
             if len(functions_to_migrate) > 0:

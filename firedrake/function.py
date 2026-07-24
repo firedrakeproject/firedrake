@@ -347,8 +347,6 @@ class Function(ufl.Coefficient, FunctionMixin):
                 Please re-create this Function on the updated mesh." 
             )
 
-        from pyop2.mpi import MPI
-
         # Get the latest one-step SF point mapping (indexed by current mesh version)
         latest_topology_step_sf = self._mesh_topo._topology_step_sfs.get(current_version, None)
         if latest_topology_step_sf is None:
@@ -366,18 +364,9 @@ class Function(ufl.Coefficient, FunctionMixin):
                 "Function migration only supports degree 0 Functions defined on VertexOnlyMeshes."
             )
 
-        # Allocate new dat on the refreshed FS
-        new_data = CoordinatelessFunction(
-            FS_topo, val=None, name=self.name(), dtype=self._data.dat.dtype
-        )
-
-        # Save old function values
-        dim = FS_topo.value_size
-        old_func_vals = self._data.dat.data_ro.copy()
-        old_func_vals_normalized = old_func_vals.reshape((-1, dim)) # (N, dim)
-        
         # Migrate the Function data using the SF mapping
-        # Get the SF mapping from current mesh to the mesh at the time the Function was created
+
+        # First get the SF mapping from current mesh to the mesh at the time the Function was created
         # Check if we need to chain multiple one-step SFs
         if current_version - self._mesh_topology_version > 1:
             # Compose multiple one-step SFs
@@ -395,42 +384,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             # TODO: cache chained_sf from this particular composition?
             latest_topology_step_sf = chained_sf
 
-        nroots, ilocal, remote = latest_topology_step_sf.getGraph()
-        nleaves = remote.shape[0] if ilocal is None else ilocal.shape[0]
-
-        # SF maps new VOM (leaves) -> old VOM (roots)
-        # The old function values are defined at the roots so we use a bcast operation 
-        # to move them to the dofs at the leaves
-        new_func_vals = np.empty((nleaves, dim), dtype=old_func_vals_normalized.dtype)
-
-        root = np.ascontiguousarray(old_func_vals_normalized) # (nroots, dim)
-        leaf = np.empty((nleaves, dim), dtype=root.dtype)
-
-        scalar = MPI._typedict[np.dtype(root.dtype).char]
-        unit = scalar.Create_contiguous(dim).Commit()
-
-        # Bcast old (root) values into new (leaf) positions
-        #     # uses ilocal (maps swarm point -> cell index) to determine where to write in the leaf buffer 
-        #     # and (input_rank, input_index) an offset into the root buffer
-        #     # executes leaf_c[ilocal[k]] = root_c[inputrank[k]][inputindex[k]]
-        latest_topology_step_sf.bcastBegin(unit, root, leaf, MPI.REPLACE)
-        latest_topology_step_sf.bcastEnd(unit, root, leaf, MPI.REPLACE)
-        unit.Free()
-
-        new_func_vals = leaf
-
-
-        # Write the values into the new dat using the cell node list
-        # XXX: CNL is the identity for DG0 on VOM and new_func_vals is already in new cell order
-        # cnl = FS_topo.cell_node_list
-        # new_dofs = cnl[:, 0]
-        # new_data_vals = new_data.dat.data_with_halos.reshape((-1, dim))
-        # new_data_vals[new_dofs, :] = new_func_vals
-        
-        new_data.dat.data_with_halos.reshape((-1, dim))[:] = new_func_vals
-
         # Swap the data object
-        self._data = new_data
+        self._data = migrate_dg0_dat(self._data, FS_topo, latest_topology_step_sf)
         self.__dict__.pop("dat", None) # drop cached dat
 
         # Clear any expression caches as they need to be rebuilt
@@ -492,8 +447,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
             on which this :class:`Function` is defined.
         """
-        # First check that the function is defined on the latest version of the mesh
-        # self._match_mesh_topology_version()
         return self._function_space
 
     @PETSc.Log.EventDecorator()
@@ -1009,3 +962,29 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         comm=function.comm
     )
     return getattr(dll, c_name)
+
+def migrate_dg0_dat(old_cfunc, FS_topo, step_sf):
+        """Migrate a DG0 CoordinatelessFunction across a topology change via the step SF.
+        Returns a new CoordinatelessFunction on the refreshed topological FunctionSpace."""
+        from pyop2.mpi import MPI
+
+        dim = FS_topo.value_size
+        old_vals = old_cfunc.dat.data_ro.copy().reshape((-1, dim)) 
+
+        new_data = CoordinatelessFunction(FS_topo, val=None,
+                                        dtype=old_cfunc.dat.dtype, name=old_cfunc.name())
+
+        nroots, ilocal, remote = step_sf.getGraph()
+        nleaves = remote.shape[0] if ilocal is None else ilocal.shape[0]
+        new_vals = np.empty((nleaves, dim), dtype=old_vals.dtype)
+        for c in range(dim):
+            root = np.ascontiguousarray(old_vals[:, c])
+            leaf = np.empty(nleaves, dtype=root.dtype)
+            unit = MPI._typedict[np.dtype(root.dtype).char]
+            step_sf.bcastBegin(unit, root, leaf, MPI.REPLACE)
+            step_sf.bcastEnd(unit, root, leaf, MPI.REPLACE)
+            new_vals[:, c] = leaf
+
+        cnl = FS_topo.cell_node_list
+        new_data.dat.data_with_halos.reshape((-1, dim))[cnl[:, 0], :] = new_vals
+        return new_data
