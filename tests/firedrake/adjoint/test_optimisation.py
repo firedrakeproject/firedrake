@@ -196,7 +196,7 @@ def test_tao_nls_riesz_map_pc():
                                  "tao_gttol": 1.0e-7,
                                  "tao_nls_pc_type": "python",
                                  "tao_nls_pc_python_type":
-                                 "pyadjoint.optimization.tao_solver.RieszMapPC"})
+                                 "pyadjoint.optimization.RieszMapPC"})
     m = solver.solve()
 
     # the preconditioner is installed on the inner KSP, not silently ignored
