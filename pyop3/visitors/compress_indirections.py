@@ -223,7 +223,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         self._collecting = prev
 
     def get_cache_key(self, node, **kwargs):
-        return (*super().get_cache_key(node, **kwargs), self._collecting, self.index)
+        return (*super().get_cache_key(node, **kwargs), self._collecting)
 
     # TODO dont need this any more, just access self.index
     def preprocess_node(self, node) -> tuple[Any, ...]:
@@ -274,8 +274,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
             # into a Dat. The cost for this is simply the size of the resulting array.
             # Only do this when the cost is large as small arrays will fit in cache
             # and not benefit from the optimisation.
-            # if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
-            if True:  # debugging
+            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
                 op_axes = utils.just_one(pyop3.expr.visitors.get_shape(op))
                 op_loop_axes = pyop3.expr.visitors.get_loop_axes(op)
 
@@ -330,8 +329,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
             candidates.append((candidate_cost, candidate_cost_expr, layout_symdats))
 
         if compress:
-            # if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
-            if True:
+            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
                 # We use a symbolic expression for the overall cost because we
                 # need to be able to replace costs with zeros if we end up sharing
                 # materialised dats between terminals.
@@ -477,7 +475,7 @@ class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
         self._linear = prev
 
     def get_cache_key(self, node, **kwargs):
-        return (*super().get_cache_key(node, **kwargs), self._linear, self.index)
+        return (*super().get_cache_key(node, **kwargs), self._linear)
 
     @functools.singledispatchmethod
     def process(self, obj: pyop3.obj.Object, /, *args, **kwargs) -> Never:

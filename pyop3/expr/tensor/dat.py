@@ -132,7 +132,7 @@ class Dat(Tensor):
 
         return dict(axes = axes, _buffer = buffer, _name = name, _transform = transform)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # fails for transforms, is that an issue?
         # assert self.buffer.size == self.axes.unindexed.local_max_size
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):

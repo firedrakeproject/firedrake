@@ -189,7 +189,7 @@ class NullBuffer(AbstractArrayBuffer):
         _ordered = ordered,
         )
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self.shape, tuple)
 
     # }}}
@@ -367,7 +367,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         _ordered = ordered,
         )
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # state tracking attrs
         self._state = {pyop3.device.get_current_device(): 0}
         self._state_locks = 0
@@ -393,8 +393,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._device_arrays_private[curr_dev].flags.writeable = False
 
         self._debug_is_poisoned = False
-
-        super().__post_init__()
 
     # }}}
 
@@ -986,7 +984,7 @@ class PetscMatAxisSpec:
     lgmap: PETSc.LGMap
     block_shape: tuple[int, ...] = ()
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self.block_shape, tuple)
 
     @property
@@ -1058,7 +1056,7 @@ class PetscMatBuffer(ConcreteBuffer):
             _comm=comm,
         )
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # state tracking
         self._current_insert_mode: pyop3.types.MatInsertMode | None  = None
 

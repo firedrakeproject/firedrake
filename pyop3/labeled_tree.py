@@ -56,7 +56,7 @@ class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Object):
 
     __abstract_record_attrs = ("label",)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert all(cl is not DECIDE for cl in self.component_labels)
         if not utils.has_unique_entries(self.component_labels):
             raise ValueError("Duplicate component labels found")
@@ -144,7 +144,7 @@ class LabeledTree(AbstractLabeledTreeLike):
 
     __abstract_record_attrs = ("node_map",)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         for node in self.nodes:
             assert node.label is not DECIDE
             assert all(cl is not DECIDE for cl in node.component_labels)

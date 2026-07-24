@@ -94,7 +94,7 @@ class Mat(Tensor):
             _transform=transform,
         )
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
             assert len(self.buffer.shape) == 2
 

@@ -244,7 +244,7 @@ class AxisComponentRegion(pyop3.obj.Object):
 
         return dict(size=size, label=label, _custom_comm=None)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
@@ -425,7 +425,7 @@ class AxisComponent(LabelledNodeComponent):
         label= label,
         sf=sf)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         if self.sf is not None:
             assert self.local_size == self.sf.size
 
@@ -889,9 +889,6 @@ class AbstractUnitAxisTree(AbstractAxisTree):
 
 class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIterable):
     """Base class for non-unit axis trees."""
-
-    def __post_init__(self):
-        super(LabeledTree, self).__post_init__()
 
     # {{{ abstract methods
 
@@ -1448,12 +1445,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         comm: MPI.Comm | None = None,
     ) -> None:
         return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
-
-    def __post_init__(self) -> None:
-        super(AbstractNonUnitAxisTree, self).__post_init__()
-
-        # eagerly evaluate this so profiles are comprehensible
-        # self.layouts
 
     # }}}
 
@@ -2106,9 +2097,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
 
         assert targets.keys() == {idict()}
         return dict(_unindexed=unindexed, _targets=targets)
-
-    def __post_init__(self) -> None:
-        pass
 
     # }}}
 

@@ -367,7 +367,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
         })
         return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self._buffer, AbstractBuffer)
         assert isinstance(self.row_layouts, idict)
         assert isinstance(self.column_layouts, idict)

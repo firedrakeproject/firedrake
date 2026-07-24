@@ -607,14 +607,9 @@ class AxisVar(TerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @classmethod
-    def record_prepare_args(cls, axis: Axis) -> None:
-        assert len(axis.components) == 1
-        assert axis.component.sf is None
-        # FIXME
-        # assert tuple(r.label for r in axis.component.regions) == (None,)
-
-        return dict(axis=axis)
+    def __record_post_init(self) -> None:
+        assert len(self.axis.components) == 1
+        assert self.axis.component.sf is None
 
     # }}}
 

@@ -638,7 +638,7 @@ class Slice(Index):
 
         return dict(axis=axis, components=components, label=label)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert all(c.label is not DECIDE for c in self.components)
 
     # }}}
@@ -855,7 +855,7 @@ class ScalarMap(AbstractMap):
 
         return dict(_connectivity=connectivity, _name=name)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         from pyop3.expr import AxisVar
 
         # Make sure that 'connectivity' contains the right things
@@ -996,7 +996,7 @@ class CalledMap(AbstractCalledMap):
         label=label,
         )
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # Each leaf of the index wrapped by this map must have at least one
         # target that corresponds to a source for this map.
         for equiv_target_paths in self.index.leaf_target_paths:
