@@ -227,7 +227,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     def get_disk_cache_key(self, visitor) -> Hashable:
         layouts_key = {}
         for path, layout in self.layouts.items():
-            layouts_key[visitor.relabel_path(path)] = visitor(layout)
+            layouts_key[visitor.relabel_axis_tree_path(path)] = visitor(layout)
         layouts_key = idict(layouts_key)
         return (type(self), visitor(self._buffer), layouts_key)
 
@@ -358,11 +358,11 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         row_layouts_key = idict({
-            visitor.relabel_path(path): visitor(layout)
+            visitor.relabel_axis_tree_path(path): visitor(layout)
             for path, layout in self.row_layouts.items()
         })
         column_layouts_key = idict({
-            visitor.relabel_path(path): visitor(layout)
+            visitor.relabel_axis_tree_path(path): visitor(layout)
             for path, layout in self.column_layouts.items()
         })
         return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)

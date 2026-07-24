@@ -719,6 +719,7 @@ class Dat(Tensor):
 
 
 
+# TODO: rename to SymbolicDat
 @pyop3.record.frozenrecord()
 class CompositeDat(Terminal):
 

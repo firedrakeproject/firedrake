@@ -301,6 +301,17 @@ class InstructionExecutionContext:
 
         return executor, self._argument_index_to_buffer_map
 
+    # debugging
+    @staticmethod
+    def _count_buffers(string):
+        num_buffers = 0
+        array_pattern = \
+            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
+        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
+        for pattern in [array_pattern, petscmat_pattern]:
+            num_buffers += len(utils.unique(re.findall(pattern, string)))
+        return num_buffers
+
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
         """Data structures that are arguments to the compiled code."""

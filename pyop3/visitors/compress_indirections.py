@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import collections
 import contextlib
 import functools
+import itertools
 import numbers
 import types
 
@@ -9,7 +11,9 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.axis_tree
+import pyop3.collections
 import pyop3.expr
+import pyop3.expr.visitors
 import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
@@ -34,137 +38,172 @@ MAX_COST_CONSIDERATION_FACTOR = 3
 # TODO: This isn't really a visitor like this...
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = False) -> pyop3.insn.Instruction:
+    if compress:
+        selector = _select_candidate_indirections_compress
+    else:
+        selector = _select_candidate_indirections_nocompress
+    materialize_idxs = selector(insn)
+
+    # Eagerly return if there are no symbolic dats to materialise and insert
+    if not materialize_idxs:
+        return insn
+
+    # Now materialize the right bits and return
+    return _insert_materialized_indirections(insn, materialize_idxs)
+
+
+def _select_candidate_indirections_compress(insn):
     # This optimisation is collective but since the array size is part of the
     # heuristic one can get differing optimisation choices on different ranks. We
     # therefore perform all the heuristics on rank 0 and broadcast the selections.
-    # TODO: if compress is False I imagine that we don't have to do a bcast here since the
-    # result should be the same.
-    if insn.comm.rank == 0:
-        candidates = collect_candidate_indirections(insn, compress=compress)
+    return pyop3.mpi.safe_noncollective(
+        insn.comm,
+        lambda: _select_candidate_indirections_compress_serial(insn),
+        root=0,
+    )
 
-        # Find the best cost if we look at each terminal independently. This
-        # provides a useful upper bound.
-        max_cost = 0
+def _select_candidate_indirections_compress_serial(insn):
+    candidates = _collect_candidate_indirections(insn, compress=True)
+    candidates = _trim_candidates(candidates)
+
+    # Optimise the search tree by only considering disjoint subsets of
+    # candidates. For example, if we have candidates
+    #
+    #     {a: [A, B, C, D], b: [X, Y]}
+    #
+    # we can speed things up by only investigating 4+2 options instead
+    # of 4*2.
+    disjoint_subsets: list[tuple[dict, set]] = []
+    for terminal_id, terminal_candidates in candidates.items():
+        # terminal_symdats = {
+        #     symdat
+        #     for _, _, symdats in terminal_candidates
+        #     for _, symdat, _ in symdats
+        # }
+        terminal_symdats = {
+            loc
+            for _, _, symdats in terminal_candidates
+            for loc, _, _ in symdats
+        }
+        disjoint_subsets.append(
+            ({terminal_id: terminal_candidates}, terminal_symdats)
+        )
+    # Fixed point iteration to ensure subsets are fully disjoint
+    while True:
+        new_disjoint_subsets = []
         for terminal_id, terminal_candidates in candidates.items():
-            min_terminal_cost = min((cost for cost, _ in terminal_candidates), default=0)
-            max_cost += min_terminal_cost
-        assert isinstance(max_cost, numbers.Integral)
-
-        # Optimise by dropping any immediately bad candidates
-        trimmed_candidates = {}
-        for terminal_id, terminal_candidates in candidates.items():
-            trimmed_terminal_candidates = []
-            min_terminal_cost = min((cost for cost, _ in terminal_candidates))
-            for cost, materialize_idxs in terminal_candidates:
-                if cost <= max_cost and cost <= min_terminal_cost * MAX_COST_CONSIDERATION_FACTOR:
-                    trimmed_terminal_candidates.append((cost, materialize_idxs))
-            trimmed_candidates[terminal_id] = trimmed_terminal_candidates
-        candidates = trimmed_candidates
-
-        # Optimise the search tree by only considering disjoint subsets of
-        # candidates. For example, if we have candidates
-        #
-        #     {a: [A, B, C, D], b: [X, Y]}
-        #
-        # we can speed things up by only investigating 4+2 options instead
-        # of 4*2.
-        # If 'compress' is false we skip this as it introduces unnecessary cost.
-        breakpoint()  # intersect materialize idxs?
-        disjoint_subsets: list[tuple[dict, set]] = [
-            (
-                {arg_id: arg_candidates},
-                set(ac for ac, _, _ in arg_candidates),
-            )
-            for arg_id, arg_candidates in candidates.items()
-        ]
-        if compress:
-            # Have to do this repeatedly to ensure subsets are fully disjoint
-            while True:
-                new_disjoint_subsets = []
-                for terminal_id, terminal_candidates in candidates.items():
-                    arg_candidate_set = set(ac for ac, _, _ in terminal_candidates)
-                    for existing_subset_dict, existing_subset_candidate_set in new_disjoint_subsets:
-                        if arg_candidate_set.intersection(existing_subset_candidate_set):
-                            existing_subset_dict[terminal_id] = terminal_candidates
-                            existing_subset_candidate_set.update(arg_candidate_set)
-                            break
-                    else:
-                        # not found in an existing subset, create a new one
-                        subset = ({terminal_id: terminal_candidates}, arg_candidate_set)
-                        new_disjoint_subsets.append(subset)
-
-                if new_disjoint_subsets == disjoint_subsets:
+            # terminal_symdats = {
+            #     symdat
+            #     for _, _, symdats in terminal_candidates
+            #     for _, symdat, _ in symdats
+            # }
+            terminal_symdats = {
+                loc
+                for _, _, symdats in terminal_candidates
+                for loc, _, _ in symdats
+            }
+            for subset_candidates, subset_symdats in new_disjoint_subsets:
+                if terminal_symdats.intersection(subset_symdats):
+                    subset_candidates[terminal_id] = terminal_candidates
+                    subset_symdats.update(terminal_symdats)
                     break
+            else:
+                # not found in an existing subset, create a new one
+                new_disjoint_subsets.append(
+                    ({terminal_id: terminal_candidates}, terminal_symdats)
+                )
 
-                disjoint_subsets = new_disjoint_subsets
+        if new_disjoint_subsets == disjoint_subsets:
+            break
+        else:
+            disjoint_subsets = new_disjoint_subsets
 
-        # Now select the combination with the lowest combined cost. We can make savings here
-        # by sharing indirection maps between different arguments. For example, if we have
-        #
-        #     dat1[mapA[mapB[mapC[i]]]]
-        #     dat2[mapB[mapC[i]]]
-        #
-        # then we can (sometimes) minimise the data cost by having
-        #     dat1[mapA[mapBC[i]]]
-        #     dat2[mapBC[i]]
-        #
-        # instead of
-        #
-        #     dat1[mapABC[i]]
-        #     dat2[mapBC[i]]
-        best_candidate = {}
-        for candidate_subset, _ in disjoint_subsets:
-            # same as above but per subset
-            best_subset_candidate = {}
-            max_subset_cost = 0
-            for terminal_id, terminal_candidates in candidate_subset.items():
-                expr, expr_cost, materialize_idxs = min(terminal_candidates, key=lambda item: item[1])
-                best_subset_candidate[terminal_id] = (expr, expr_cost, materialize_idxs)
-                max_subset_cost += expr_cost
+    # Now select the combination with the lowest combined cost. We can make savings here
+    # by sharing indirection maps between different arguments. For example, if we have
+    #
+    #     dat1[mapA[mapB[mapC[i]]]]
+    #     dat2[mapB[mapC[i]]]
+    #
+    # then we can (sometimes) minimise the data cost by having
+    #     dat1[mapA[mapBC[i]]]
+    #     dat2[mapBC[i]]
+    #
+    # instead of
+    #
+    #     dat1[mapABC[i]]
+    #     dat2[mapBC[i]]
+    materialize_idxs = pyop3.collections.OrderedSet()
+    for candidate_subset, _ in disjoint_subsets:
+        best_subset_symdat_locs = None
+        min_subset_cost = None
+        for shared_candidate in utils.expand_collection_of_iterables(candidate_subset):
+            symdat_costs = {
+                loc: cost
+                for _, _, symdats in shared_candidate.values()
+                for loc, _, cost in symdats
+            }
 
-            min_subset_cost = max_subset_cost
-            for shared_candidate in utils.expand_collection_of_iterables(candidate_subset):
-                cost = 0
-                seen_exprs = set()
-                for expr, expr_cost, _ in shared_candidate.values():
-                    if expr not in seen_exprs:
-                        cost += expr_cost
-                        seen_exprs.add(expr)
+            cost = 0
+            for _, cost_expr, symdats in shared_candidate.values():
+                cost += pyop3.expr.visitors.evaluate(cost_expr, name_vars=symdat_costs)
+                # Subsequent expressions can reuse the array, so cost nothing
+                for loc, _, _ in symdats:
+                    symdat_costs[loc] = 0
 
-                if cost < min_subset_cost:
-                    best_subset_candidate = shared_candidate
-                    min_subset_cost = cost
-            assert best_subset_candidate is not None
-            best_candidate |= best_subset_candidate
+            if best_subset_symdat_locs is None or cost < min_subset_cost:
+                best_subset_symdat_locs = pyop3.collections.OrderedSet([
+                    loc
+                    for _, _, symdats in shared_candidate.values()
+                    for loc, _, _ in symdats
+                ])
+                min_subset_cost = cost
+        assert best_subset_symdat_locs is not None
+        materialize_idxs.update(best_subset_symdat_locs)
 
-        # Identify and broadcast the materialisation indices
-        materialize_idxss = {key: idxs for key, (_, _, idxs) in best_candidate.items()}
-        insn.comm.bcast(materialize_idxss)
-
-        # Drop cost information from 'best_candidate'
-        best_candidate = {key: expr for key, (expr, _, _) in best_candidate.items()}
-
-    else:
-        materialize_idxss = insn.comm.bcast(None)
-        # identify the dat expressions to materialise using 'materialize_idxss'
-        best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
-
-    # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
-    replace_map = {
-        comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
-        for comp_dat in composite_dats
-    }
-    best_candidate = idict({
-        key: pyop3.expr.visitors.replace(expr, replace_map)
-        for key, expr in best_candidate.items()
-    })
-
-    # Lastly propagate the materialised indirections back through the instruction tree
-    return concretize_materialized_indirections(insn, best_candidate)
+    return pyop3.collections.OrderedFrozenSet(materialize_idxs)
 
 
-# TODO: pull out the selector bits, make a separate class
+def _trim_candidates(candidates):
+    # Find the best cost if we look at each terminal independently. This
+    # provides a useful upper bound.
+    max_cost = 0
+    for terminal_id, terminal_candidates in candidates.items():
+        min_terminal_cost = min(
+            (cost for cost, _, _ in terminal_candidates), default=0
+        )
+        max_cost += min_terminal_cost
+    assert isinstance(max_cost, numbers.Integral)
+
+    # Drop any immediately bad candidates (that exceed this cost). Also
+    # skip over any terminals that don't generate any symbolic dats.
+    trimmed_candidates = {}
+    for terminal_id, terminal_candidates in candidates.items():
+        if len(terminal_candidates) == 0:
+            continue
+
+        trimmed_terminal_candidates = []
+        min_terminal_cost = min((cost for cost, _, _ in terminal_candidates), default=0)
+        for cost, cost_expr, sym_dats in terminal_candidates:
+            if cost <= max_cost and cost <= min_terminal_cost * MAX_COST_CONSIDERATION_FACTOR:
+                trimmed_terminal_candidates.append((cost, cost_expr, sym_dats))
+        trimmed_candidates[terminal_id] = trimmed_terminal_candidates
+    return trimmed_candidates
+
+
+def _select_candidate_indirections_nocompress(insn):
+    candidates = _collect_candidate_indirections(insn, compress=False)
+
+    symdat_locs = pyop3.collections.OrderedSet()
+    for terminal_id, terminal_candidates in candidates.items():
+        if not terminal_candidates:
+            continue
+
+        _, _, terminal_symdats_info = utils.just_one(terminal_candidates)
+        for loc, _, _ in terminal_symdats_info:
+            symdat_locs.add(loc)
+    return pyop3.collections.OrderedFrozenSet(symdat_locs)
+
+
 class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
 
     def __init__(self):
@@ -183,6 +222,9 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         yield
         self._collecting = prev
 
+    def get_cache_key(self, node, **kwargs):
+        return (*super().get_cache_key(node, **kwargs), self._collecting, self.index)
+
     # TODO dont need this any more, just access self.index
     def preprocess_node(self, node) -> tuple[Any, ...]:
         return node, self.index
@@ -191,61 +233,51 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def process(self, obj: pyop3.obj.Object, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         utils.raise_missing_dispatch_handler(obj)
 
+    def _null(self, obj: Any, index, /, **kwargs):
+        """Handler for terminals where we don't do anything."""
+        if self._collecting:
+            return ()
+        else:
+            return idict({})
+
     # {{{ pyop3.expr
 
     @process.register
-    def _(self, op: pyop3.expr.Operator, index, /, *, compress: bool, selector) -> tuple:
-        if selector is not None:
-            operand_candidatess = tuple(
-                self(operand, compress=compress, selector=selector)
-                for operand in op.operands
-            )
-
-            if not self._collecting:
-                return type(op)(*operand_candidatess)
-            else:
-                if index in selector:
-                    op_axes = utils.just_one(get_shape(op))
-                    return pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
-                else:
-                    return type(op)(*operand_candidatess)
-
+    def _(self, op: pyop3.expr.BinaryOperator, index, /, *, compress: bool) -> tuple:
         if not self._collecting:
-            return sum(self(op_, **kwargs) for op_ in op.operands)
-            return utils.merge_dicts((self(operand, **kwargs) for operand in op.operands))
+            return utils.merge_dicts((
+                self(x, compress=compress) for x in op.operands
+            ))
 
         operand_candidatess = tuple(
-            self(operand, compress=compress, selector=selector)
-            for operand in op.operands
+            self(o, compress=compress) for o in op.operands
         )
-
         candidates = []
         for operand_candidates in itertools.product(*operand_candidatess):
-            operand_exprs, operand_costs, materialization_indices = zip(*operand_candidates, strict=True)
-
-            materialization_indices = sum(materialization_indices, ())
+            cost_per_operand, cost_expr_per_operand, symdats_per_operand = \
+                zip(*operand_candidates, strict=True)
 
             # If there is at most one non-zero operand cost then there is no point
             # in compressing the expression.
-            if len([cost for cost in operand_costs if cost > 0]) <= 1:
+            if sum((cost > 0 for cost in cost_per_operand)) <= 1:
                 compress = False
-
-            candidate_expr = type(op)(*operand_exprs)
 
             # NOTE: This isn't quite correct. For example consider the expression
             # 'mapA[i] + mapA[i]'. The cost is just the cost of 'mapA[i]', not double.
-            candidate_cost = sum(operand_costs)
-            candidates.append((candidate_expr, candidate_cost, materialization_indices))
+            candidate_cost = sum(cost_per_operand)
+            candidate_cost_expr = sum(cost_expr_per_operand)
+            candidate_symdats = sum(symdats_per_operand, ())
+            candidates.append((candidate_cost, candidate_cost_expr, candidate_symdats))
 
         if compress:
             # Now also include a candidate representing the packing of the expression
             # into a Dat. The cost for this is simply the size of the resulting array.
             # Only do this when the cost is large as small arrays will fit in cache
             # and not benefit from the optimisation.
-            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                op_axes = utils.just_one(get_shape(op))
-                op_loop_axes = get_loop_axes(op)
-                compressed_expr = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
+            # if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
+            if True:  # debugging
+                op_axes = utils.just_one(pyop3.expr.visitors.get_shape(op))
+                op_loop_axes = pyop3.expr.visitors.get_loop_axes(op)
 
                 op_cost = op_axes.local_size
                 for loop_axes in op_loop_axes.values():
@@ -253,31 +285,35 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
                         op_cost *= loop_axis.component.local_size
                 if not isinstance(op_cost, numbers.Integral):
                     raise NotImplementedError("Ragged sizes are not supported")
-                candidates.append((compressed_expr, op_cost, (index,)))
 
-        return candidates
+
+                cost_expr = pyop3.expr.NameVar(self.index)
+                symdat = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
+                symdat_info = (self.index, symdat, op_cost)
+                candidates.append((op_cost, cost_expr, (symdat_info,)))
+
+        return tuple(candidates)
 
     @process.register
-    def _(self, expr: pyop3.expr.LinearDatBufferExpression, index, /, *, compress: bool, selector) -> tuple:
-        if selector is not None:
-            if index in selector:
-                return pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
-            else:
-                return expr.record_new(layout=child)
-
+    def _(
+        self,
+        expr: pyop3.expr.LinearDatBufferExpression,
+        index,
+        /,
+        *,
+        compress: bool,
+    ):
         if not self._collecting:
             with self.collecting():
-                return idict({self.index: self(expr.layout, compress=compress, selector=None)})
+                return idict({self.index: self(expr.layout, compress=compress)})
 
-        breakpoint()
-
-        # The cost of an expression dat (i.e. the memory volume) is given by...
+        # The cost of an expression dat (i.e. the memory volume) is given by... TODO
         # Remember that the axes here described the outer loops that exist and that
         # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
         # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
-
-        dat_axes = utils.just_one(get_shape(expr.layout))
-        dat_loop_axes = get_loop_axes(expr.layout)
+        # TODO: can this be nicer? I have other routines for getting shapes from expressions
+        dat_axes = utils.just_one(pyop3.expr.visitors.get_shape(expr.layout))
+        dat_loop_axes = pyop3.expr.visitors.get_loop_axes(expr.layout)
         dat_cost = dat_axes.local_size
         for loop_axes in dat_loop_axes.values():
             for loop_axis in loop_axes:
@@ -285,99 +321,86 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         if not isinstance(dat_cost, numbers.Integral):
             raise NotImplementedError("Ragged sizes are not supported")
 
-        child = self(expr.layout, compress=compress,selector=selector)
         candidates = []
-        for layout_expr, layout_cost, layout_materialization_indices in child:
-            candidate_expr = expr.record_new(layout=layout_expr)
-
-            # TODO: Only apply penalty for non-affine layouts
+        layout_candidates = self(expr.layout, compress=compress)
+        for layout_cost, layout_cost_expr, layout_symdats in layout_candidates:
+            # TODO: Only apply penalty for non-affine layouts that actually involve an indirection
             candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
-            candidates.append((candidate_expr, candidate_cost, layout_materialization_indices))
+            candidate_cost_expr = dat_cost + layout_cost_expr * INDIRECTION_PENALTY_FACTOR
+            candidates.append((candidate_cost, candidate_cost_expr, layout_symdats))
 
         if compress:
-            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                candidates.append((pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (index,)))
+            # if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for cost, _, _ in candidates):
+            if True:
+                # We use a symbolic expression for the overall cost because we
+                # need to be able to replace costs with zeros if we end up sharing
+                # materialised dats between terminals.
+                cost_expr = pyop3.expr.NameVar(self.index)
+                symdat = pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
+                symdat_info = (self.index, symdat, dat_cost)
+                candidates.append((dat_cost, cost_expr, (symdat_info,)))
+
         return tuple(candidates)
+
+    @process.register
+    def _(
+        self,
+        dat_expr: pyop3.expr.NonlinearDatBufferExpression,
+        index,
+        /,
+        **kwargs,
+    ) -> idict:
+        assert not self._collecting
+
+        return utils.merge_dicts((
+            self(l, **kwargs)
+            for l in dat_expr.layouts.values()
+        ))
 
     @process.register(pyop3.expr.AxisVar)
     @process.register(pyop3.expr.LoopIndexVar)
-    @process.register(pyop3.expr.OpaqueTerminal)
     @process.register(pyop3.expr.Scalar)
     @process.register(pyop3.expr.ScalarBufferExpression)
+    @process.register(pyop3.expr.OpaqueTerminal)
     @process.register(pyop3.expr.NaN)
-    def _(self, var: Any, index, /, selector, **kwargs) -> idict:
-        if selector is not None:
-            assert index not in selector
-            return var
+    def _(self, var, *args, **kwargs):
+        return self._null(var, *args, **kwargs)
 
-        if self._collecting:
-            return ()
-        else:
-            return idict({})
-        #
-        # else:
-        #     # TODO: leave empty? want smallest search space
-        #     candidates = [(var, 0, ())]
-        #     if self._expect_linear:
-        #         return candidates
-        #     else:
-        #         return {self.index: candidates}
+    @process.register
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, *, compress: bool) -> idict:
+        candidates = {}
+        layouts = [mat_expr.row_layout, mat_expr.column_layout]
+        for i, layout in enumerate(layouts):
+            assert isinstance(layout, pyop3.expr.CompositeDat)
+            op_axes = utils.just_one(pyop3.expr.visitors.get_shape(layout))
+            op_cost = pyop3.expr.visitors.loopified_shape(layout)[0].local_size
+            # op_loop_axes = pyop3.expr.visitors.get_loop_axes(layout)
+            #
+            # op_cost = op_axes.local_size
+            # for loop_axes in op_loop_axes.values():
+            #     for loop_axis in loop_axes:
+            #         op_cost *= loop_axis.component.local_size
+            # if not isinstance(op_cost, numbers.Integral):
+            #     raise NotImplementedError("Ragged sizes are not supported")
 
+            cost_expr = pyop3.expr.NameVar((self.index, i))
+            # symdat = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
+            symdat = layout
+            symdat_info = ((self.index, i), symdat, op_cost)
+            candidates[self.index, i] = ((op_cost, cost_expr, (symdat_info,)),)
+        return idict(candidates)
 
-
-    # @process.register(pyop3.expr.LinearDatBufferExpression)
-    # def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, index, /, *, selector, **kwargs) -> idict:
-    #     selector_ = selector[index] if selector is not None else None
-    #     return idict({
-    #         index: collect_candidate_indirections(dat_expr.layout, selector=selector_, **kwargs)
-    #     })
-    #
-    #
-    # @process.register(pyop3.expr.NonlinearDatBufferExpression)
-    # def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, index, /, *, selector, **kwargs) -> idict:
-    #     candidates = {}
-    #     for i, (path, layout) in enumerate(dat_expr.layouts.items()):
-    #         selector_ = selector[index, i] if selector is not None else None
-    #         candidates[index, i] = self(
-    #             layout, selector=selector_, **kwargs
-    #         )
-    #     return idict(candidates)
-    #
-    # @process.register(pyop3.expr.MatPetscMatBufferExpression)
-    # def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, *, compress: bool, selector) -> idict:
-    #     costs = []
-    #     layouts = [mat_expr.row_layout, mat_expr.column_layout]
-    #     for i, layout in enumerate(layouts):
-    #         cost = loopified_shape(layout)[0].local_size
-    #         if not isinstance(cost, numbers.Integral):
-    #             raise NotImplementedError("Ragged sizes are not supported")
-    #         costs.append(cost)
-    #
-    #     candidates = {}
-    #     if selector is not None:
-    #         candidates[index, 0] = mat_expr.row_layout
-    #         candidates[index, 1] = mat_expr.column_layout
-    #     else:
-    #         candidates[index, 0] =  ((mat_expr.row_layout, costs[0], 0),)
-    #         candidates[index, 1] =  ((mat_expr.column_layout, costs[1], 0),)
-    #     return idict(candidates)
-    #
-    #
-    # # Should be very similar to NonlinearDat case
-    # # NOTE: This is a nonlinear type
-    # @process.register(pyop3.expr.MatArrayBufferExpression)
-    # def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, index, /, *,  compress: bool, selector) -> idict:
-    #     candidates = {}
-    #     layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
-    #     for i, layouts in enumerate(layoutss):
-    #         for j, (path, layout) in enumerate(layouts.items()):
-    #             selector_ = selector[index, i, j] if selector is not None else None
-    #             candidates[index, i, j] = self(
-    #                 layout, compress=compress, selector=selector_
-    #             )
-    #     return idict(candidates)
-
-
+    @process.register
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, index, /, *,  compress: bool) -> idict:
+        candidates = {}
+        with self.collecting():
+            layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
+            for i, layouts in enumerate(layoutss):
+                for j, (path, layout) in enumerate(layouts.items()):
+                    candidates[self.index, i, j] = self(
+                        layout, compress=compress
+                    )
+        return idict(candidates)
 
     # }}}
 
@@ -405,29 +428,10 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         )
 
     @process.register
-    def _(self, terminal: pyop3.insn.NonEmptyTerminal, index, /, *, compress: bool, selector) -> idict:
-        if selector is not None:
-            candidates = {}
-            for i, arg in enumerate(terminal.arguments):
-                # drop some of the key
-                selector_ = idict({
-                    utils.just_one(key[2:]): value
-                    for key, value in selector.items()
-                    if key[:2] == (index, i)
-                })
-
-            per_arg_candidates = self(
-                arg, compress=compress, selector=selector_
-            )
-            for arg_key, value in per_arg_candidates.items():
-                candidates[index, i, arg_key] = value
-            return idict(candidates)
-
+    def _(self, terminal: pyop3.insn.NonEmptyTerminal, index, /, *, compress: bool) -> idict:
         candidates = {}
         for i, arg in enumerate(terminal.arguments):
-            per_arg_candidates = self(
-                arg, compress=compress, selector=None
-            )
+            per_arg_candidates = self(arg, compress=compress)
             candidates |= per_arg_candidates
         return idict(candidates)
 
@@ -435,32 +439,162 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
 
     # {{{ misc
 
-    # @process.register(numbers.Number)
-    # @process.register(pyop3.expr.AxisVar)
-    # @process.register(pyop3.expr.LoopIndexVar)
-    # @process.register(pyop3.expr.NaN)
-    # @process.register(pyop3.expr.ScalarBufferExpression)
-    # def _(self, var: Any, index: int, /, *args, selector, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-    #     if selector is not None:
-    #         assert index not in selector
-    #         return var
-    #     else:
-    #         return ((var, 0, ()),)
+    @process.register
+    def _(self, var: numbers.Number, *args, **kwargs):
+        return self._null(var, *args, **kwargs)
 
     # }}}
 
 
-def collect_candidate_indirections(
+def _collect_candidate_indirections(
     obj: pyop3.obj.Object,
     *,
     compress: bool,
-    selector=None,
 ):
     collector = _get_candidate_indirections_collector(obj.comm)
-    collector.index = -1  # reset counter
-    return collector(obj, compress=compress, selector=selector)
+    collector.index = ()  # reset counter
+    collector._index_stack = collections.defaultdict(itertools.count)
+    return collector(obj, compress=compress)
 
 
 @pyop3.cache.memory_cache(heavy=True)
 def _get_candidate_indirections_collector(comm):
     return _CandidateIndirectionsCollector()
+
+
+class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
+
+    def __init__(self, comm):
+        self.comm=comm
+        self._linear = False
+        super().__init__()
+
+    @contextlib.contextmanager
+    def enforce_linear(self):
+        prev = self._linear
+        self._linear = True
+        yield
+        self._linear = prev
+
+    def get_cache_key(self, node, **kwargs):
+        return (*super().get_cache_key(node, **kwargs), self._linear, self.index)
+
+    @functools.singledispatchmethod
+    def process(self, obj: pyop3.obj.Object, /, *args, **kwargs) -> Never:
+        utils.raise_missing_dispatch_handler(obj)
+
+    # {{{ pyop3.expr
+
+    @process.register
+    def _(self, op: pyop3.expr.BinaryOperator, /, *, materialize_idxs) -> tuple:
+        if self.index in materialize_idxs:
+            assert self._linear
+
+            op_axes = utils.just_one(pyop3.expr.visitors.get_shape(op))
+            symdat = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
+            return pyop3.expr.visitors.materialize_composite_dat(symdat, self.comm, linear=True)
+
+        else:
+            new_a = self(op.a, materialize_idxs=materialize_idxs)
+            new_b = self(op.b, materialize_idxs=materialize_idxs)
+            return op.record_new(a=new_a, b=new_b)
+
+    @process.register
+    def _(self, expr: pyop3.expr.LinearDatBufferExpression, /, *, materialize_idxs):
+        if self.index in materialize_idxs:
+            assert self._linear
+
+            dat_axes = utils.just_one(pyop3.expr.visitors.get_shape(expr.layout))
+            symdat = pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
+            return pyop3.expr.visitors.materialize_composite_dat(symdat, self.comm, linear=True)
+        else:
+            with self.enforce_linear():
+                new_layout = self(expr.layout, materialize_idxs=materialize_idxs)
+            return expr.record_new(layout=new_layout)
+
+    @process.register
+    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /, **kwargs):
+        assert not self._linear
+        with self.enforce_linear():
+            new_layouts = idict({
+                path: self(l, **kwargs)
+                for path, l in dat_expr.layouts.items()
+            })
+        return dat_expr.record_new(layouts=new_layouts)
+
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    @process.register(pyop3.expr.Scalar)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    @process.register(pyop3.expr.OpaqueTerminal)
+    @process.register(pyop3.expr.NaN)
+    def _(self, var, **kwargs):
+        return var
+
+    @process.register
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, *, materialize_idxs):
+        assert (self.index, 0) in materialize_idxs
+        assert (self.index, 1) in materialize_idxs
+        new_row_layout = pyop3.expr.visitors.materialize_composite_dat(
+            mat_expr.row_layout, self.comm, linear=False
+        )
+        new_column_layout = pyop3.expr.visitors.materialize_composite_dat(
+            mat_expr.column_layout, self.comm, linear=False
+        )
+        return mat_expr.record_new(row_layout=new_row_layout, column_layout=new_column_layout)
+
+    @process.register
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, /, **kwargs):
+        new_layoutss = []
+        layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
+        with self.enforce_linear():
+            for layouts in layoutss:
+                new_layouts = {
+                    path: self(layout, **kwargs)
+                    for path, layout in layouts.items()
+                }
+                new_layoutss.append(idict(new_layouts))
+        new_row_layouts, new_column_layouts = new_layoutss
+        return mat_expr.record_new(row_layouts=new_row_layouts, column_layouts=new_column_layouts)
+
+    # }}}
+
+    # {{{ pyop3.insn
+
+    @process.register
+    def _(self, insn_list: pyop3.insn.InstructionList, /, **kwargs) -> pyop3.insn.InstructionList:
+        new_instructions = tuple(
+            self(insn, **kwargs) for insn in insn_list
+        )
+        return insn_list.record_new(instructions=new_instructions)
+
+    @process.register
+    def _(self, loop: pyop3.insn.Loop, /, **kwargs):
+        new_statements = tuple(self(stmt, **kwargs) for stmt in loop.statements)
+        return loop.record_new(statements=new_statements)
+
+    @process.register
+    def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, **kwargs):
+        new_assignee = self(assignment.assignee, **kwargs)
+        new_expression = self(assignment.expression, **kwargs)
+        return assignment.record_new(_assignee=new_assignee, _expression=new_expression)
+
+    @process.register(pyop3.insn.StandaloneCalledFunction)
+    @process.register(pyop3.insn.Exscan)  # NOTE: not really ideal, relies on not traversing in other visitor
+    @process.register(pyop3.insn.NullInstruction)
+    def _(self, insn, *args, **kwargs):
+        return insn
+
+    # }}}
+
+    # {{{ misc
+
+    @process.register
+    def _(self, var: numbers.Number, /, **kwargs):
+        return var
+
+    # }}}
+
+
+def _insert_materialized_indirections(obj: pyop3.obj.Object, materialize_idxs) -> pyop3.insn.Instruction:
+    return _MaterializedIndirectionsInserter(obj.comm)(obj, materialize_idxs=materialize_idxs)

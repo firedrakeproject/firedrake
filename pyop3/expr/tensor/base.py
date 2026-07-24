@@ -252,10 +252,7 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
 class TensorTransform(pyop3.obj.Object, abc.ABC):
 
-    @property
-    @abc.abstractmethod
-    def prev(self) -> TensorTransform | None:
-        pass
+    __abstract_record_attrs = ("prev",)
 
     @property
     @abc.abstractmethod
@@ -274,22 +271,20 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     transform_in: Callable[[Tensor, Tensor], None]
     transform_out: Callable[[Tensor, Tensor], None]
-    _prev: TensorTransform | None = None
+    prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             self.transform_in,
             self.transform_out,
-            visitor(self._prev),
+            visitor(self.prev),
         )
 
 
     # }}}
 
     # {{{ interface impls
-
-    prev = pyop3.record.attr("_prev")
 
     @property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
@@ -308,21 +303,19 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     # {{{ instance attrs
 
     axis_trees: tuple[AxisTree, ...]
-    _prev: TensorTransform | None = None
+    prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             tuple(map(visitor, self.axis_trees)),
-            visitor(self._prev),
+            visitor(self.prev),
         )
 
 
     # }}}
 
     # {{{ interface impls
-
-    prev = pyop3.record.attr("_prev")
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:

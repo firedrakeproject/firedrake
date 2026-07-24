@@ -52,6 +52,10 @@ def _make_record_class(**kwargs):
                 attrs = self.record_prepare_args(*args, **kwargs)
                 initialinit(self, **attrs)
 
+                for type_ in cls.__mro__:
+                    if hasattr(type_, "__post_init__"):
+                        type_.__post_init__(self)
+
             cls.__init__ = old_init
 
         cls.record_new = _record_new
@@ -62,19 +66,6 @@ def _make_record_class(**kwargs):
         return cls
 
     return wrapper
-
-
-def _create_record(cls: Any, **attrs: Any) -> Any:
-    self = object.__new__(cls)
-    for field_name, attr in attrs.items():
-        object.__setattr__(self, field_name, attr)
-
-    # Run all __post_init__ methods
-    # TODO: make record_post_init?
-    for type_ in cls.__mro__:
-        if hasattr(type_, "__post_init__"):
-            type_.__post_init__(self)
-    return self
 
 
 def _record_new(self, **attrs: Any) -> Any:
@@ -95,6 +86,10 @@ def _record_new(self, **attrs: Any) -> Any:
             raise AssertionError(
                 f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
             )
+
+    for type_ in cls.__mro__:
+        if hasattr(type_, "__post_init__"):
+            type_.__post_init__(new)
 
     return new
 

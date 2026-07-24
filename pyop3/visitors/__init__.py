@@ -67,21 +67,22 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
         super().__init__()
 
     # NOTE: copied from pyop3/visitors/relabel.py
-    def relabel_path(self, path):
-        return idict({
-            self._node_label_relabel_map.get(node): component
-            for node, component in path.items()
-        })
+    def relabel_axis_tree_path(self, path):
+        new_path = {}
+        for axis, component in path.items():
+            new_axis = self.renamer.add((pyop3.axis_tree.Axis, axis))
+            new_path[new_axis] = component
+        return idict(new_path)
 
     # not a cached property because this changes as we traverse things
-    @property
-    def _node_label_relabel_map(self) -> dict:
-        relabel_map = {}
-        for key, new_label in self.renamer.store.items():
-            if isinstance(key, tuple):
-                obj_type, orig_label = key
-                relabel_map[orig_label] = new_label
-        return relabel_map
+    # @property
+    # def _node_label_relabel_map(self) -> dict:
+    #     relabel_map = {}
+    #     for key, new_label in self.renamer.store.items():
+    #         if isinstance(key, tuple):
+    #             obj_type, orig_label = key
+    #             relabel_map[orig_label] = new_label
+    #     return relabel_map
 
 
 class DiskCacheKeyGetter(CacheKeyGetter):
@@ -176,10 +177,9 @@ def _(comm: MPI.Comm, /) -> MPI.Comm:
     return comm
 
 
-# this is the internal comm
-# @get_comm.register
-# def _(obj: PETSc.Object, /) -> MPI.Comm:
-#     return obj.comm.tompi4py()
+@get_comm.register
+def _(obj: PETSc.Object, /) -> MPI.Comm:
+    raise TypeError("Cannot get the right comm off of a PETSc object, you just get the internal PETSc one")
 
 
 @get_comm.register

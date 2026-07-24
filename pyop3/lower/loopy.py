@@ -46,7 +46,7 @@ from pyop3.insn.base import (
     NullInstruction,
     assignment_type_as_intent,
     AssignmentType,
-    ConcretizedNonEmptyArrayAssignment,
+    NonEmptyArrayAssignment,
     StandaloneCalledFunction,
     Loop,
     InstructionList,
@@ -695,8 +695,8 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     context.add_subkernel(subkernel)
 
 
-@_compile.register(ConcretizedNonEmptyArrayAssignment)
-def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
+@_compile.register(NonEmptyArrayAssignment)
+def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:
@@ -708,7 +708,7 @@ def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indice
         )
 
 
-def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
+def _compile_petsc_mat(assignment: NonEmptyArrayAssignment, loop_indices, context) -> None:
     # We need to know whether the matrix is the assignee or not because we need
     # to know whether to put MatGetValues or MatSetValues
     if isinstance(assignment.assignee.buffer, PetscMatBuffer):

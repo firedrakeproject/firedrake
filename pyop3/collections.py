@@ -42,6 +42,10 @@ class UniqueList(list):
             raise ValueMismatchException
         return super().append(value)
 
+    def extend(self, other, /) -> None:
+        for item in other:
+            self.append(item)
+
 
 class AbstractOrderedSet:
 
@@ -96,9 +100,10 @@ class OrderedSet(AbstractOrderedSet):
             values = []
         else:
             assert is_ordered_sequence(values) or len(values) < 2
-            values = list(values)
 
-        self._values = values
+        self._values = []
+        for item in values:
+            self.add(item)
 
     def index(self, value) -> int:
         return self._values.index(value)

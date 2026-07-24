@@ -145,8 +145,9 @@ class Mat(Tensor):
         if buffer_spec is None:
             buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
 
+        comm = pyop3.mpi.common_comm([row_axes.comm, column_axes.comm])
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=full_spec.comm, **buffer_kwargs)
+        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=comm, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod

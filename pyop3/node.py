@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import abc
+import collections
 import functools
+import itertools
 from collections.abc import Hashable
 from functools import cached_property
 from typing import Any
@@ -110,7 +112,8 @@ class Visitor(abc.ABC):
         self._compress = compress
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
-        self.index = -1
+        self.index = ()
+        self._index_stack = collections.defaultdict(itertools.count)
 
     # {{{ overrideable interface
 
@@ -156,7 +159,8 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
-        self.index += 1
+        prev_index = self.index
+        self.index += (next(self._index_stack[self.index]),)
 
         cache_key = self.get_cache_key(node, **kwargs)
         try:
@@ -177,6 +181,8 @@ class Visitor(abc.ABC):
             # Store result in cache
             self._visited_cache[cache_key] = result
             return result
+        finally:
+            self.index = prev_index
 
 
 class LabelledTreeVisitor(Visitor):

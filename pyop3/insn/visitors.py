@@ -501,45 +501,6 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.NonEmptyArrayAssignmen
     return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, shape, assignment.assignment_type, comm=assignment.comm)
 
 
-# TODO: move into compress_indirections.py
-class MaterializedIndirectionsConcretizer(NodeVisitor):
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        return super().process(obj, *args, **kwargs)
-
-    @process.register(pyop3.insn.InstructionList)
-    def _(self, insn_list: pyop3.insn.InstructionList, /, layouts: Mapping[Any, Any]) -> pyop3.insn.InstructionList:
-        return maybe_enlist(self._call(insn, layouts=layouts) for insn in insn_list)
-
-
-    @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop, /, layouts: Mapping[Any, Any]) -> pyop3.insn.Loop:
-        return loop.record_new(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
-
-
-    @process.register(pyop3.insn.StandaloneCalledFunction)
-    @process.register(pyop3.insn.Exscan)
-    @process.register(pyop3.insn.NullInstruction)
-    def _(self, func: pyop3.insn.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> pyop3.insn.StandaloneCalledFunction:
-        return func
-
-
-    @process.register(pyop3.insn.NonEmptyArrayAssignment)
-    def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> pyop3.insn.ConcretizedNonEmptyArrayAssignment:
-        assignee, expression = (
-            pyop3.expr.visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
-            for i, arg in enumerate(assignment.arguments)
-        )
-        return pyop3.insn.ConcretizedNonEmptyArrayAssignment(
-            assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
-        )
-
-
-def concretize_materialized_indirections(obj, layouts) -> pyop3.insn.Instruction:
-    return MaterializedIndirectionsConcretizer()(obj, layouts=layouts)
-
-
 
 class InstructionCacheKeyGetter(NodeVisitor):
     @functools.singledispatchmethod

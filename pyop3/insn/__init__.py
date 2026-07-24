@@ -12,7 +12,6 @@ from .base import (  # noqa: F401
     Exscan,
     CalledFunction,
     StandaloneCalledFunction,
-    ConcretizedNonEmptyArrayAssignment,
     NullInstruction,
     TerminalInstruction,
     NonTerminalInstruction,

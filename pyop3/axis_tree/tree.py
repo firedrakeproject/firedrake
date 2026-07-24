@@ -34,6 +34,7 @@ import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
+from pyop3.constants import DECIDE
 from pyop3.dtypes import IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
@@ -389,7 +390,7 @@ class AxisComponent(LabelledNodeComponent):
     def record_prepare_args(
         cls,
         regions,
-        label=pyop3.constants.DECIDE,
+        label=DECIDE,
         *,
         sf=None,
         size: Any = None,
@@ -571,15 +572,18 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
     def record_prepare_args(
         cls,
         components,
-        label=pyop3.constants.DECIDE,
+        label=DECIDE,
     ):
         components = cls._parse_components(components)
         # relabel components if needed
-        if utils.strictly_all(c.label is pyop3.constants.DECIDE for c in components):
+        if utils.strictly_all(c.label is DECIDE for c in components):
             if len(components) > 1:
                 components = tuple(c.record_new(_label=i) for i, c in enumerate(components))
             else:
                 components = (utils.just_one(components).record_new(label=None),)
+
+        if label is DECIDE:
+            label = cls.unique_id()
 
         return dict(components=components, label=label)
 
@@ -1430,7 +1434,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
     def get_disk_cache_key(self, visitor) -> Hashable:
         node_map_key = {}
         for path, axis in self.node_map.items():
-            node_map_key[visitor.relabel_path(path)] = visitor(axis)
+            node_map_key[visitor.relabel_axis_tree_path(path)] = visitor(axis)
         node_map_key = idict(node_map_key)
         return (type(self), node_map_key)
 
@@ -2520,7 +2524,7 @@ class ContextSensitiveAxisTree(pyop3.obj.Object, ContextSensitiveLoopIterable):
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         trees_key = {}
         for path, tree in self.trees.items():
-            trees_key[visitor.relabel_path(path)] = visitor(tree)
+            trees_key[visitor.relabel_axis_tree_path(path)] = visitor(tree)
         trees_key = idict(trees_key)
         return (type(self), trees_key)
 

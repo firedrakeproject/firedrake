@@ -764,7 +764,7 @@ class Assignment(AbstractAssignment):
 
 
 
-# FIXME: inconsistent argument ordering vs Concretized
+# TODO: rename NonEmptyAssignment, is this even needed?
 @pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
@@ -776,6 +776,22 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     _assignment_type: AssignmentType
     # is this still needed?
     _comm: MPI.Comm = dataclasses.field(hash=False)
+
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+        return OrderedFrozenSet().union(
+            visitor(self._assignee),
+            visitor(self._expression),
+            *(visitor(tree) for tree in self._axis_trees),
+        )
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self._assignee),
+            visitor(self._expression),
+            *(map(visitor, self._axis_trees)),
+            self._assignment_type,
+        )
 
     @classmethod
     def get_comm(cls, *, _comm, **attrs):
@@ -801,61 +817,6 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     expression = pyop3.record.attr("_expression")
     axis_trees = pyop3.record.attr("_axis_trees")
     assignment_type = pyop3.record.attr("_assignment_type")
-
-    # }}}
-
-
-@pyop3.record.frozenrecord()
-class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
-
-    # {{{ Instance attrs
-
-    _assignee: Any
-    _expression: Any
-    _assignment_type: AssignmentType
-    _axis_trees: tuple[AxisTree, ...]
-    _comm: MPI.Comm = dataclasses.field(hash=False)
-
-    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
-        return OrderedFrozenSet().union(
-            visitor(self._assignee),
-            visitor(self._expression),
-            *(visitor(tree) for tree in self._axis_trees),
-        )
-
-    def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            visitor(self._assignee),
-            visitor(self._expression),
-            *(map(visitor, self._axis_trees)),
-            self._assignment_type,
-        )
-
-    @classmethod
-    def get_comm(cls, *, _comm, **attrs):
-        return _comm
-
-    @classmethod
-    def record_prepare_args(cls, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
-        assignment_type = AssignmentType(assignment_type)
-
-        return dict(
-        _assignee=assignee,
-        _expression=expression,
-        _assignment_type=assignment_type,
-        _axis_trees=axis_trees,
-        _comm=comm,
-        )
-
-    # }}}
-
-    # {{{ Interface impls
-
-    assignee: ClassVar = pyop3.record.attr("_assignee")
-    expression: ClassVar = pyop3.record.attr("_expression")
-    assignment_type: ClassVar = pyop3.record.attr("_assignment_type")
-    axis_trees: ClassVar = pyop3.record.attr("_axis_trees")
 
     # }}}
 

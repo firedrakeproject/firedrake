@@ -19,7 +19,7 @@ class OpaqueTerminal(NamedTerminalExpression):
     # {{{ instance attrs
 
     buffer: pyop3.buffer.AbstractBuffer
-    _name: str
+    name: str
 
     def collect_buffers(self, visitor):
         return pyop3.collections.OrderedFrozenSet({self.buffer})
@@ -37,13 +37,11 @@ class OpaqueTerminal(NamedTerminalExpression):
     def record_prepare_args(cls, buffer, *, name: str | None = None, prefix: str | None = None) -> dict:
         name = pyop3.utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
-        return dict(buffer=buffer, _name=name)
+        return dict(buffer=buffer, name=name)
 
     # }}}
 
     # {{{ interface impls
-
-    name: ClassVar[str] = pyop3.record.attr("_name")
 
     @property
     def _full_str(self) -> str:

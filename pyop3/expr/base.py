@@ -358,6 +358,19 @@ class Sub(BinaryOperator):
 
 class Mul(BinaryOperator):
 
+    def __new__(cls, a, b):
+        if a == 0 or b == 0:
+            return 0
+        elif a == 1:
+            return b
+        elif b == 1:
+            return a
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "a", a)
+            object.__setattr__(self, "b", b)
+            return self
+
     # {{{ interface impls
 
     @property
@@ -543,6 +556,22 @@ class TerminalExpression(Expression, Terminal, abc.ABC):
     child_attrs = ()
 
 
+@pyop3.record.frozenrecord()
+class NameVar(TerminalExpression):
+    """Class for representing arbitrary variables.
+
+    They are useful for evaluating arbitrary symbolic expressions where something
+    like an `AxisVar` would be inappropriate (due to there not being an axis
+    available).
+
+    """
+
+    name: Hashable
+
+    def _full_str(self) -> str:
+        return f"{utils.pretty_type(self)}('{self.name}')"
+
+
 class NamedTerminalExpression(TerminalExpression):
     """A terminal with a name.
 
@@ -556,10 +585,7 @@ class NamedTerminalExpression(TerminalExpression):
 
     """
 
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        pass
+    __abstract_record_attrs = ("name",)
 
 
 @pyop3.record.frozenrecord()

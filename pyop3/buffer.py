@@ -1078,34 +1078,34 @@ class PetscMatBuffer(ConcreteBuffer):
     # {{{ factory methods
 
     @classmethod
-    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, preallocator: bool = False, **kwargs):
-        mat = cls._make_petsc_mat(mat_spec, preallocator=preallocator)
+    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, comm, preallocator: bool = False, **kwargs):
+        mat = cls._make_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
         if preallocator:
-            return cls(mat, mat_spec=mat_spec, **kwargs)
+            return cls(mat, mat_spec=mat_spec, comm=comm, **kwargs)
         else:
-            return cls(mat, **kwargs)
+            return cls(mat, comm=comm, **kwargs)
 
     @classmethod
     def _make_petsc_mat(
         cls,
         mat_spec: FullPetscMatBufferSpec | np.ndarray,
         *,
+        comm,
         preallocator: bool = False,
     ):
         if isinstance(mat_spec, np.ndarray):
             submats = np.empty(mat_spec.shape, dtype=object)
             for (i, j), submat_spec in np.ndenumerate(mat_spec):
-                submat = cls._make_petsc_mat(submat_spec, preallocator=preallocator)
+                submat = cls._make_petsc_mat(submat_spec, comm=comm, preallocator=preallocator)
                 submats[i, j] = submat
 
-            comm = pyop3.visitors.single_comm(*submats.flatten())
             return PETSc.Mat().createNest(submats, comm=comm)
         else:
             assert isinstance(mat_spec, FullPetscMatBufferSpec)
-            return cls._make_non_nested_petsc_mat(mat_spec, preallocator=preallocator)
+            return cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
 
     @classmethod
-    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
+    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, comm, preallocator: bool):
         mat_type = mat_spec.mat_type
         row_spec = mat_spec.row_spec
         column_spec = mat_spec.column_spec
@@ -1125,12 +1125,12 @@ class PetscMatBuffer(ConcreteBuffer):
                 # a column vec (vertical) has #rows entries
                 sf = row_axes.sf
             mat_context = DensePythonMatContext.empty(mode, sf)
-            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_spec.comm)
+            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
         else:
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
-            mat = PETSc.Mat().create(mat_spec.comm)
+            mat = PETSc.Mat().create(comm)
             mat.setType(mat_type)
             # None is for the global size, PETSc will figure it out for us
             sizes = ((row_spec.size, None), (column_spec.size, None))
@@ -1169,7 +1169,9 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             mat_spec = None
         name = f"{self.name}_{row_index}_{column_index}"
-        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
+        retval = self.record_new(mat=mat, mat_spec=mat_spec, _name=name, _constant=self.constant)
+        retval._current_insert_mode
+        return retval
 
     @property
     def handle(self) -> Any:
@@ -1233,7 +1235,7 @@ class PetscMatBuffer(ConcreteBuffer):
         if not hasattr(self, "_lazy_template"):
             self.assemble()
 
-            template = self._make_petsc_mat(self.mat_spec)
+            template = self._make_petsc_mat(self.mat_spec, comm=self.comm)
             self._preallocate(self.mat, template)
 
             # We can safely set these options since by using a sparsity we

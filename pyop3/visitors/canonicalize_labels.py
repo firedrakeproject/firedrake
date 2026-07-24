@@ -193,6 +193,12 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
     def _(self, obj: pyop3.expr.Expression, /):
         return obj
 
+    @process.register
+    def _(self, transform: pyop3.expr.ReshapeTensorTransform, /):
+        new_axis_trees = tuple(map(self, transform.axis_trees))
+        new_prev = self(transform.prev)
+        return transform.record_new(axis_trees=new_axis_trees, prev=new_prev)
+
     # }}}
 
     # {{{ pyop3.insn

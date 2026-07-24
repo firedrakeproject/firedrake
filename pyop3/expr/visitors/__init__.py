@@ -56,12 +56,12 @@ class ExpressionVisitor(NodeVisitor):
 
 
 # TODO: use overloadedexpressionevaluator
-def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
+def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None, name_vars=idict()) -> Any:
     if axis_vars is None:
         axis_vars = {}
     if loop_indices is None:
         loop_indices = {}
-    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices)
+    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices, name_vars=name_vars)
 
 
 @functools.singledispatch
@@ -74,6 +74,14 @@ def _evaluate(obj: Any, /, **kwargs) -> Any:
 @_evaluate.register(np.bool)
 def _(num, /, **kwargs) -> Any:
     return num
+
+
+@_evaluate.register
+def _(var: pyop3.expr.NameVar, /, *, name_vars: Mapping, **kwargs) -> Any:
+    try:
+        return name_vars[var.name]
+    except KeyError:
+        raise MissingVariableException(f"'{var.name}' not found in 'name_vars'")
 
 
 @_evaluate.register(pyop3.expr.AxisVar)
@@ -641,33 +649,33 @@ def _(dat: pyop3.expr.NonlinearDatBufferExpression, /) -> OrderedSet:
     return result
 
 
-@functools.singledispatch
-def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@collect_composite_dats.register(pyop3.expr.Operator)
-def _(op: pyop3.expr.Operator, /) -> OrderedFrozenSet:
-    return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
-
-
-@collect_composite_dats.register(numbers.Number)
-@collect_composite_dats.register(pyop3.expr.AxisVar)
-@collect_composite_dats.register(pyop3.expr.LoopIndexVar)
-@collect_composite_dats.register(pyop3.expr.NaN)
-@collect_composite_dats.register(pyop3.expr.ScalarBufferExpression)
-def _(op, /) -> OrderedFrozenSet:
-    return OrderedFrozenSet()
-
-
-@collect_composite_dats.register(pyop3.expr.LinearDatBufferExpression)
-def _(dat, /) -> OrderedFrozenSet:
-    return collect_composite_dats(dat.layout)
-
-
-@collect_composite_dats.register(pyop3.expr.CompositeDat)
-def _(dat, /) -> OrderedFrozenSet:
-    return OrderedFrozenSet([dat])
+# @functools.singledispatch
+# def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
+#     raise TypeError(f"No handler defined for {type(obj).__name__}")
+#
+#
+# @collect_composite_dats.register(pyop3.expr.Operator)
+# def _(op: pyop3.expr.Operator, /) -> OrderedFrozenSet:
+#     return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
+#
+#
+# @collect_composite_dats.register(numbers.Number)
+# @collect_composite_dats.register(pyop3.expr.AxisVar)
+# @collect_composite_dats.register(pyop3.expr.LoopIndexVar)
+# @collect_composite_dats.register(pyop3.expr.NaN)
+# @collect_composite_dats.register(pyop3.expr.ScalarBufferExpression)
+# def _(op, /) -> OrderedFrozenSet:
+#     return OrderedFrozenSet()
+#
+#
+# @collect_composite_dats.register(pyop3.expr.LinearDatBufferExpression)
+# def _(dat, /) -> OrderedFrozenSet:
+#     return collect_composite_dats(dat.layout)
+#
+#
+# @collect_composite_dats.register(pyop3.expr.CompositeDat)
+# def _(dat, /) -> OrderedFrozenSet:
+#     return OrderedFrozenSet([dat])
 
 # useful debugging
 import collections, atexit
@@ -680,9 +688,10 @@ atexit.register(lambda: print(sum(mycounter.values())))
 def materialize_composite_dat(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,
+    linear: bool,
 ) -> pyop3.expr.LinearDatBufferExpression:
     # NOTE: This should now be fine given that we relabel on the way in
-    return _materialize_composite_dat_cached(composite_dat, comm)
+    return _materialize_composite_dat_cached(composite_dat, comm, linear)
 
     from pyop3.visitors import InstructionExecutorCacheKeyGetter, relabel
 
@@ -709,6 +718,7 @@ def materialize_composite_dat(
 def _materialize_composite_dat_cached(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,  # needed now?
+    linear,
 ) -> pyop3.expr.NonlinearDatBufferExpression:
     axes = composite_dat.axis_tree
 
@@ -739,7 +749,10 @@ def _materialize_composite_dat_cached(
         ]
         iforest = IndexTree.from_iterable((*loop_slices, *slices))
 
-        assignee_ = assignee[iforest]
+        try:
+            assignee_ = assignee[iforest]
+        except:
+            breakpoint()
 
         if assignee_.size > 0:
             assignee_.assign(
@@ -774,7 +787,11 @@ def _materialize_composite_dat_cached(
     if axes.nest_indices:
         raise NotImplementedError("Need a buffer ref")
 
-    return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
+    if linear:
+        layout = newlayouts[composite_dat.axis_tree.leaf_path]
+        return pyop3.expr.LinearDatBufferExpression(assignee.buffer, layout)
+    else:
+        return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
