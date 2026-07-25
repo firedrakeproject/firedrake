@@ -26,7 +26,7 @@ TESTS = {
     ),
     2: (
         # HDF5/checkpointing
-        "tests/firedrake/output/test_io_function.py::test_io_function_base[cell_family_degree2]",
+        "tests/firedrake/output/test_io_function.py::test_io_function_base[triangle_small-DP-0]",
     ),
     3: (
         "tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere[nprocs=3]",

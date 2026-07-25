@@ -1552,8 +1552,9 @@ class VomOntoVomMat:
         end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(self.nleaves, dtype=IntType)  # result stored in here
-        self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        self.sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        self.sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(self.target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size

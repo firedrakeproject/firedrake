@@ -23,6 +23,10 @@ on:
         description: Whether to test a complex build
         type: boolean
         required: true
+      test_int64:
+        description: Whether to test a 64-bit integer build
+        type: boolean
+        required: true
       test_cuda:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
@@ -52,6 +56,10 @@ on:
         default: false
       test_complex:
         description: Whether to test a complex build
+        type: boolean
+        required: true
+      test_int64:
+        description: Whether to test a 64-bit integer build
         type: boolean
         required: true
       test_cuda:
@@ -262,10 +270,18 @@ jobs:
         id: generate
         run: |
           if [ ${{ inputs.test_complex }} == 'true' ]; then
-            matrix='{"scalar_type": "complex", "gpu": "none"}'
+            matrix='{"scalar_type": "complex", "int_type": "int32", "gpu": "none"}'
+          fi
+          if [ ${{ inputs.test_int64 }} == 'true' ]; then
+            arch='{"scalar_type": "default", "int_type": "int64", "gpu": "none"}'
+            if [ "$matrix" ]; then
+              matrix="$matrix, $arch"
+            else
+              matrix="$arch"
+            fi
           fi
           if [ ${{ inputs.test_cuda }} == 'true' ]; then
-            arch='{"scalar_type": "default", "gpu": "cuda"}'
+            arch='{"scalar_type": "default", "int_type": "int32", "gpu": "cuda"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else
@@ -319,6 +335,7 @@ jobs:
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.base_ref }}
           scalar_type: ${{ matrix.scalar_type }}
+          int_type: ${{ matrix.int_type }}
           gpu: ${{ matrix.gpu }}
           deps: ci
 
