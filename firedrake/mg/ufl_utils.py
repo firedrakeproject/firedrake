@@ -1,7 +1,6 @@
 import ufl
 from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.domain import extract_unique_domain, as_domain
-from ufl.duals import is_dual
 
 from functools import singledispatch, singledispatchmethod, partial
 import firedrake
@@ -91,15 +90,22 @@ def as_ufl_domain(obj):
     if isinstance(obj, _SNESContext):
         obj = obj._problem
     if isinstance(obj, firedrake.NonlinearVariationalProblem):
-        obj = obj.u
+        obj = obj.u.function_space()
     elif isinstance(obj, firedrake.LinearEigenproblem):
         obj = obj.output_space
-    return as_domain(obj)
+
+    if isinstance(obj, (firedrake.functionspaceimpl.WithGeometryBase,
+                        firedrake.functionspaceimpl.MixedFunctionSpace)):
+        return obj.mesh()
+    else:
+        return as_domain(obj)
 
 
-def get_relative(dispatch, old):
+def get_relative(dispatch, old, reverse=False):
     """Return old._coarse or old._fine depending on dispatch
        if they share the same hierarchy, otherwise None."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
     new = None
     if dispatch is coarsen:
         new = getattr(old, "_coarse", None)
@@ -114,13 +120,14 @@ def get_relative(dispatch, old):
     return new
 
 
-def attach_relative(dispatch, old, new):
+def attach_relative(dispatch, old, new, reverse=False):
     """Set old._coarse or old._fine to new depending on dispatch."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
     if dispatch is coarsen:
         old._coarse = new
     elif dispatch is refine:
         old._fine = new
-    return new
 
 
 @coarsen.register(ufl.Mesh)
@@ -227,16 +234,15 @@ def reconstruct_function_space(V, self, coefficient_mapping=None):
     mesh = V.mesh() if V.index is None else V.parent.mesh()
     new_mesh = self(mesh, self)
 
-    reverse = coarsen if self is refine else refine
     V_parent = V
-    while get_relative(reverse, V_parent) is not None:
-        V_parent = get_relative(reverse, V_parent)
+    while get_relative(self, V_parent, reverse=True) is not None:
+        V_parent = get_relative(self, V_parent, reverse=True)
     name = V_parent.name
     if name is not None:
         mh, level = utils.get_level(new_mesh)
         name = f"{name}_level_{level}"
     V_new = V.reconstruct(mesh=new_mesh, name=name)
-    attach_relative(reverse, V_new, V)
+    attach_relative(self, V_new, V, reverse=True)
     attach_relative(self, V, V_new)
     return V_new
 
@@ -247,7 +253,6 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
-
     if new is None:
         V = expr.function_space()
         Vnew = self(V, self)
@@ -262,6 +267,8 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
             name = f"{name}_level_{level}"
 
         new = firedrake.Function(Vnew, name=name)
+        manager = get_transfer_manager(V.dm)
+        manager.transfer(expr, new)
         coefficient_mapping[expr] = new
     return new
 
@@ -272,41 +279,31 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     if new_problem is not None:
         return new_problem
 
-    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
+    def transfer_callback(fine, restriction, rscale, injection, coarse):
+        cctx = get_appctx(coarse)
+        cmapping = cctx._coefficient_mapping
+        if cmapping is None:
+            return
+
         manager = get_transfer_manager(fine)
-        while coarse:
-            cctx = get_appctx(coarse)
-            cmapping = cctx._coefficient_mapping
-            if cmapping is None:
-                return
-            for c, mapped in cmapping.items():
-                _, clevel = utils.get_level(c.function_space().mesh())
-                _, mlevel = utils.get_level(mapped.function_space().mesh())
-                if is_dual(c):
-                    if clevel > mlevel:
-                        manager.restrict(c, mapped)
-                    else:
-                        mapped.interpolate(c)
-                elif clevel < mlevel:
-                    manager.prolong(c, mapped)
-                else:
-                    manager.inject(c, mapped)
-            # Apply bcs
-            if cctx.pre_apply_bcs:
-                for bc in cctx._problem.dirichlet_bcs():
-                    bc.apply(cctx._x)
-            # When the solution is in the real space
-            # PETSc fails to call this hook on coarse levels.
-            # As a workaround, we inject into all levels.
-            has_real_space = any(Vsub.ufl_element().family() == "Real"
-                                 for Vsub in cctx._x.function_space())
-            coarse = coarse.getCoarseDM() if has_real_space else None
+        for c, mapped in cmapping.items():
+            manager.transfer(c, mapped)
+
+        # Apply bcs
+        if cctx.pre_apply_bcs:
+            for bc in cctx._problem.dirichlet_bcs():
+                bc.apply(cctx._x)
+
+    def coarsen_callback(fine, coarse):
+        if not coarse.getAttr("_coarsen_hook"):
+            coarse.addCoarsenHook(coarsen_callback, transfer_callback)
+            coarse.setAttr("_coarsen_hook", True)
 
     dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
-        dm.addCoarsenHook(None, inject_on_restrict)
+        dm.addCoarsenHook(coarsen_callback, transfer_callback)
         dm.setAttr("_coarsen_hook", True)
 
     if coefficient_mapping is None:
@@ -392,10 +389,9 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 new_appctx[k] = v
 
     # Get options prefix for current level
-    reverse = coarsen if self is refine else refine
     parent_context = context
-    while get_relative(reverse, parent_context):
-        parent_context = get_relative(reverse, parent_context)
+    while get_relative(self, parent_context, reverse=True) is not None:
+        parent_context = get_relative(self, parent_context, reverse=True)
 
     parent_prefix = parent_context.options_prefix
     opts = PETSc.Options(parent_prefix)
@@ -433,7 +429,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       options_prefix=options_prefix,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
-    attach_relative(reverse, new_context, context)
+    attach_relative(self, new_context, context, reverse=True)
     attach_relative(self, context, new_context)
 
     solutiondm = context._problem.u_restrict.function_space().dm
@@ -458,7 +454,6 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     new_context.set_nullspace(new_context._nullspace_T, ises, transpose=True, near=False)
     new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
-
     return new_context
 
 
