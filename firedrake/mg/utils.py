@@ -167,9 +167,6 @@ def physical_node_locations(V):
 
 def set_dm_refine_level(mesh, level):
     mesh.topology_dm.setRefineLevel(level)
-    redist = getattr(mesh, "redist", None)
-    if redist is not None:
-        redist.orig.topology_dm.setRefineLevel(level)
 
 
 def set_level(obj, hierarchy, level):
