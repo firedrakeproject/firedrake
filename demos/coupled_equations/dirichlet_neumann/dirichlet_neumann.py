@@ -10,22 +10,26 @@ import numpy as np
 # mesh_1 receives the flux of u2 
 # mesh_2 receives the trace of u1
 
+# Constants
 PLOT = False
-h_array = []
+VERBOSE = True
+w2 = Constant(100.0)  # Nitsche penalty weight
+
+# Variables initialised for convergence analysis
+n1_list = [2,4,8,16,32]
+n2_list = [2,4,8,16,32]
+mesh1_list = []
+mesh2_list = []
+h1_array = []
+h2_array = []
 errors_1 = []
 errors_2 = []
 
-n_list = [2,4,8,16,32]
-mesh1_list = []
-mesh2_list = []
-
-w2 = Constant(100.0)  # Nitsche penalty weight
-
-for i in range(len(n_list)):
-    n = n_list[i]
-    mesh2 = UnitSquareMesh(n, n, quadrilateral=True)
+# Prepares meshes with differing refinement levels for convergence analysis
+for n1,n2 in zip(n1_list, n2_list):
+    mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
+    mesh2 = UnitSquareMesh(n2, n2, quadrilateral=True)
     mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
-    mesh1 = UnitSquareMesh(n, n, quadrilateral=True)
 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
@@ -111,7 +115,7 @@ def plot(filename, u_1, u_2):
     plt.savefig(filename)
 
 
-for n, mesh1, mesh2 in zip(n_list, mesh1_list, mesh2_list):
+for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
     
@@ -127,52 +131,54 @@ for n, mesh1, mesh2 in zip(n_list, mesh1_list, mesh2_list):
     solver.solve()
     u_1, u_2 = u_sol.subfunctions
 
-    if PLOT and COMM_WORLD.rank == 0:
+    if PLOT:
         #demos/coupled_equations/dirichlet_neumann/
         plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
 
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
     e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
-    h = 1.0/n
+    h1 = 1.0/n1
+    h2 = 1.0/n2
     #h = mesh1.cell_sizes.dat.data_ro.max()
 
-    h_array.append(h)
+    h1_array.append(h1)
+    h2_array.append(h2)
     errors_1.append(e_1)
     errors_2.append(e_2)
 
-# Error term - O(h^(n+1))
 
 ratios_1 = []
 ratios_2 = []
-for i in range(len(h_array) - 1):
+for i in range(len(h1_array) - 1):
     q1_numerator = np.log(errors_1[i]/errors_1[i+1])
     q2_numerator = np.log(errors_2[i]/errors_2[i+1])
-    q_denominator = np.log(h_array[i]/h_array[i+1])
+    q1_denominator = np.log(h1_array[i]/h1_array[i+1])
+    q2_denominator = np.log(h2_array[i]/h2_array[i+1])
 
-    q1 = q1_numerator/q_denominator
-    q2 = q2_numerator/q_denominator
+    q1 = q1_numerator/q1_denominator
+    q2 = q2_numerator/q2_denominator
     ratios_1.append(q1)
     ratios_2.append(q2)
 
 
-if COMM_WORLD.rank == 0:
+if VERBOSE:
     print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
     for i in range(len(errors_1)):
         if i == 0:
-            print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
+            print(f"{h1_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
         else:
-            print(f"{h_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
+            print(f"{h1_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
 
     print(f"{'h':>10} {'Error 2':>15} {'Rate 2':>10}")
     for i in range(len(errors_2)):
         if i == 0:
-            print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
+            print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
         else:
-            print(f"{h_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
+            print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
 
     plt.figure(figsize=(8,8))
-    plt.loglog(h_array, errors_2, "o-", label="Helmholtz")
-    plt.loglog(h_array, errors_1, "s-", label="Poisson")
+    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
+    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
