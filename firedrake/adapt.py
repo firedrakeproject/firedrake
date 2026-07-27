@@ -104,18 +104,24 @@ def refine_marked_elements(mesh, cell_marker):
         to ``mesh``.
     """
     with cell_marker.dat.vec_ro as v:
-        _, max_rounds = v.max()
+        _, num_refinements = v.max()
     # Always run at least one adaptation pass, even when no cell is marked,
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
-    max_rounds = max(int(np.rint(max_rounds)), 1)
+    num_refinements = max(int(np.rint(num_refinements)), 1)
 
     current_mesh = mesh
     current_mark = cell_marker
+    coarse_to_fine_total = None
     fine_to_coarse_total = None
-    for round_idx in range(max_rounds):
-        new_mesh, _, f2c = _refine_marked_elements_once(current_mesh, current_mark)
+    for ref in range(num_refinements):
+        new_mesh, c2f, f2c = _refine_marked_elements_once(current_mesh, current_mark)
         parent = f2c[:, 0]
         if fine_to_coarse_total is None:
+            # After a single round, c2f/f2c from _refine_marked_elements_once
+            # are already relative to the original `mesh`, so there's no
+            # composing/inverting to do; just keep c2f as-is in case this is
+            # also the last (and only) round.
+            coarse_to_fine_total = c2f
             fine_to_coarse_total = f2c.copy()
         else:
             # f2c maps this round's fine cells to their *immediate* parents,
@@ -128,29 +134,33 @@ def refine_marked_elements(mesh, cell_marker):
             composed[valid, 0] = fine_to_coarse_total[parent[valid], 0]
             fine_to_coarse_total = composed
 
-        if round_idx < max_rounds - 1:
+        if ref < num_refinements - 1:
             next_mark = Function(FunctionSpace(new_mesh, "DG", 0))
             valid = (parent >= 0)
             next_mark.dat.data_wo[valid] = np.maximum(current_mark.dat.data_ro[parent[valid]] - 1, 0)
             current_mark = next_mark
         current_mesh = new_mesh
 
-    ncoarse = mesh.cell_set.size
-    # Invert fine_to_coarse_total (each final fine cell's ultimate ancestor
-    # in `mesh`) into, for every original coarse cell, the list of all its
-    # fine descendants after every round of refinement above.
-    children = [[] for _ in range(ncoarse)]
-    for fine_cell, parent in enumerate(fine_to_coarse_total[:, 0]):
-        if parent >= 0:
-            children[parent].append(fine_cell)
-    max_children = max((len(c) for c in children), default=0)
-    max_children = mesh.comm.allreduce(max_children, MPI.MAX)
-    coarse_to_fine_total = np.full((ncoarse, max_children), -1, dtype=IntType)
-    # children is ragged (coarse cells refined more times end up with more
-    # descendants); right-pad each row with -1 up to max_children so
-    # coarse_to_fine_total is rectangular.
-    for coarse_cell, fine_cells in enumerate(children):
-        coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
+    if num_refinements > 1:
+        # coarse_to_fine_total from a single round only covers direct
+        # children, not further-refined grandchildren, so with more than
+        # one round it must be rebuilt from scratch by inverting
+        # fine_to_coarse_total (each final fine cell's ultimate ancestor in
+        # `mesh`) into, for every original coarse cell, the list of all its
+        # fine descendants after every round of refinement above.
+        ncoarse = mesh.cell_set.size
+        children = [[] for _ in range(ncoarse)]
+        for fine_cell, parent in enumerate(fine_to_coarse_total[:, 0]):
+            if parent >= 0:
+                children[parent].append(fine_cell)
+        max_children = max((len(c) for c in children), default=0)
+        max_children = mesh.comm.allreduce(max_children, MPI.MAX)
+        # children is ragged (coarse cells refined more times end up with
+        # more descendants); right-pad each row with -1 up to max_children
+        # so coarse_to_fine_total is rectangular.
+        coarse_to_fine_total = np.full((ncoarse, max_children), -1, dtype=IntType)
+        for coarse_cell, fine_cells in enumerate(children):
+            coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
 
     final_mesh = current_mesh
     if hasattr(mesh, "netgen_mesh"):
