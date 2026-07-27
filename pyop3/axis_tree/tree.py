@@ -563,7 +563,7 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
         return (
             type(self),
             tuple(map(visitor, self.components)),
-            visitor.renamer.add(self.label, type_=type(self)),
+            visitor.renamer.add_type(type(self), self.label),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -735,7 +735,7 @@ class AxisTarget(pyop3.obj.Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor.renamer.add(self.axis, type_=Axis),
+            visitor.renamer.add_type(Axis, self.axis),
             self.component,
             visitor(self.expr),
         )
@@ -1726,7 +1726,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         node_map_key = {}
         for path, axis in self.node_map.items():
             relabeled_path = idict({
-                visitor.renamer.add(axis_label, type_=Axis): component_label
+                visitor.renamer.add_type(Axis, axis_label): component_label
                 for axis_label, component_label in path.items()
             })
             node_map_key[relabeled_path] = visitor(axis)
@@ -1735,7 +1735,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = {}
         for path, targetss in self._targets.items():
             relabeled_path = idict({
-                visitor.renamer.add(axis_label, type_=Axis): component_label
+                visitor.renamer.add_type(Axis, axis_label): component_label
                 for axis_label, component_label in path.items()
             })
             targets_key[relabeled_path] = tuple(
@@ -2074,7 +2074,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = {}
         for path, targetss in self._targets.items():
             relabeled_path = idict({
-                visitor.renamer.add(axis_label, type_=Axis): component_label
+                visitor.renamer.add_type(Axis, axis_label): component_label
                 for axis_label, component_label in path.items()
             })
             targets_key[relabeled_path] = tuple(

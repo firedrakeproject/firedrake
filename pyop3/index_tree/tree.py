@@ -430,7 +430,7 @@ class LoopIndex(UnitIndex):
         return (
             type(self),
             visitor(self.iterset),
-            visitor.renamer.add(self.label, type_=type(self)),
+            visitor.renamer.add_type(type(self), self.label),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key

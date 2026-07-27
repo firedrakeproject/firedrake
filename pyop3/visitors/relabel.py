@@ -23,19 +23,37 @@ if typing.TYPE_CHECKING:
 
 # TODO: inherit from IdentityMapper (not yet implemented)
 class Relabeler(pyop3.node.NodeVisitor):
+    """Visitor that relabels a pyop3 object.
 
-    def __init__(self, relabel_map=None) -> None:
-        self._renamer = pyop3.visitors.base.Renamer(relabel_map)
+    Parameters
+    ----------
+    relabel_map
+        Mapping from old to new names per type. If `None` then everything is
+        numbered from zero.
+
+    """
+    def __init__(self, relabel_map: Mapping[type, Mapping[str, str]] | None = None) -> None:
+        if relabel_map is not None:
+            renamer = None
+        else:
+            relabel_map = None
+            renamer = pyop3.visitors.base.Renamer()
+
+        self.relabel_map = relabel_map
+        self._renamer = renamer
         super().__init__()
 
-    # not the bug
-    # def get_cache_key(self, obj: pyop3.obj.Object, /, **kwargs):
-    #     return (*super().get_cache_key(obj, **kwargs), self.index)
+    def _get_label(self, type_: type, key: Hashable) -> str:
+        if self.relabel_map is not None:
+            return self.relabel_map[type_][key]
+        else:
+            return self._renamer.add_type(type_, key)
 
     @property
     def inverse_relabel_map(self):
+        assert self._renamer is not None
         inv_map = {}
-        for type_, label_map_per_type in self._renamer._store.items():
+        for type_, label_map_per_type in self._renamer._type_store.items():
             inv_map[type_] = utils.invert_mapping(label_map_per_type)
         return inv_map
 
@@ -48,7 +66,7 @@ class Relabeler(pyop3.node.NodeVisitor):
     def _relabel_path(self, path):
         new_path = {}
         for axis, component in path.items():
-            new_axis = self._renamer.add(axis, type_=pyop3.axis_tree.Axis)
+            new_axis = self._get_label(pyop3.axis_tree.Axis, axis)
             new_path[new_axis] = component
         return idict(new_path)
 
@@ -73,7 +91,7 @@ class Relabeler(pyop3.node.NodeVisitor):
         new_components = tuple(map(self, axis.components))
         return axis.record_new(
             components=new_components,
-            label=self._renamer.add(axis.label, type_=type(axis)),
+            label=self._get_label(type(axis), axis.label),
         )
 
     @process.register
@@ -116,7 +134,7 @@ class Relabeler(pyop3.node.NodeVisitor):
     @process.register
     def _(self, axis_target: pyop3.axis_tree.AxisTarget, /):
         return axis_target.record_new(
-            axis=self._renamer.add(axis_target.axis, type_=pyop3.axis_tree.Axis),
+            axis=self._get_label(pyop3.axis_tree.Axis, axis_target.axis),
             expr=self(axis_target.expr),
         )
 
@@ -132,7 +150,7 @@ class Relabeler(pyop3.node.NodeVisitor):
     def _(self, loop_index: pyop3.index_tree.LoopIndex, /):
         return loop_index.record_new(
             iterset=self(loop_index.iterset),
-            label=self._renamer.add(loop_index.label, type_=type(loop_index)),
+            label=self._get_label(type(loop_index), loop_index.label),
         )
 
     # }}}

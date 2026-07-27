@@ -603,7 +603,7 @@ class AxisVar(TerminalExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Axis vars are just pointers to some outer loop. We don't
         # need to recurse here, just make sure that the labels match.
-        return (type(self), visitor.renamer.add(self.axis.label, type_=type(self.axis)))
+        return (type(self), visitor.renamer.add_type(type(self.axis), self.axis.label))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -680,8 +680,8 @@ class LoopIndexVar(TerminalExpression):
         # need to recurse here, just make sure that the labels match.
         return (
             type(self),
-            visitor.renamer.add(self.loop_index.label, type_=type(self.loop_index)),
-            visitor.renamer.add(self.axis.label, type_=type(self.axis)),
+            visitor.renamer.add_type(type(self.loop_index), self.loop_index.label),
+            visitor.renamer.add_type(type(self.axis), self.axis.label),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key

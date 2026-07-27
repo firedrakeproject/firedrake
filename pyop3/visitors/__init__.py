@@ -70,29 +70,9 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
     def relabel_axis_tree_path(self, path):
         new_path = {}
         for axis, component in path.items():
-            new_axis = self.renamer.add(axis, type_=pyop3.axis_tree.Axis)
+            new_axis = self.renamer.add_type(pyop3.axis_tree.Axis, axis)
             new_path[new_axis] = component
         return idict(new_path)
-    # def relabel_axis_tree_path(self, path):
-    #     return idict({
-    #         self._node_label_relabel_map[node]: component
-    #         for node, component in path.items()
-    #     })
-    #
-    # @property
-    # def _node_label_relabel_map(self) -> dict:
-    #     print(self.renamer.rename_map)
-    #     relabel_map = {}
-    #     for key, vs in self.renamer._store.items():
-    #         if issubclass(key, pyop3.labeled_tree.MultiComponentLabeledNode):
-    #             if self.renamer.rename_map:
-    #                 for k, v in vs.items():
-    #                     relabel_map[k] = self.renamer.rename_map[key][v]
-    #             else:
-    #                 for k, v in vs.items():
-    #                     relabel_map[k] = v
-    #     print(relabel_map)
-    #     return relabel_map
 
 
 class DiskCacheKeyGetter(CacheKeyGetter):

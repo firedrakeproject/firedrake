@@ -649,42 +649,6 @@ def _(dat: pyop3.expr.NonlinearDatBufferExpression, /) -> OrderedSet:
     return result
 
 
-# @functools.singledispatch
-# def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
-#     raise TypeError(f"No handler defined for {type(obj).__name__}")
-#
-#
-# @collect_composite_dats.register(pyop3.expr.Operator)
-# def _(op: pyop3.expr.Operator, /) -> OrderedFrozenSet:
-#     return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
-#
-#
-# @collect_composite_dats.register(numbers.Number)
-# @collect_composite_dats.register(pyop3.expr.AxisVar)
-# @collect_composite_dats.register(pyop3.expr.LoopIndexVar)
-# @collect_composite_dats.register(pyop3.expr.NaN)
-# @collect_composite_dats.register(pyop3.expr.ScalarBufferExpression)
-# def _(op, /) -> OrderedFrozenSet:
-#     return OrderedFrozenSet()
-#
-#
-# @collect_composite_dats.register(pyop3.expr.LinearDatBufferExpression)
-# def _(dat, /) -> OrderedFrozenSet:
-#     return collect_composite_dats(dat.layout)
-#
-#
-# @collect_composite_dats.register(pyop3.expr.CompositeDat)
-# def _(dat, /) -> OrderedFrozenSet:
-#     return OrderedFrozenSet([dat])
-
-# useful debugging
-import collections, atexit
-mycounter = collections.defaultdict(int)
-
-atexit.register(lambda: print(mycounter))
-atexit.register(lambda: print(sum(mycounter.values())))
-
-
 def materialize_composite_dat(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,
@@ -692,27 +656,12 @@ def materialize_composite_dat(
 ) -> pyop3.expr.BufferExpression:
     import pyop3.visitors
 
-    print("original")
-    print(list(composite_dat.exprs.values())[2])
-
     # For maximum cache reuse we relabel the expression on the way in and
     # apply the inverse relabeling on the way out
-    import pyop3.debug
-    pyop3.debug.enable_conditional_breakpoints()
     relabeler = pyop3.visitors.Relabeler()
     relabeled_composite_dat = relabeler(composite_dat)
-    print("relabeled")
-    print(list(relabeled_composite_dat.exprs.values())[2])
-    # print(relabeled_composite_dat)
     materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm, linear)
-    print("into")
-    print(materialized)
-    retval = pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map)
-    print("relabelmap", relabeler.inverse_relabel_map)
-    print("relabeled into")
-    print(retval)
-    # breakpoint()
-    return retval
+    return pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map)
 
 
 @memory_cache(heavy=True)
@@ -765,8 +714,6 @@ def _materialize_composite_dat_cached(
             )
         else:
             to_skip.add(leaf_path)
-
-    mycounter[assignee.data_ro.sum()] += 1
 
     # step 3: replace axis vars with loop indices in the layouts
     newlayouts = {}
