@@ -1,5 +1,4 @@
 import numpy as np
-from firedrake.exceptions import EmptyVOMError
 from firedrake.utils import IntType
 import firedrake.cython.dmcommon as dmcommon
 from pyop2.mpi import MPI
@@ -159,17 +158,14 @@ class VertexOnlyMeshMutator:
         # Collective agreement: does the above check hold on every rank?
         in_range_global = comm.allreduce(in_range_local, op=MPI.LAND)
         if not in_range_global:
-            raise ValueError("A particle index flagged for removal is out of range on some rank")
+            raise ValueError("`absorbed_vom_indices` contains an invalid local particle index on at least one rank.")
 
         is_absorbed = np.zeros(n_local, dtype=bool)
         is_absorbed[absorbed] = True
 
-        # Check if the VOM is non-empty post absorption
         survivors = ~is_absorbed
-        n_survivors_local = int(survivors.sum())  # survivors on this rank
-        n_survivors_global = comm.allreduce(n_survivors_local, op=MPI.SUM)
-        if n_survivors_global == 0:
-            raise EmptyVOMError("All particles have left the domain (no points remaining in the VertexOnlyMesh).")
+        n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
+        
 
         # Reset the IO Swarm
         # NOTE: it seems costly to re-build a new IO swarm every time the VOM gets rebuild.
@@ -183,40 +179,55 @@ class VertexOnlyMeshMutator:
         # Now write the output arrays (filtered to include the survivor particles only) into the compacted swarm arrays
         # NOTE: The result is that the swarm's point order now becomes the current local VOM order
         swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((n_survivors_local, gdim))
-        swarm_coords[...] = coords_local[survivors]
+        swarm_coords[:] = coords_local[survivors]
         swarm.restoreField("DMSwarmPIC_coor")
 
-        cid = swarm.getCellDMActive().getCellID()
+        cid = swarm.getCellDMActive().getCellID() # swarm field that stores each particle's parent cell ID
         swarm_parent_cell_nums = swarm.getField(cid).ravel()
-        swarm_parent_cell_nums[...] = plex_parent_cell_nums_local[survivors]
+        swarm_parent_cell_nums[:] = new_plex_parent_cell_nums_local[survivors]
         swarm.restoreField(cid)
 
         field_global_index = swarm.getField("globalindex").ravel()
-        field_global_index[...] = global_idxs_local[survivors]
+        field_global_index[:] = global_idxs_local[survivors]
         swarm.restoreField("globalindex")
 
         field_reference_coords = swarm.getField("refcoord").reshape((n_survivors_local, parent_tdim))
-        field_reference_coords[...] = reference_coords_local[survivors]
+        field_reference_coords[:] = reference_coords_local[survivors]
         swarm.restoreField("refcoord")
 
-        field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
-        field_parent_cell_nums[...] = parent_cell_nums_local[survivors]
-        swarm.restoreField("parentcellnum")
 
         field_rank = swarm.getField("DMSwarm_rank").ravel()
-        field_rank[...] = owned_ranks_local[survivors]
+        field_rank[:] = owned_ranks_local[survivors]
         swarm.restoreField("DMSwarm_rank")
 
         field_input_rank = swarm.getField("inputrank").ravel()
-        field_input_rank[...] = input_ranks_local[survivors]
+        field_input_rank[:] = input_ranks_local[survivors]
         swarm.restoreField("inputrank")
 
         field_input_index = swarm.getField("inputindex").ravel()
-        field_input_index[...] = input_idxs_local[survivors]
+        field_input_index[:] = input_idxs_local[survivors]
         swarm.restoreField("inputindex")
 
         # Redistribute particles accross ranks
         swarm.migrate(remove_sent_points=True)
+
+        # Reconstruct Firedrake cell numbers from the receiving rank's updated plex data
+        swarm_plex_ids = swarm.getField(cid).ravel()
+        swarm.restoreField(cid)
+
+        parent_cells_plex_ids = self.parent_mesh.topology.cell_closure[:, -1]
+        plex_to_parent_cells = {int(plex_id): parent_cell for parent_cell, plex_id in enumerate(parent_cells_plex_ids)}
+
+        new_parent_cells = np.asarray(
+            [
+                plex_to_parent_cells.get(int(plex_id))
+                for plex_id in swarm_plex_ids
+            ],
+            dtype=IntType
+        )
+        field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
+        field_parent_cell_nums[:] = new_parent_cells
+        swarm.restoreField("parentcellnum")
 
         # Calling migrate above changed the chart so we reset the DMSwarm's pointSF
         sf = swarm.getPointSF()
@@ -245,6 +256,18 @@ class VertexOnlyMeshMutator:
         topology._cell_numbering, _ = topology.create_section(entity_dofs)
         topology._vertex_numbering = topology._cell_numbering  # holds for VOM only
 
+        # Invalidate cached topology-dependent properties
+        self._invalidate_topology_properties()
+
+        # NOTE: Every particle's DMSwarm_rank is an owner due to the handover,
+        # `remove_sent_points` sends the particle to that rank and deletes the local copy
+        # check here after caches has been cleared so `cell_set` is appropriately recomputed
+        no_ghosts_local = self.vom.cell_set.size == self.vom.num_vertices()
+        no_ghosts_global = comm.allreduce(no_ghosts_local, op=MPI.LAND)
+
+        if not no_ghosts_global:
+            raise AssertionError("Unexpected VOM ghost points post migration")
+
         # Build the one step SF corresponding to the current rebuild
         e_p_map = topology.cell_closure[:, -1]  # maps new VOM point number -> raw DMSwarm point
         ilocal = np.empty_like(e_p_map)  # inverts the `e_p_map`
@@ -263,14 +286,6 @@ class VertexOnlyMeshMutator:
 
         # Clear the shared FunctionSpace caches on the VOM
         topology._shared_data_cache.clear()
-
-        # Invalidate cached topology-dependent properties
-        self._invalidate_topology_properties()
-
-        # NOTE: Every particle's DMSwarm_rank is an owner due to the handover,
-        # `remove_sent_points` sends the particle to that rank and deletes the local copy
-        # check here after caches has been cleared so `cell_set` is appropriately recomputed
-        assert self.vom.cell_set.size == self.vom.num_vertices(), f"unexpected ghost particles on rank {comm.rank}"
 
         # Migrate the particle ID field through the step SF
         topology._particle_ids = migrate_dg0_dat(topology._particle_ids, topology._particle_ids.function_space(), step_sf)
@@ -292,6 +307,7 @@ class VertexOnlyMeshMutator:
         else:
             # This should have been already set to None when the VOM was first constructed
             self.vom.reference_coordinates = None
+
 
     def _invalidate_topology_properties(self):
         # Delete cached properties so they get recomputed on next access using the updated swarm fields
