@@ -91,8 +91,6 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
         "ksp_max_it": 20,
         "ksp_norm_type": "natural",
         "ksp_converged_reason": None,
-        # "ksp_view": None,
-        # "ksp_monitor_singular_value": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
     })
