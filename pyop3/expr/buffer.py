@@ -178,9 +178,9 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
             layout_key = visitor(self.layout)
         return (type(self), buffer_key, layout_key)
 
-    @classmethod
-    def get_comm(cls, *, _buffer, **attrs):
-        return _buffer.comm
+    @property
+    def comm(self):
+        return self._buffer.comm
 
     # }}}
 
@@ -234,9 +234,9 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         layouts_key = idict(layouts_key)
         return (type(self), visitor(self._buffer), layouts_key)
 
-    @classmethod
-    def get_comm(cls, *, _buffer, **attrs):
-        return _buffer.comm
+    @property
+    def comm(self):
+        return self._buffer.comm
 
     # }}}
 
