@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <rtree-capi.h>
-#include <float.h>
 #include <evaluate.h>
 
 PetscInt locate_cell_from_candidates(struct Function *f,

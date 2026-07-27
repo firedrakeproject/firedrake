@@ -1,8 +1,8 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
-#include <petsc.h>
-#include <stdint.h>
+#include <petscsys.h>
+#include <rtree-capi.h>
 
 #ifdef __cplusplus
 extern "C" {
