@@ -448,6 +448,85 @@ def coarsen(dm, comm):
     return cdm
 
 
+def _refine_adaptive(dm):
+    """
+    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
+    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    """
+    from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
+    from firedrake.mg.ufl_utils import refine
+    from firedrake.mg.utils import get_level
+
+    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
+    # adapted input DM remains a level in the AdaptiveMeshHierarchy.
+    # Increase the reference count so the coarse DM survives.
+    dm.incRef()
+
+    ctx = get_appctx(dm)
+    if ctx is None:
+        raise RuntimeError("No _SNESContext found on DM")
+    current_solution = ctx._x
+    mesh = current_solution.function_space().mesh()
+    hierarchy, level = get_level(mesh)
+    if hierarchy is None:
+        hierarchy = AdaptiveMeshHierarchy(mesh)
+        level = 0
+
+    if not isinstance(hierarchy, AdaptiveMeshHierarchy):
+        raise RuntimeError("Adaptive SNES refinement requires an AdaptiveMeshHierarchy")
+    if level+1 != len(hierarchy):
+        raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+    if ctx._marking_callback is None:
+        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
+
+    markers = ctx._marking_callback(ctx, current_solution)
+    if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
+        raise TypeError(
+            f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
+        )
+    M = markers.function_space()
+    if M.mesh() is not mesh:
+        raise ValueError("marking callback must return markers on the current solution mesh")
+    num_dofs_per_cell = M.finat_element.space_dimension()
+    if num_dofs_per_cell != 1:
+        raise ValueError("marking callback must return a DG0 Function or Cofunction")
+
+    hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+    coefficient_mapping = {}
+    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    parent = get_parent(dm)
+    coarsener = get_ctx_coarsener(dm)
+    # Get all DMs from the refined problem
+    dms = [refined_ctx._problem.u_restrict.function_space().dm]
+    for value in coefficient_mapping.values():
+        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
+            value_dm = value.function_space().dm
+            if value_dm not in dms:
+                dms.append(value_dm)
+    # Attach refined context
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+                 call_setup=True)
+    return refined_ctx._problem.dm
+
+
+def _refine_from_hierarchy(dm):
+    """Return the DM of the refined function space."""
+    from firedrake.mg.ufl_utils import refine
+    Vcoarse = get_function_space(dm)
+    if Vcoarse is None:
+        raise RuntimeError("No FunctionSpace found on DM")
+    Vfine = refine(Vcoarse, refine)
+    return Vfine.dm
+
+
 @PETSc.Log.EventDecorator()
 def refine(dm, comm):
     """Callback to refine a DM.
@@ -456,19 +535,11 @@ def refine(dm, comm):
     :arg comm: The communicator for the new DM (ignored)
     """
     from firedrake.mg.utils import get_level
-    V = get_function_space(dm)
-    if V is None:
-        raise RuntimeError("No functionspace found on DM")
-    hierarchy, level = get_level(V.mesh())
-    if level >= len(hierarchy) - 1:
-        raise RuntimeError("Cannot refine finest DM")
-    if hasattr(V, "_fine"):
-        fdm = V._fine.dm
+    hierarchy, level = get_level(get_function_space(dm).mesh())
+    if hierarchy is not None and level+1 < len(hierarchy):
+        return _refine_from_hierarchy(dm)
     else:
-        V._fine = V.reconstruct(mesh=hierarchy[level + 1])
-        fdm = V._fine.dm
-    V._fine._coarse = V
-    return fdm
+        return _refine_adaptive(dm)
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
