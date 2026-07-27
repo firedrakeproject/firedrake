@@ -264,9 +264,9 @@ def adaptive_parent_child_cell_maps(PETSc.DM fine_dm,
     cdef:
         PetscInt cStart, cEnd, c, off, parent, max_children
         DMLabel parent_label = NULL
-        np.ndarray fine_to_coarse
-        np.ndarray child_counts
-        np.ndarray coarse_to_fine
+        PetscInt[::1] child_counts
+        PetscInt[:, ::1] coarse_to_fine
+        PetscInt[:, ::1] fine_to_coarse
 
     label_name = label_name.encode()
     CHKERR(DMGetLabel(fine_dm.dm, <const char*>label_name, &parent_label))
@@ -302,7 +302,7 @@ def adaptive_parent_child_cell_maps(PETSc.DM fine_dm,
             coarse_to_fine[parent, child_counts[parent]] = c
             child_counts[parent] += 1
 
-    return coarse_to_fine, fine_to_coarse
+    return np.asarray(coarse_to_fine), np.asarray(fine_to_coarse)
 
 
 # Exposition:

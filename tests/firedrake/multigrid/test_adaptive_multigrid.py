@@ -15,17 +15,6 @@ def corner_adaptive_hierarchy(base, nlevels):
     return mh
 
 
-@pytest.mark.parallel([1, 2, 4])
-def test_adapt_basic():
-    nx = 1
-    base = UnitCubeMesh(nx, nx, nx)
-
-    mh = corner_adaptive_hierarchy(base, nlevels=6)
-
-    mesh = mh[-1]
-    assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
-
-
 def _linear_expr(mesh):
     """A linear expression in the mesh's spatial coordinates, generalizing
     ``x + 2*y`` to any dimension (``x + 2*y + 3*z`` in 3D, etc.)."""
@@ -93,6 +82,43 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
         fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
         if fine_cells.size:
             assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
+
+
+def test_refine_marked_elements_is_local():
+    # Regression test: dm_plex_transform_type=refine_sbr must actually reach
+    # PETSc's options database. If it doesn't, dm.adaptLabel() silently
+    # falls back to unconditional uniform refinement of every cell,
+    # regardless of marking.
+    nx = 8
+    mesh = UnitSquareMesh(nx, nx)
+    ncoarse = mesh.cell_set.size
+
+    M = FunctionSpace(mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[0] = 1
+
+    refined_mesh = mesh.refine_marked_elements(markers)
+    coarse_to_fine, _ = refined_mesh._adaptive_cell_maps
+
+    n_children = (coarse_to_fine >= 0).sum(axis=1)
+    unmarked = np.ones(ncoarse, dtype=bool)
+    unmarked[0] = False
+
+    # refine_sbr's conforming closure may also split a handful of
+    # neighbouring cells (to avoid hanging nodes), but with a marked region
+    # this small, most of the mesh must be left untouched.
+    assert (n_children[unmarked] == 1).sum() >= 0.5 * unmarked.sum()
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_adapt_basic():
+    nx = 1
+    base = UnitCubeMesh(nx, nx, nx)
+
+    mh = corner_adaptive_hierarchy(base, nlevels=6)
+
+    mesh = mh[-1]
+    assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
 def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):

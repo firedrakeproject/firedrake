@@ -5,7 +5,6 @@ import petsctools
 from pyop2.mpi import MPI
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
-from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
@@ -35,10 +34,13 @@ def _refine_marked_elements_once(mesh, cell_marker):
     )
 
     parameters = {"dm_plex_transform_type": "refine_sbr"}
-    with petsctools.inserted_options(None, parameters=parameters):
-        new_dm = dm.adaptLabel(adapt_name)
-    dm.removeLabel(parent_name)
-    dm.removeLabel(adapt_name)
+    try:
+        # options_prefix="" is essential
+        with petsctools.inserted_options(parameters=parameters, options_prefix=""):
+            new_dm = dm.adaptLabel(adapt_name)
+    finally:
+        dm.removeLabel(parent_name)
+        dm.removeLabel(adapt_name)
 
     # The transform propagates every label, including the temporary adapt label.
     for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", adapt_name):
