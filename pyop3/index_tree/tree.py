@@ -86,20 +86,22 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
     node_map: idict
     _comm: MPI.Comm | None = dataclasses.field(hash=False)
 
-    @classmethod
-    def get_comm(cls, *, _comm, **attrs):
-        return _comm if _comm is not None else super().get_comm(**attrs)
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         node_map: Mapping[PathT, Node] | None | None = None,
         *,
         comm: MPI.Comm | None = None,
     ) -> None:
-        return dict(node_map=cls._prepare_node_map(node_map), _comm=comm)
+        node_map = self._prepare_node_map(node_map)
+        object.__setattr__(self, "node_map", node_map)
+        object.__setattr__(self, "_comm", comm)
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm if self._comm is not None else super().comm
+
 
     # {{{ factory methods
 
@@ -150,22 +152,19 @@ class AffineSliceComponent(SliceComponent):
     step: numbers.Integral
     label: ComponentLabelT
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         component: ComponentLabelT,
         start: numbers.Integral = 0,
         stop: numbers.Integral | None = None,
         step: numbers.Integral = 1,
         label: ComponentLabelT = DECIDE,
     ) -> None:
-        return dict(
-        _component=component,
-        start= start,
-        stop= stop,
-        step= step,
-        label= label,
-        )
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "stop", stop)
+        object.__setattr__(self, "step", step)
+        object.__setattr__(self, "label", label)
 
     # }}}
 
@@ -212,17 +211,14 @@ class SubsetSliceComponent(SliceComponent):
     label: Any
     array: Any
 
-    @classmethod
-    def record_prepare_args(cls, component, array, *, label=None):
+    def __init__(self, component, array, *, label=None) -> None:
         from pyop3.expr import as_linear_buffer_expression
 
         array = as_linear_buffer_expression(array)
 
-        return dict(
-        _component=component,
-        label=label,
-        array=array,
-        )
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "label", label)
+        object.__setattr__(self, "array", array)
 
     # {{{ interface impls
 
@@ -259,15 +255,12 @@ class RegionSliceComponent(SliceComponent):
     label: Any
     region: Any
 
-    @classmethod
-    def record_prepare_args(cls, component, region: Set, *, label=None) -> None:
+    def __init__(self, component, region: Set, *, label=None) -> None:
         region = frozenset(region)
 
-        return dict(
-        _component=component,
-        label=label,
-        region=region,
-        )
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "label", label)
+        object.__setattr__(self, "region", region)
 
     # }}}
 
@@ -334,8 +327,7 @@ class TabulatedMapComponent(MapComponent):
     _arity: int
     label: Any
 
-    @classmethod
-    def record_prepare_args(cls, target_axis, target_component, array, *, label=DECIDE):
+    def __init__(self, target_axis, target_component, array, *, label=DECIDE) -> None:
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
@@ -352,13 +344,11 @@ class TabulatedMapComponent(MapComponent):
 
         array = as_linear_buffer_expression(array)
 
-        return dict(
-        _target_axis=target_axis,
-        _target_component=target_component,
-        array=array,
-        _arity=arity,
-        label=label,
-        )
+        object.__setattr__(self, "_target_axis", target_axis)
+        object.__setattr__(self, "_target_component", target_component)
+        object.__setattr__(self, "array", array)
+        object.__setattr__(self, "_arity", arity)
+        object.__setattr__(self, "label", label)
 
     target_axis = pyop3.record.attr("_target_axis")
     target_component = pyop3.record.attr("_target_component")
@@ -423,9 +413,6 @@ class LoopIndex(UnitIndex):
     iterset: AbstractNonUnitAxisTree
     label: LabelT
 
-    def collect_buffers(self, visitor):
-        return visitor(self.iterset)
-
     def get_disk_cache_key(self, visitor):
         return (
             type(self),
@@ -435,15 +422,18 @@ class LoopIndex(UnitIndex):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @classmethod
-    def get_comm(cls, *, iterset, **kwargs) -> MPI.Comm:
-        return iterset.comm
+    def collect_buffers(self, visitor):
+        return visitor(self.iterset)
 
-    @classmethod
-    def record_prepare_args(cls, iterset: AbstractNonUnitAxisTree):
-        return dict(iterset=iterset, label=cls.unique_id())
+    def __init__(self, iterset: AbstractNonUnitAxisTree) -> None:
+        object.__setattr__(self, "iterset", iterset)
+        object.__setattr__(self, "label", self.unique_id())
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.iterset.comm
 
     dtype = IntType
 
@@ -502,9 +492,14 @@ class ScalarIndex(UnitIndex):
     value: Any
     label: LabelT
 
-    @classmethod
-    def record_prepare_args(cls, axis, component, value, label=DECIDE):
-        return dict(axis=axis, component=component, value=value, label=label)
+    def __init__(self, axis, component, value, label=DECIDE) -> None:
+        if label is DECIDE:
+            label = utils.generate_name("scalar")
+
+        object.__setattr__(self, "axis", axis)
+        object.__setattr__(self, "component", component)
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "label", label)
 
     @property
     def leaf_target_paths(self):
@@ -598,9 +593,8 @@ class Slice(Index):
     components: SliceComponentsT
     label: AxisLabelT
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         axis: AxisLabelT,
         components: SliceComponentsT,
         *,
@@ -643,7 +637,9 @@ class Slice(Index):
                     for c, l in zip(components, component_labels, strict=True)
                 )
 
-        return dict(axis=axis, components=components, label=label)
+        object.__setattr__(self, "axis", axis)
+        object.__setattr__(self, "components", components)
+        object.__setattr__(self, "label", label)
 
     def __record_post_init(self) -> None:
         assert all(c.label is not DECIDE for c in self.components)
@@ -765,14 +761,14 @@ class Map(AbstractMap):
     # a class var
     counter = 0
 
-    @classmethod
-    def record_prepare_args(cls, connectivity, name=None) -> None:
+    def __init__(self, connectivity, name=None) -> None:
         # TODO delete entirely
         if name is None:
             # lazy unique name
-            name = f"_Map_{cls.counter}"
-            cls.counter += 1
-        return dict(_connectivity=utils.freeze(connectivity), name=name)
+            name = f"_Map_{self.counter}"
+            self.counter += 1
+        object.__setattr__(self, "_connectivity", utils.freeze(connectivity))
+        object.__setattr__(self, "name", name)
 
     # }}}
 
@@ -856,11 +852,11 @@ class ScalarMap(AbstractMap):
 
     _name: str
 
-    @classmethod
-    def record_prepare_args(cls, connectivity, name):
+    def __init__(self, connectivity, name):
         connectivity = utils.freeze(connectivity)
 
-        return dict(_connectivity=connectivity, _name=name)
+        object.__setattr__(self, "_connectivity", connectivity)
+        object.__setattr__(self, "_name", name)
 
     def __record_post_init(self) -> None:
         from pyop3.expr import AxisVar
@@ -995,15 +991,13 @@ class CalledMap(AbstractCalledMap):
     _index: Any
     label: Any
 
-    @classmethod
-    def record_prepare_args(cls, map, from_index, *, id=None, label=DECIDE):
+    def __init__(self, map, from_index, *, id=None, label=DECIDE) -> None:
         if label is DECIDE:
             label = utils.generate_name("map")
-        return dict(
-        _map=map,
-        _index=from_index,
-        label=label,
-        )
+
+        object.__setattr__(self, "_map", map)
+        object.__setattr__(self, "_index", from_index)
+        object.__setattr__(self, "label", label)
 
     def __record_post_init(self) -> None:
         # Each leaf of the index wrapped by this map must have at least one
@@ -1111,11 +1105,12 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
     label: Any
 
     # FIXME: do i need label?
-    @classmethod
-    def record_prepare_args(cls, map, index, label=DECIDE):
+    def __init__(self, map, index, label=DECIDE):
         if label is DECIDE:
             label = utils.generate_name("map")
-        return dict(_map=map, _index=index, label=label)
+        object.__setattr__(self, "_map", map)
+        object.__setattr__(self, "_index", index)
+        object.__setattr__(self, "label", label)
 
     # }}}
 

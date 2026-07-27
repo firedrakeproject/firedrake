@@ -70,8 +70,8 @@ class Dat(Tensor):
     # {{{ instance attrs
 
     axes: AxisTreeT
-    _buffer: AbstractBuffer
-    _name: str
+    buffer: AbstractBuffer
+    name: str
     _transform: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
@@ -81,13 +81,12 @@ class Dat(Tensor):
         return (
             type(self),
             axes_key,
-            visitor(self._buffer),
+            visitor(self.buffer),
             visitor(self._transform),
         )
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         axes: AxisTreeT,
         buffer: AbstractBuffer | None = None,
         *,
@@ -109,7 +108,7 @@ class Dat(Tensor):
         unindexed_axis_trees = collect_unindexed_axis_trees(axes)
         sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
@@ -130,7 +129,10 @@ class Dat(Tensor):
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        return dict(axes = axes, _buffer = buffer, _name = name, _transform = transform)
+        object.__setattr__(self, "axes", axes)
+        object.__setattr__(self, "buffer", buffer)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "_transform", transform)
 
     def __record_post_init(self) -> None:
         # fails for transforms, is that an issue?
@@ -156,8 +158,6 @@ class Dat(Tensor):
 
     # {{{ interface impls
 
-    name = pyop3.record.attr("_name")
-    buffer = pyop3.record.attr("_buffer")
     transform = pyop3.record.attr("_transform")
     dim = 1
 
@@ -324,35 +324,13 @@ class Dat(Tensor):
     def size(self):
         return self.axes.size
 
-    @classmethod
-    def _get_count_data(cls, data):
-        # recurse if list of lists
-        if not strictly_all(isinstance(d, collections.abc.Iterable) for d in data):
-            return data, len(data)
-        else:
-            flattened = []
-            count = []
-            for d in data:
-                x, y = cls._get_count_data(d)
-                flattened.extend(x)
-                count.append(y)
-            return flattened, count
-
-    def select_axes(self, indices):
-        selected = []
-        current_axis = self.axes
-        for idx in indices:
-            selected.append(current_axis)
-            current_axis = current_axis.get_part(idx.npart).subaxis
-        return tuple(selected)
-
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Dat:
         if self.transform is not None:
             raise RuntimeError
 
         name = f"{self.name}_copy"
-        buffer = self._buffer.duplicate(copy=copy, constant=constant)
-        return self.record_new(_name=name, _buffer=buffer)
+        buffer = self.buffer.duplicate(copy=copy, constant=constant)
+        return self.record_new(name=name, buffer=buffer)
 
     # TODO: dont do this here
     def with_context(self, context):
@@ -369,10 +347,6 @@ class Dat(Tensor):
         if not self.axes.is_linear:
             raise NotImplementedError
         return as_linear_buffer_expression(self)
-
-    @property
-    def leaf_layouts(self):
-        return self.axes.leaf_subst_layouts
 
     @property
     def dtype(self):
@@ -735,11 +709,11 @@ class CompositeDat(Terminal):
             tuple(map(visitor, self.exprs.values())),
         )
 
-    @classmethod
-    def record_prepare_args(cls, axis_tree, exprs) -> dict:
+    def __init__(self, axis_tree, exprs) -> None:
         assert len(axis_tree._all_region_labels) == 0
         exprs = idict(exprs)
-        return dict(axis_tree=axis_tree, exprs=exprs)
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "exprs", exprs)
 
     # }}}
 
@@ -782,22 +756,26 @@ class AggregateDat(pyop3.obj.Object):
             visitor(self.axis),
         )
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.single_valued(d.comm for d in self.subdats)
-
-    @classmethod
-    def record_prepare_args(cls, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None) -> dict:
+    def __init__(
+        self,
+        subdats,
+        axis: Axis,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
         name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
 
         # TODO: check size 1 for each axis component and # components must match # subdats
-        return dict(
-        subdats = subdats,
-        axis = axis,
-        name = name,
-        )
+        object.__setattr__(self, "subdats", subdats)
+        object.__setattr__(self, "axis", axis)
+        object.__setattr__(self, "name", name)
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return utils.single_valued(d.comm for d in self.subdats)
 
     @property
     def subtensors(self):

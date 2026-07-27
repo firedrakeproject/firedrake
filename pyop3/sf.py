@@ -104,17 +104,17 @@ class StarForest(AbstractStarForest):
     """Debugging attribute, turn exchanges into errors."""
     # only for root values, bcasting is fine I think
 
-    @classmethod
-    def record_prepare_args(cls, sf, comm):
-        return dict(sf=sf, _comm=comm)
+    def __init__(self, sf, comm) -> None:
+        object.__setattr__(self, "sf", sf)
+        object.__setattr__(self, "_comm", comm)
 
     # }}}
 
     # {{{ pyop3.obj.Object interface impls
 
-    @classmethod
-    def get_comm(cls, **attrs):
-        return attrs["_comm"]
+    @property
+    def comm(self):
+        return self._comm
 
     # }}}
 

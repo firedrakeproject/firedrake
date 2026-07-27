@@ -163,34 +163,35 @@ class NullBuffer(AbstractArrayBuffer):
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
 
-    @classmethod
-    def get_comm(cls, **attrs):
-        return MPI.COMM_SELF
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         shape: tuple[numbers.Integral, ...] | numbers.Integral,
         dtype: DTypeT | None = None,
         *,
         name: str | None = None,
         prefix: str | None = None,
         ordered: bool = False,
-    ):
+    ) -> None:
         if isinstance(shape, numbers.Integral):
             shape = (shape,)
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
-        dtype = utils.as_dtype(dtype, cls.DEFAULT_DTYPE)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
 
-        return dict(
-        _shape = shape,
-        _name = name,
-        _dtype = dtype,
-        _ordered = ordered,
-        )
+        self._shape = shape
+        self._name = name
+        self._dtype = dtype
+        self._ordered = ordered
 
     def __record_post_init(self) -> None:
         assert isinstance(self.shape, tuple)
+
+    # }}}
+
+    # {{{ pyop3.obj.Object interface impls
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     # }}}
 
@@ -317,13 +318,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
-    @classmethod
-    def get_comm(cls, *, sf, **attrs):
-        return sf.comm
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
         sf: StarForest | None = None,
         *,
@@ -332,7 +328,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         constant: bool = False,
         rank_equal: bool = False,
         ordered: bool = False
-    ):
+    ) -> None:
         if isinstance(data, Mapping):
             assert len(data) > 0
             if len(data) > 1:
@@ -353,19 +349,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         if sf is None:
             sf = NullStarForest(data.size)
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if rank_equal and not constant:
             raise ValueError
 
-        return dict(
-        _device_arrays_private = device_arrays,
-        sf = sf,
-        _name = name,
-        _constant = constant,
-        _rank_equal = rank_equal,
-        _ordered = ordered,
-        )
+        self._device_arrays_private = device_arrays
+        self.sf = sf
+        self._name = name
+        self._constant = constant
+        self._rank_equal = rank_equal
+        self._ordered = ordered
 
     def __record_post_init(self) -> None:
         # state tracking attrs
@@ -393,6 +387,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._device_arrays_private[curr_dev].flags.writeable = False
 
         self._debug_is_poisoned = False
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm
+
 
     # }}}
 
@@ -973,9 +972,9 @@ class FullPetscMatBufferSpec(pyop3.obj.Object):
     column_spec: PetscMatAxisSpec | "AbstractAxisTree"
     _comm: MPI.Comm
 
-    @classmethod
-    def get_comm(cls, *, _comm, **attrs):
-        return _comm
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
 
 
 @dataclasses.dataclass()
@@ -1031,13 +1030,8 @@ class PetscMatBuffer(ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
-    @classmethod
-    def get_comm(self, *, _comm, **attrs):
-        return _comm
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         mat: PETSc.Mat,
         *,
         comm: MPI.Comm,
@@ -1046,15 +1040,13 @@ class PetscMatBuffer(ConcreteBuffer):
         prefix: str | None = None,
         constant: bool = False,
     ) -> None:
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        return dict(
-            mat=mat,
-            mat_spec=mat_spec,
-            _name=name,
-            _constant=constant,
-            _comm=comm,
-        )
+        self.mat=mat
+        self.mat_spec=mat_spec
+        self._name=name
+        self._constant=constant
+        self._comm=comm
 
     def __record_post_init(self) -> None:
         # state tracking
@@ -1066,6 +1058,11 @@ class PetscMatBuffer(ConcreteBuffer):
         self._mat_type = self.mat.type
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
+
 
     # {{{ class attrs
 

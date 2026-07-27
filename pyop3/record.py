@@ -63,9 +63,6 @@ def _make_record_class(**kwargs):
             assert abstract_attr in cls.__dataclass_fields__, \
                 f"class '{cls.__qualname__}' does not have attribute '{abstract_attr}'"
 
-        if hasattr(cls, "record_prepare_args"):
-            print("no longer recommended")
-
         # Make sure that we call all the finalisers after initialisation
         if cls.__init__ is object.__init__:
             def init_with_finalizers(self, *args, **kwargs):
@@ -74,11 +71,7 @@ def _make_record_class(**kwargs):
         else:
             orig_init = cls.__init__
             def init_with_finalizers(self, *args, **kwargs):
-                if hasattr(self, "record_prepare_args"):  # TODO: remove these
-                    attrs = self.record_prepare_args(*args, **kwargs)
-                    orig_init(self, **attrs)
-                else:
-                    orig_init(self, *args, **kwargs)
+                orig_init(self, *args, **kwargs)
                 _finalize_obj(self)
         cls.__init__ = init_with_finalizers
 

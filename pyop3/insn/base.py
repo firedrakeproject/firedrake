@@ -150,14 +150,14 @@ class Loop(NonTerminalInstruction):
             tuple(map(visitor, self.statements)),
         )
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
-    ) -> dict[str, Any]:
+    ) -> None:
         statements = utils.as_tuple(statements)
-        return dict(index=index, statements=statements)
+        object.__setattr__(self, "index", index)
+        object.__setattr__(self, "statements", statements)
 
     # }}}
 
@@ -197,10 +197,9 @@ class InstructionList(NonTerminalInstruction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
-    @classmethod
-    def record_prepare_args(cls, instructions: Iterable[Instruction]) -> None:
+    def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
-        return dict(instructions=instructions)
+        object.__setattr__(self, "instructions", instructions)
 
     # }}}
 
@@ -296,13 +295,8 @@ class Function(pyop3.obj.Object):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @classmethod
-    def get_comm(cls, **attrs):
-        return MPI.COMM_SELF
-
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         loopy_kernel,
         access_descrs,
         *,
@@ -328,13 +322,15 @@ class Function(pyop3.obj.Object):
             libs=tuple(libs),
         )
 
-        return dict(
-            code=loopy_kernel,
-            _access_descrs=access_descrs,
-            _compiler_options=compiler_options,
-        )
+        object.__setattr__(self, "code", loopy_kernel)
+        object.__setattr__(self, "_access_descrs", access_descrs)
+        object.__setattr__(self, "_compiler_options", compiler_options)
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     # {{{ interface impls
 
@@ -457,14 +453,7 @@ class Function(pyop3.obj.Object):
 
 class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
-    # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def function(self) -> Function:
-        pass
-
-    # }}}
+    __abstract_record_attrs = ("function",)
 
     # {{{ interface impls
 
@@ -507,27 +496,26 @@ class CalledFunction(AbstractCalledFunction):
 
     # {{{ instance attrs
 
-    _function: Function
+    function: Function
     _arguments: tuple[Any]
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._function),
+            visitor(self.function),
             tuple(map(visitor, self._arguments)),
         )
 
-    @classmethod
-    def record_prepare_args(cls, function: Function, arguments: Iterable):
-        function = cls._fixup_function_argument_shapes(function, arguments)
+    def __init__(self, function: Function, arguments: Iterable) -> None:
+        function = self._fixup_function_argument_shapes(function, arguments)
         arguments = tuple(arguments)
-        return dict(_function=function, _arguments=arguments)
+        object.__setattr__(self, "function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
     # }}}
 
     # {{{ interface impls
 
-    function: ClassVar[property] = pyop3.record.attr("_function")
     arguments: ClassVar[property] = pyop3.record.attr("_arguments")
 
     # }}}
@@ -559,27 +547,26 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
     # {{{ instance attrs
 
-    _function: Function
+    function: Function
     _arguments: Iterable[FunctionArgument]
 
     def get_disk_cache_key(self, visitor):
         return (
             type(self),
-            visitor(self._function),
+            visitor(self.function),
             tuple(map(visitor, self._arguments)),
         )
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
 
-    @classmethod
-    def record_prepare_args(cls, function: Function, arguments: Iterable):
+    def __init__(self, function: Function, arguments: Iterable) -> None:
         arguments = tuple(arguments)
-        return dict(_function=function, _arguments=arguments)
+        object.__setattr__(self, "function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
     # }}}
 
-    function: ClassVar[property] = property(lambda self: self._function)
     arguments: ClassVar[property] = property(lambda self: self._arguments)
 
 
@@ -707,23 +694,20 @@ class Assignment(AbstractAssignment):
             self._assignment_type,
         )
 
-    @classmethod
-    def get_comm(cls, **attrs) -> MPI.Comm:
-        import pyop3.visitors
-
-        return pyop3.visitors.common_comm([attrs["_assignee"], attrs["_expression"]])
-
-    @classmethod
-    def record_prepare_args(cls, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        return dict(
-            _assignee=assignee,
-            _expression=expression,
-            _assignment_type=assignment_type,
-        )
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_assignment_type", assignment_type)
 
     # }}}
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        import pyop3.visitors
+
+        return pyop3.visitors.common_comm([self.assignee, self.expression])
 
     # {{{ interface impls
 
@@ -776,13 +760,6 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     # is this still needed?
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
-    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
-        return OrderedFrozenSet().union(
-            visitor(self._assignee),
-            visitor(self._expression),
-            *(visitor(tree) for tree in self._axis_trees),
-        )
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
@@ -792,23 +769,35 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
             self._assignment_type,
         )
 
-    @classmethod
-    def get_comm(cls, *, _comm, **attrs):
-        return _comm
-
-    @classmethod
-    def record_prepare_args(cls, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
-        assignment_type = AssignmentType(assignment_type)
-
-        return dict(
-        _assignee=assignee,
-        _expression=expression,
-        _axis_trees=axis_trees,
-        _assignment_type=assignment_type,
-        _comm=comm,
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+        return OrderedFrozenSet().union(
+            visitor(self._assignee),
+            visitor(self._expression),
+            *(visitor(tree) for tree in self._axis_trees),
         )
 
+    def __init__(
+        self,
+        assignee: Any,
+        expression: Any,
+        axis_trees,
+        assignment_type: AssignmentType | str,
+        *,
+        comm: MPI.Comm,
+    ) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_axis_trees", axis_trees)
+        object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "_comm", comm)
+
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
 
     # {{{ interface impls
 
@@ -860,9 +849,9 @@ class Exscan(TerminalInstruction):
             scan_axis_key,
         )
 
-    @classmethod
-    def get_comm(cls, *, _comm, **attrs):
-        return _comm
+    @property
+    def comm(self):
+        return self._comm
 
     # }}}
 

@@ -52,10 +52,7 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
 
     # {{{ abstract methods
 
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        pass
+    __abstract_record_attrs = ("name", "buffer")
 
     @property
     @abc.abstractmethod
@@ -65,11 +62,6 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
     @property
     @abc.abstractmethod
     def dim(self) -> int:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def buffer(self) -> Any:
         pass
 
     @abc.abstractmethod
@@ -88,11 +80,6 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
     @property
     @abc.abstractmethod
     def alloc_size(self) -> int:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def leaf_layouts(self):  # or all layouts?
         pass
 
     @property
@@ -244,9 +231,9 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
         """
         return self.duplicate(copy=True, constant=constant)
 
-    @abc.abstractmethod
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
+        raise NotImplementedError
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong

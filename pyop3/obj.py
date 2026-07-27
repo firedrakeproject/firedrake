@@ -34,17 +34,15 @@ class Object(abc.ABC):
             f"'get_instruction_executor_cache_key' not implemented for '{type(self).__qualname__}'"
         )
 
-    @classmethod
-    def get_comm(cls, **attrs) -> MPI.Comm:
-        """Determine a valid communicator from the attributes of the object."""
-        # Here we use quite a heavyweight approach, subclasses can overwrite
-        # this if they have more information
-        from pyop3.visitors import get_comm
-
-        return pyop3.mpi.common_comm(map(get_comm, attrs.values()), default=MPI.COMM_SELF)
-
     @cached_property
     def comm(self) -> MPI.Comm:
         """The communicator over which this object is collective."""
+        # Here we provide a useful fallback option, subclasses are expected to
+        # overload this as appropriate
+        import pyop3.visitors
+
         attrs = {name: getattr(self, name) for name in self.__dataclass_fields__}
-        return self.get_comm(**attrs)
+        return pyop3.mpi.common_comm(
+            map(pyop3.visitors.get_comm, attrs.values()),
+            default=MPI.COMM_SELF,
+        )

@@ -21,15 +21,14 @@ class Scalar(Tensor):
 
     # {{{ instance attrs
 
-    _name: str
-    _buffer: AbstractBuffer
+    name: str
+    buffer: AbstractBuffer
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self._buffer))
+        return (type(self), visitor(self.buffer))
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         value: numbers.Number | None = None,
         comm: MPI.Comm | None=None,
         *,
@@ -37,8 +36,8 @@ class Scalar(Tensor):
         constant: bool | None = None,
         name: str | None = None,
         prefix: str | None = None,
-    ):
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
             # clean me up
@@ -59,19 +58,18 @@ class Scalar(Tensor):
                 data = np.asarray([value])
                 buffer = ArrayBuffer(data, **buffer_kwargs)
             else:
-                buffer = ArrayBuffer.empty(1, dtype=cls.DEFAULT_DTYPE, **buffer_kwargs)
+                buffer = ArrayBuffer.empty(1, dtype=self.DEFAULT_DTYPE, **buffer_kwargs)
 
         if buffer.size != 1:
             raise exc.SizeMismatchException("Expected a buffer with unit size")
 
-        return dict(_name=name, _buffer=buffer)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "buffer", buffer)
 
     # }}}
 
     # {{{ interface impls
 
-    name: ClassVar[str] = pyop3.record.attr("_name")
-    buffer: ClassVar[ArrayBuffer] = pyop3.record.attr("_buffer")
     dim: ClassVar[int] = 0
     transform: ClassVar[None] = None
 
@@ -136,10 +134,6 @@ class Scalar(Tensor):
     @property
     def alloc_size(self) -> int:
         return 1
-
-    @property
-    def leaf_layouts(self):  # or all layouts?
-        raise NotImplementedError
 
     @property
     def value(self):

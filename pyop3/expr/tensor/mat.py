@@ -51,8 +51,8 @@ class Mat(Tensor):
 
     row_axes: AxisTreeT
     column_axes: AxisTreeT
-    _buffer: AbstractBuffer
-    _name: str
+    buffer: AbstractBuffer
+    name: str
     _transform: TensorTransform | None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
@@ -64,13 +64,12 @@ class Mat(Tensor):
             type(self),
             row_axes_key,
             column_axes_key,
-            visitor(self._buffer),
+            visitor(self.buffer),
             visitor(self._transform),
         )
 
-    @classmethod
-    def record_prepare_args(
-        cls,
+    def __init__(
+        self,
         row_axes,
         column_axes,
         buffer: AbstractBuffer,
@@ -78,27 +77,29 @@ class Mat(Tensor):
         name=None,
         prefix=None,
         transform=None,
-    ) -> dict:
+    ) -> None:
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
         row_axes = as_axis_tree_type(row_axes)
         column_axes = as_axis_tree_type(column_axes)
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        return dict(
-            row_axes=row_axes,
-            column_axes=column_axes,
-            _buffer=buffer,
-            _name=name,
-            _transform=transform,
-        )
+        object.__setattr__(self, "row_axes", row_axes)
+        object.__setattr__(self, "column_axes", column_axes)
+        object.__setattr__(self, "buffer", buffer)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "_transform", transform)
 
     def __record_post_init(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
             assert len(self.buffer.shape) == 2
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return pyop3.mpi.common_comm([self.row_axes.comm, self.column_axes.comm])
 
     # {{{ class attrs
 
@@ -109,7 +110,6 @@ class Mat(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = pyop3.record.attr("_name")
     transform: ClassVar[property] = pyop3.record.attr("_transform")
 
     @property
@@ -246,21 +246,6 @@ class Mat(Tensor):
 
     def null_like(self, **kwargs) -> Mat:
         return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
-
-    @property
-    def leaf_layouts(self):
-        assert False, "unused"
-
-    def concretize(self):
-        raise NotImplementedError
-
-    @property
-    def buffer(self) -> Any:
-        return self._buffer
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return pyop3.mpi.common_comm([self.row_axes.comm, self.column_axes.comm])
 
     # }}}
 
@@ -422,17 +407,27 @@ class AggregateMat(pyop3.obj.Object):
             visitor(self.column_axis),
         )
 
+    def __init__(
+        self,
+        submats,
+        row_axis: Axis,
+        column_axis: Axis,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        # TODO: check size 1 for each axis component and # components must match # subdats
+        object.__setattr__(self, "submats", submats)
+        object.__setattr__(self, "row_axis", row_axis)
+        object.__setattr__(self, "column_axis", column_axis)
+        object.__setattr__(self, "name", name)
+
+    # }}}
+
     @property
     def comm(self) -> MPI.Comm:
         return utils.single_valued(m.comm for m in self.submats.flatten())
-
-    @classmethod
-    def record_prepare_args(cls, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
-        # TODO: check size 1 for each axis component and # components must match # subdats
-        return dict(submats=submats, row_axis=row_axis, column_axis=column_axis, name=name)
-
-    # }}}
 
     DEFAULT_PREFIX: ClassVar[str] = "aggmat"
 

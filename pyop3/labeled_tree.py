@@ -83,6 +83,7 @@ class AbstractLabeledTreeLike(pyop3.obj.Object):
         pass
 
 
+@staticmethod
 def _prepare_node_map(node_map: Any) -> idict:
     initial_node_map = _as_node_map(node_map)
     final_node_map = _fixup_node_map(path=idict(), unvisited=initial_node_map)

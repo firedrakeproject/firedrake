@@ -670,11 +670,6 @@ class LoopIndexVar(TerminalExpression):
     loop_index: LoopIndex
     axis: Axis
 
-    def collect_buffers(self, visitor):
-        # Loop index vars are just pointers to some outer loop. Any internal
-        # buffers that we need will be referenced elsewhere.
-        return pyop3.collections.OrderedFrozenSet()
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Loop index vars are just pointers to some outer loop. We don't
         # need to recurse here, just make sure that the labels match.
@@ -686,8 +681,12 @@ class LoopIndexVar(TerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @classmethod
-    def record_prepare_args(cls, loop_index, axis) -> None:
+    def collect_buffers(self, visitor):
+        # Loop index vars are just pointers to some outer loop. Any internal
+        # buffers that we need will be referenced elsewhere.
+        return pyop3.collections.OrderedFrozenSet()
+
+    def __init__(self, loop_index, axis) -> None:
         from pyop3 import LoopIndex
 
         # we must be linear at this point
@@ -695,7 +694,8 @@ class LoopIndexVar(TerminalExpression):
 
         assert isinstance(loop_index, LoopIndex)
         assert axis.component.sf is None
-        return dict(loop_index=loop_index, axis=axis)
+        object.__setattr__(self, "loop_index", loop_index)
+        object.__setattr__(self, "axis", axis)
 
     # }}}
 
