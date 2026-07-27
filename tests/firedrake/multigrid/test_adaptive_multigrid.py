@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+from mpi4py import MPI
 from firedrake import *
 
 
@@ -170,7 +171,11 @@ def _assert_adapt_after_uniform_refinement(mesh):
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
-    markers.dat.data_wo[0] = 1
+    # Slice rather than index: with more ranks than coarse cells, some ranks
+    # legitimately own zero local cells, and an unconditional [0] = 1 would
+    # raise IndexError there, desynchronizing the collectives inside
+    # refine_marked_elements and hanging the surviving ranks.
+    markers.dat.data_wo[:1] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
     amh.add_mesh(refined_mesh)
@@ -180,8 +185,11 @@ def _assert_adapt_after_uniform_refinement(mesh):
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
     assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
-    assert (fine_to_coarse >= 0).any()
-    assert (coarse_to_fine >= 0).any()
+    # A rank may legitimately own zero local cells (e.g. more ranks than
+    # coarse cells), leaving these arrays empty on that rank alone, so the
+    # "some entry is valid" check must be collective, not per-rank.
+    assert mesh.comm.allreduce((fine_to_coarse >= 0).any(), op=MPI.LOR)
+    assert mesh.comm.allreduce((coarse_to_fine >= 0).any(), op=MPI.LOR)
 
 
 @pytest.mark.skipnetgen
