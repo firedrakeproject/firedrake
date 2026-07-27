@@ -34,9 +34,6 @@ from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, Contex
 from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
-from pyop3.utils import (
-    auto,
-)
 
 if typing.TYPE_CHECKING:
     from .exec import InstructionExecutionContext

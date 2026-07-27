@@ -624,6 +624,9 @@ class Slice(Index):
                 for c in components
             )
         else:
+            if label is DECIDE:
+                label = utils.generate_name("slice")
+
             if any(c.label is DECIDE for c in components):
                 if not all(c.label is DECIDE for c in components):
                     raise ValueError(
@@ -994,6 +997,8 @@ class CalledMap(AbstractCalledMap):
 
     @classmethod
     def record_prepare_args(cls, map, from_index, *, id=None, label=DECIDE):
+        if label is DECIDE:
+            label = utils.generate_name("map")
         return dict(
         _map=map,
         _index=from_index,
@@ -1108,6 +1113,8 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
     # FIXME: do i need label?
     @classmethod
     def record_prepare_args(cls, map, index, label=DECIDE):
+        if label is DECIDE:
+            label = utils.generate_name("map")
         return dict(_map=map, _index=index, label=label)
 
     # }}}
@@ -1399,10 +1406,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
         component = AxisComponent(indexed_regions, label=slice_component.label, sf=sf, size=component_size)
         components.append(component)
 
-    if not slice_.label.startswith("_node_Slice"):
-        axis_label = slice_.label
-    else:
-        axis_label = f"axis_{index_count}_{len(seen_target_exprs)}"
+    axis_label = slice_.label
     axis = Axis(components, label=axis_label)
 
     # now do target expressions

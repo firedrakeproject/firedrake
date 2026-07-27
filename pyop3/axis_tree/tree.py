@@ -1185,7 +1185,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
         #     # match some, generate something
         #     axis_label = None
 
-        slice_ = Slice(axis.label, slice_components, label=f"slice{len(path)}")
+        slice_ = Slice(axis.label, slice_components)
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_.components, strict=True):
             path_ = path | {axis.label: component.label}
@@ -2482,7 +2482,10 @@ class AxisForest(AbstractAxisTreeLike):
 
     @property
     def local_max_size(self) -> int:
-        return utils.single_valued((tree.local_max_size for tree in self.trees))
+        try:
+            return utils.single_valued((tree.local_max_size for tree in self.trees))
+        except:
+            breakpoint()
 
     @property
     def global_size(self) -> int:

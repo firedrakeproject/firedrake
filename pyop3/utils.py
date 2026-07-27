@@ -72,13 +72,12 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
             return generator(default_prefix)
 
 
-_unique_id_generator = UniqueNameGenerator()
-"""Generator for creating globally unique IDs.
+def generate_name(prefix: str):
+    return _unique_name_generator(prefix)
 
-Unlike object names, object IDs are guaranteed to be unique for every object and
-hence are suitable for caching.
 
-"""
+_unique_name_generator = UniqueNameGenerator()
+"""Generator for creating globally unique names."""
 
 
 def unique_id(obj) -> str:
@@ -102,13 +101,8 @@ def deprecated(prefer=None, internal=False):
 
 
 # remove me
-class auto:
-    pass
-
-
-# type aliases
-Id = str
-Label = str
+# class auto:
+#     pass
 
 
 class Labelled(abc.ABC):

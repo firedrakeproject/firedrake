@@ -124,9 +124,6 @@ def _pack_dat_nonmixed(
     cell_index = map_.index
     packed_dat = dat[map_]
 
-    # if loop_index.integral_type == "exterior_facet":
-    #     breakpoint()
-
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
     if isinstance(packed_dat.axes, op3.AxisForest):
