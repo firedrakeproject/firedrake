@@ -1,6 +1,9 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <petscsys.h>
 #include <rtree-capi.h>
 

@@ -1,3 +1,4 @@
+#include <string.h>
 #include <evaluate.h>
 
 PetscInt locate_cell_from_candidates(struct Function *f,
@@ -12,7 +13,6 @@ PetscInt locate_cell_from_candidates(struct Function *f,
         size_t ncells_ignore,
         PetscInt* cells_ignore)
 {
-    RTreeError err;
     PetscInt cell = -1;
     bool cell_ignore_found = false;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type

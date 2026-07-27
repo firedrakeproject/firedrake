@@ -244,7 +244,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "tolerance": contains_eps,
     }
 
-    evaluate_template_c = """
+    evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
 };
