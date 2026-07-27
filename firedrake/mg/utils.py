@@ -73,6 +73,16 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
+        # Under adaptive refinement, coarse cells have varying numbers of
+        # fine descendants, so coarse_to_fine (and hence coarse_to_fine_nodes)
+        # is right-padded with -1 up to the busiest coarse cell's count.
+        # op2.Map cannot hold negative indices, and every *owned* coarse
+        # node needs at least one real candidate to inject from; but padding
+        # slots on rows that do have candidates can safely be filled with a
+        # duplicate of one of that row's real entries; the injection kernel
+        # below only ever reads (op2.READ) through this map and picks the
+        # candidate matching the coarse node's physical location, so a
+        # repeated valid entry is just redundantly (harmlessly) considered.
         valid = coarse_to_fine_nodes >= 0
         if not valid.all():
             nonempty = valid.any(axis=1)

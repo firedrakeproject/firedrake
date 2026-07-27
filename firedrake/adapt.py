@@ -118,6 +118,11 @@ def refine_marked_elements(mesh, cell_marker):
         if fine_to_coarse_total is None:
             fine_to_coarse_total = f2c.copy()
         else:
+            # f2c maps this round's fine cells to their *immediate* parents,
+            # i.e. cells of the previous round's mesh, not of the original
+            # `mesh`. fine_to_coarse_total already maps those parents back
+            # to their ultimate ancestor in `mesh`, so composing the two
+            # gives each new fine cell's ultimate original ancestor.
             composed = np.full_like(f2c, -1)
             valid = parent >= 0
             composed[valid, 0] = fine_to_coarse_total[parent[valid], 0]
@@ -131,6 +136,9 @@ def refine_marked_elements(mesh, cell_marker):
         current_mesh = new_mesh
 
     ncoarse = mesh.cell_set.size
+    # Invert fine_to_coarse_total (each final fine cell's ultimate ancestor
+    # in `mesh`) into, for every original coarse cell, the list of all its
+    # fine descendants after every round of refinement above.
     children = [[] for _ in range(ncoarse)]
     for fine_cell, parent in enumerate(fine_to_coarse_total[:, 0]):
         if parent >= 0:
@@ -138,6 +146,9 @@ def refine_marked_elements(mesh, cell_marker):
     max_children = max((len(c) for c in children), default=0)
     max_children = mesh.comm.allreduce(max_children, MPI.MAX)
     coarse_to_fine_total = np.full((ncoarse, max_children), -1, dtype=IntType)
+    # children is ragged (coarse cells refined more times end up with more
+    # descendants); right-pad each row with -1 up to max_children so
+    # coarse_to_fine_total is rectangular.
     for coarse_cell, fine_cells in enumerate(children):
         coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
 
