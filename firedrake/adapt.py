@@ -10,7 +10,7 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
-from firedrake.netgen import _recurve_netgen_mesh
+from firedrake.netgen import _transfer_high_order_coordinates
 
 
 DM_ADAPT_REFINE = 1
@@ -138,7 +138,7 @@ def refine_marked_elements(mesh, cell_marker):
     if hasattr(mesh, "netgen_mesh"):
         order = mesh.coordinates.function_space().ufl_element().degree()
         if order > 1:
-            final_mesh = _recurve_netgen_mesh(mesh, final_mesh, order)
+            final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
 
     final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
     _copy_adaptive_refinement_metadata(mesh, final_mesh)

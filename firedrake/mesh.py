@@ -2924,9 +2924,16 @@ values from f.)"""
     def refine_marked_elements(self, mark):
         """Adaptively refine a mesh using a DG0 marking function.
 
-        :arg mark: the marking function, a Firedrake DG0 function on
-            this mesh; cells with a positive value are refined.
+        Parameters
+        ----------
+        mark
+            A DG0 `~firedrake.function.Function` on this mesh: cells
+            with a positive value ``n`` are refined ``n`` times.
 
+        Returns
+        -------
+        MeshGeometry
+            The adaptively refined mesh.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)

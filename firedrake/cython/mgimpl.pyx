@@ -203,32 +203,64 @@ def create_lgmap(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def set_adaptive_parent_label(PETSc.DM dm,
-                              PETSc.Section cell_numbering,
+def set_adaptive_parent_label(PETSc.DM coarse_dm,
+                              PETSc.Section coarse_cell_numbering,
                               PetscInt ncoarse,
                               label_name):
-    """Label owned cells by Firedrake cell number."""
+    """Seed each coarse cell's own Firedrake cell number onto a label.
+
+    This must be called on ``coarse_dm`` *before* it is refined. The
+    DMPlex transform used for adaptive refinement propagates labels
+    from a cell to its children, so once refinement has happened,
+    every fine cell created from a given coarse cell carries that
+    coarse cell's Firedrake number under ``label_name``. This is what
+    lets :func:`adaptive_parent_child_cell_maps` later recover, for
+    each fine cell, which coarse cell it descends from.
+
+    :arg coarse_dm: the (pre-refinement) coarse mesh DMPlex.
+    :arg coarse_cell_numbering: the coarse mesh's cell numbering section.
+    :arg ncoarse: the number of coarse cells.
+    :arg label_name: name of a label already created on ``coarse_dm``,
+        to be populated with each owned cell's Firedrake cell number.
+    """
     cdef:
         PetscInt cStart, cEnd, c, off
         DMLabel parent_label = NULL
 
     label_name = label_name.encode()
-    CHKERR(DMGetLabel(dm.dm, <const char*>label_name, &parent_label))
-    cStart, cEnd = dm.getHeightStratum(0)
+    CHKERR(DMGetLabel(coarse_dm.dm, <const char*>label_name, &parent_label))
+    cStart, cEnd = coarse_dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &off))
+        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
         if 0 <= off < ncoarse:
             CHKERR(DMLabelSetValue(parent_label, c, off))
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def adaptive_parent_child_cell_maps(PETSc.DM dm,
-                                    PETSc.Section cell_numbering,
+def adaptive_parent_child_cell_maps(PETSc.DM fine_dm,
+                                    PETSc.Section fine_cell_numbering,
                                     PetscInt ncoarse,
                                     PetscInt nfine,
                                     label_name):
-    """Build Firedrake-numbered parent/child cell maps from a DMPlex label."""
+    """Build Firedrake-numbered parent/child cell maps from a DMPlex label.
+
+    Must be called on ``fine_dm``, the DMPlex obtained by refining the
+    coarse mesh that :func:`set_adaptive_parent_label` was seeded on.
+    Each fine cell's coarse parent number is read back from
+    ``label_name`` (populated by the refinement transform propagating
+    the label set by :func:`set_adaptive_parent_label`) and used to
+    assemble both the coarse-to-fine and fine-to-coarse cell maps.
+
+    :arg fine_dm: the refined (child) mesh DMPlex.
+    :arg fine_cell_numbering: the fine mesh's cell numbering section.
+    :arg ncoarse: the number of coarse (parent) cells.
+    :arg nfine: the number of fine (child) cells.
+    :arg label_name: name of the label, on ``fine_dm``, propagated from
+        :func:`set_adaptive_parent_label`, mapping each fine cell to
+        its coarse parent's Firedrake cell number.
+    :returns: a ``(coarse_to_fine, fine_to_coarse)`` pair of Firedrake-numbered cell maps.
+    """
     cdef:
         PetscInt cStart, cEnd, c, off, parent, max_children
         DMLabel parent_label = NULL
@@ -237,12 +269,12 @@ def adaptive_parent_child_cell_maps(PETSc.DM dm,
         np.ndarray coarse_to_fine
 
     label_name = label_name.encode()
-    CHKERR(DMGetLabel(dm.dm, <const char*>label_name, &parent_label))
+    CHKERR(DMGetLabel(fine_dm.dm, <const char*>label_name, &parent_label))
     fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
     child_counts = np.zeros(ncoarse, dtype=IntType)
-    cStart, cEnd = dm.getHeightStratum(0)
+    cStart, cEnd = fine_dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &off))
+        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
         if not (0 <= off < nfine):
             continue
         CHKERR(DMLabelGetValue(parent_label, c, &parent))
@@ -250,12 +282,19 @@ def adaptive_parent_child_cell_maps(PETSc.DM dm,
             fine_to_coarse[off, 0] = parent
             child_counts[parent] += 1
 
+    # coarse_to_fine is rectangular, so every coarse cell's row must be wide
+    # enough for its most prolific sibling. Different coarse cells can be
+    # refined a different number of times, so this varies by process; take
+    # the max across all ranks so the array shape agrees everywhere.
     max_children = 0
     for c in range(ncoarse):
         if child_counts[c] > max_children:
             max_children = child_counts[c]
-    max_children = dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
+    max_children = fine_dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
     coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
+    # Re-walk the fine cells (in Firedrake order this time, via
+    # fine_to_coarse) appending each one to its parent's row. child_counts is
+    # reused as a per-parent write cursor, reset to zero first.
     child_counts[:] = 0
     for c in range(nfine):
         parent = fine_to_coarse[c, 0]

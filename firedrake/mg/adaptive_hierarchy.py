@@ -44,13 +44,26 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             The mesh to be added to the finest level.
         coarse_to_fine_cells
             Optional map from cells on the previous finest level to cells on
-            ``mesh``.
+            ``mesh``. If not given, it is read from ``mesh._adaptive_cell_maps``
+            (set automatically when ``mesh`` was produced by
+            :meth:`~firedrake.mesh.MeshGeometry.refine_marked_elements`); if
+            that attribute is absent too, no cell maps are recorded for this
+            level.
         fine_to_coarse_cells
             Optional map from cells on ``mesh`` to cells on the previous
-            finest level.
+            finest level. Falls back the same way as ``coarse_to_fine_cells``.
         """
         level = len(self.meshes)
         if level > 0 and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+            # A mesh returned by MeshGeometry.refine_marked_elements carries
+            # its own cell maps as a private `_adaptive_cell_maps` attribute
+            # (relative to the mesh it was refined from), set at construction
+            # time in firedrake.adapt.refine_marked_elements. This lets a mesh
+            # be adaptively refined on its own, without being attached to a
+            # hierarchy, and still have `add_mesh` pick up its cell maps here
+            # if it is added to one later. Meshes built any other way do not
+            # have this attribute, so getattr's default of (None, None) is
+            # used: no cell maps are recorded for this level.
             coarse_to_fine_cells, fine_to_coarse_cells = getattr(
                 mesh, "_adaptive_cell_maps", (None, None)
             )

@@ -128,8 +128,21 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     return permutation
 
 
-def _recurve_netgen_mesh(coarse_mesh, fine_mesh, order):
-    """Re-curve ``fine_mesh`` using ``coarse_mesh``'s Netgen geometry."""
+def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
+    """Transfer high-order coordinates from a Netgen geometry to a refined mesh.
+
+    ``fine_mesh`` is a straight-edged (order 1) refinement of ``coarse_mesh``.
+    This rebuilds its Netgen mesh from ``coarse_mesh``'s geometry and curves
+    it to the requested ``order``, so that the curved fine mesh follows the
+    same underlying CAD geometry as the coarse one, rather than just
+    interpolating the coarse mesh's straight-edged coordinates.
+
+    :arg coarse_mesh: the coarse mesh, carrying the Netgen geometry to curve against.
+    :arg fine_mesh: a straight-edged refinement of ``coarse_mesh``.
+    :arg order: the polynomial order of the curved coordinate field.
+    :returns: a new mesh, topologically equivalent to ``fine_mesh``, with
+        coordinates curved to ``order`` against ``coarse_mesh``'s geometry.
+    """
     # Run createNetgenMesh before Mesh construction renumbers the plex.
     dm_clone = fine_mesh.topology_dm.clone()
     fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
