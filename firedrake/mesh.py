@@ -2753,7 +2753,7 @@ values from f.)"""
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             # locator returns an error code which is always a 32-bit int rather than IntType_c.
             src += dedent(f"""
-                int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
                 {{
                     int64_t *candidate_ids = NULL;
                     size_t *candidate_offsets = NULL;
@@ -2764,8 +2764,8 @@ values from f.)"""
                         return -1;
                     }}
 
-                    {IntType_c} j = 0;  /* index into x and X */
-                    for({IntType_c} i=0; i<npoints; i++) {{
+                    size_t j = 0;  /* index into x and X */
+                    for(size_t i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
 
                         /* The type definitions and arguments used here are defined as
@@ -2815,7 +2815,7 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(IntType)),
-                                as_ctypes(IntType),
+                                ctypes.c_size_t,
                                 ctypes.c_size_t,
                                 np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
