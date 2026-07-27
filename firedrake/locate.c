@@ -14,7 +14,7 @@ PetscInt locate_cell_from_candidates(struct Function *f,
 {
     RTreeError err;
     PetscInt cell = -1;
-    int cell_ignore_found = 0;
+    bool cell_ignore_found = false;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
     struct ReferenceCoords but can't be declared as such in the function
     signature because the dimensions of the reference coordinates in the
@@ -31,23 +31,23 @@ PetscInt locate_cell_from_candidates(struct Function *f,
     for (size_t i = 0; i < nids; ++i) {
         for (size_t j = 0; j < ncells_ignore; j++) {
             if (ids[i] == cells_ignore[j]) {
-                cell_ignore_found = 1;
+                cell_ignore_found = true;
                 break;
             }
         }
         if (cell_ignore_found) {
-            cell_ignore_found = 0;
+            cell_ignore_found = false;
             continue;
         }
 
-        if (f->extruded == 0) {
-            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-        }
-        else {
-            int nlayers = f->n_layers;
+        if (f->extruded) {
+            PetscInt nlayers = f->n_layers;
             int c = ids[i] / nlayers;
             int l = ids[i] % nlayers;
             current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+        }
+        else {
+            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
         }
 
         if (current_ref_cell_dist_l1 <= 0.0) {

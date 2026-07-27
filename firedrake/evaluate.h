@@ -12,8 +12,8 @@ struct Function {
 	/* Number of cells in the base mesh */
 	PetscInt n_cols;
 
-	/* 1 if extruded, 0 if not */
-	int extruded;
+	/* true if extruded, false if not */
+	bool extruded;
 
 	/* number of layers for extruded, otherwise 1 */
 	PetscInt n_layers;
