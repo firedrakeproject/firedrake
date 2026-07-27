@@ -83,3 +83,11 @@ def test_collapsed_quadrature_sum_factorisation(cell, degree, family):
     M = assemble(a).M.values
     M_collapsed = assemble(a_collapsed).M.values
     assert np.allclose(M, M_collapsed, rtol=1e-10, atol=1e-10)
+
+    # Bilinear derivatives exercise two independently transformed argument
+    # lattices.
+    a = inner(grad(u), grad(v)) * dx(scheme="canonical")
+    a_collapsed = inner(grad(u), grad(v)) * dx(scheme="collapsed")
+    K = assemble(a).M.values
+    K_collapsed = assemble(a_collapsed).M.values
+    assert np.allclose(K, K_collapsed, rtol=1e-10, atol=1e-10)

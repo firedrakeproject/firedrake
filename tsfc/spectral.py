@@ -9,7 +9,7 @@ from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
-from gem.coffee import optimise_monomial_sum
+from gem.coffee import sum_factorise_monomial_sum
 from gem.utils import groupby
 
 
@@ -170,31 +170,5 @@ def delta_elimination(variable, sum_indices, args, rest, index_replacer):
 
 
 def sum_factorise(variable, tail_ordering, monomial_sum):
-    if tail_ordering:
-        key_ordering = OrderedDict()
-        sub_monosums = defaultdict(MonomialSum)
-        for sum_indices, atomics, rest in monomial_sum:
-            # Pull out those sum indices that are not contained in the
-            # tail ordering, together with those atomics which do not
-            # share free indices with the tail ordering.
-            #
-            # Based on this, split the monomial sum, then recursively
-            # optimise each sub monomial sum with the first tail index
-            # removed.
-            tail_indices = tuple(i for i in sum_indices if i in tail_ordering)
-            tail_atomics = tuple(a for a in atomics
-                                 if set(tail_indices) & set(a.free_indices))
-            head_indices = tuple(i for i in sum_indices if i not in tail_ordering)
-            head_atomics = tuple(a for a in atomics if a not in tail_atomics)
-            key = (head_indices, head_atomics)
-            key_ordering.setdefault(key)
-            sub_monosums[key].add(tail_indices, tail_atomics, rest)
-        sub_monosums = [(k, sub_monosums[k]) for k in key_ordering]
-
-        monomial_sum = MonomialSum()
-        for (sum_indices, atomics), monosum in sub_monosums:
-            new_rest = sum_factorise(variable, tail_ordering[1:], monosum)
-            monomial_sum.add(sum_indices, atomics, new_rest)
-
-    # Use COFFEE algorithm to optimise the monomial sum
-    return optimise_monomial_sum(monomial_sum, variable.index_ordering())
+    return sum_factorise_monomial_sum(
+        monomial_sum, tuple(tail_ordering), variable.index_ordering())
