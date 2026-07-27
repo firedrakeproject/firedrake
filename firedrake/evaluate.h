@@ -4,7 +4,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <petscsys.h>
+#include <petscerror.h>
 #include <rtree-capi.h>
 
 #ifdef __cplusplus
@@ -59,7 +61,8 @@ extern PetscInt locate_cell_from_candidates(struct Function *f,
 			   size_t nids,
 			   const int64_t *ids,
 			   size_t ncells_ignore,
-			   const PetscInt* cells_ignore);
+			   const PetscInt *cells_ignore,
+			   PetscInt *cell_out);
 
 extern int evaluate(struct Function *f,
 		    double *x,

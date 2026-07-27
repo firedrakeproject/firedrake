@@ -2780,8 +2780,16 @@ values from f.)"""
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         {IntType_c} *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell_from_candidates(f, &x[j], &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], nids_i, ids_i, ncells_ignore, cells_ignore_i);
-
+                        PetscErrorCode locate_err = locate_cell_from_candidates(
+                            f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
+                            &temp_reference_coords, &found_reference_coords,
+                            &ref_cell_dists_l1[i], nids_i, ids_i,
+                            ncells_ignore, cells_ignore_i, &cells[i]);
+                        if (locate_err != PETSC_SUCCESS) {{
+                            rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
+                            rtree_free_offsets(candidate_offsets, npoints + 1);
+                            return locate_err;
+                        }}
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
                             j++;
