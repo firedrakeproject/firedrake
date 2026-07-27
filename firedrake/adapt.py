@@ -1,5 +1,6 @@
 """Adaptive mesh refinement helpers."""
 import numpy as np
+import petsctools
 
 from pyop2.mpi import MPI
 from firedrake.cython import dmcommon
@@ -33,19 +34,11 @@ def _refine_marked_elements_once(mesh, cell_marker):
         adapt_indicator, adapt_label, DM_ADAPT_REFINE,
     )
 
-    opts = PETSc.Options()
-    had_prev = opts.hasName("dm_plex_transform_type")
-    prev = opts.getString("dm_plex_transform_type", "") if had_prev else None
-    opts["dm_plex_transform_type"] = "refine_sbr"
-    try:
+    parameters = {"dm_plex_transform_type": "refine_sbr"}
+    with petsctools.inserted_options(None, parameters=parameters):
         new_dm = dm.adaptLabel(adapt_name)
-    finally:
-        if had_prev:
-            opts["dm_plex_transform_type"] = prev
-        else:
-            opts.delValue("dm_plex_transform_type")
-        dm.removeLabel(parent_name)
-        dm.removeLabel(adapt_name)
+    dm.removeLabel(parent_name)
+    dm.removeLabel(adapt_name)
 
     # The transform propagates every label, including the temporary adapt label.
     for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", adapt_name):
