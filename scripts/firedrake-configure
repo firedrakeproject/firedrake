@@ -334,12 +334,12 @@ class Arch:
     def show_petsc_configure_options(self, extra_options: Sequence[str] = ()) -> None:
         include_dirs = " ".join(f"-I{idir}" for idir in self.include_dirs)
         library_dirs = " ".join(f"-L{ldir}" for ldir in self.library_dirs)
+        dir_flags = " ".join((include_dirs, library_dirs))
         opts = [
             f"PETSC_ARCH=arch-firedrake-{self.name}",
-            *([f"--CFLAGS+='{include_dirs}'"] if include_dirs else []),
-            *([f"--CXXFLAGS+='{include_dirs}'"] if include_dirs else []),
-            *([f"--FFLAGS+='{include_dirs}'"] if include_dirs else []),
-            *([f"--LDFLAGS+='{library_dirs}'"] if library_dirs else []),
+            f"--CFLAGS+='{dir_flags}'",
+            f"--CXXFLAGS+='{dir_flags}'",
+            f"--FFLAGS+='{dir_flags}'",
             f"--COPTFLAGS='{' '.join(self.coptflags)}'",
             f"--CXXOPTFLAGS='{' '.join(self.cxxoptflags)}'",
             f"--FOPTFLAGS='{' '.join(self.foptflags)}'",
