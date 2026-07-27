@@ -2735,7 +2735,9 @@ values from f.)"""
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
-            run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+            err = run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+        if err != 0:
+            raise RuntimeError(f"C locator failed with error code {err}")
         return cells, Xs, ref_cell_dists_l1
 
     @PETSc.Log.EventDecorator()
