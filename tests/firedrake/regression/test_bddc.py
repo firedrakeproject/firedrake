@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from functools import reduce
@@ -44,7 +45,7 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
             "bddc_pc_bddc_adaptive_threshold": 5,
         })
     # On MacOSX the distributed right-hand side is bugged!
-    if DEFAULT_DIRECT_SOLVER == "mumps":
+    if DEFAULT_DIRECT_SOLVER == "mumps" and sys.platform == "darwin":
         sp.update({"bddc_pc_bddc_coarse_mat_mumps_icntl_20": 0})
 
     return sp
