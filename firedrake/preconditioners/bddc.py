@@ -16,7 +16,7 @@ from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
-from finat.ufl import BrokenElement
+from finat.ufl import BrokenElement, TensorElement, VectorElement
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
 import numpy
@@ -385,14 +385,17 @@ def get_entity_coordinates(V):
     mesh = V.mesh()
     gdim = mesh.geometric_dimension
 
-    V_target = fd.VectorFunctionSpace(mesh, V.ufl_element())
-    V_cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
+    base_element = V.ufl_element()
+    if isinstance(base_element, (TensorElement, VectorElement)):
+        base_element = base_element._sub_element
+    V_target = fd.VectorFunctionSpace(mesh, base_element)
+    cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
 
     out_coords = fd.Function(V_target)
-    cg1_coords = fd.Function(V_cg1_coord).interpolate(mesh.coordinates)
+    cg1_coords = fd.Function(cg1_coord).interpolate(mesh.coordinates)
 
     finat_element = V.finat_element
-    cg1_finat = V_cg1_coord.finat_element
+    cg1_finat = cg1_coord.finat_element
     active_entities = [
         (dim, ent_num)
         for dim, entities in finat_element.entity_dofs().items()
@@ -421,9 +424,9 @@ def get_entity_coordinates(V):
 
     total_v_dofs = len(v_flat)
     total_cg1_dofs = len(cg1_flat)
-
+    kernel_name = "compute_entity_coords"
     kernel_code = f"""
-    void compute_target_coords_loop(PetscScalar *out, PetscScalar *cg1_coords) {{
+    void {kernel_name}(PetscScalar *out, PetscScalar *cg1_coords) {{
 
         // Target space represented as a flattened pair of 1D arrays
         const int v_offsets[{num_entities + 1}] = {{ {", ".join(map(str, v_offsets))} }};
@@ -468,12 +471,8 @@ def get_entity_coordinates(V):
         }}
     }}
     """
-
-    # 6. Parallel Loop over the full cell mapping set using op2.WRITE
-    kernel = op2.Kernel(kernel_code, "compute_target_coords_loop")
-
+    kernel = op2.Kernel(kernel_code, kernel_name)
     op2.par_loop(kernel, mesh.cell_set,
                  out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
                  cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
-
-    return out_coords.dat.data
+    return out_coords.dat.data.repeat(V.block_size, axis=0)
