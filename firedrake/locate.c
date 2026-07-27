@@ -24,7 +24,7 @@ PetscInt locate_cell_from_candidates(struct Function *f,
     pointers refer to is updated as necessary. */
     PetscReal ref_cell_dist_l1 = PETSC_MAX_REAL;
     PetscReal current_ref_cell_dist_l1 =  -0.5;
-    /* NOTE: `tolerance`, which is used throughout this funciton, is a static
+    /* NOTE: `tolerance`, which is used throughout this function, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
