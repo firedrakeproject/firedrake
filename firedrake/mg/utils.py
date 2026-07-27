@@ -172,9 +172,6 @@ def set_dm_refine_level(mesh, level):
 def set_level(obj, hierarchy, level):
     """Attach hierarchy and level info to an object."""
     setattr(obj.topological, "__level_info__", (hierarchy, level))
-    redist = getattr(obj, "redist", None)
-    if redist is not None:
-        setattr(redist.orig.topological, "__level_info__", (hierarchy, level))
     return obj
 
 
