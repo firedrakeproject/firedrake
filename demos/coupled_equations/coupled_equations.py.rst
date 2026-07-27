@@ -1,22 +1,10 @@
 Coupled equations
 =================
 
-1. Introduction and background
-1.1. Explain the Poisson and Helmholtz equations and Dirichlet-Neumann Method [CITE TEXTBOOK]
-1.2. Explain MMS
-2. Describe example (using MMS) [conforming/nonconforming meshes]
-3. Describe the python implementation
-4. Provide example of plotting output and verify accuracy - convergence analysis
+This tutorial shows how Firedrake can handle coupled equations with coupled meshes. The first example implements a poisson equation coupled to a Helmholtz equation.
 
-------------
-Introduction
-------------
-
-This tutorial shows how Firedrake can handle coupled equations with coupled meshes. The first example implements a poisson equation coupled to a Helmholtz equation. [......]
-
-----------------------------------------------------------------
 Coupled Poisson and Helmholtz equations
-----------------------------------------------------------------
+---------------------------------------
 
 Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` with boundary :math:`\Gamma` and :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square. The poisson equation is defined on :math:`\Omega_1` as
 
@@ -24,7 +12,7 @@ Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 
 
   -\nabla^2 u_1 &= f
 
-  u_1 &= 0 \ \textrm{on}\ \Omega_1 \setminus \Gamma.
+  u_1 &= 0 \ \textrm{on}\ \partial \Omega_1 \setminus \Gamma.
 
 The Helmholtz equation is defined on :math:`\Omega_2` as
 
@@ -52,7 +40,7 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
   L_2 (v_2) &= \int_{\Omega_2}g v_2  \ {\rm d} x.
 
-These equations are then coupled along the shared interface :math:`\Gamma` with Nitsche's method to enforce the boundary conditions in the weak form. [TODO: maybe explain what Nitsche's method is] This is done by adding a boundary penalty term to both sides of the weak forms. The poisson and Helmholtz weak form equations are updated to become
+These equations are then coupled along the shared interface :math:`\Gamma` with Nitsche's method to enforce the boundary conditions in the weak form. This is done by adding a boundary penalty term to both sides of the weak forms. The poisson and Helmholtz weak form equations are updated to become
 
 .. math::
 
@@ -75,11 +63,10 @@ where :math:`w_1, w_2 \>\> 0` are penalty parameters and :math:`\mathcal{I}_{V^2
 
   a_{11}(u_1,v_1) + a_{12}(u_2,v_1) + a_{22}(u_2,v_2) + a_{21}(u_1,v_2) = L_1(v_1) + L_2(v_2) \ \textrm{for all}\ (v_1, v_2) \in V^1 \times V^2.
 
-[TODO: Maybe discuss discretisation - how does this become Ax = b]
 
-------------------------
 Dirichlet-Neumann Method
-------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
+
 To computationally approximate the coupled problem, the Dirichlet-Neumann method is applied. This method enforces further conditions on the solution:
 
 .. math::
@@ -100,28 +87,234 @@ To computationally approximate the coupled problem, the Dirichlet-Neumann method
 
   \end{cases}
 
-- TODO: Talk about how this is implemented
-
---------------------------------------
 Method of Manufactured Solutions (MMS)
---------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The method of manufactured solutions verifies the accuracy of implemented finite element models. This is done by explicitly specifying a solution for the differential equation at hand, ensuring that this solution satisfies all conditions set on the problem. We can then analyse the accuracy of the approximated solution. 
+The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions. This is accomplished by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The equations to be passed into the solver is calculated from these exact solutions to obtain an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
 
-- TODO: Provide example solution 
+For this demo, we define the solution as
 
---------------
+.. math::
+  u_1 &= x \sin(\pi y)^2,
+
+  u_2 &= \sin(\pi y)^2 \left(x - \frac{(x - 1)^2}{2} \right),
+
+which satisfies the boundary conditions set on this problem.
+
+
 Implementation
 --------------
 
-Can add python block using::
+We now implement this problem using Firedrake by first initialising the constants and variables required for solving and analysing the problem. ::
 
   from firedrake import *
-  n = 30
-  mesh = UnitSquareMesh(n, n)
+  # Constants
+  PLOT = False
+  VERBOSE = True
+  w2 = Constant(100.0)  # Nitsche penalty weight
 
-Block ends when indentation finishes.
+  # Variables initialised for convergence analysis
+  n1_list = [2,4,8,16,32]
+  n2_list = [2,4,8,16,32]
+  mesh1_list = []
+  mesh2_list = []
+  h1_array = []
+  h2_array = []
+  errors_1 = []
+  errors_2 = []
 
+For each index in ``n1_list`` and ``n2_list``, we define two meshes with a shared edge each with ``n1 x n1`` and ``n2 x n2`` elements. ::
+
+  for n1,n2 in zip(n1_list, n2_list):
+    mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
+    mesh2 = UnitSquareMesh(n2, n2, quadrilateral=True)
+    mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
+
+    mesh1_list.append(mesh1)
+    mesh2_list.append(mesh2)
+
+The problem is then defined by passing these meshes to ``build_problem``. First, the exact solutions for this problem are defined in order to calculate the source functions. :: 
+
+  def build_problem(mesh1, mesh2):
+    x1, y1 = SpatialCoordinate(mesh1)
+    x2, y2 = SpatialCoordinate(mesh2)
+    u1_exact = x1 * sin(pi * y1) ** 2
+    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    
+    # RHS functions
+    f1 = -div(grad(u1_exact))
+    f2 = -div(grad(u2_exact)) + u2_exact
+
+The following measures are defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes. ::
+
+    n1 = FacetNormal(mesh1)
+    n2 = FacetNormal(mesh2)
+    dx1 = Measure("dx", domain=mesh1)
+    dx2 = Measure("dx", domain=mesh2)
+    ds1 = Measure("ds", domain=mesh1, subdomain_id=2)
+    ds2 = Measure("ds", domain=mesh2, subdomain_id=1)
+
+Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.::
+
+    # Function Spaces
+    V1 = FunctionSpace(mesh1, "CG", 3)
+    V2 = FunctionSpace(mesh2, "CG", 3)
+    W = V1 * V2
+
+    # Test and trial functions
+    u1, u2 = TrialFunctions(W)
+    v1, v2 = TestFunctions(W)
+
+The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. Intermediate spaces are used for defining the coupling terms in the variational problem. These coupling terms are calculated by multiplying the cross-mesh interpolation matrices ``B12`` and ``B21`` with the mas matrices ``M1`` and ``M2``. ::
+  
+    # Intermediate spaces
+    Q1v = VectorFunctionSpace(mesh1, "CG", 3)
+    Q2 = FunctionSpace(mesh2, "CG", 3)
+
+    # Poisson on mesh_1
+    A11_form = inner(grad(u1), grad(v1)) * dx1
+
+    # Helmholtz on mesh_2
+    A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
+                - inner(dot(grad(u2), n2), v2) * ds2 \
+                + w2 * inner(u2, v2) * ds2
+    
+    # A12: row v1, column u2
+    # W --B12--> Q1v --M1--> W^*
+    # inner(dot(grad(u2), n1), v1) * ds1
+    q1v = TrialFunction(Q1v)
+    M1 = -inner(dot(q1v, n1), v1) * ds1  # Q1v -> W^*
+    B12 = interpolate(grad(u2), Q1v, allow_missing_dofs=True)  # W -> Q1v
+    A12_form = action(M1, B12)
+
+    # A21: row v2, column u1.
+    # W --B21--> Q2 --M2--> W^*
+    q2 = TrialFunction(Q2)
+    M2 = -w2 * inner(q2, v2) * ds2  # Q2 -> W^*
+    B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
+    A21_form = action(M2, B21)
+
+These definitions are combined to form the overall problem to be solved ``Ax = L``. We return ``A, L, W`` and the exact solutions mapped onto the function space from this method. ::
+
+    # RHS
+    b1 = inner(f1, v1) * dx1
+    b2 = inner(f2, v2) * dx2
+    A = A11_form + A12_form + A21_form + A22_form
+    L = b1 + b2
+
+    # Exact solutions used for further analysis
+    u1_exact_func = Function(V1).interpolate(u1_exact)
+    u2_exact_func = Function(V2).interpolate(u2_exact)
+
+    return A, L, W, u1_exact_func, u2_exact_func
+
+The resulting solution can be plotted by calling ``plot``. Matplotlib is required for plotting with this method and Firedrake's `trisurf`_ is used to produce a three-dimensional surface plot. ::
+
+  import matplotlib.pyplot as plt
+  from firedrake.pyplot import trisurf
+
+  def plot(filename, u_1, u_2):
+    u1_vals = u_1.dat.data_ro
+    u2_vals = u_2.dat.data_ro
+    vmin = min(u1_vals.min(), u2_vals.min())
+    vmax = max(u1_vals.max(), u2_vals.max())
+
+    fig = plt.figure(figsize=(8, 10))
+    ax = fig.add_subplot(111, projection="3d")
+    trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
+    trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
+    ax.view_init(elev=35, azim=-110)
+    ax.set_aspect("equalxz")
+    plt.tight_layout()
+    plt.savefig(filename)
+
+Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh-size as shown below.::
+
+  for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
+    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
+    u_sol = Function(W)
+    
+    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
+    params = {
+        "mat_type": "aij",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+    }
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    u_1, u_2 = u_sol.subfunctions
+
+    if PLOT:
+      plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
+
+We additionally calculate the L2 error norm between the approximated and exact solutions and collect the mesh-size at each iteration for convergence analysis. ::
+
+    e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
+    e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
+    h1 = 1.0/n1
+    h2 = 1.0/n2
+
+    h1_array.append(h1)
+    h2_array.append(h2)
+    errors_1.append(e_1)
+    errors_2.append(e_2)
+
+
+Convergence Analysis
+--------------------
+
+Using the L2 error norms calculated above, we can approximate the rate of convergence 
+
+.. math::
+  
+  q = \frac{\ln \left( \frac{||u_{h_1} - \tilde{u}||_{L^2}}{||u_{h_2} - \tilde{u}||_{L^2}} \right)}{\ln \left( \frac{h_1}{h_2} \right)}.
+  
+where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes of differing sizes, :math:`\tilde{u}` is the exact solution, :math:`h_1` and :math:`h_2` are the mesh spacings. ::
+
+  ratios_1 = []
+  ratios_2 = []
+  for i in range(len(h1_array) - 1):
+    q1_numerator = np.log(errors_1[i]/errors_1[i+1])
+    q2_numerator = np.log(errors_2[i]/errors_2[i+1])
+    q1_denominator = np.log(h1_array[i]/h1_array[i+1])
+    q2_denominator = np.log(h2_array[i]/h2_array[i+1])
+
+    q1 = q1_numerator/q1_denominator
+    q2 = q2_numerator/q2_denominator
+    ratios_1.append(q1)
+    ratios_2.append(q2)
+
+If the ``VERBOSE`` flag is set to True, the following block runs and prints the convergence analysis results, presenting an error graph alongside. :: 
+
+  if VERBOSE:
+    print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
+    for i in range(len(errors_1)):
+      if i == 0:
+        print(f"{h1_array[i]:10.5f} {errors_1[i]:15.6e} {'-':>10}")
+      else:
+        print(f"{h1_array[i]:10.5f} {errors_1[i]:15.6e} {ratios_1[i-1]:10.4f}")
+
+    print(f"{'h':>10} {'Error 2':>15} {'Rate 2':>10}")
+    for i in range(len(errors_2)):
+      if i == 0:
+        print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
+      else:
+        print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
+
+    plt.figure(figsize=(8,8))
+    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
+    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
+    plt.xlabel("h")
+    plt.ylabel("L2 error")
+    plt.gca().invert_xaxis()
+    plt.grid(False)
+    plt.legend()
+    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann Method")
+    plt.savefig("Logloggraph.png")
+
+[TODO: Insert results]
 
 
 A python script version of this demo can be found :demo:`here <coupled_equations.py>`.
@@ -129,3 +322,4 @@ A python script version of this demo can be found :demo:`here <coupled_equations
 .. _DG advection equation with upwinding: https://www.firedrakeproject.org/demos/DG_advection.py.html
 .. _Simple Helmholtz equation: https://www.firedrakeproject.org/demos/helmholtz.py.html
 .. _Mixed formulation for the Poisson equation: https://www.firedrakeproject.org/demos/poisson_mixed.py.html
+.. _Trisurf: https://www.firedrakeproject.org/firedrake.pyplot.html#firedrake.pyplot.trisurf
