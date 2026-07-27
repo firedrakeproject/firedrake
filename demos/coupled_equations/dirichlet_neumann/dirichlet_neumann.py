@@ -94,6 +94,7 @@ def build_problem(mesh1, mesh2):
     A = A11_form + A12_form + A21_form + A22_form
     L = b1 + b2
 
+    # Exact solutions used for further analysis
     u1_exact_func = Function(V1).interpolate(u1_exact)
     u2_exact_func = Function(V2).interpolate(u2_exact)
 
@@ -114,7 +115,7 @@ def plot(filename, u_1, u_2):
     plt.tight_layout()
     plt.savefig(filename)
 
-
+# Solver for the coupled problem for each defined mesh
 for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
@@ -132,21 +133,20 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     u_1, u_2 = u_sol.subfunctions
 
     if PLOT:
-        #demos/coupled_equations/dirichlet_neumann/
         plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
 
+    # Calculates the L2 error between the approximated and exact solutions
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
     e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
     h1 = 1.0/n1
     h2 = 1.0/n2
-    #h = mesh1.cell_sizes.dat.data_ro.max()
 
     h1_array.append(h1)
     h2_array.append(h2)
     errors_1.append(e_1)
     errors_2.append(e_2)
 
-
+# Calculate the convergence rate of the approcimated solution
 ratios_1 = []
 ratios_2 = []
 for i in range(len(h1_array) - 1):
@@ -160,7 +160,7 @@ for i in range(len(h1_array) - 1):
     ratios_1.append(q1)
     ratios_2.append(q2)
 
-
+# Outputs convergence analysis results and presents a log-log graph
 if VERBOSE:
     print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
     for i in range(len(errors_1)):
