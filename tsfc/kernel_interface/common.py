@@ -17,9 +17,8 @@ from finat.cell_tools import max_complex
 from finat.duffy import DuffyElement
 from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
-from gem.optimise import constant_fold_zero
+from gem.optimise import constant_fold_zero, unflatten_returns
 from gem.optimise import remove_componenttensors as prune
-from gem.unflatten import unflatten_returns
 from numpy import asarray
 from tsfc import fem
 from finat.element_factory import as_fiat_cell, create_element
