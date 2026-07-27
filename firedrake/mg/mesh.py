@@ -25,7 +25,7 @@ def make_unoverlapped_dm(dm):
     distributeOverlap(). This is algorithmically guaranteed.
     """
     tdim = dm.getDimension()
-    dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, True)
+    dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, ignore_label_halo=True)
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")
@@ -185,7 +185,6 @@ def MeshHierarchy(mesh, refinement_levels,
             reorder=reorder,
             comm=mesh.comm,
         )
-        fmesh._distribution_parameters = parameters
         meshes.append(fmesh)
 
     # Build local-to-global maps and coarse/fine cell maps between
