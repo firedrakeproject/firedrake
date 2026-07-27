@@ -98,9 +98,7 @@ jobs:
     name: Test default
     runs-on: [self-hosted, Linux]
     container:
-      # UNDO ME
-      # image: ubuntu:latest
-      image: ubuntu:noble
+      image: ubuntu:latest
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
