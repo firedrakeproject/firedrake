@@ -51,7 +51,7 @@ typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
 				PetscInt layer,
 				double *x);
 
-extern PetscInt locate_cell_from_candidates(struct Function *f,
+extern PetscErrorCode locate_cell_from_candidates(struct Function *f,
 		       double *x,
 		       ref_cell_l1_dist try_candidate,
 		       ref_cell_l1_dist_xtr try_candidate_xtr,
