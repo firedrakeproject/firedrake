@@ -9,7 +9,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
 from numbers import Number
 from functools import partial, cached_property
@@ -37,7 +37,7 @@ __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", as_ctypes(IntType)),
-                ("extruded", c_int),
+                ("extruded", c_bool),
                 ("n_layers", as_ctypes(IntType)),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
