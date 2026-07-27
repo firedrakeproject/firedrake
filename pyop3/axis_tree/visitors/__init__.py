@@ -12,7 +12,7 @@ import pyop3.axis_tree
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
-from pyop3.node import Visitor, LabelledTreeVisitor, postorder
+from pyop3.node import Visitor, LabeledTreeVisitor, postorder
 from pyop3.labeled_tree import parent_path
 
 from .layout import compute_layouts  # noqa: F401
@@ -20,7 +20,7 @@ from .size import compute_axis_tree_size, compute_axis_tree_component_size  # no
 
 
 # used?
-class BufferCollector(LabelledTreeVisitor):
+class BufferCollector(LabeledTreeVisitor):
 
     EMPTY = OrderedFrozenSet()
 

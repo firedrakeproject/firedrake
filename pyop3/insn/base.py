@@ -142,9 +142,11 @@ class Loop(NonTerminalInstruction):
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        with visitor.strong_hash_buffers():
+            index_key = visitor(self.index)
         return (
             type(self),
-            visitor(self.index, inside=True),
+            index_key,
             tuple(map(visitor, self.statements)),
         )
 
@@ -846,12 +848,16 @@ class Exscan(TerminalInstruction):
         )
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+        assignee_key = visitor(self.assignee)
+        expression_key = visitor(self.expression)
+        with visitor.strong_hash_buffers():
+            scan_axis_key = visitor(self.scan_axis)
         return (
             type(self),
-            visitor(self.assignee),
-            visitor(self.expression),
+            assignee_key,
+            expression_key,
             self.scan_type,
-            visitor(self.scan_axis, inside=True),
+            scan_axis_key,
         )
 
     @classmethod

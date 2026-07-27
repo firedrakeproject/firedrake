@@ -50,15 +50,15 @@ from pyop3.axis_tree.tree import (
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
 from pyop3.labeled_tree import (
-    LabelledNodeComponent,
+    LabeledNodeComponent,
     LabeledTree,
-    MultiComponentLabelledNode,
-    MutableLabelledTreeMixin,
+    MultiComponentLabeledNode,
+    MutableLabeledTreeMixin,
     accumulate_path,
     filter_path,
 )
 from pyop3.utils import (
-    Labelled,
+    Labeled,
     as_tuple,
     expand_collection_of_iterables,
     single_valued,
@@ -71,7 +71,7 @@ from pyop3 import utils
 
 bsearch = pym.var("mybsearch")
 
-class Index(MultiComponentLabelledNode):
+class Index(MultiComponentLabeledNode):
     pass
 
 
@@ -79,7 +79,7 @@ class Index(MultiComponentLabelledNode):
 # nonsense. Instead I think they should just advertise a degree and then attach
 # to matching index (instead of label).
 @pyop3.record.frozenrecord()
-class IndexTree(MutableLabelledTreeMixin, LabeledTree):
+class IndexTree(MutableLabeledTreeMixin, LabeledTree):
 
     # {{{ instance attrs
 
@@ -127,7 +127,7 @@ class IndexTree(MutableLabelledTreeMixin, LabeledTree):
     _as_node = _as_index
 
 
-class SliceComponent(LabelledNodeComponent, abc.ABC):
+class SliceComponent(LabeledNodeComponent, abc.ABC):
     @property
     @abc.abstractmethod
     def component(self):
@@ -302,7 +302,7 @@ class UnparsedSlice:
     wrappee: Any  # TODO: Can specialise the type here
 
 
-class MapComponent(Labelled, pyop3.obj.Object):
+class MapComponent(Labeled, pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
@@ -430,7 +430,7 @@ class LoopIndex(UnitIndex):
         return (
             type(self),
             visitor(self.iterset),
-            visitor.renamer.add((type(self), self.label)),
+            visitor.renamer.add(self.label, type_=type(self)),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -900,7 +900,7 @@ class UnspecialisedCalledMapException(Pyop3Exception):
 
 
 # TODO: I think these parent types are no longer used/useful
-class AbstractCalledMap(AxisIndependentIndex, Labelled, LoopIterable):
+class AbstractCalledMap(AxisIndependentIndex, Labeled, LoopIterable):
 
     # {{{ abstract methods
 

@@ -41,10 +41,10 @@ from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, s
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.labeled_tree import (
-    LabelledNodeComponent,
+    LabeledNodeComponent,
     LabeledTree,
-    MultiComponentLabelledNode,
-    MutableLabelledTreeMixin,
+    MultiComponentLabeledNode,
+    MutableLabeledTreeMixin,
     accumulate_path,
     as_component_label,
     as_path,
@@ -357,7 +357,7 @@ def _region_label_matches(region, label) -> bool:
 
 
 @pyop3.record.frozenrecord()
-class AxisComponent(LabelledNodeComponent):
+class AxisComponent(LabeledNodeComponent):
     """
     Parameters
     ----------
@@ -549,7 +549,7 @@ class AxisComponent(LabelledNodeComponent):
 
 
 @pyop3.record.frozenrecord()
-class Axis(LoopIterable, MultiComponentLabelledNode):
+class Axis(LoopIterable, MultiComponentLabeledNode):
 
     # {{{ instance attrs
 
@@ -563,7 +563,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode):
         return (
             type(self),
             tuple(map(visitor, self.components)),
-            visitor.renamer.add((type(self), self.label)),
+            visitor.renamer.add(self.label, type_=type(self)),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -735,7 +735,7 @@ class AxisTarget(pyop3.obj.Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor.renamer.add((Axis, self.axis)),
+            visitor.renamer.add(self.axis, type_=Axis),
             self.component,
             visitor(self.expr),
         )
@@ -1418,7 +1418,7 @@ labels.
 
 
 @pyop3.record.frozenrecord(repr=False)
-class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
+class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
 
     # {{{ instance attrs
 
@@ -1726,7 +1726,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         node_map_key = {}
         for path, axis in self.node_map.items():
             relabeled_path = idict({
-                visitor.renamer.add((Axis, axis_label)): component_label
+                visitor.renamer.add(axis_label, type_=Axis): component_label
                 for axis_label, component_label in path.items()
             })
             node_map_key[relabeled_path] = visitor(axis)
@@ -1735,7 +1735,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = {}
         for path, targetss in self._targets.items():
             relabeled_path = idict({
-                visitor.renamer.add((Axis, axis_label)): component_label
+                visitor.renamer.add(axis_label, type_=Axis): component_label
                 for axis_label, component_label in path.items()
             })
             targets_key[relabeled_path] = tuple(
@@ -2074,7 +2074,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
         targets_key = {}
         for path, targetss in self._targets.items():
             relabeled_path = idict({
-                visitor.renamer.add((Axis, axis_label)): component_label
+                visitor.renamer.add(axis_label, type_=Axis): component_label
                 for axis_label, component_label in path.items()
             })
             targets_key[relabeled_path] = tuple(

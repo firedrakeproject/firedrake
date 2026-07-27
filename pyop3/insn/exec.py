@@ -138,10 +138,6 @@ class InstructionExecutionContext:
     """Class that coordinates the compilation and execution of an instruction."""
 
     def __init__(self, root_insn: Instruction, compiler_parameters) -> None:
-        import pyop3.visitors
-
-        with pyop3.cache.heavy_caches([root_insn]):
-            root_insn = pyop3.visitors.canonicalize_labels(root_insn)
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         self.root_insn = root_insn

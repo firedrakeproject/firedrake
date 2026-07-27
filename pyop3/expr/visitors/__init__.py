@@ -689,28 +689,30 @@ def materialize_composite_dat(
     composite_dat: pyop3.expr.CompositeDat,
     comm: MPI.Comm,
     linear: bool,
-) -> pyop3.expr.LinearDatBufferExpression:
-    # NOTE: This should now be fine given that we relabel on the way in
-    return _materialize_composite_dat_cached(composite_dat, comm, linear)
+) -> pyop3.expr.BufferExpression:
+    import pyop3.visitors
 
-    from pyop3.visitors import InstructionExecutorCacheKeyGetter, relabel
+    print("original")
+    print(list(composite_dat.exprs.values())[2])
 
-    # TODO: Current using a very bespoke caching strategy because I don't
-    # know how to generically relabel on the way out.
-    visitor = InstructionExecutorCacheKeyGetter()
-    with visitor.inside():  # outermost buffers cannot be replaced, everything must be the same
-        _ = visitor(composite_dat)
-
-    relabel_map = visitor.renamer.store
-    relabeled_composite_dat = relabel(composite_dat, relabel_map)
-
-    materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm)
-
-    new_to_old_relabel_map = {
-        (node_type, new_label): old_label
-        for (node_type, old_label), new_label in relabel_map.items()
-    }
-    return relabel(materialized, new_to_old_relabel_map)
+    # For maximum cache reuse we relabel the expression on the way in and
+    # apply the inverse relabeling on the way out
+    import pyop3.debug
+    pyop3.debug.enable_conditional_breakpoints()
+    relabeler = pyop3.visitors.Relabeler()
+    relabeled_composite_dat = relabeler(composite_dat)
+    print("relabeled")
+    print(list(relabeled_composite_dat.exprs.values())[2])
+    # print(relabeled_composite_dat)
+    materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm, linear)
+    print("into")
+    print(materialized)
+    retval = pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map)
+    print("relabelmap", relabeler.inverse_relabel_map)
+    print("relabeled into")
+    print(retval)
+    # breakpoint()
+    return retval
 
 
 @memory_cache(heavy=True)

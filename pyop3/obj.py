@@ -23,15 +23,15 @@ class Object(abc.ABC):
         )
 
     # Could just be asserted by the visitor
-    def get_instruction_executor_cache_key(self, renamer) -> Hashable:
-        raise NotImplementedError(
-            f"'get_instruction_executor_cache_key' not implemented for '{type(self).__qualname__}'"
-        )
-
-    # Could just be asserted by the visitor
     def get_disk_cache_key(self, renamer) -> Hashable:
         raise NotImplementedError(
             f"'get_disk_cache_key' not implemented for '{type(self).__qualname__}'"
+        )
+
+    # Could just be asserted by the visitor
+    def get_instruction_executor_cache_key(self, renamer) -> Hashable:
+        raise NotImplementedError(
+            f"'get_instruction_executor_cache_key' not implemented for '{type(self).__qualname__}'"
         )
 
     @classmethod

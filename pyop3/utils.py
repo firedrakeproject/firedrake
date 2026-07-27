@@ -105,7 +105,7 @@ def deprecated(prefer=None, internal=False):
 #     pass
 
 
-class Labelled(abc.ABC):
+class Labeled(abc.ABC):
 
     @classmethod
     def unique_id(cls) -> str:

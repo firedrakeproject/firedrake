@@ -304,7 +304,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # up map1 and map2*. If those change then we need to recompute map3 from
         # scratch. The cache key here therefore distinguishes between outermost buffers
         # and inner ones.
-        if visitor.outer:
+        if not visitor._weak_hash_buffers:
             return (
                 type(self),
                 self.dtype,
@@ -1021,7 +1021,7 @@ class PetscMatBuffer(ConcreteBuffer):
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # we can hit buffers in multiple places...
         # on the outside these are allowed to differ but inside they aren't
-        if visitor.outer:
+        if not visitor._weak_hash_buffers:
             return (
                 type(self),
                 visitor.renamer.add(self),

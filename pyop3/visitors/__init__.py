@@ -21,11 +21,11 @@ import pyop3.obj
 import pyop3.sf
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
-from pyop3.labeled_tree import MultiComponentLabelledNode
+from pyop3.labeled_tree import MultiComponentLabeledNode
 
 import pyop3.visitors.base
 
-from pyop3.visitors.canonicalize_labels import canonicalize_labels  # noqa: F401
+from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
 from pyop3.visitors.compress_indirections import materialize_indirections  # noqa: F401
 
 if typing.TYPE_CHECKING:
@@ -70,18 +70,28 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
     def relabel_axis_tree_path(self, path):
         new_path = {}
         for axis, component in path.items():
-            new_axis = self.renamer.add((pyop3.axis_tree.Axis, axis))
+            new_axis = self.renamer.add(axis, type_=pyop3.axis_tree.Axis)
             new_path[new_axis] = component
         return idict(new_path)
-
-    # not a cached property because this changes as we traverse things
+    # def relabel_axis_tree_path(self, path):
+    #     return idict({
+    #         self._node_label_relabel_map[node]: component
+    #         for node, component in path.items()
+    #     })
+    #
     # @property
     # def _node_label_relabel_map(self) -> dict:
+    #     print(self.renamer.rename_map)
     #     relabel_map = {}
-    #     for key, new_label in self.renamer.store.items():
-    #         if isinstance(key, tuple):
-    #             obj_type, orig_label = key
-    #             relabel_map[orig_label] = new_label
+    #     for key, vs in self.renamer._store.items():
+    #         if issubclass(key, pyop3.labeled_tree.MultiComponentLabeledNode):
+    #             if self.renamer.rename_map:
+    #                 for k, v in vs.items():
+    #                     relabel_map[k] = self.renamer.rename_map[key][v]
+    #             else:
+    #                 for k, v in vs.items():
+    #                     relabel_map[k] = v
+    #     print(relabel_map)
     #     return relabel_map
 
 
@@ -109,33 +119,25 @@ def get_disk_cache_key(obj: pyop3.obj.Object) -> Hashable:
     return DiskCacheKeyGetter()(obj)
 
 
-class InstructionExecutorCacheKeyGetter(CacheKeyGetter):
+class MemoryCacheKeyGetter(CacheKeyGetter):
 
-    def __init__(self):
-        # Flag that tells us what to do about buffers, do we consider
-        # them replaceable or not?
-        # TODO: awful name
-        self.outer = True
+    def __init__(self, *, weak_hash_outer_buffers: bool = False) -> None:
+        self._weak_hash_buffers = weak_hash_outer_buffers
         super().__init__()
 
-    def __call__(self, obj, *, inside=None):
-        if inside is not None:
-            assert inside == True
-            with self.inside():
-                return super().__call__(obj)
-        else:
-            return super().__call__(obj)
-
     @contextlib.contextmanager
-    def inside(self):
-        prev_outer = self.outer
-        self.outer = False
+    def strong_hash_buffers(self):
+        prev_weak_hash = self._weak_hash_buffers
+        self._weak_hash_outer_buffers = False
         yield
-        self.outer = prev_outer
+        self._weak_hash_buffers = prev_weak_hash
+
+    def get_cache_key(self, obj: pyop3.obj.Object, /, **kwargs):
+        return (*super().get_cache_key(obj, **kwargs), self._weak_hash_buffers)
 
     @functools.singledispatchmethod
-    def process(self, obj: Any) -> Hashable:
-        return super().process(obj)
+    def process(self, obj: Any, /) -> Hashable:
+        utils.raise_missing_dispatch_handler(obj)
 
     @process.register(types.NoneType)
     @process.register(numbers.Number)
@@ -144,7 +146,12 @@ class InstructionExecutorCacheKeyGetter(CacheKeyGetter):
 
     @process.register
     def _(self, obj: pyop3.obj.Object) -> Hashable:
+        # TODO: rename this to get_memory_cache_key
         return obj.get_instruction_executor_cache_key(self)
+
+
+def get_cache_key(obj: pyop3.obj.Object) -> Hashable:
+    return MemoryCacheKeyGetter()(obj)
 
 
 def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
@@ -158,7 +165,7 @@ def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
     as dat3/dat4. We can reuse the indirection maps and preprocessing optimisations etc and just change
     the buffers at the top-level.
     """
-    return InstructionExecutorCacheKeyGetter()(obj)
+    return MemoryCacheKeyGetter(weak_hash_outer_buffers=True)(obj)
 
 
 @functools.singledispatch

@@ -62,7 +62,7 @@ def postorder(method):
     def wrapper(self, *args, **kwargs):
         if isinstance(self, NodeVisitor):
             return _postorder_node(self, *args, **kwargs)
-        elif isinstance(self, LabelledTreeVisitor):
+        elif isinstance(self, LabeledTreeVisitor):
             return _postorder_labelled_tree(self, *args, **kwargs)
         else:
             raise TypeError(f"Cannot postorder visit '{utils.pretty_type(self)}'")
@@ -185,7 +185,7 @@ class Visitor(abc.ABC):
             self.index = prev_index
 
 
-class LabelledTreeVisitor(Visitor):
+class LabeledTreeVisitor(Visitor):
     """
     Notes
     -----

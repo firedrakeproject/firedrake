@@ -21,7 +21,7 @@ from pyop3.cache import cached_method
 from pyop3.constants import DECIDE
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
-    Labelled,
+    Labeled,
     UniqueNameGenerator,
 )
 
@@ -47,12 +47,12 @@ class Node:
     pass
 
 
-class LabelledNodeComponent(pyop3.obj.Object, abc.ABC):
+class LabeledNodeComponent(pyop3.obj.Object, abc.ABC):
 
     __abstract_record_attrs = ("label",)
 
 
-class MultiComponentLabelledNode(Node, Labelled, pyop3.obj.Object):
+class MultiComponentLabeledNode(Node, Labeled, pyop3.obj.Object):
 
     __abstract_record_attrs = ("label",)
 
@@ -501,8 +501,8 @@ class LabeledTree(AbstractLabeledTreeLike):
 
 
 
-class MutableLabelledTreeMixin:
-    def add_node(self, path: PathT | None, node: Node) -> MutableLabelledTreeMixin:
+class MutableLabeledTreeMixin:
+    def add_node(self, path: PathT | None, node: Node) -> MutableLabeledTreeMixin:
         """Return a new tree with ``node`` attached at ``path``."""
         if path is None:
             path = self.leaf_path
@@ -530,7 +530,7 @@ class MutableLabelledTreeMixin:
 
         return self.record_new(node_map=self.node_map | {path: node} | new_leaves)
 
-    def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabelledTreeMixin:
+    def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabeledTreeMixin:
         """Attach another tree to a leaf of the current tree."""
         if path is None:
             path = self.leaf_path
@@ -554,7 +554,7 @@ class MutableLabelledTreeMixin:
             node_map[path | subpath] = subnode
         return self.record_new(node_map=idict(node_map))
 
-    def subtree(self, path: PathT) -> MutableLabelledTreeMixin:
+    def subtree(self, path: PathT) -> MutableLabeledTreeMixin:
         """Return the subtree with ``path`` as the root."""
         path = as_path(path)
 
@@ -582,7 +582,7 @@ class MutableLabelledTreeMixin:
                 trimmed_node_map[trimmed_path] = node
         return idict(trimmed_node_map)
 
-    def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabelledTreeMixin:
+    def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabeledTreeMixin:
         path = as_path(path)
 
         if path not in self.node_map:
@@ -602,7 +602,7 @@ class MutableLabelledTreeMixin:
             node_map[orig_path] = node
         return type(self)(node_map)
 
-    def drop_node(self, path: PathT) -> MutableLabelledTreeMixin:
+    def drop_node(self, path: PathT) -> MutableLabeledTreeMixin:
         path = as_path(path)
 
         to_drop = self.node_map[path]
@@ -613,7 +613,7 @@ class MutableLabelledTreeMixin:
 
 
 def as_component_label(component):
-    if isinstance(component, LabelledNodeComponent):
+    if isinstance(component, LabeledNodeComponent):
         return component.label
     else:
         return component

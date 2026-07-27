@@ -22,11 +22,22 @@ if typing.TYPE_CHECKING:
 
 
 # TODO: inherit from IdentityMapper (not yet implemented)
-class LabelCanonicalizer(pyop3.node.NodeVisitor):
+class Relabeler(pyop3.node.NodeVisitor):
 
-    def __init__(self) -> None:
-        self._renamer = pyop3.visitors.base.Renamer()
+    def __init__(self, relabel_map=None) -> None:
+        self._renamer = pyop3.visitors.base.Renamer(relabel_map)
         super().__init__()
+
+    # not the bug
+    # def get_cache_key(self, obj: pyop3.obj.Object, /, **kwargs):
+    #     return (*super().get_cache_key(obj, **kwargs), self.index)
+
+    @property
+    def inverse_relabel_map(self):
+        inv_map = {}
+        for type_, label_map_per_type in self._renamer._store.items():
+            inv_map[type_] = utils.invert_mapping(label_map_per_type)
+        return inv_map
 
     def _relabel_pathed_mapping(self, mapping: Mapping[ConcretePathT, pyop3.obj.Object]):
         return idict({
@@ -35,19 +46,11 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
         })
 
     def _relabel_path(self, path):
-        return idict({
-            self._node_label_relabel_map[node]: component
-            for node, component in path.items()
-        })
-
-    @property
-    def _node_label_relabel_map(self) -> dict:
-        relabel_map = {}
-        for key, new_label in self._renamer.store.items():
-            if isinstance(key, tuple):
-                obj_type, orig_label = key
-                relabel_map[orig_label] = new_label
-        return relabel_map
+        new_path = {}
+        for axis, component in path.items():
+            new_axis = self._renamer.add(axis, type_=pyop3.axis_tree.Axis)
+            new_path[new_axis] = component
+        return idict(new_path)
 
     @functools.singledispatchmethod
     def process(self, obj: Any, /):
@@ -70,7 +73,7 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
         new_components = tuple(map(self, axis.components))
         return axis.record_new(
             components=new_components,
-            label=self._renamer.add((type(axis), axis.label)),
+            label=self._renamer.add(axis.label, type_=type(axis)),
         )
 
     @process.register
@@ -113,7 +116,7 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
     @process.register
     def _(self, axis_target: pyop3.axis_tree.AxisTarget, /):
         return axis_target.record_new(
-            axis=self._renamer.add((pyop3.axis_tree.Axis, axis_target.axis)),
+            axis=self._renamer.add(axis_target.axis, type_=pyop3.axis_tree.Axis),
             expr=self(axis_target.expr),
         )
 
@@ -129,7 +132,7 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
     def _(self, loop_index: pyop3.index_tree.LoopIndex, /):
         return loop_index.record_new(
             iterset=self(loop_index.iterset),
-            label=self._renamer.add((type(loop_index), loop_index.label)),
+            label=self._renamer.add(loop_index.label, type_=type(loop_index)),
         )
 
     # }}}
@@ -158,15 +161,19 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
         )
 
     @process.register
-    def _(self, axis_var: pyop3.expr.AxisVar, /):
-        new_axis = self(axis_var.axis)
-        return axis_var.record_new(axis=new_axis)
+    def _(self, av: pyop3.expr.AxisVar, /):
+        return av.record_new(axis=self(av.axis))
 
     @process.register
-    def _(self, loop_index_var: pyop3.expr.LoopIndexVar, /):
-        new_loop_index = self(loop_index_var.loop_index)
-        new_axis = self(loop_index_var.axis)
-        return loop_index_var.record_new(loop_index=new_loop_index, axis=new_axis)
+    def _(self, liv: pyop3.expr.LoopIndexVar, /):
+        retval = liv.record_new(
+            loop_index=self(liv.loop_index), axis=self(liv.axis)
+        )
+
+        if "closure" in str(retval):
+            import pyop3.debug
+            pyop3.debug.maybe_breakpoint()
+        return retval
 
     @process.register
     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /):
@@ -241,11 +248,12 @@ class LabelCanonicalizer(pyop3.node.NodeVisitor):
 
 
 
-def canonicalize_labels(obj: pyop3.obj.Object) -> pyop3.obj.Object:
-    return _get_label_canonicalizer(obj.comm)(obj)
+def relabel(obj: pyop3.obj.Object, relabel_map: Mapping) -> pyop3.obj.Object:
+    # return _get_label_canonicalizer(obj.comm, relabel_map)(obj)
+    return Relabeler(relabel_map)(obj)
 
 
 # TODO: We want this to be a general pattern for all visitors, can overload __new__
-@pyop3.cache.memory_cache(heavy=True)
-def _get_label_canonicalizer(comm):
-    return LabelCanonicalizer()
+# @pyop3.cache.memory_cache(heavy=True)
+# def _get_label_canonicalizer(comm):
+#     return LabelCanonicalizer()
