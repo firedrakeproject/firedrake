@@ -265,7 +265,7 @@ def prolong_matrix_kernel(Vc, Vf):
 
     Returns
     -------
-    op2.Kernel
+    pyop2.op2.Kernel
         A kernel that fills in the local dense matrix of the point evaluation
         prolongation operator, for each fine grid cell and its overlapping
         coarse grid cells.

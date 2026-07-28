@@ -314,8 +314,9 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
         The source (coarse grid) function space.
     Vf : WithGeometry
         The target (fine grid) function space.
-    bcs : list of DirichletBC, optional
+    bcs : list of DirichletBC
         Boundary conditions to apply to the rows and columns of the matrix.
+        Defaults to None, in which case no boundary conditions are applied.
 
     Returns
     -------
