@@ -327,12 +327,15 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
-            opts = PETSc.Options()
             prefix = self.options_prefix or ""
+            opts = PETSc.Options(prefix)
+            # We cannot attach a single mg_ or fas_ prefix to a TransferManager,
+            # as it can be shared across distinct _SNESContext instances arising
+            # when composing fas with mg. Therefore, we need to read both options.
+            # However the TransferManager should behave differently if options clash.
+            # TODO, a better way of doing this (issue #5283).
 
             def get_transfer_option(mg_name, fas_name, default=None):
-                mg_name = prefix + mg_name
-                fas_name = prefix + fas_name
                 has_mg = opts.hasName(mg_name)
                 has_fas = opts.hasName(fas_name)
                 if has_mg and has_fas:

@@ -430,9 +430,9 @@ class TransferManager(object):
 
         Parameters
         ----------
-        rf : Function
+        rf : Cofunction
             The source (fine grid) cofunction.
-        rc : Function
+        rc : Cofunction
             The target (coarse grid) cofunction.
 
         """
