@@ -97,7 +97,7 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     # Match reference points instead of physical points to ensure scale invariance
     dim = points_a.shape[-1]
     vids = list(range(dim+1))
-
+    # Infer the affine mapping (A, b) from the image of the vertices
     bs = points_a[:, vids[0], :]
     As = points_a[:, vids[1:], :]
     As -= bs[:, None, :]
