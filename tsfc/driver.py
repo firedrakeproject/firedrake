@@ -377,8 +377,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)])
-    impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices,
-                                        emit_return_accumulate=False)
+    impero_c = impero_utils.compile_gem(pairs, return_indices, emit_return_accumulate=False)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])

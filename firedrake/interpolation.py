@@ -850,8 +850,12 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            indices = tuple(self.ufl_interpolate.function_space().field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
-            sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
+            if self.rank == 1:
+                # indices[0] is None if the target space is not a MixedFunctionSpace
+                index = Ellipsis if indices[0] is None else self.ufl_interpolate.function_space().field_axis.component_labels[indices[0]]
+                sub_op2_tensor = op2_tensor[index]
+            else:
+                sub_op2_tensor = op2_tensor
             loops.extend(_build_interpolation_callables(
                 sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
 
@@ -864,7 +868,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data_ro.item()
+                return float(f)
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
