@@ -2505,6 +2505,10 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
         # `cached_property_until` stores the cached rtree in self._rtree_cache
         # setting it to None will force the rtree to be rebuilt on next access.
         self._rtree_cache = None
