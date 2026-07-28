@@ -224,9 +224,6 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     _buffer: AbstractBuffer
     layouts: idict
 
-    def collect_buffers(self, visitor):
-        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         layouts_key = {}
         for path, layout in self.layouts.items():
@@ -234,11 +231,15 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         layouts_key = idict(layouts_key)
         return (type(self), visitor(self._buffer), layouts_key)
 
+    def collect_buffers(self, visitor):
+        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
+
+    # }}}
+
     @property
     def comm(self):
         return self._buffer.comm
 
-    # }}}
 
     # {{{ interface impls
 
