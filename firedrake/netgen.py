@@ -98,13 +98,13 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     dim = points_a.shape[-1]
     vids = list(range(dim+1))
     # Infer the affine mapping (A, b) from the image of the vertices
-    bs = points_a[:, vids[0], :]
+    bs = points_a[:, vids[:1], :]
     As = points_a[:, vids[1:], :]
-    As -= bs[:, None, :]
+    As -= bs
     Ainvs = np.linalg.inv(As)
     # x_phys = A * x_ref + b <==> x_ref = inv(A) * (x_phys - b)
-    ref_points_a = np.matmul(points_a - bs[:, None, :], Ainvs)
-    ref_points_b = np.matmul(points_b - bs[:, None, :], Ainvs)
+    ref_points_a = np.matmul(points_a - bs, Ainvs)
+    ref_points_b = np.matmul(points_b - bs, Ainvs)
 
     p = [np.argmin(cdist(a, b), axis=0) for a, b in zip(ref_points_a, ref_points_b)]
 
