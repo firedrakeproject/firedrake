@@ -492,4 +492,3 @@ def test_vertex_only_mesh_particle_ids(redundant):
     all_ids = np.concatenate(gathered)
 
     assert np.array_equal(np.sort(all_ids), np.arange(len(all_ids), dtype=IntType))
->>>>>>> origin/main

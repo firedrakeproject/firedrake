@@ -28,8 +28,6 @@ def _get_mat_type(petscmat: PETSc.Mat) -> str:
         ctx = petscmat.getPythonContext()
         if isinstance(ctx, ImplicitMatrixContext):
             return "matfree"
-        elif isinstance(ctx, _GlobalMatPayload):
-            return "global"
         elif isinstance(ctx, op3.DensePythonMatContext):
             # TODO: nicer if row and column was encoded in type system
             if ctx.mode == "row":

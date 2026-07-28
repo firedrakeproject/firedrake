@@ -1445,6 +1445,13 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
 
     # }}}
 
+    @property
+    def comm(self):
+        if self._comm is not None:
+            return self._comm
+        else:
+            return super().comm
+
     # {{{ factory methods
 
     @classmethod
@@ -1765,6 +1772,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     # }}}
 
     # {{{ interface impls
+
+    @property
+    def comm(self):
+        return self.unindexed.comm
 
     unindexed = pyop3.record.attr("_unindexed")
 

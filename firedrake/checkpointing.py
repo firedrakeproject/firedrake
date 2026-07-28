@@ -601,7 +601,7 @@ class TemporaryFunctionCheckpointFile:
         vec_name = f"{name}_{idx}"
 
         with function.dat.vec_ro as v:
-            local_array = v.getArray().copy()
+            local_array = v.array_r.copy()
 
         local_vec = PETSc.Vec().createWithArray(
             local_array, size=(len(local_array), PETSc.DECIDE), comm=self.comm

@@ -1119,6 +1119,8 @@ class PetscMatBuffer(ConcreteBuffer):
                 mode = "column"
                 # a column vec (vertical) has #rows entries
                 sf = row_axes.sf
+
+            assert sf.comm == comm
             mat_context = DensePythonMatContext.empty(mode, sf)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
         else:
@@ -1304,6 +1306,10 @@ class DensePythonMatContext:
             shape = (sf.size, 1)
         buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType)
         return cls(mode, buffer)
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:

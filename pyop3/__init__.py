@@ -64,7 +64,7 @@ from pyop3.axis_tree import (  # noqa: F401
 )
 from pyop3.expr.visitors import collect_axis_vars, evaluate, replace, replace_terminals  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
-    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, PetscMatBuffer
+    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, PetscMatBuffer, DensePythonMatContext
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.index_tree import (  # noqa: F401

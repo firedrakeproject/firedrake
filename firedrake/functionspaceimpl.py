@@ -742,7 +742,9 @@ class AbstractFunctionSpace:
         # restricted, mixed, Real, and Real tensor product spaces. All data
         # layouts are in principle expressible, but the composition isn't
         # currently right.
-        return op3.AxisForest([self.plex_axes, self.nodal_axes])
+        forest = op3.AxisForest([self.plex_axes, self.nodal_axes])
+        assert forest.comm == self.comm
+        return forest
 
     @property
     @abc.abstractmethod
@@ -2007,33 +2009,28 @@ class MixedFunctionSpace(AbstractFunctionSpace):
                 leaf_path, subaxes.materialize()
             )
 
-            # if mode == "plex":
-            if True:
-                # Target a full slice of the 'field' component
-                targets[leaf_path] = [[
-                    op3.AxisTarget(
-                        self.field_axis.label,
-                        field_component.label,
-                        op3.AxisVar(self.field_axis.linearize(field_component.label)),
-                    ),
-                ]]
-                for subpath, subaxis_targets in subaxes.targets.items():
-                    if subpath:
-                        targets[leaf_path | subpath] = subaxis_targets
-                    else:
-                        assert subaxis_targets == ((),)
+            # Target a full slice of the 'field' component
+            targets[leaf_path] = [[
+                op3.AxisTarget(
+                    self.field_axis.label,
+                    field_component.label,
+                    op3.AxisVar(self.field_axis.linearize(field_component.label)),
+                ),
+            ]]
+            for subpath, subaxis_targets in subaxes.targets.items():
+                if subpath:
+                    targets[leaf_path | subpath] = subaxis_targets
+                else:
+                    assert subaxis_targets == ((),)
 
         if mode == "plex":
             unindexed = self.dm_axes
         else:
             unindexed = self.nodal_layout_axes
-        if True:
-            targets = utils.freeze(targets)
-            return op3.IndexedAxisTree(
-                axis_tree, unindexed=unindexed, targets=targets,
-            )
-        else:
-            return axis_tree
+        targets = utils.freeze(targets)
+        return op3.IndexedAxisTree(
+            axis_tree, unindexed=unindexed, targets=targets
+        )
 
     @cached_property
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:

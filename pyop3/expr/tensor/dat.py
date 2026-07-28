@@ -640,7 +640,7 @@ class Dat(Tensor):
             raise ValueError
 
         local_result = np.vdot(other.data_ro, self.data_ro)
-        return self.comm.reduce(local_result, op=MPI.SUM)
+        return self.comm.allreduce(local_result, op=MPI.SUM)
 
     @property
     @collective
