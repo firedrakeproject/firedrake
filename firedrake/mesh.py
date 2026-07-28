@@ -1216,6 +1216,7 @@ class AbstractMeshTopology(abc.ABC):
         *,
         all_integer_subdomain_ids: Iterable[int] | None = None,
         intersect_meshes=None,
+        include_ghosts: bool = False,
     ) -> MeshLoopIndex:
         """Return an iteration set appropriate for the requested integral type.
 
@@ -1242,48 +1243,50 @@ class AbstractMeshTopology(abc.ABC):
 
         match integral_type:
             case "cell":
-                iterset = self.cells.owned
+                iterset = self.cells
                 dmlabel_name = dmcommon.CELL_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "cell")
                 old_to_new_entity_numbering  = self._plex_to_entity_numbering_sec("cell")
             case "exterior_facet":
-                iterset = self.exterior_facets.owned
+                iterset = self.exterior_facets
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "exterior_facet")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet")
             case "interior_facet":
-                iterset = self.interior_facets.owned
+                iterset = self.interior_facets
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "interior_facet")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet")
             case "exterior_facet_top":
-                iterset = self.exterior_facets_top.owned
+                iterset = self.exterior_facets_top
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "exterior_facet_top")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_top")
             case "exterior_facet_bottom":
-                iterset = self.exterior_facets_bottom.owned
+                iterset = self.exterior_facets_bottom
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "exterior_facet_bottom")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_bottom")
             case "exterior_facet_vert":
-                iterset = self.exterior_facets_vert.owned
+                iterset = self.exterior_facets_vert
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", name="exterior_facet_vert")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_vert")
             case "interior_facet_horiz":
-                iterset = self.interior_facets_horiz.owned
+                iterset = self.interior_facets_horiz
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "interior_facet_horiz")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet_horiz")
             case "interior_facet_vert":
-                iterset = self.interior_facets_vert.owned
+                iterset = self.interior_facets_vert
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
                 valid_plex_indices = self._entity_indices_is("plex", "interior_facet_vert")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet_vert")
-
             case _:
                 raise AssertionError(f"Integral type {integral_type} not recognised")
+
+        if not include_ghosts:
+            iterset = iterset.owned
 
         needs_subset = False
 
@@ -1948,7 +1951,7 @@ class AbstractMeshTopology(abc.ABC):
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
             # TODO: Can revert this to latest change, this wasn't the fix
-            retval = dmcommon.submesh_create_cell_closure(
+            return dmcommon.submesh_create_cell_closure(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
                 self._plex_to_entity_numbering_sec("cell"),
@@ -1956,8 +1959,6 @@ class AbstractMeshTopology(abc.ABC):
                 self.submesh_parent.cell_closure,
                 entity_per_cell,
             )[self._old_to_new_cell_numbering_is.indices]
-            # breakpoint()
-            return retval
 
         elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
@@ -4364,52 +4365,9 @@ values from f.)"""
             own_curved_points[i] = own_curved_points[i, permutation[i]]
 
         # Assign the curved coordinates to the dat
+        new_coordinates.dat.buffer.sync_roots()
         new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
-
-    # NOTE: I have copied this code here to avoid reimplementing .reconstruct for
-    # function space topologies.
-
-    # {{{ submesh
-
-    @cached_property
-    def submesh_ancestors(self):
-        """Tuple of submesh ancestors."""
-        if self.submesh_parent:
-            return (self, ) + self.submesh_parent.submesh_ancestors
-        else:
-            return (self, )
-
-    def submesh_youngest_common_ancestor(self, other):
-        """Return the youngest common ancestor of self and other.
-
-        Parameters
-        ----------
-        other : AbstractMeshTopology
-            The other mesh.
-
-        Returns
-        -------
-        AbstractMeshTopology or None
-            Youngest common ancestor or None if not found.
-
-        """
-        # self --- ... --- m --- common --- common --- common
-        #                          /
-        #       other --- ... --- m
-        self_ancestors = list(self.submesh_ancestors)
-        other_ancestors = list(other.submesh_ancestors)
-        c = None
-        while self_ancestors and other_ancestors:
-            a = self_ancestors.pop()
-            b = other_ancestors.pop()
-            if a is b:
-                c = a
-            else:
-                break
-        return c
-
-
 
 
 @PETSc.Log.EventDecorator()

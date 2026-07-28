@@ -331,6 +331,9 @@ class TabulatedMapComponent(MapComponent):
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
+        if label is DECIDE:
+            label = utils.generate_name("mapcomponent")
+
         if not isinstance(array, Dat):
             raise NotImplementedError
         assert array.axes.is_linear

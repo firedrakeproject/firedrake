@@ -84,20 +84,20 @@ def prolong(coarse, fine):
         n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
         kernel_args = [
-            _regionless(fine.dat)[n],
-            _regionless(coarse.dat)[compose_map(coarse)],
-            _regionless(node_locations.dat)[n],
+            fine.dat[n],
+            coarse.dat[compose_map(coarse)],
+            node_locations.dat[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(_regionless(coarse_coords.dat)[compose_map(coarse_coords)])
+        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
         if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(_regionless(co.dat)[compose_map(co)])
+            kernel_args.append(co.dat[compose_map(co)])
         if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+            kernel_args.append(cs.dat[compose_map(cs)])
 
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
@@ -168,20 +168,20 @@ def restrict(fine_dual, coarse_dual):
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
 
         kernel_args = [
-            _regionless(coarse_dual.dat)[compose_map(coarse_dual)],
-            _regionless(fine_dual.dat)[n],
-            _regionless(node_locations.dat)[n],
+            coarse_dual.dat[compose_map(coarse_dual)],
+            fine_dual.dat[n],
+            node_locations.dat[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(_regionless(coarse_coords.dat)[compose_map(coarse_coords)])
+        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
         if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(_regionless(co.dat)[compose_map(co)])
+            kernel_args.append(co.dat[compose_map(co)])
         if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+            kernel_args.append(cs.dat[compose_map(cs)])
 
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
@@ -253,20 +253,20 @@ def inject(fine, coarse):
             n = Vc.nodal_axes.blocked(Vc.shape).free.iter()
             compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())(n)
             kernel_args = [
-                _regionless(coarse.dat)[n],
-                _regionless(fine.dat)[compose_map(fine)],
-                _regionless(node_locations.dat)[n],
+                coarse.dat[n],
+                fine.dat[compose_map(fine)],
+                node_locations.dat[n],
             ]
             # source mesh quantities
             source_mesh = Vf.mesh()
             fine_coords = source_mesh.coordinates
-            kernel_args.append(_regionless(fine_coords.dat)[compose_map(fine_coords)])
+            kernel_args.append(fine_coords.dat[compose_map(fine_coords)])
             if oriented:
                 co = source_mesh.cell_orientations()
-                kernel_args.append(_regionless(co.dat)[compose_map(co)])
+                kernel_args.append(co.dat[compose_map(co)])
             if needs_cell_sizes:
                 cs = source_mesh.cell_sizes
-                kernel_args.append(_regionless(cs.dat)[compose_map(cs)])
+                kernel_args.append(cs.dat[compose_map(cs)])
 
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
@@ -300,14 +300,3 @@ def inject(fine, coarse):
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
     return coarse
-
-
-# Think this isnt needed any more
-def _regionless(dat):
-    """Drop all region (i.e. unconstrained vs constrained) information from a dat.
-
-    This is needed for multigrid because otherwise the node-wise loops fail.
-
-    """
-    return dat
-    return dat.with_axes(dat.axes.regionless())
