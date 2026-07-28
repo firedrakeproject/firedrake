@@ -16,7 +16,7 @@ from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
-from firedrake.parloops import par_loop
+from firedrake.parloops import par_loop, READ, WRITE
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import IntType, ScalarType
 from firedrake.pack import pack
@@ -1631,14 +1631,14 @@ def broken_function(V, val):
     """Return a Function(V, val=val) interpolated onto the broken space."""
     W = V.broken_space()
     w = Function(W, dtype=val.dtype)
-    v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
+    v = Function(V, val=val, dtype=val.dtype)
+    domain = "{[i,j]: 0 <= i < v.dofs and 0 <= j < %d}" % V.block_size
     instructions = """
-    for i
-        w[i] = v[i]
+    for i, j
+        w[i,j] = v[i,j]
     end
     """
-    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+    par_loop((domain, instructions), ufl.dx, {'w': (w, WRITE), 'v': (v, READ)})
     return w
 
 
