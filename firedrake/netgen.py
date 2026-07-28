@@ -94,6 +94,7 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     if points_a.shape != points_b.shape:
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
+    # Match reference points instead of physical points to ensure scale invariance
     dim = points_a.shape[-1]
     vids = list(range(dim+1))
 
