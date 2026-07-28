@@ -30,7 +30,7 @@ class OpaqueTerminal(NamedTerminalExpression):
     get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None) -> None:
-        name = pyop3.utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         object.__setattr__(self, "buffer", buffer)
         object.__setattr__(self, "name", name)

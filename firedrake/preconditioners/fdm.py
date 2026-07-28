@@ -259,13 +259,15 @@ class FDMPC(PCBase):
             P = self.setup_block(Vrow, Vcol)
             addv = self.insert_mode[Vrow, Vcol]
 
-            assemble_sparsity = P.getType() == "is"
+            assemble_sparsity = P.type == "is"
             if assemble_sparsity:
                 self.set_values(P, Vrow, Vcol, mat_type="preallocator")
                 if on_diag:
                     # populate diagonal entries
                     i = numpy.arange(P.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
                     v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+                    # FIXME
+                    P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
                     P.setValuesLocalRCV(i, i, v, addv=addv)
                 P.assemble()
 
@@ -425,7 +427,7 @@ class FDMPC(PCBase):
             sizes = (Vsub.template_vec.getSizes(),) * 2
             raise NotImplementedError
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result)),
+                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result, comm=V.comm)),
                                   *args_acc,
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
@@ -696,6 +698,14 @@ class FDMPC(PCBase):
 
         preallocator = get_preallocator(self.comm, sizes, rmap, cmap, mat_type=ptype)
         self.set_values(preallocator, Vrow, Vcol)
+
+        # make sure to allocate values for the diagonal
+        # FIXME: This doesnt make the bug go away
+        # i = numpy.arange(preallocator.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
+        # v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+        # addv = self.insert_mode[Vrow, Vcol]
+        # preallocator.setValuesLocalRCV(i, i, v, addv=addv)
+
         preallocator.assemble()
         P = allocate_matrix(preallocator, ptype, on_diag=on_diag, allow_repeated=self.allow_repeated)
 
@@ -724,7 +734,7 @@ class FDMPC(PCBase):
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
         if mat_type is None:
-            mat_type = A.getType()
+            mat_type = A.type
         try:
             assembler = self.assemblers[key]
         except KeyError:
@@ -751,7 +761,7 @@ class FDMPC(PCBase):
             loop_index = Vrow.mesh().iter("cell")
             element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
-            mat_args = element_kernel.make_args(A)
+            mat_args = element_kernel.make_args(A, comm=Vrow.comm)
             assembler = op3.loop(
                 loop_index,
                 kernel(
@@ -778,7 +788,7 @@ class FDMPC(PCBase):
                 self.assemblers.setdefault(key, assembler)
 
         args = assembler.statements[0].arguments
-        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
+        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A, comm=Vrow.comm))})
 
 
 class ElementKernel:
@@ -792,9 +802,9 @@ class ElementKernel:
         self.name = name or type(self).__name__
         self.rules = {}
 
-    def make_args(self, *mats: PETSc.Mat) -> tuple[op3.OpaqueTerminal, ...]:
+    def make_args(self, *mats: PETSc.Mat, comm: MPI.Comm) -> tuple[op3.OpaqueTerminal, ...]:
         return tuple(
-            op3.OpaqueTerminal(op3.PetscMatBuffer(mat))
+            op3.OpaqueTerminal(op3.PetscMatBuffer(mat, comm=comm))
             for mat in chain(mats, self.mats)
         )
 
@@ -1688,7 +1698,7 @@ def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False)
     if on_diag:
         numpy.maximum(nnz[0], 1, out=nnz[0])
 
-    A = PETSc.Mat().create(comm=preallocator.getComm())
+    A = PETSc.Mat().create(comm=preallocator.comm)
     A.setType(mat_type)
     A.setSizes(sizes)
     A.setBlockSize(preallocator.getBlockSize())
@@ -1792,13 +1802,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     preallocator.assemble()
 
     Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
-    # preallocator.destroy()
 
     # Now run the same loop but with the allocated matrix
-    Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat))
+    Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat, comm=Vf.comm))
     assembler(**{mat_args[0].name: Dmat_arg})
     Dmat.assemble()
-    # Dhat.destroy()
     return Dmat
 
 

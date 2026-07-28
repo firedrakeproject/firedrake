@@ -32,7 +32,7 @@ from pyop3.device import (
     on_host
 )
 
-from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
+from ._buffer_cy import set_petsc_mat_diagonal
 
 
 MatTypeT = str | np.ndarray["MatTypeT"]
@@ -1011,9 +1011,6 @@ class PetscMatBuffer(ConcreteBuffer):
     _constant: bool
     _comm: MPI.Comm
 
-    def collect_buffers(self, visitor):
-        return OrderedFrozenSet([self])
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor.renamer.add_obj(self), self._constant)
 
@@ -1029,6 +1026,9 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
 
     def __init__(
         self,
@@ -1256,8 +1256,6 @@ class PetscMatBuffer(ConcreteBuffer):
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
 
-            # nnz, onnz = get_preallocation(preallocator)
-            # template.setPreallocationNNZ((nnz, onnz))
             preallocator.preallocatorPreallocate(template)
 
 

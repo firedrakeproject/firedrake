@@ -1782,7 +1782,7 @@ class MatrixFreeAssembler(FormAssembler):
             options_prefix=self._options_prefix
         )
 
-    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self.form))
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
             tensor = self.allocate()

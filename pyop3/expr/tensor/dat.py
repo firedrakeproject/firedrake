@@ -764,7 +764,7 @@ class AggregateDat(pyop3.obj.Object):
         name: str | None = None,
         prefix: str | None = None,
     ) -> None:
-        name = utils.maybe_generate_name(name, prefix, cls.DEFAULT_PREFIX)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         # TODO: check size 1 for each axis component and # components must match # subdats
         object.__setattr__(self, "subdats", subdats)
