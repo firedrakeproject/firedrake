@@ -102,7 +102,7 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     As = points_a[:, vids[1:], :]
     As -= bs[:, None, :]
     Ainvs = np.linalg.inv(As)
-
+    # x_phys = A * x_ref + b <==> x_ref = inv(A) * (x_phys - b)
     ref_points_a = np.matmul(points_a - bs[:, None, :], Ainvs)
     ref_points_b = np.matmul(points_b - bs[:, None, :], Ainvs)
 
