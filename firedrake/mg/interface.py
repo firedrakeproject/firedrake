@@ -297,6 +297,7 @@ def inject(fine, coarse):
 
 
 def _bc_matches_space(bc, V):
+    """Return whether a boundary condition is defined on (a subspace of) V."""
     fs = bc.function_space()
     while fs.component is not None and fs.parent is not None:
         fs = fs.parent
@@ -305,6 +306,23 @@ def _bc_matches_space(bc, V):
 
 @PETSc.Log.EventDecorator()
 def assemble_prolongation_aij(Vc, Vf, bcs=None):
+    """Assemble the explicit AIJ matrix prolonging Vc to Vf.
+
+    Parameters
+    ----------
+    Vc : WithGeometry
+        The source (coarse grid) function space.
+    Vf : WithGeometry
+        The target (fine grid) function space.
+    bcs : list of DirichletBC, optional
+        Boundary conditions to apply to the rows and columns of the matrix.
+
+    Returns
+    -------
+    AssembledMatrix
+        The prolongation matrix mapping Vc to Vf.
+
+    """
     if len(Vc) > 1 or len(Vf) > 1:
         raise NotImplementedError(
             'Explicit aij prolongation matrix assembly is not impelemented for mixed function spaces. '

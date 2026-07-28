@@ -254,6 +254,23 @@ def prolong_kernel(expression, Vf):
 
 
 def prolong_matrix_kernel(Vc, Vf):
+    """Return a PyOP2 kernel that assembles the local prolongation matrices mapping Vc to Vf.
+
+    Parameters
+    ----------
+    Vc : WithGeometry
+        The source (coarse grid) function space.
+    Vf : WithGeometry
+        The target (fine grid) function space.
+
+    Returns
+    -------
+    op2.Kernel
+        A kernel that fills in the local dense matrix of the point evaluation
+        prolongation operator, for each fine grid cell and its overlapping
+        coarse grid cells.
+
+    """
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
