@@ -35,10 +35,10 @@ def vom_state_by_particle_id(vom):
     parent_cells = vom.topology.cell_parent_cell_list[:n_owned].copy()
 
     return {
-        int(particle_id): (
+        particle_id: (
             coordinates[i],
             reference_coordinates[i],
-            int(parent_cells[i]),
+            parent_cells[i],
         )
         for i, particle_id in enumerate(particle_ids)
     }
@@ -199,13 +199,13 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     # Determine the rank that owns the ghost cell
     _, sf_leaves, sf_remotes = parent_mesh.topology_dm.getPointSF().getGraph()
     leaf_owners = {
-        int(leaf): int(remote[0])
+        leaf: remote[0]
         for leaf, remote in zip(sf_leaves, sf_remotes)
     }
 
     new_plex_parent_cell_id = parent_mesh.topology.cell_closure[new_parent_cells[0], -1]
 
-    destination_rank = leaf_owners.get(int(new_plex_parent_cell_id))
+    destination_rank = leaf_owners.get(new_plex_parent_cell_id)
 
     parallel_assert(destination_rank != parent_mesh.comm.rank)
 
@@ -216,7 +216,7 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     expected_ranks[0] = destination_rank
 
     # lists particles originating on this rank before migration
-    expected_state_pre_rebuild = [(int(pid), int(destination_rank), coord.copy())
+    expected_state_pre_rebuild = [(pid, destination_rank, coord.copy())
                       for pid, destination_rank, coord in zip(particle_ids, expected_ranks, new_coords)]
 
     gathered_expected_state_pre_rebuild = parent_mesh.comm.allgather(expected_state_pre_rebuild)
@@ -240,7 +240,7 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     coords_post_rebuild = vom.coordinates.dat.data_ro.copy()
 
     state_post_rebuild = {
-        int(pid): coord.copy()
+        pid: coord.copy()
         for pid, coord in zip (pids_post_rebuild, coords_post_rebuild)
     }
 
@@ -273,7 +273,7 @@ def test_rebuild_vom_with_absorption(parent_mesh):
  
     # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
     absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
-    absorbed_pids = {int(pids_pre_rebuild[idx]) for idx in absorbed_local_indices}
+    absorbed_pids = {pids_pre_rebuild[idx] for idx in absorbed_local_indices}
 
     expected_state = {
         pid: state
@@ -416,7 +416,7 @@ def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
     # Build an expected VOM state using parent cells
     # Since the VOM points are cell centroids, parent cell IDs can be used to uniquely identify these VOM points
     expected_state_by_parent_cell = {
-        int(new_parent_cells[i]): int(root_values[i])
+        new_parent_cells[i]: root_values[i]
         for i in np.where(survivors)[0]
     }
 
@@ -467,7 +467,7 @@ def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
 
     parallel_assert(
         all(
-            int(cell) in expected_state_by_parent_cell
+            cell in expected_state_by_parent_cell
             for cell in parent_cells_post_rebuild
         ),
         "The rebuilt VOM contains an unexpected parent cell",
@@ -475,7 +475,7 @@ def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
 
     expected_leaf_values = np.asarray(
         [
-            expected_state_by_parent_cell.get(int(cell))
+            expected_state_by_parent_cell.get(cell)
             for cell in parent_cells_post_rebuild
         ],
         dtype=IntType
