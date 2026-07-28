@@ -157,6 +157,7 @@ def compile_element(expression, coordinates, parameters=None):
         "geometric_dimension": domain.geometric_dimension,
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
+        "real_type": utils.RealType_c,
     }
     code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
     code["map_args"] = "f->coords_map, f->f_map"
@@ -169,9 +170,9 @@ static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s*
 int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    double found_ref_cell_dist_l1 = DBL_MAX;
+    %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    int cells_ignore[1] = {-1};
+    %(IntType)s cells_ignore[1] = {-1};
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
     if (cell == -1) {
         return -1;

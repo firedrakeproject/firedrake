@@ -59,7 +59,7 @@ pids=()
 cleanup() {
     for pid in "${pids[@]}"; do
         if ps -p "$pid" > /dev/null; then
-            kill "$pid"  # Send SIGTERM to the sub-process
+            kill -INT "$pid"  # Send SIGINT to the sub-process
             wait "$pid"
         fi
     done

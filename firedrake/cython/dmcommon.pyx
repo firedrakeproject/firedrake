@@ -1102,6 +1102,15 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
     return cell_closure
 
 
+cdef inline PetscInt _fact(PetscInt m):
+    """Integer factorial (m <= 4 for the cones here); replaces math.factorial to
+    avoid a Python call per entity in the orientation hot loop."""
+    cdef PetscInt r = 1, i
+    for i in range(2, m + 1):
+        r = r * i
+    return r
+
+
 cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
                                                   const PetscInt *plex_cone,
                                                   PetscInt coneSize):
@@ -1167,7 +1176,7 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
         coneSize1 -= 1
     assert n == coneSize
     for k in range(n):
-        o += math.factorial(n - 1 - k) * inds[k]
+        o += _fact(n - 1 - k) * inds[k]
     CHKERR(PetscFree(cone1))
     CHKERR(PetscFree(inds))
     return o
@@ -1219,7 +1228,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
                     io += <PetscInt> (2**(dim - 1 - i)) * 1
                 else:
                     raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
-                eo += math.factorial(dim - 1 - i) * j
+                eo += _fact(dim - 1 - i) * j
                 for k in range(j, dim1 - 1):
                     plex_cone_copy[2 * k] = plex_cone_copy[2 * k + 2]
                     plex_cone_copy[2 * k + 1] = plex_cone_copy[2 * k + 3]
@@ -1231,8 +1240,10 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
     return <PetscInt> (2**dim) * eo + io
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
-                                          np.ndarray cell_closure,
+                                          PetscInt[:, ::1] cell_closure,
                                           PetscInt cell,
                                           PetscInt e,
                                           PetscInt *fiat_cone,
@@ -1258,9 +1269,11 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     cdef:
         PetscInt p, coneSize, offset, i, dim, o
         const PetscInt *cone = NULL
+        PetscDMPolytopeType ct
 
     p = cell_closure[cell, e]
-    if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
+    CHKERR(DMPlexGetCellType(dm.dm, p, &ct))
+    if ct == DM_POLYTOPE_POINT:
         return 0
     CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
     CHKERR(DMPlexGetCone(dm.dm, p, &cone))
@@ -1269,25 +1282,21 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     offset = entity_cone_map_offset[e]
     for i in range(coneSize):
         fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
-    if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
-       dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
-        # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
-        # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
-        # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
+    if ct == DM_POLYTOPE_SEGMENT or ct == DM_POLYTOPE_TRIANGLE or ct == DM_POLYTOPE_TETRAHEDRON:
+        # UFCInterval / UFCTriangle / UFCTetrahedron
         return _compute_orientation_simplex(fiat_cone, cone, coneSize)
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
-        # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
+    elif ct == DM_POLYTOPE_QUADRILATERAL:
+        # UFCQuadrilateral
         dim = 2
         _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
-        # UFCHexahedron    <- PETSc.DM.PolytopeType.HEXAHEDRON
+    elif ct == DM_POLYTOPE_HEXAHEDRON:
+        # UFCHexahedron
         dim = 3
         _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_interval_tensor_product(fiat_cone, plex_cone, plex_cone_copy, dim)
     else:
-        raise ValueError(f"Unknown cell type: {dm.getCellType(p)}")
+        raise ValueError(f"Unknown cell type: {ct}")
 
 
 def make_node_to_node_map(
@@ -1336,7 +1345,8 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         PetscInt *plex_cone_copy = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
-        np.ndarray entity_orientations
+        PetscInt[:, ::1] cell_closure_view
+        PetscInt[:, ::1] entity_orientations
 
     if not isinstance(mesh, firedrake.mesh.MeshTopology):
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
@@ -1378,9 +1388,12 @@ def entity_orientations(mesh, np.ndarray cell_closure):
     CHKERR(PetscMalloc1(maxConeSize, &fiat_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
+    # typed memoryviews so the hot loop indexes cell_closure / output in C
+    # instead of via slow np.ndarray scalar indexing.
+    cell_closure_view = cell_closure
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell, e,
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,
@@ -1391,7 +1404,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
     CHKERR(PetscFree(plex_cone_copy))
     CHKERR(PetscFree(entity_cone_map))
     CHKERR(PetscFree(entity_cone_map_offset))
-    return entity_orientations
+    return np.asarray(entity_orientations)
 
 
 def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool) -> PETSc.IS:
