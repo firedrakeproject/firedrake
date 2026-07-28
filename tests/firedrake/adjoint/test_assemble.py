@@ -17,7 +17,6 @@ def rg():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel
 def test_assemble_0_forms():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -34,7 +33,6 @@ def test_assemble_0_forms():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel
 def test_assemble_0_forms_mixed():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -54,7 +52,6 @@ def test_assemble_0_forms_mixed():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel
 def test_assemble_1_forms_adjoint(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -73,7 +70,6 @@ def test_assemble_1_forms_adjoint(rg):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel
 def test_assemble_1_forms_tlm(rg):
     tape = Tape()
     set_working_tape(tape)

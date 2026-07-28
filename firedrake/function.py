@@ -485,7 +485,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.buffer.sync_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-            self.dat.data_wo[...] = expr
+            self.dat.data_wo_with_halos[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:

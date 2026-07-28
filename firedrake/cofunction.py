@@ -337,7 +337,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return self
         if isinstance(expr, Cofunction) and \
             expr.function_space() == self.function_space():
-            self.dat.data_wo[...] += expr.dat.data_ro
+            self.dat.data_rw[...] += expr.dat.data_ro
             return self
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
@@ -540,7 +540,7 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data_ro[:]
+                    o.dat.data_rw[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)

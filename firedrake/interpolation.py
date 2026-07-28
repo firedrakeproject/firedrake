@@ -670,6 +670,7 @@ class CrossMeshInterpolator(Interpolator):
                 assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
+                    f.dat.buffer.sync_roots()
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
                     f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
                 else:
