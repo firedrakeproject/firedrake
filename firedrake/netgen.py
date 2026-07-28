@@ -97,12 +97,13 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     # Match reference points instead of physical points to ensure scale invariance
     dim = points_a.shape[-1]
     vids = list(range(dim+1))
-    # Infer the affine mapping (A, b) from the image of the vertices
+    # Infer the affine mapping (A, b) from the image of the vertices (first dim+1 dofs)
     bs = points_a[:, vids[:1], :]
     As = points_a[:, vids[1:], :]
     As -= bs
     Ainvs = np.linalg.inv(As)
     # x_phys = A * x_ref + b <==> x_ref = inv(A) * (x_phys - b)
+    # Multiply inv(A) from the right, since the data is row-major
     ref_points_a = np.matmul(points_a - bs, Ainvs)
     ref_points_b = np.matmul(points_b - bs, Ainvs)
 
