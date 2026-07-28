@@ -1076,7 +1076,7 @@ class AbstractFunctionSpace:
 
         # Now pack this for use in a parloop
         loop_index = space.mesh().iter(iter_type)
-        packed_offsets = pack(offsets, space, loop_index)
+        packed_offsets = pack(offsets, loop_index, space)
 
         # Create the array to store the indirection map. If mixed then this stores
         # offsets per iteration entity then per field.
