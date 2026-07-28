@@ -1343,9 +1343,9 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
             "--with-cxx-dialect=c++17",
             "--download-umpire",
         ],
-        cflags=["-O3", "-march=native", "-mtune=native"],
-        cxxflags=["-O3", "-march=native", "-mtune=native"],
-        fflags=["-O3", "-march=native", "-mtune=native"],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
         include_dirs=[
             "/usr/include/hdf5/openmpi",
             "/usr/include/scotch",
