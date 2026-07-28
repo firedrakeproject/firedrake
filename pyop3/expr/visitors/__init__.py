@@ -699,11 +699,7 @@ def _materialize_composite_dat_cached(
             for axis, component in leaf_path.items()
         ]
         iforest = IndexTree.from_iterable((*loop_slices, *slices))
-
-        try:
-            assignee_ = assignee[iforest]
-        except:
-            breakpoint()
+        assignee_ = assignee[iforest]
 
         if assignee_.size > 0:
             assignee_.assign(

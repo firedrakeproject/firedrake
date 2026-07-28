@@ -184,14 +184,9 @@ class Relabeler(pyop3.node.NodeVisitor):
 
     @process.register
     def _(self, liv: pyop3.expr.LoopIndexVar, /):
-        retval = liv.record_new(
+        return liv.record_new(
             loop_index=self(liv.loop_index), axis=self(liv.axis)
         )
-
-        if "closure" in str(retval):
-            import pyop3.debug
-            pyop3.debug.maybe_breakpoint()
-        return retval
 
     @process.register
     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /):
@@ -212,6 +207,13 @@ class Relabeler(pyop3.node.NodeVisitor):
     @process.register
     def _(self, op: pyop3.expr.BinaryOperator, /):
         return op.record_new(a=self(op.a), b=self(op.b))
+
+    @process.register
+    def _(self, tern: pyop3.expr.TernaryOperator, /):
+        new_a = self(tern.a)
+        new_b = self(tern.b)
+        new_c = self(tern.c)
+        return tern.record_new(a=new_a, b=new_b, c=new_c)
 
     @process.register(pyop3.expr.NaN)
     @process.register(pyop3.expr.ScalarBufferExpression)

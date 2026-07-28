@@ -355,6 +355,10 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
             for l in dat_expr.layouts.values()
         ))
 
+    @process.register
+    def _(self, tern: pyop3.expr.TernaryOperator, index, /, **kwargs) -> idict:
+        return utils.merge_dicts((self(x, **kwargs) for x in tern.operands))
+
     @process.register(pyop3.expr.AxisVar)
     @process.register(pyop3.expr.LoopIndexVar)
     @process.register(pyop3.expr.Scalar)
@@ -410,7 +414,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         return idict()
 
 
-    @process.register(pyop3.insn.InstructionList)
+    @process.register
     def _(self, insn_list: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
         return utils.merge_dicts(
             (self(insn, **kwargs) for insn in insn_list),
