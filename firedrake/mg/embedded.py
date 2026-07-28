@@ -84,7 +84,7 @@ class TransferManager(object):
         except KeyError:
             if self.is_native(element, gdim, op):
                 if self.mat_type == "aij":
-                    ops = self.prolong_aij, self.restrict_aij, firedrake.inject
+                    ops = self._prolong_aij, self._restrict_aij, firedrake.inject
                 elif self.mat_type == "matfree":
                     ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 else:
@@ -390,7 +390,17 @@ class TransferManager(object):
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
 
-    def prolongation_matrix(self, Vc, Vf):
+    def _prolongation_matrix(self, Vc, Vf):
+        """Assemble and cache the prolongation matrix mapping Vc to Vf.
+
+        Parameters
+        ----------
+        Vc : WithGeometry
+            The source (coarse grid) function space.
+        Vf : WithGeometry
+            The target (fine grid) function space.
+
+        """
         key = (Vc, Vf)
         try:
             return self._mat_cache[key]
@@ -398,16 +408,36 @@ class TransferManager(object):
             P = assemble_prolongation_aij(Vc, Vf)
             return self._mat_cache.setdefault(key, P)
 
-    def prolong_aij(self, uc, uf):
+    def _prolong_aij(self, uc, uf):
+        """Prolong a function by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        uc : Function
+            The source (coarse grid) function.
+        uf : Function
+            The target (fine grid) function.
+
+        """
         Vc = uc.function_space()
         Vf = uf.function_space()
-        P = self.prolongation_matrix(Vc, Vf)
+        P = self._prolongation_matrix(Vc, Vf)
         with uc.dat.vec_ro as x, uf.dat.vec_wo as y:
             P.petscmat.mult(x, y)
 
-    def restrict_aij(self, rf, rc):
+    def _restrict_aij(self, rf, rc):
+        """Restrict a cofunction by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        rf : Function
+            The source (fine grid) cofunction.
+        rc : Function
+            The target (coarse grid) cofunction.
+
+        """
         Vc = rc.function_space().dual()
         Vf = rf.function_space().dual()
-        P = self.prolongation_matrix(Vc, Vf)
+        P = self._prolongation_matrix(Vc, Vf)
         with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
             P.petscmat.multTranspose(x, y)
