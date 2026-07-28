@@ -288,9 +288,13 @@ class InstructionExecutionContext:
         # TODO: We don't do anything with nest indices yet because we have always already
         # unpacked things
         sorted_buffers = {}
+        seen_buffers = set()
         for kernel_arg_name, buffer_info in buffer_index_map.items():
+            # NOTE: we drop nest_indices because we currently don't use it
             buffer_index, nest_indices, intent = buffer_info
             global_buffer = self.preprocessed_buffers[buffer_index]
+            assert global_buffer not in seen_buffers, "Only expect to see buffers once"
+            seen_buffers.add(global_buffer)
             sorted_buffers[kernel_arg_name] = (global_buffer, intent)
 
         executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)

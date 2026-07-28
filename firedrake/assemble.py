@@ -1992,6 +1992,17 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
+        # Some SLATE code (see 'local_solvers' in scpc.py) assembles forms into
+        # tensors where the tensor is a one subfunction of a mixed function and
+        # another subfunction is passed in as a coefficient. This breaks pyop3's
+        # assumptions about access descriptors and so we replace the read-only
+        # coefficient with a copy.
+        if (
+            isinstance(self._tensor, firedrake.Cofunction | firedrake.Function)
+            and coeff.dat.buffer == self._tensor.dat.buffer
+        ):
+            assert coeff != self._tensor
+            coeff = coeff.copy(deepcopy=True)
         return pack(coeff, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)

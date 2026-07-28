@@ -189,6 +189,7 @@ class LoopyCodegenContext(CodegenContext):
 
             if buffer_key in self._kernel_names:
                 if intent != self.global_buffer_intents[buffer_key]:
+                    raise NotImplementedError("is this safe at all? I don't think so")
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
                     self.global_buffer_intents[buffer_key] = RW
@@ -956,11 +957,12 @@ def _(exscan: Exscan, loop_indices, context) -> None:
     iname = context.unique_name("i")
     context.add_domain(iname, domain_var)
 
-    lexpr = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)+1}], loop_indices, context, intent=WRITE)
-    lexpr2 = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
-    rexpr = lower_expr(exscan.expression, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+    iname_var = pym.var(iname)
+    iname_map = {exscan.scan_axis.label: pym.var(iname)}
 
-    rexpr = lexpr2 + rexpr
+    lexpr = lower_expr(exscan.assignee, [iname_map], loop_indices, context, intent=RW)
+    rexpr = lexpr + lower_expr(exscan.expression, [iname_map], loop_indices, context)
+    lexpr = pym.substitute(lexpr, {iname: iname_var+1})
     context.add_assignment(lexpr, rexpr)
 
 
