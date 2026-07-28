@@ -143,6 +143,31 @@ toolchain:
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
   before the full module; the suite is large and full-module reruns are slow to iterate against.
 
+### Documentation
+
+* **Verify docs compile cleanly before claiming a docstring change is done:** `cd docs && make html`
+  builds with Sphinx's `-W` flag (warnings are fatal) and `nitpicky = True` (every cross-reference must
+  resolve or the build fails). Passing `flake8`/type checks says nothing about this — a syntactically
+  fine `numpydoc` docstring can still break the docs build.
+* **Only members listed in a module's `__all__` are rendered:** `automodule` directives in
+  `docs/source/*.rst` use `:members: :undoc-members:`. If the module defines `__all__`, only those
+  names are documented — a public, non-underscore function/class outside `__all__` is silently skipped
+  by Sphinx, so its docstring is never checked by the build regardless of formatting.
+* **numpydoc `Parameters`/`Returns` type fields are cross-reference targets, not free text:** in
+  a rendered (i.e. `__all__`-listed) docstring, each `type` line is split on `,`/`|`/" or "/" of " and
+  every resulting token is turned into a `:py:class:` xref lookup. Concretely:
+  - A bare `, optional` suffix on a type line fails (`optional` isn't a class anywhere) — instead say
+    "Defaults to ..." in the description prose rather than appending `, optional` to the type.
+  - A local/short class name (e.g. `DirichletBC`) resolves automatically as long as that class is
+    itself documented elsewhere via its own `__all__`-gated `automodule` entry; you do not need to
+    spell out its full module path.
+  - For third-party types, use the fully-qualified dotted path that the type actually resolves under
+    (e.g. `pyop2.op2.Kernel`, not the locally-aliased `op2.Kernel`) — check
+    `docs/source/conf.py`'s `intersphinx_mapping` and `nitpick_ignore_regex` for what's already
+    reachable before assuming a new ignore-list entry is needed; grep existing docstrings for the same
+    type first, since there is almost always a working precedent to copy rather than a new
+    `nitpick_ignore_regex` entry to add.
+
 ### Debugging
 
 * **Generated kernels (niche, rarely needed):** By default, generated C is compiled optimized and

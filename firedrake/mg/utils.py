@@ -8,6 +8,16 @@ import firedrake
 from firedrake.cython import mgimpl as impl
 
 
+def identity_node_map(V):
+    cache = V.mesh()._shared_data_cache["hierarchy_identity_node_map"]
+    key = (V.ufl_element(), V.boundary_set)
+    try:
+        return cache[key]
+    except KeyError:
+        values = numpy.arange(V.node_set.total_size, dtype=IntType).reshape(-1, 1)
+        return cache.setdefault(key, op2.Map(V.node_set, V.node_set, 1, values=values))
+
+
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
