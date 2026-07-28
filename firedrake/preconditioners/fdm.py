@@ -4,17 +4,14 @@ from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
-                                           evaluate_dual,
-                                           get_permutation_to_nodal_elements,
-                                           cache_generate_code)
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
-from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+from firedrake.ufl_expr import TestFunction, TrialFunction, TestFunctions, TrialFunctions
+from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
@@ -22,6 +19,7 @@ from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import as_tuple
+from pyop2.caching import serial_cache
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
@@ -32,8 +30,11 @@ import ufl
 import finat.ufl
 import FIAT
 import finat
+import loopy
 import numpy
 import ctypes
+import os
+import tempfile
 
 
 __all__ = ("FDMPC", "PoissonFDMPC")
@@ -66,6 +67,7 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
+        from firedrake.assemble import assemble
         petsctools.cite(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
@@ -115,19 +117,15 @@ class FDMPC(PCBase):
         else:
             # Reconstruct Jacobian and bcs with variant element
             J_fdm = J(*(t.reconstruct(function_space=V_fdm) for t in J.arguments()))
-            bcs_fdm = []
-            for bc in bcs:
-                W = V_fdm
-                for index in bc._indices:
-                    W = W.sub(index)
-                bcs_fdm.append(bc.reconstruct(V=W, g=0))
+            bcs_fdm = [bc.reconstruct(V=V_fdm, g=0, indices=bc._indices) for bc in bcs]
 
             # Create a new _SNESContext in the variant space
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
                                               fcp=fcp, options_prefix=options_prefix)
 
             # Construct interpolation from variant to original spaces
-            self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
+            interp = interpolate(TrialFunction(V_fdm), V)
+            self.fdm_interp = assemble(interp, bcs=bcs_fdm, mat_type="matfree").petscmat
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
@@ -2536,3 +2534,213 @@ def extrude_node_map(node_map, bsize=1):
 
     ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
     return partial(vector_map, bsize, ibase), nel
+
+
+def cache_generate_code(kernel, comm):
+    _cachedir = os.environ.get('PYOP2_CACHE_DIR',
+                               os.path.join(tempfile.gettempdir(),
+                                            'pyop2-cache-uid%d' % os.getuid()))
+
+    key = kernel.cache_key[0]
+    shard, disk_key = key[:2], key[2:]
+    filepath = os.path.join(_cachedir, shard, disk_key)
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            code = f.read()
+    else:
+        code = loopy.generate_code_v2(kernel.code).device_code()
+        if comm.rank == 0:
+            os.makedirs(os.path.join(_cachedir, shard), exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(code)
+        comm.barrier()
+    return code
+
+
+def hash_fiat_element(element):
+    """FIAT elements are not hashable,
+       this is not the best way to create a hash"""
+    restriction = None
+    e = element
+    if isinstance(e, FIAT.DiscontinuousElement):
+        # this hash does not care about inter-element continuity
+        e = e._element
+    if isinstance(e, FIAT.RestrictedElement):
+        restriction = tuple(e._indices)
+        e = e._element
+        if len(restriction) == e.space_dimension():
+            restriction = None
+    family = e.__class__.__name__
+    degree = e.order
+    return (family, element.ref_el, degree, restriction)
+
+
+def generate_key_evaluate_dual(source, target, derivative=None):
+    return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
+
+
+@serial_cache(hashkey=generate_key_evaluate_dual)
+def compare_element(e1, e2):
+    """Numerically compare two :class:`FIAT.elements`.
+       Equality is satisfied if e2.dual_basis(e1.primal_basis) == identity."""
+    if e1 is e2:
+        return True
+    if e1.space_dimension() != e2.space_dimension():
+        return False
+    B = evaluate_dual(e1, e2)
+    return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
+
+
+def expand_element(ele):
+    """Expand a FiniteElement as an EnrichedElement of TensorProductElements,
+       discarding modifiers."""
+    if isinstance(ele, finat.FlattenedDimensions):
+        return expand_element(ele.product)
+    elif isinstance(ele, (finat.HDivElement, finat.HCurlElement)):
+        return expand_element(ele.wrappee)
+    elif isinstance(ele, finat.DiscontinuousElement):
+        return expand_element(ele.element)
+    elif isinstance(ele, finat.EnrichedElement):
+        terms = list(map(expand_element, ele.elements))
+        return finat.EnrichedElement(terms)
+    elif isinstance(ele, finat.TensorProductElement):
+        factors = list(map(expand_element, ele.factors))
+        terms = [tuple()]
+        for e in factors:
+            new_terms = []
+            for f in e.elements if isinstance(e, finat.EnrichedElement) else [e]:
+                f_factors = tuple(f.factors) if isinstance(f, finat.TensorProductElement) else (f,)
+                new_terms.extend(t_factors + f_factors for t_factors in terms)
+            terms = new_terms
+        terms = list(map(finat.TensorProductElement, terms))
+        return finat.EnrichedElement(terms)
+    else:
+        return ele
+
+
+@serial_cache(hashkey=lambda V: V.ufl_element())
+@PETSc.Log.EventDecorator("GetLineElements")
+def get_permutation_to_nodal_elements(V):
+    """Find DOF permutation to factor out the EnrichedElement expansion
+    into common TensorProductElements.
+
+    This routine exposes structure to e.g vectorize
+    prolongation of NCE or NCF accross vector components, by permuting all
+    components into a common TensorProductElement.
+
+    This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
+
+    Parameters
+    ----------
+    V :
+        A :class:`.FunctionSpace`.
+
+    Returns
+    -------
+    A 3-tuple of the DOF permutation, the unique terms in expansion
+    as a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
+    permutations of the axes to form the element given by their shifts
+    in list of `int` tuples
+    """
+    finat_element = V.finat_element
+    expansion = expand_element(finat_element)
+    if expansion.space_dimension() != finat_element.space_dimension():
+        raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
+
+    nodal_elements = []
+    terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
+    for term in terms:
+        factors = term.factors if hasattr(term, "factors") else (term,)
+        fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
+        if not all(e.is_nodal() for e in fiat_factors):
+            raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
+        nodal_elements.append(fiat_factors)
+
+    shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]
+    sizes = list(map(numpy.prod, shapes))
+    dof_ranges = numpy.cumsum([0] + sizes)
+
+    dof_perm = []
+    unique_nodal_elements = []
+    shifts = []
+
+    visit = [False for e in nodal_elements]
+    while False in visit:
+        base = nodal_elements[visit.index(False)]
+        tdim = len(base)
+        pshape = tuple(e.space_dimension() for e in base)
+        unique_nodal_elements.append(base)
+
+        axes_shifts = tuple()
+        for shift in range(tdim):
+            if finat_element.formdegree != 2:
+                shift = (tdim - shift) % tdim
+
+            perm = base[shift:] + base[:shift]
+            for i, term in enumerate(nodal_elements):
+                if not visit[i]:
+                    is_perm = all(e1.space_dimension() == e2.space_dimension()
+                                  for e1, e2 in zip(perm, term))
+                    if is_perm:
+                        is_perm = all(compare_element(e1, e2) for e1, e2 in zip(perm, term))
+
+                    if is_perm:
+                        axes_shifts += ((tdim - shift) % tdim, )
+                        dofs = numpy.arange(*dof_ranges[i:i+2], dtype=PETSc.IntType).reshape(pshape)
+                        dofs = numpy.transpose(dofs, axes=numpy.roll(numpy.arange(tdim), -shift))
+                        assert dofs.shape == shapes[i]
+                        dof_perm.append(dofs.flat)
+                        visit[i] = True
+
+        shifts.append(axes_shifts)
+
+    dof_perm = get_readonly_view(numpy.concatenate(dof_perm))
+    return dof_perm, unique_nodal_elements, shifts
+
+
+def get_readonly_view(arr):
+    result = arr.view()
+    result.flags.writeable = False
+    return result
+
+
+@serial_cache(hashkey=generate_key_evaluate_dual)
+def evaluate_dual(source, target, derivative=None):
+    """Evaluate the action of a set of dual functionals of the target element
+    on the (derivative of the) basis functions of the source element.
+
+    Parameters
+    ----------
+    source :
+        A :class:`FIAT.CiarletElement` to interpolate.
+    target :
+        A :class:`FIAT.CiarletElement` defining the interpolation space.
+    derivative : ``str`` or ``None``
+        An optional differential operator to apply on the source expression,
+        either "grad", "curl", or "div".
+
+    Returns
+    -------
+    A read-only :class:`numpy.ndarray` with the evaluation of the target
+    dual basis on the (derivative of the) source primal basis.
+    """
+    primal = source.get_nodal_basis()
+    dual = target.get_dual_set()
+    A = dual.to_riesz(primal)
+    B = primal.get_coeffs()
+    if derivative in ("grad", "curl", "div"):
+        dmats = primal.get_dmats()
+        B = numpy.tensordot(B, dmats, axes=(-1, -1))
+        if derivative == "curl":
+            d = B.shape[1]
+            idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
+            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+                             for k, (i, j) in enumerate(idx)], axis=1)
+        elif derivative == "div":
+            B = numpy.trace(B, axis1=1, axis2=2)
+    elif derivative is not None:
+        raise ValueError(f"Invalid derivative type {derivative}.")
+
+    B = B.reshape(-1, *A.shape[1:])
+    V = numpy.tensordot(A, B, axes=(range(1, A.ndim), range(1, B.ndim)))
+    return get_readonly_view(V)
