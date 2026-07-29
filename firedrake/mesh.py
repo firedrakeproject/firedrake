@@ -2105,9 +2105,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
             with swarm.field(cell_id_name) as swarm_parent_cell_nums:
-                swarm_parent_cell_nums = swarm_parent_cell_nums.ravel()
                 # Use kind = 'stable' to make the ordering deterministic.
-                perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+                perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart], kind='stable').astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
