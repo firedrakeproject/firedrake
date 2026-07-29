@@ -272,12 +272,9 @@ class PMGBase(PCSNESBase):
 
             add_hook(parent, setup=inject_state, call_setup=True)
 
-        interpolate = None
-        if fctx._nullspace or fctx._nullspace_T or fctx._near_nullspace:
-            interpolate, _ = cdm.createInterpolation(fdm)
-        cctx._nullspace = self.coarsen_nullspace(fctx._nullspace, cV, interpolate)
-        cctx._nullspace_T = self.coarsen_nullspace(fctx._nullspace_T, cV, interpolate)
-        cctx._near_nullspace = self.coarsen_nullspace(fctx._near_nullspace, cV, interpolate)
+        cctx._nullspace = self.coarsen_nullspace(fctx._nullspace, cV, fV)
+        cctx._nullspace_T = self.coarsen_nullspace(fctx._nullspace_T, cV, fV)
+        cctx._near_nullspace = self.coarsen_nullspace(fctx._near_nullspace, cV, fV)
         cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
         cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
         cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
@@ -313,7 +310,7 @@ class PMGBase(PCSNESBase):
             cbcs.append(coarse_bc)
         return cbcs
 
-    def coarsen_nullspace(self, fine_nullspace, cV, interpolate):
+    def coarsen_nullspace(self, fine_nullspace, cV, fV):
         """Coarsen a nullspace"""
         if fine_nullspace is None:
             return fine_nullspace
@@ -323,23 +320,22 @@ class PMGBase(PCSNESBase):
             return cache[key]
         except KeyError:
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
-                if interpolate.getType() == "python":
-                    interpolate = interpolate.getPythonContext()
-                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(cV))]
                 coarse_bases = []
-                for fs, submat, basis in zip(cV, submats, fine_nullspace._bases):
+                for i, (fs, basis) in enumerate(zip(cV, fine_nullspace._bases)):
                     if isinstance(basis, VectorSpaceBasis):
-                        coarse_bases.append(self.coarsen_nullspace(basis, fs, submat))
+                        coarse_bases.append(self.coarsen_nullspace(basis, fs, fV.sub(i)))
                     else:
                         coarse_bases.append(cV.sub(basis.index))
                 coarse_nullspace = MixedVectorSpaceBasis(cV, coarse_bases)
             elif isinstance(fine_nullspace, VectorSpaceBasis):
+                interp = firedrake.interpolate(firedrake.TrialFunction(cV), fV)
+                Pmat = firedrake.assemble(interp, mat_type="matfree").petscmat
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(cV)
                     with wc.dat.vec_wo as xc:
                         # the nullspace basis is in the dual of V
-                        interpolate.multTranspose(xf, xc)
+                        Pmat.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
                 coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant, comm=fine_nullspace.comm)
                 coarse_nullspace.orthonormalize()

@@ -359,9 +359,19 @@ class Interpolator(abc.ABC):
         self._check_mat_type(mat_type)
 
         if mat_type == "matfree" and self.rank == 2:
+            Vrow, Vcol = (arg.function_space() for arg in self.interpolate_args)
+            if is_dual(Vrow):
+                Vrow = Vrow.dual()
+            if is_dual(Vcol):
+                Vcol = Vcol.dual()
+            if bcs is None:
+                bcs = ()
+            row_bcs = [bc for bc in bcs if bc.function_space(parent=True).topological == Vrow.topological]
+            col_bcs = [bc for bc in bcs if bc.function_space(parent=True).topological == Vcol.topological]
             ctx = ImplicitMatrixContext(
-                self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+                self.ufl_interpolate, row_bcs=row_bcs, col_bcs=col_bcs,
             )
+            ctx.on_diag = Vrow == Vcol
             return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
 
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
