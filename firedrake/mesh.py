@@ -3753,6 +3753,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
             The field as a NumPy array. The array and views derived from it
             must not be used after leaving the context.
         """
+        # petsc4py will error if you try to access an active field without first restoring it.
         values = self.getField(name)
         try:
             yield values
