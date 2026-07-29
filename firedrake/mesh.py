@@ -1429,7 +1429,7 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self._comm)
+        return op2.Set(size, "Cells", comm=self.comm)
     
     @utils.cached_property
     def cell_facet_neighbours(self):
@@ -1453,18 +1453,6 @@ class MeshTopology(AbstractMeshTopology):
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
 
         for c_plex_point in range(cStart, cEnd):
-            """
-            facets = plex.getCone(c) # facets of the cell c
-            for lf, f in enumerate(facets):
-                # NOTE: the facet ID `lf` here refers to the facet's position in the DMPlex cone ordering
-                # not FIAT's local facet ID
-                support = plex.getSupport(f) # cells adjacent to facet f
-                if len(support) == 2:
-                    # an interior facet has 2 adjacent cells
-                    # so the neighbouring cell corresponds to the other adjacent cell
-                    other_c = support[0] if support[1] == c else support[1]
-                    cell_neighbours[c - cStart, lf] = other_c - cStart # assign to local index of cell c
-            """
             c_id = self._cell_numbering.getOffset(c_plex_point) # get Firedrake cell ID of plex cell point number
             
             # Instead of iterating over the plex facet points, iterate over FIAT's local facet IDs
@@ -1483,6 +1471,12 @@ class MeshTopology(AbstractMeshTopology):
             dtype=IntType,
             name="cell-facet-neighbours-dat"
         )
+
+        # NOTE: A fresh Dat has its halo entries marked as invalid -> next with_halos access can trigger a collective exchange.
+        # An exchange can overrite a rank's data with the owning rank's local data which is wrong.
+        # We avoid that by marking halos as valid.
+        cell_facet_neighbours.halo_valid = True
+
         return cell_facet_neighbours
     
     # helper methods
@@ -1611,22 +1605,24 @@ class MeshTopology(AbstractMeshTopology):
 
         return o_coord_maps
     
-    @utils.cached_property
+    # TODO: ensure the transform works between two ghost cells in the halo bound
+    @cached_property
     def cell_facet_coord_transforms(self):
-        """Return affine reference-coordinate transforms between neighbouring cells across a given facet.
+        """Returns affine reference-coordinate transforms between neighbouring cells across a given facet.
 
         For each cell `c` and each local facet `i` of this cell, this method constructs the affine
         map
 
-            X' = A[c,i] X + b[c,i],
+            X' = A[c,i] @ X + b[c,i],
 
         where `X` are reference coordinates of a point lying on facet `i` in cell `c` 
-        and `X'` are the reference coordinates of the same point expressed in the neighbouring cell `c`
+        and `X'` are the reference coordinates of the same point expressed in the neighbouring cell
         across facet `i`.
 
         Returns
         -------
-        (A_dat, b_dat) indexed by global cell ID and local facet ID in each cell.
+        tuple
+            (A_dat, b_dat) indexed by global cell ID and local facet ID in each cell.
             The two `pyop2.Dat` objects store the matrix and translation vector of
             each cell-to-cell reference coordinate transforms.
         """
@@ -1636,22 +1632,27 @@ class MeshTopology(AbstractMeshTopology):
         b_dset = op2.DataSet(self.cell_set, dim=(num_facets, gdim))
         
         # Create local numpy buffers
-        A_transform = np.zeros((self.num_cells(), num_facets, gdim, gdim))
-        b_transform = np.zeros((self.num_cells(), num_facets, gdim))
+        A_transform = np.full((self.num_cells(), num_facets, gdim, gdim), np.nan)
+        b_transform = np.full((self.num_cells(), num_facets, gdim), np.nan)
 
         # Populate the local buffers by iterating over interior facets
         # and extracting cell adjacency information from the mesh topology directly
-        facet_cells = self.interior_facets.facet_cell
-        local_facets = self.interior_facets.local_facet_dat.data_ro
+        facet_cells = self.interior_facets.facet_cell # all local facets (owned + halos)
+        local_facets = self.interior_facets.local_facet_dat.data_ro_with_halos
         
-        local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro
+        local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro_with_halos
         A, b, A_inv = self._get_facet_embedding_maps()
         o_coord_maps = self._get_facet_orientation_coord_maps()
+        
+        NODATAVAL = np.iinfo(local_facet_orientations.dtype).max
 
         for f_idx in range(facet_cells.shape[0]):
             c0, c1 = facet_cells[f_idx] # adjacent cells
             lf0, lf1 = local_facets[f_idx] # local facet ID in each adjacent cell
             o0, o1 = local_facet_orientations[f_idx] # local orientation in each adjacent cell
+            if o0 == NODATAVAL or o1 == NODATAVAL:
+                # skip outer halo facets where adjacency data isn't available
+                continue
             
             # Compute coords. map from o0 -> o1
             Q0, t0 = o_coord_maps[o0] # map canonical orientation -> o0
@@ -1690,13 +1691,40 @@ class MeshTopology(AbstractMeshTopology):
             name="cell-facet-coord-transforms-A-dat"
         )
 
+        cell_facet_A.halo_valid = True
+
         cell_facet_b = op2.Dat(
             b_dset,
             b_transform,
             dtype=RealType,
             name="cell-facet-coord-transforms-b-dat"
         )
+        cell_facet_b.halo_valid = True
+
         return cell_facet_A, cell_facet_b
+    
+
+    @cached_property
+    def cell_facet_exterior_mask(self):
+        """(num_cells, num_facets) bool mask: True where local facet is a domain boundary facet,
+        False otherwise (partition boundary facet)."""
+        num_facets = self.ufl_cell().num_facets
+        num_vertices = self.ufl_cell().num_vertices
+        mask = np.zeros((self.num_cells(), num_facets), dtype=bool)
+
+        plex = self._topology_dm
+        if plex.getStratumSize("exterior_facets", 1) > 0:
+            ext_plex_points = frozenset(plex.getStratumIS("exterior_facets", 1).getIndices().tolist())
+        else:
+            ext_plex_points = frozenset()
+
+        cstart, cend = plex.getHeightStratum(0)
+        for c_plex in range(cstart, cend):
+            cid = self._cell_numbering.getOffset(c_plex) # plex point -> Firedrake entity mapping
+            for lf in range(num_facets):
+                f_point = self.cell_closure[cid, num_vertices + lf]
+                mask[cid, lf] = f_point in ext_plex_points
+        return mask
     
 
     @PETSc.Log.EventDecorator()
@@ -2031,7 +2059,19 @@ class MeshTopology(AbstractMeshTopology):
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
             return composed_map, integral_type
-    
+
+    @cached_property
+    def _visible_ranks(self):
+        # Get parent mesh rank ownership information.
+        visible_ranks = np.empty(self.cell_set.total_size, dtype=IntType)
+        visible_ranks[:self.cell_set.size] = self.comm.rank
+        visible_ranks[self.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            self.topology_dm, self._cell_numbering, visible_ranks
+        )
+        return visible_ranks
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
