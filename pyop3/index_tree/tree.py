@@ -1443,8 +1443,9 @@ def _(called_map: CalledMap, *args, **kwargs):
 
 @_index_axes_per_index.register
 def _(map_: UnitCalledMap, /, *args, **kwargs):
+    import pyop3
     from pyop3.expr import LoopIndexVar, AxisVar
-    from pyop3.expr.visitors import replace_terminals, replace
+    from pyop3.expr.visitors import replace_terminals
 
     assert map_.is_context_free
 
@@ -1474,7 +1475,7 @@ def _(map_: UnitCalledMap, /, *args, **kwargs):
         assert isinstance(axis_var, AxisVar)
         replace_map = {axis_var: index_target.expr}
 
-        myexpr = replace(map_component.array, replace_map, assert_modified=True)
+        myexpr = pyop3.visitors.replace(map_component.array, replace_map, assert_modified=True)
         new_targets[idict()].append([AxisTarget(map_component.target_axis, map_component.target_component, myexpr)])
 
     assert match_found
