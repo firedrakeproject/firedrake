@@ -2742,6 +2742,12 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
+        """Generates C code to compute containing cells and reference coordinates for a set of points.
+
+        First, the rtree is queried to find candidate cells for each point. Then, for each point, we locate
+        the single owning cell from the candidates. This owning cell is the one which is closest to the point
+        in the L1 norm in reference coordinates.
+        """
         from pyop2 import compilation
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
@@ -2780,16 +2786,19 @@ values from f.)"""
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         {IntType_c} *cells_ignore_i = cells_ignore + i*ncells_ignore;
+
                         PetscErrorCode locate_err = locate_cell_from_candidates(
                             f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
                             &temp_reference_coords, &found_reference_coords,
                             &ref_cell_dists_l1[i], nids_i, ids_i,
                             ncells_ignore, cells_ignore_i, &cells[i]);
+
                         if (locate_err != PETSC_SUCCESS) {{
                             rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
                             rtree_free_offsets(candidate_offsets, npoints + 1);
                             return locate_err;
                         }}
+
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
                             j++;
