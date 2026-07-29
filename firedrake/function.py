@@ -309,10 +309,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        if name == 'dat' or name == 'vec':
+        if name == 'dat':
             self._match_mesh_topology_version()
-        val = getattr(self._data, name)
-        return val
+
+        return getattr(self._data, name)
 
     def _match_mesh_topology_version(self):
         # Skip checking oordinate functions as they get rebuilt when the VOM gets rebuilt
@@ -360,7 +360,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                     )
                 chained_sf = step_sf.compose(chained_sf)  # V -> V-2
 
-            # TODO: Should we cache a chained_sf from this particular composition?
+            # TODO: Should we cache chained_sf from this particular composition?
             # It is not yet unclear when and how often the caching the caching should occur
             latest_topology_step_sf = chained_sf
 
@@ -368,7 +368,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         FS_topo = self._function_space.topological
         self._data = migrate_dg0_dat(self._data, FS_topo, latest_topology_step_sf)
 
-        # Remove cached dats and vecs on the Function since `migrate_dg0_dat` subbed a new CoordinatelessFunction
+        # Remove cached dats and vecs on the Function since `migrate_dg0_dat` recreated the CoordinatelessFunction
         self.__dict__.pop("dat", None)
         self.__dict__.pop("vec", None)
 

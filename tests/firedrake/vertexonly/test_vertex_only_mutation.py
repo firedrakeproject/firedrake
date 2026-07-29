@@ -113,13 +113,15 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
     assert vom.cell_set.size == n_owned
 
 
-# NOTE: this test relies on the tracking particles through the PID field and therefore relies on the PID field migration working properly. 
-# This is tested and verified separately.
+# NOTE: This test like the ones validating the Function migration mechanism assumes that particle IDs
+# get correctly redistributed at each VOM rebuild. The correctness of the PID redistribution relies on the correctness
+# of the step SF that is tested further down below.
+
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh):
     """Verify that rebuilding the VOM without absorption preserves particle state, that is
     we get the same set of particles and each particle ID remains associated 
-    with the same physical coordinates, reference coordinates, and parent cell 
+    with the same physical coordinates, reference coordinates, and parent cell s
     regardless of any change in VOM ordering.
     """
     points = cell_midpoints(parent_mesh, with_halos=False)
@@ -393,14 +395,23 @@ def test_rebuild_vom_invalid_absorbed_index_raises_value_error(parent_mesh):
 
 
 @pytest.mark.parallel([1, 3])
-def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
+def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
+    """Validate the step SF created during a rank-local VOM rebuild.
+
+    This test verifies:
+    - the SF is stored under the new topology version
+    - `nroots` equals the number of particles before rebuilding
+    - the number of leaves equals the number of surviving particles
+    - absorbed particles do not produce leaves
+    - broadcasting old particle labels through the SF puts those labels into the correct rebuilt VOM cell order
+    """
     points = cell_midpoints(parent_mesh, with_halos=False)
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
     mutator = VertexOnlyMeshMutator(vom)
-
+    
+    # Define root values, same as the `globalindex` swarm field when the VOM is created
     old_local_count = vom.cell_set.size
     offset = (parent_mesh.comm.scan(old_local_count, op=MPI.SUM) - old_local_count)
-
     root_values = np.arange(offset, offset + old_local_count, dtype=IntType)
 
     # Produce a rebuild that changes the VOM's ordering - e.g., reverse local coordinates
@@ -413,8 +424,8 @@ def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
     survivors = np.ones(old_local_count, dtype=bool)
     survivors[absorbed_local_indices] = False
 
-    # Build an expected VOM state using parent cells
-    # Since the VOM points are cell centroids, parent cell IDs can be used to uniquely identify these VOM points
+    # Build an expected state
+    # Since the VOM points are cell centroids, parent cell IDs can be used as unique point identifiers.
     expected_state_by_parent_cell = {
         new_parent_cells[i]: root_values[i]
         for i in np.where(survivors)[0]
@@ -482,6 +493,101 @@ def test_rebuild_vom_topology_step_sf_maps_old_to_new_ordering(parent_mesh):
     )
 
     parallel_assert(np.array_equal(leaf_values, expected_leaf_values))
+
+@pytest.mark.parallel(nprocs=3)
+def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
+    """Validate the step SF created during a cross-rank VOM rebuild.
+    
+    This test moves a local VOM particle into a halo parent cell so that rebuilding
+    the VOM causes the particle to be migrated over to another rank.
+
+    The test then checks that the step SF for the new topology version maps each point in the (new) VOM 
+    back to the correct point in the old VOM.
+    """
+    comm = parent_mesh.comm
+
+    owned_points = cell_midpoints(parent_mesh, with_halos=False)
+    all_points = cell_midpoints(parent_mesh, with_halos=True)
+
+    vom = VertexOnlyMesh(parent_mesh, owned_points, redundant=False)
+    mutator = VertexOnlyMeshMutator(vom)
+
+    n_owned_parent_cells = parent_mesh.cell_set.size
+    n_total_parent_cells = parent_mesh.cell_set.total_size
+
+    ghost_cells = np.arange(n_owned_parent_cells, n_total_parent_cells)
+
+    parallel_assert(
+        vom.cell_set.size > 0 and len(ghost_cells) > 0,
+        "Every rank must have a VOM particle and a ghost parent cell",
+    )
+
+    # Define root values, same as the `globalindex` swarm field when the VOM is created
+    old_local_count = vom.cell_set.size
+    offset = comm.scan(old_local_count, op=MPI.SUM) - old_local_count
+    root_values = np.arange(offset, offset + old_local_count, dtype=IntType)
+
+    # Move one one particle on each rank over to another rank
+    new_coords = vom.coordinates.dat.data_ro.copy()
+    new_coords[0] = all_points[ghost_cells[0]]
+
+    new_parent_cells, new_refcoords = locate_points(
+        parent_mesh, new_coords
+    )
+
+    vom.coordinates.dat.data_wo[:] = new_coords
+    mutator.commit_reference_state(new_parent_cells, new_refcoords)
+
+    old_version = vom.topology._topology_version
+    mutator.rebuild_vom()
+    new_version = vom.topology._topology_version
+
+    parallel_assert(new_version == old_version + 1)
+    parallel_assert(new_version in vom.topology._topology_step_sfs)
+
+    step_sf = vom.topology._topology_step_sfs[new_version]
+    nroots, ilocal, iremote = step_sf.getGraph()
+
+    nleaves = 0 if iremote is None else len(iremote)
+
+    parallel_assert(nroots == old_local_count)
+    parallel_assert(nleaves == vom.cell_set.size)
+
+    # Broadcast the labels through the step SF
+    leaf_labels = np.full(vom.cell_set.size, -1, dtype=IntType)
+
+    mpi_type = MPI._typedict[root_values.dtype.char]
+    root_values = np.ascontiguousarray(root_values)
+
+    step_sf.bcastBegin(
+        mpi_type,
+        root_values,
+        leaf_labels,
+        MPI.REPLACE
+    )
+
+    step_sf.bcastEnd(
+        mpi_type,
+        root_values,
+        leaf_labels,
+        MPI.REPLACE
+    )
+
+    # Construct the expected state by reordering the `globalindex` swarm field values to match the new VOM order.
+    # During the first VOM rebuild, the `globalindex` field is rewritten (filtered by surviving particles) into the swarm
+    # before the swarm migrates and so `gloablindex` value of each particle in the new swarm corresponds to its root value in the old VOM.
+    swarm = vom.topology_dm
+
+    global_indices = swarm.getField("globalindex").ravel().copy()
+    swarm.restoreField("globalindex")
+
+    vom_to_swarm = vom.topology.cell_closure[:, -1] # Firedrake cell point -> swarm point
+    global_indices_in_new_vom_order = global_indices[vom_to_swarm]
+
+    parallel_assert(
+        np.array_equal(leaf_labels, global_indices_in_new_vom_order),
+        "The step SF incorrectly maps cross-rank particles",
+    )
 
 
 @pytest.mark.parallel([1, 3])
