@@ -3739,7 +3739,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         self._other_fields = None
 
     @contextmanager
-    def field(self, name: str) -> Generator[np.ndarray, None, None]:
+    def field(self, name: str) -> Generator[np.ndarray]:
         """Context manager to access a field on the DMSwarm.
 
         Parameters
