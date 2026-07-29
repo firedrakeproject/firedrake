@@ -324,6 +324,18 @@ class Dat(Tensor):
     def size(self):
         return self.axes.size
 
+    @property
+    def nbytes(self) -> int:
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
+        return self.dtype.itemsize * self.axes.local_size
+
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Dat:
         if self.transform is not None:
             raise RuntimeError

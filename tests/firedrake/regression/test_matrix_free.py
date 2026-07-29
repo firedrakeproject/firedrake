@@ -262,11 +262,7 @@ def test_get_info(a, bcs, infotype):
              "max": A.petscmat.InfoType.GLOBAL_MAX}[infotype]
     info = ctx.getInfo(A.petscmat, info=itype)
     test, trial = a.arguments()
-    expect = ((test.function_space().dof_count
-               * test.function_space().value_size)
-              + (trial.function_space().dof_count
-                 * trial.function_space().value_size))
-
+    expect = (test.function_space().dof_count + trial.function_space().dof_count)
     expect *= ScalarType.itemsize
 
     if infotype == "sum":
