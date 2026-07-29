@@ -2506,7 +2506,8 @@ values from f.)"""
         the coordinate field)."""
         warnings.warn(
             "The ``clear_rtree`` method is deprecated and will be removed in a future release. "
-            "There is no need to manually clear the rtree.", FutureWarning
+            "There is no need to manually clear the rtree after changing the mesh coordinates;"
+            "the rtree will be automatically rebuilt.", FutureWarning
         )
         # `cached_property_until` stores the cached rtree in self._rtree_cache
         # setting it to None will force the rtree to be rebuilt on next access.
