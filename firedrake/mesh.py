@@ -1430,14 +1430,16 @@ class MeshTopology(AbstractMeshTopology):
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
-    
-    @utils.cached_property
-    def cell_facet_neighbours(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps each cell to its neighbours
-        across each of its facets.
 
-        The neighbouring cell across the `i`-th local facet of a cell with index `c` is given by
-        `cell_facet_neighbours[c][i]`.
+    @cached_property
+    def cell_facet_neighbours(self):
+        """Map each cell to its neighbouring cells across local facets.
+
+        Returns a :class:`pyop2.types.dat.Dat` with one entry per local facet of
+        each cell.  For cell ``c`` and local facet ``i``,
+        ``cell_facet_neighbours[c][i]`` is the Firedrake cell number of the cell
+        adjacent to ``c`` across that facet, or ``-1`` if the facet lies on the
+        boundary.
         """
         num_facets = self.ufl_cell().num_facets
         num_vertices = self.ufl_cell().num_vertices
@@ -1447,8 +1449,7 @@ class MeshTopology(AbstractMeshTopology):
         # Create a local numpy buffer to store the neighbours of each cell
         cell_neighbours = np.full((self.num_cells(), num_facets), -1, dtype=IntType)
 
-        # Populate the local buffer by iterating over the cells
-        # and querying the DMPlex for local cell information
+        # Populate the local buffer by iterating over the cells and querying the DMPlex for local cell information
         plex = self.topology_dm
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
 
@@ -1536,7 +1537,7 @@ class MeshTopology(AbstractMeshTopology):
 
         For tensor-product facets (e.g. quadrilateral facets of a hexahedra), FIAT
         returns orientation keys as tuples (eo, i0, ..., ik), which are converted
-        into Firedrake's integer orientation representation before storing.
+        into Firedrake's integer orientation before storing.
         
         Returns
         -------
@@ -1587,12 +1588,11 @@ class MeshTopology(AbstractMeshTopology):
                 ys = permuted_facet_verts[subset]
 
                 # For a tensor-product facet FIAT returns orientation as a tuple (eo, io1, io2..., iok)
-                # so we need to convert it to an integer as the faccet orientations stored in the mesh are expressed as integers.
+                # so we need to convert it to an integer (facet orientations stored on the mesh are expressed as integers).
                 # The integer orientation is obtained as o_int = (2**dim) * eo + io (as written in cython.dmcommon.pyx _compute_orientation_interval_tensor_product)
                 # intrinsic orientation is a binary encoding (each factor contributes one bit)
                 # io is obtained by converting this encoding into an integer (with factor 0 being the most significant bit)
-                # NOTE: hardcoding this is ok since this will be moved to cython anyway?
-                
+
                 eo = o[0]
                 bits = o[1:]
                 io = 0
@@ -1706,8 +1706,12 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_facet_exterior_mask(self):
-        """(num_cells, num_facets) bool mask: True where local facet is a domain boundary facet,
-        False otherwise (partition boundary facet)."""
+        """Identify exterior facets of each cell.
+        
+        Returns a boolean array of shape ``(num_cells, num_facets)`` whose entry
+        ``cell_facet_exterior_mask[c, i]`` is ``True`` if local facet ``i`` of
+        cell ``c`` lies on the domain boundary, and ``False`` otherwise (if ``i`` is a partition boundary).
+        """
         num_facets = self.ufl_cell().num_facets
         num_vertices = self.ufl_cell().num_vertices
         mask = np.zeros((self.num_cells(), num_facets), dtype=bool)
