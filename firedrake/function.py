@@ -651,6 +651,8 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+            elif err == -2:
+                raise RuntimeError("Rtree query failed.")
             elif err != 0:
                 raise RuntimeError(f"C point evaluator failed with error code {err}")
 

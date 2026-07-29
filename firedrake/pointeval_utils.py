@@ -188,7 +188,7 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     if (err != Success) {
         fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
         rtree_free_ids(ids, nids);
-        return -1;
+        return -2;
     }
     %(IntType)s cell;
     PetscErrorCode locate_err = locate_cell_from_candidates(
