@@ -1453,8 +1453,8 @@ class MeshTopology(AbstractMeshTopology):
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
 
         for c_plex_point in range(cStart, cEnd):
-            cid = self._cell_numbering.getOffset(c_plex_point) # get Firedrake cell ID of plex cell point number
-            
+            cid = self._cell_numbering.getOffset(c_plex_point)  # get Firedrake cell ID of plex cell point number
+
             # Instead of iterating over the plex facet points, iterate over FIAT's local facet IDs
             for lf in range(num_facets):
                 lf_plex_point = self._cell_facet_point(cid, lf)  # get plex point number corresponding to facet lf
@@ -1478,7 +1478,7 @@ class MeshTopology(AbstractMeshTopology):
         cell_facet_neighbours.halo_valid = True
 
         return cell_facet_neighbours
-    
+
     # helper methods
 
     @cached_property
@@ -1494,7 +1494,7 @@ class MeshTopology(AbstractMeshTopology):
 
     def _get_facet_embedding_maps(self):
         """
-        For every local facet `lf` of the reference cell, FIAT provides an entity transform 
+        For every local facet `lf` of the reference cell, FIAT provides an entity transform
         that maps facet-local reference coordinates (X_lf) into the cell's reference coordinates (X):
 
         X = A_lf @ X_lf + b_lf.
@@ -1502,7 +1502,7 @@ class MeshTopology(AbstractMeshTopology):
         Returns
         -------
         tuple of lists (A, b, A_inv) each indexed by local facet ID.
-            (A[lf], b[lf]) defines the affine embedding of facet reference coordinates into the cell reference frame, 
+            (A[lf], b[lf]) defines the affine embedding of facet reference coordinates into the cell reference frame,
             and A_inv[lf] defines the pseudoinverse for mapping cell coordinates on the facet back to facet-local coordinates.
         """
         import FIAT
@@ -1531,14 +1531,14 @@ class MeshTopology(AbstractMeshTopology):
 
             # Get (A_lf, b_lf) by evaluating the transform at the facet vertices
             mapped_facet_verts = np.array([phi(v) for v in facet_verts])
-            b_lf = mapped_facet_verts[0] # first vertex is always the origin
-            A_lf = (mapped_facet_verts[1:facet_dim+1] - b_lf).T 
+            b_lf = mapped_facet_verts[0]  # first vertex is always the origin
+            A_lf = (mapped_facet_verts[1:facet_dim+1] - b_lf).T
             A.append(A_lf)
             b.append(b_lf)
             A_inv.append(np.linalg.pinv(A_lf))
 
         return (A, b, A_inv)
-    
+
     def _get_facet_orientation_coord_maps(self):
         """
         When two adjacent cells share a facet, the ordering of the facet
@@ -1553,14 +1553,14 @@ class MeshTopology(AbstractMeshTopology):
         where X_f_can defines the facet-local coordinates when the facet is in the canonical orientation and
         X_f_o defines the facet-local coordinates of the same point when the facet is in orientation `o`.
 
-        The FIAT `make_entity_permutations_simplex` method can be used to derive vertex permutations 
+        The FIAT `make_entity_permutations_simplex` method can be used to derive vertex permutations
         for each possible facet permutation. We convert each such permutation into the corresponding affine coordinate transform using
         `FIAT.reference_element.make_affine_mapping`.
 
         For tensor-product facets (e.g. quadrilateral facets of a hexahedra), FIAT
         returns orientation keys as tuples (eo, i0, ..., ik), which are converted
         into Firedrake's integer orientation before storing.
-        
+
         Returns
         -------
         dict
@@ -1581,7 +1581,7 @@ class MeshTopology(AbstractMeshTopology):
             }
 
         facet_ref = ref_cell.construct_subelement(facet_dim)
-        facet_verts = np.asarray(facet_ref.get_vertices()) # FIAT's canonical facet vertices
+        facet_verts = np.asarray(facet_ref.get_vertices())  # FIAT's canonical facet vertices
 
         # Second, build orientation -> vertex permutation map
         if isinstance(facet_ref, FIAT.reference_element.SimplicialComplex):
@@ -1591,15 +1591,15 @@ class MeshTopology(AbstractMeshTopology):
 
         elif isinstance(facet_ref, FIAT.reference_element.Hypercube):
             # 3D: hexahedra (facet is a quad)
-            factors = facet_ref.product.cells # interval in a quad
+            factors = facet_ref.product.cells  # interval in a quad
             factor_dims = [f.get_spatial_dimension() for f in factors]
 
-            # NOTE: We assume below that all factors are identical (and have the same dim), 
+            # NOTE: We assume below that all factors are identical (and have the same dim),
             # otherwise, we need to build factor permutations for each possible dim.
             same_factor_dims = all(d == factor_dims[0] for d in factor_dims)
             if same_factor_dims:
                 factor_o_p_maps = FIAT.orientation_utils.make_entity_permutations_simplex(dim=factor_dims[0], npoints=2)
-                o_p_maps = FIAT.orientation_utils.make_entity_permutations_tensorproduct(factors, factor_dims, list([factor_o_p_maps]*len(factors)))    
+                o_p_maps = FIAT.orientation_utils.make_entity_permutations_tensorproduct(factors, factor_dims, list([factor_o_p_maps]*len(factors)))
         else:
             raise NotImplementedError("Facet permutation maps not yet implemented for facet type %s" % type(facet_ref))
 
@@ -1628,14 +1628,14 @@ class MeshTopology(AbstractMeshTopology):
                 bits = o[1:]
                 io = 0
                 for bit in bits:
-                    io= 2*io + bit
+                    io = 2*io + bit
                 o_int = (2**len(bits))*eo + io
 
             Q, t = FIAT.reference_element.make_affine_mapping(xs, ys)
             o_coord_maps[o_int] = (Q, t)
 
         return o_coord_maps
-    
+
     @cached_property
     def cell_facet_coord_transforms(self):
         """Returns affine reference-coordinate transforms between neighbouring cells across a given facet.
@@ -1645,7 +1645,7 @@ class MeshTopology(AbstractMeshTopology):
 
             X' = A[c,i] @ X + b[c,i],
 
-        where `X` are reference coordinates of a point lying on facet `i` in cell `c` 
+        where `X` are reference coordinates of a point lying on facet `i` in cell `c`
         and `X'` are the reference coordinates of the same point expressed in the neighbouring cell
         across facet `i`.
 
@@ -1657,36 +1657,36 @@ class MeshTopology(AbstractMeshTopology):
             each cell-to-cell reference coordinate transforms.
         """
         num_facets = self.ufl_cell().num_facets
-        gdim = self.ufl_cell().topological_dimension # tdim = gdim generally on cells but what about in the case of immersed manifolds?
-        A_dset = op2.DataSet(self.cell_set, dim=(num_facets, gdim, gdim))
-        b_dset = op2.DataSet(self.cell_set, dim=(num_facets, gdim))
-        
+        ref_dim = self.ufl_cell().topological_dimension
+        A_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim, ref_dim))
+        b_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim))
+
         # Create local numpy buffers
-        A_transform = np.full((self.num_cells(), num_facets, gdim, gdim), np.nan)
-        b_transform = np.full((self.num_cells(), num_facets, gdim), np.nan)
+        A_transform = np.full((self.num_cells(), num_facets, ref_dim, ref_dim), np.nan)
+        b_transform = np.full((self.num_cells(), num_facets, ref_dim), np.nan)
 
         # Populate the local buffers by iterating over interior facets
         # and extracting cell adjacency information from the mesh topology directly
-        facet_cells = self.interior_facets.facet_cell # all local facets (owned + halos)
+        facet_cells = self.interior_facets.facet_cell  # all local facets (owned + halos)
         local_facets = self.interior_facets.local_facet_dat.data_ro_with_halos
-        
+
         local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro_with_halos
         A, b, A_inv = self._get_facet_embedding_maps()
         o_coord_maps = self._get_facet_orientation_coord_maps()
-        
+
         NODATAVAL = np.iinfo(local_facet_orientations.dtype).max
 
         for f_idx in range(facet_cells.shape[0]):
-            c0, c1 = facet_cells[f_idx] # adjacent cells
-            lf0, lf1 = local_facets[f_idx] # local facet ID in each adjacent cell
-            o0, o1 = local_facet_orientations[f_idx] # local orientation in each adjacent cell
+            c0, c1 = facet_cells[f_idx]  # adjacent cells
+            lf0, lf1 = local_facets[f_idx]  # local facet ID in each adjacent cell
+            o0, o1 = local_facet_orientations[f_idx]  # local orientation in each adjacent cell
             if o0 == NODATAVAL or o1 == NODATAVAL:
                 # skip outer halo facets where adjacency data isn't available
                 continue
-            
+
             # Compute coords. map from o0 -> o1
-            Q0, t0 = o_coord_maps[o0] # map canonical orientation -> o0
-            Q1, t1 = o_coord_maps[o1] # map canonical orientation -> o1
+            Q0, t0 = o_coord_maps[o0]  # map canonical orientation -> o0
+            Q1, t1 = o_coord_maps[o1]  # map canonical orientation -> o1
 
             # inverse coord. map
             # o0 -> canonical orientation
@@ -1713,7 +1713,7 @@ class MeshTopology(AbstractMeshTopology):
             # Compute backward transform c1 -> c0 and store on c1
             A_transform[c1, lf1] = A[lf0] @ Q10 @ A_inv[lf1]
             b_transform[c1, lf1] = b[lf0] + A[lf0] @ t10 - A_transform[c1, lf1] @ b[lf1]
-        
+
         cell_facet_A = op2.Dat(
             A_dset,
             A_transform,
@@ -1732,7 +1732,6 @@ class MeshTopology(AbstractMeshTopology):
         cell_facet_b.halo_valid = True
 
         return cell_facet_A, cell_facet_b
-    
 
     @cached_property
     def cell_facet_exterior_mask(self):
@@ -1766,7 +1765,6 @@ class MeshTopology(AbstractMeshTopology):
                 mask[cid, lf] = f_point in ext_plex_points
 
         return mask
-    
 
     @PETSc.Log.EventDecorator()
     def _set_partitioner(self, plex, distribute, partitioner_type=None):

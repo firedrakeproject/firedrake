@@ -3,7 +3,8 @@ import pytest
 
 from firedrake import *
 
-@pytest.fixture(params=[          
+
+@pytest.fixture(params=[
     # No interior facets
     pytest.param(lambda: UnitIntervalMesh(1), id="interval-1"),
     pytest.param(lambda: UnitSquareMesh(1, 1), id="tri-square-1x1"),
@@ -16,7 +17,7 @@ from firedrake import *
     pytest.param(lambda: UnitSquareMesh(2, 1), id="tri-square-2x1"),
     pytest.param(lambda: UnitSquareMesh(2, 1, quadrilateral=True), id="quad-square-2x1"),
     pytest.param(lambda: UnitCubeMesh(2, 1, 1), id="tet-cube-2x1x1"),
-    pytest.param(lambda: UnitCubeMesh(2, 1, 1, hexahedral=True), id="hex-cube-2x1x1"),                
+    pytest.param(lambda: UnitCubeMesh(2, 1, 1, hexahedral=True), id="hex-cube-2x1x1"),
 ])
 def mesh(request):
     return request.param()
@@ -25,7 +26,7 @@ def mesh(request):
 @pytest.mark.parallel([1, 3])
 def test_cell_facet_neighbours_are_valid(mesh):
     topology = mesh.topology
-    
+
     # Check that every cell has exactly one neighbour entry per local facet
     owned_neighbours = topology.cell_facet_neighbours.data_ro
     neighbours_with_halos = topology.cell_facet_neighbours.data_ro_with_halos
@@ -48,7 +49,7 @@ def test_cell_facet_neighbours_are_valid(mesh):
             # Check that every non-boundary neighbour has a valid cell number
             assert 0 <= n < topology.cell_set.total_size
 
-            # Check reciprocity: If c is the neighbour of n across a given facet, 
+            # Check reciprocity: If c is the neighbour of n across a given facet,
             # then n also appears as the neighbour of c
             assert c in neighbours_with_halos[n]
 
@@ -63,7 +64,7 @@ def test_cell_facet_neighbours_match_interior_facets(mesh):
     nowned_facets = topology.interior_facets.set.size
     facet_cells = topology.interior_facets.facet_cell[:nowned_facets]
     local_facets = topology.interior_facets.local_facet_dat.data_ro[:nowned_facets]
-    
+
     # Check that the neighbouring cell is attached to the right facet
     for (c0, c1), (lf0, lf1) in zip(facet_cells, local_facets):
         if c0 == -1 or c1 == -1:
@@ -116,7 +117,7 @@ def test_cell_facet_coord_transforms_are_inverse_on_interior_facets(mesh):
     A_dat, b_dat = topology.cell_facet_coord_transforms
     A = A_dat.data_ro_with_halos
     b = b_dat.data_ro_with_halos
-    
+
     embed_A, embed_b, _ = topology._get_facet_embedding_maps()
 
     # Restrict to owned interior facets
@@ -150,10 +151,10 @@ def test_cell_facet_coord_transforms_are_inverse_on_interior_facets(mesh):
 
 @pytest.mark.parallel([1, 3])
 def test_cell_facet_coord_transforms_map_to_neighbour_facet(mesh):
-    """Checks geometric consistency, that is the linear transform for a cell c on local facet lf 
+    """Checks geometric consistency, that is the linear transform for a cell c on local facet lf
     sends points on that facet to points on the corresponding facet of the neighbouring cell."""
     topology = mesh.topology
-    
+
     A_dat, b_dat = topology.cell_facet_coord_transforms
     A = A_dat.data_ro_with_halos
     b = b_dat.data_ro_with_halos
@@ -183,7 +184,7 @@ def test_cell_facet_coord_transforms_map_to_neighbour_facet(mesh):
             # Y should lie on neighbour local facet lf1.
             Yf = np.linalg.pinv(embed_A[lf1]) @ (Y - embed_b[lf1])
             assert np.allclose(embed_A[lf1] @ Yf + embed_b[lf1], Y)
-        
+
         facet_dim = embed_A[lf1].shape[1]
         points = [np.zeros(facet_dim)]
         points += [np.eye(facet_dim)[i] for i in range(facet_dim)]
