@@ -165,7 +165,6 @@ class VertexOnlyMeshMutator:
 
         survivors = ~is_absorbed
         n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
-        
 
         # Reset the IO Swarm
         # NOTE: it seems costly to re-build a new IO swarm every time the VOM gets rebuild.
@@ -182,7 +181,7 @@ class VertexOnlyMeshMutator:
         swarm_coords[:] = coords_local[survivors]
         swarm.restoreField("DMSwarmPIC_coor")
 
-        cid = swarm.getCellDMActive().getCellID() # swarm field that stores each particle's parent cell ID
+        cid = swarm.getCellDMActive().getCellID()  # swarm field that stores each particle's parent cell ID
         swarm_parent_cell_nums = swarm.getField(cid).ravel()
         swarm_parent_cell_nums[:] = new_plex_parent_cell_nums_local[survivors]
         swarm.restoreField(cid)
@@ -194,7 +193,6 @@ class VertexOnlyMeshMutator:
         field_reference_coords = swarm.getField("refcoord").reshape((n_survivors_local, parent_tdim))
         field_reference_coords[:] = reference_coords_local[survivors]
         swarm.restoreField("refcoord")
-
 
         field_rank = swarm.getField("DMSwarm_rank").ravel()
         field_rank[:] = owned_ranks_local[survivors]
@@ -307,7 +305,6 @@ class VertexOnlyMeshMutator:
         else:
             # This should have been already set to None when the VOM was first constructed
             self.vom.reference_coordinates = None
-
 
     def _invalidate_topology_properties(self):
         # Delete cached properties so they get recomputed on next access using the updated swarm fields

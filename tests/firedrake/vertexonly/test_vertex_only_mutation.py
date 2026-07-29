@@ -8,8 +8,16 @@ import pytest
 
 
 @pytest.fixture
-def parent_mesh():
-    return UnitSquareMesh(5, 5, quadrilateral=False)
+def parent_mesh(request):
+    mesh_type = getattr(request, "param", "tri")
+    if mesh_type == "tri":
+        return UnitSquareMesh(5, 5, quadrilateral=False)
+    elif mesh_type == "quad":
+        return UnitSquareMesh(5, 5, quadrilateral=True)
+    elif mesh_type == "tet":
+        return UnitCubeMesh(3, 3, 3, hexahedral=False)
+    elif mesh_type == "hex":
+        return UnitCubeMesh(3, 3, 3, hexahedral=True)
 
 # Utility Functions
 
@@ -54,6 +62,12 @@ def vom_state_by_particle_id(vom):
     "with_halos",
     [False, True],
     ids=["owned-only", "with-halos"],
+)
+@pytest.mark.parametrize(
+    "parent_mesh",
+    ["tri", "quad", "tet", "hex"],
+    indirect=True,
+    ids=["tri", "quad", "tet", "hex"]
 )
 def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_halos):
     """Verify that the VOM's state gets mutated."""
@@ -181,6 +195,12 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     assert new_version in vom.topology._topology_step_sfs
 
 
+@pytest.mark.parametrize(
+    "parent_mesh",
+    ["tri", "quad"],
+    indirect=True,
+    ids=["tri", "quad"]
+)
 @pytest.mark.parallel(nprocs=3)
 def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     owned_points = cell_midpoints(parent_mesh, with_halos=False)
@@ -264,6 +284,12 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     )
 
 
+@pytest.mark.parametrize(
+    "parent_mesh",
+    ["tri", "quad", "tet", "hex"],
+    indirect=True,
+    ids=["tri", "quad", "tet", "hex"]
+)
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_with_absorption(parent_mesh):
     """Verify that absorbed VOM indices disappear and that the VOM is correctly resized."""
@@ -328,7 +354,7 @@ def test_rebuild_vom_with_absorption(parent_mesh):
 
 
 @pytest.mark.parallel([1, 3])
-def test_rebuild_vom_produces_empty_vom(parent_mesh):
+def test_rebuild_vom_can_produce_empty_vom(parent_mesh):
     points = cell_midpoints(parent_mesh, with_halos=False)
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
     mutator = VertexOnlyMeshMutator(vom)
