@@ -2,6 +2,7 @@ import collections
 import functools
 import numbers
 import types
+from collections.abc import Iterable
 from typing import Any
 
 import loopy as lp
