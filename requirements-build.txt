@@ -1,6 +1,6 @@
 # Core build dependencies (adapted from pyproject.toml)
 Cython>=3.0
-firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree.git@main
+firedrake-rtree>=2026.2.0
 libsupermesh>=2026.0
 mpi4py>3; python_version >= '3.13'
 mpi4py; python_version < '3.13'
@@ -14,5 +14,3 @@ setuptools>=77.0.3
 hatchling
 meson-python
 scikit_build_core
-maturin>=1.12,<2.0
-puccinialin
