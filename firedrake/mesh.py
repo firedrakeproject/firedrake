@@ -4341,12 +4341,17 @@ values from f.)"""
         cell_node_map = new_coordinates.function_space().cell_node_list
         num_cells = cell_node_map.shape[0]
         DG0 = FunctionSpace(self, "DG", 0)
-        own_curved = netgen_distribute(DG0, curved)
+        own_curved = netgen_distribute(DG0, DG0, curved)
         own_curved = np.flatnonzero(own_curved[:num_cells])
 
         # Distribute coordinate data
-        own_curved_points = netgen_distribute(broken_space, curved_points)[own_curved]
-        own_physical_points = netgen_distribute(broken_space, physical_points)[own_curved]
+        # Create a scalar broken space because we want the scalar section
+        # from it
+        scalar_broken_space = broken_space.reconstruct(
+            element=broken_space.ufl_element().sub_elements[0]
+        )
+        own_curved_points = netgen_distribute(broken_space, scalar_broken_space, curved_points)[own_curved]
+        own_physical_points = netgen_distribute(broken_space, scalar_broken_space, physical_points)[own_curved]
 
         # Get broken indices
         cstart, cend = self.topology_dm.getHeightStratum(0)

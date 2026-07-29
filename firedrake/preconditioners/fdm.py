@@ -1787,7 +1787,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
     loop_index = Vc.mesh().iter("cell")
-    mat_args = kernel.make_args(preallocator)
+    mat_args = kernel.make_args(preallocator, comm=Vf.comm)
     assembler = op3.loop(
         loop_index,
         kernel.kernel(mat_type=mat_type)(

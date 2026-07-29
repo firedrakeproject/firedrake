@@ -389,7 +389,7 @@ def parse_subset(obj: Any) -> op3.Slice | types.EllipsisType:
 
 
 @parse_subset.register
-def _(slice_: op3.Slice) -> op3.Slice:
+def _(slice_: op3.Slice | op3.IndexTree) -> op3.Slice:
     return slice_
 
 
