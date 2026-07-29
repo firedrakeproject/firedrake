@@ -754,7 +754,8 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
 
 
 def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
-    from pyop3.expr.visitors import replace, get_shape
+    import pyop3.visitors
+    from pyop3.expr.visitors import get_shape
 
     loop_tree, loop_var_replace_map = get_loop_tree(expr)
 
@@ -778,7 +779,7 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
             for component in axis.components:
                 new_regions = []
                 for region in component.regions:
-                    new_size = replace(region.size, loop_var_replace_map)
+                    new_size = pyop3.visitors.replace(region.size, loop_var_replace_map)
                     new_regions.append(region.record_new(size=new_size))
                 new_regions = tuple(new_regions)
                 new_components.append(component.record_new(regions=new_regions))

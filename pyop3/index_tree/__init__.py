@@ -14,5 +14,4 @@ from .tree import (  # noqa: F401
     Subset,
     SubsetSliceComponent,
     TabulatedMapComponent,
-    as_slice,
 )

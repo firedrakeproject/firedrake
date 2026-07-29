@@ -340,13 +340,16 @@ class Dat(Tensor):
     def context_free(self):
         return self.record_new(axes=self.axes.context_free)
 
-    def concretize(self):
+    def concretize(self, *, linear: bool):
         """Convert to an expression, can no longer be indexed properly"""
-        from pyop3.expr import as_linear_buffer_expression
-
-        if not self.axes.is_linear:
-            raise NotImplementedError
-        return as_linear_buffer_expression(self)
+        if linear:
+            return pyop3.expr.buffer.LinearDatBufferExpression(
+                self.buffer, self.axes.subst_layouts()[self.axes.leaf_path]
+            )
+        else:
+            return pyop3.expr.buffer.NonlinearDatBufferExpression(
+                self.buffer, self.axes.subst_layouts()
+            )
 
     @property
     def dtype(self):
@@ -696,6 +699,11 @@ class Dat(Tensor):
 # TODO: rename to SymbolicDat
 @pyop3.record.frozenrecord()
 class CompositeDat(Terminal):
+
+    """
+    exprs: expression per leaf path
+    TODO check only leaf paths allowed, I think so?
+    """
 
     # {{{ instance attrs
 

@@ -83,14 +83,6 @@ class AbstractLabeledTreeLike(pyop3.obj.Object):
         pass
 
 
-@staticmethod
-def _prepare_node_map(node_map: Any) -> idict:
-    initial_node_map = _as_node_map(node_map)
-    final_node_map = _fixup_node_map(path=idict(), unvisited=initial_node_map)
-    if initial_node_map:
-        raise InvalidTreeException("There are orphaned entries in the node map")
-    return idict(final_node_map)
-
 
 @functools.singledispatch
 def _as_node_map(obj: Any, /) -> dict:
@@ -163,8 +155,7 @@ class LabeledTree(AbstractLabeledTreeLike):
         for i, node in enumerate(iterable):
             node = cls._as_node(node)
             assert node.degree == 1
-            if node.label is DECIDE:
-                node = node.record_new(label=f"_node_{type(node).__name__}_{i}")
+            assert node.label is not DECIDE, "old API"
             node_map.update({path: node})
             path = path | {node.label: node.component_label}
         return node_map
@@ -182,9 +173,7 @@ class LabeledTree(AbstractLabeledTreeLike):
     ) -> dict:
         def as_labeled_node(nodelike):
             node = cls._as_node(nodelike)
-            if node.label is DECIDE:
-                depth = len(_path)
-                node = node.record_new(label=f"_node_{type(node).__name__}_{depth}")
+            assert node.label is not DECIDE, "old API"
             return node
 
         if not isinstance(nest, Mapping):
@@ -212,6 +201,14 @@ class LabeledTree(AbstractLabeledTreeLike):
                 sub_node_map = {path_: subnest}
             node_map |= sub_node_map
         return node_map
+
+    @classmethod
+    def _prepare_node_map(cls, node_map: Any) -> idict:
+        initial_node_map = _as_node_map(node_map)
+        final_node_map = _fixup_node_map(path=idict(), unvisited=initial_node_map)
+        if initial_node_map:
+            raise InvalidTreeException("There are orphaned entries in the node map")
+        return idict(final_node_map)
 
     @classmethod
     def _as_node(cls, nodelike) -> Node:
@@ -493,12 +490,6 @@ class LabeledTree(AbstractLabeledTreeLike):
             else:
                 nest[node].append(None)
         return idict(nest)
-
-    _prepare_node_map = _prepare_node_map
-    _node_map_from_iterable = _node_map_from_iterable
-    _node_map_from_nest = _node_map_from_nest
-
-
 
 
 

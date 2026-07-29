@@ -15,14 +15,16 @@ import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
 import pyop3.obj
+# import pyop3.visitors.identity
 from pyop3 import utils
+
+from .identity import IdentityVisitor
 
 if typing.TYPE_CHECKING:
     from pyop3.types import LabelT
 
 
-# TODO: inherit from IdentityMapper (not yet implemented)
-class Relabeler(pyop3.node.NodeVisitor):
+class Relabeler(IdentityVisitor):
     """Visitor that relabels a pyop3 object.
 
     Parameters
@@ -57,13 +59,7 @@ class Relabeler(pyop3.node.NodeVisitor):
             inv_map[type_] = utils.invert_mapping(label_map_per_type)
         return inv_map
 
-    def _relabel_pathed_mapping(self, mapping: Mapping[ConcretePathT, pyop3.obj.Object]):
-        return idict({
-            self._relabel_path(path): self(value)
-            for path, value in mapping.items()
-        })
-
-    def _relabel_path(self, path):
+    def visit_path(self, path):
         new_path = {}
         for axis, component in path.items():
             new_axis = self._get_label(pyop3.axis_tree.Axis, axis)
@@ -72,7 +68,7 @@ class Relabeler(pyop3.node.NodeVisitor):
 
     @functools.singledispatchmethod
     def process(self, obj: Any, /):
-        utils.raise_missing_dispatch_handler(obj)
+        return super().process(obj)
 
     # {{{ pyop3.axis_tree
 
@@ -95,20 +91,11 @@ class Relabeler(pyop3.node.NodeVisitor):
         )
 
     @process.register
-    def _(self, axis_tree: pyop3.axis_tree.AxisTree, /):
-        new_node_map = self._relabel_pathed_mapping(axis_tree.node_map)
-        return axis_tree.record_new(node_map=new_node_map)
-
-    @process.register
-    def _(self, axis_tree: pyop3.axis_tree._UnitAxisTree, /):
-        return axis_tree
-
-    @process.register
     def _(self, axis_tree: pyop3.axis_tree.IndexedAxisTree, /):
-        new_node_map = self._relabel_pathed_mapping(axis_tree.node_map)
+        new_node_map = self._visit_pathed_mapping(axis_tree.node_map)
         new_targets = {}
         for path, targetss in axis_tree._targets.items():
-            new_targets[self._relabel_path(path)] = tuple(
+            new_targets[self.visit_path(path)] = tuple(
                 tuple(self(target) for target in targets)
                 for targets in targetss
             )
@@ -122,7 +109,7 @@ class Relabeler(pyop3.node.NodeVisitor):
     def _(self, axis_tree: pyop3.axis_tree.UnitIndexedAxisTree, /):
         new_targets = {}
         for path, targetss in axis_tree._targets.items():
-            new_targets[self._relabel_path(path)] = tuple(
+            new_targets[self.visit_path(path)] = tuple(
                 tuple(self(target) for target in targets)
                 for targets in targetss
             )
@@ -138,10 +125,6 @@ class Relabeler(pyop3.node.NodeVisitor):
             expr=self(axis_target.expr),
         )
 
-    @process.register
-    def _(self, forest: pyop3.axis_tree.AxisForest, /):
-        return forest.record_new(_trees=tuple(map(self, forest._trees)))
-
     # }}}
 
     # {{{ pyop3.index_tree
@@ -152,19 +135,6 @@ class Relabeler(pyop3.node.NodeVisitor):
             iterset=self(loop_index.iterset),
             label=self._get_label(type(loop_index), loop_index.label),
         )
-
-    # }}}
-
-    @process.register
-    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /):
-        new_layouts = self._relabel_pathed_mapping(dat_expr.layouts)
-        return dat_expr.record_new(layouts=new_layouts)
-
-    @process.register
-    def _(self, cdat: pyop3.expr.CompositeDat, /):
-        new_axis_tree = self(cdat.axis_tree)
-        new_exprs = self._relabel_pathed_mapping(cdat.exprs)
-        return cdat.record_new(axis_tree=new_axis_tree, exprs=new_exprs)
 
     # }}}
 

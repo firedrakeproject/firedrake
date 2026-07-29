@@ -650,7 +650,7 @@ class AbstractMeshTopology(abc.ABC):
         if name is not None:
             return self._entity_axes_by_name(name)
         elif dim is not None:
-            dim_slice = op3.Slice(self.name, op3.as_slice(dim))
+            dim_slice = op3.Slice(self.name, op3.atom(dim))
             return self.points[dim_slice]
         else:
             if isinstance(self, ExtrudedMeshTopology):
@@ -662,8 +662,8 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_axes_by_name(self, name: str):
         if name == "cell":
             # NOTE: not sure this is necessary
-            cell_slice = op3.Slice(self.name, op3.as_slice(self.cell_label))
-            # return self.points[op3.as_slice(self.cell_label)]
+            cell_slice = op3.Slice(self.name, op3.atom(self.cell_label))
+            # return self.points[op3.atom(self.cell_label)]
             return self.points[cell_slice]
 
         match name:
@@ -1459,7 +1459,7 @@ class AbstractMeshTopology(abc.ABC):
         # NOTE: This is very similar to what we do for supports
         closures = {}
         for from_dim, closure_arrays in closure_arrayss.items():
-            iterset = self.points[op3.as_slice(from_dim)]
+            iterset = self.points[op3.atom(from_dim)]
 
             full_map_components = []
             owned_map_components = []
@@ -2364,7 +2364,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def local_cell_orientation_dat(self):
-        return self.entity_orientations_dat[:, op3.as_slice(self.cell_label)]
+        return self.entity_orientations_dat[:, op3.atom(self.cell_label)]
 
     @cached_property
     @collective

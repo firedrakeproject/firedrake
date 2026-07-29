@@ -344,7 +344,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
             to_tabulate.append((offset_axes, offset_dat, steps, offset_sf))
 
             assert layout_expr_acc == 0
-            layout_expr_acc_ = offset_dat.concretize()
+            layout_expr_acc_ = offset_dat.concretize(linear=True)
             layouts[path_acc_] = layout_expr_acc_
 
         # At leaves the layout function is trivial
@@ -374,7 +374,8 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
 @memory_cache(heavy=True)
 def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
-    from pyop3.expr.visitors import get_shape, replace
+    import pyop3.visitors
+    from pyop3.expr.visitors import get_shape
 
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
@@ -407,7 +408,7 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
 
     offset_dat = Dat.zeros(offset_axes.regionless(), dtype=IntType)
 
-    size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
+    size_expr_alt0 = pyop3.visitors.replace(size_expr, size_expr_loop_var_replace_map)
 
     if not outer_loop_tree.is_empty:
         ix = outer_loop_tree.iter()
@@ -417,7 +418,7 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
             for ax in ix.iterset.nodes
         }
 
-        size_expr_alt = replace(size_expr_alt0, axis_to_loop_var_replace_map)
+        size_expr_alt = pyop3.visitors.replace(size_expr_alt0, axis_to_loop_var_replace_map)
 
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
@@ -428,16 +429,16 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
         )
 
     else:
-        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.comm, eager=True)
+        exscan(offset_dat.concretize(linear=True), size_expr, "+", linear_axis, offset_dat.comm, eager=True)
 
-    offset_expr = offset_dat.concretize()
+    offset_expr = offset_dat.concretize(linear=True)
 
     # more subst needed - replace the axes with loop indices...
     if not size_expr_loop_var_replace_map:
         return offset_expr
     else:
         invmap = utils.invert_mapping(size_expr_loop_var_replace_map)
-        return replace(offset_expr, invmap)
+        return pyop3.visitors.replace(offset_expr, invmap)
 
 
 # This gets the sizes right for a particular dat, then we merge them above

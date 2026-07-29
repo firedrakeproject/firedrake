@@ -561,3 +561,28 @@ def raise_missing_dispatch_handler(obj: Any) -> None:
 
 _loopy_key_builder = loopy.tools.LoopyKeyBuilder()
 """Persistent object for computing hashes of loopy kernels."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Atom:
+    """Wrapper object indicating that something should not be subdivided.
+
+    This class is necessary because the special-casing of tuples in
+    ``__getitem__`` by Python breaks the syntactic sugar we have for
+    slices. For example consider an axis component with (tuple) label
+    '(2, 1)'. We would like to be able to take this slice by executing:
+
+        dat[(2, 1)]
+
+    However, ``__getitem__`` turns this into the very different:
+
+        dat[2, 1]
+
+    Turning the tuple (2, 1) into an atom resolves this.
+
+    """
+    item: Any
+
+
+def atom(item):
+    return Atom(item)

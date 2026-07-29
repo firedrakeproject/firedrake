@@ -107,6 +107,8 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
 
     @classmethod
     def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> Self:
+        # NOTE: This is a different parsing approach to that in pyop3/index_tree/parse.py
+        # (which is more powerful)
         node_map = cls._node_map_from_iterable(iterable)
         return cls(node_map, comm=comm)
 
@@ -273,26 +275,6 @@ class RegionSliceComponent(SliceComponent):
         return False
 
     # }}}
-
-
-# TODO: rename to 'Atom' (and op3.atom())
-@dataclasses.dataclass(frozen=True)
-class UnparsedSlice:
-    """Placeholder object wrapping arbitrary slice types.
-
-    This class is necessary because the special-casing of tuples in
-    ``__getitem__`` by Python breaks the syntactic sugar we have for
-    slices. For example consider an axis component with (tuple) label
-    '(2, 1)'. We would like to be able to take this slice by executing:
-
-        dat[(2, 1)]
-
-    However, ``__getitem__`` turns this into the very different:
-
-        dat[2, 1]
-
-    """
-    wrappee: Any  # TODO: Can specialise the type here
 
 
 class MapComponent(Labeled, pyop3.obj.Object):
@@ -544,7 +526,7 @@ def _(components: collections.abc.Mapping) -> tuple[SliceComponent]:
 
 @_parse_slice_components.register
 def _(
-    label: str | numbers.Number | types.NoneType | UnparsedSlice,
+    label: str | numbers.Number | types.NoneType | utils.Atom,
     /,
 ) -> tuple[AffineSliceComponent]:
     return (_parse_slice_component(label),)
@@ -561,8 +543,8 @@ def _(component: SliceComponent, /) -> SliceComponent:
 
 
 @_parse_slice_component.register
-def _(component: UnparsedSlice, /) -> AffineSliceComponent:
-    return AffineSliceComponent(component.wrappee)
+def _(component: utils.Atom, /) -> AffineSliceComponent:
+    return AffineSliceComponent(component.item)
 
 
 @_parse_slice_component.register
@@ -2245,10 +2227,6 @@ def convert_region_to_affine_slice(region_slice: RegionSliceComponent, axis_comp
     region_index = axis_component.region_labels.index(region_slice.label)
     region_sizes = utils.steps(region.size for region in axis_component.regions)
     return AffineSliceComponent(start=region_sizes[region_index], stop=region_sizes[region_index+1])
-
-
-def as_slice(label: ComponentLabelT) -> UnparsedSlice:
-    return UnparsedSlice(label)
 
 
 def collect_leaf_targets(axes):

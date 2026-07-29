@@ -19,7 +19,7 @@ from pyop3.expr.tensor.dat import Dat
 from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice, as_slice
+from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
 from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 
@@ -145,7 +145,7 @@ def _(called_map: pyop3.index_tree.tree.AbstractCalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
-@collect_loop_contexts.register(UnparsedSlice)
+@collect_loop_contexts.register(utils.Atom)
 def _(index: Any, /) -> OrderedSet:
     return OrderedSet()
 
@@ -229,7 +229,7 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 @_as_index_forest.register(Dat)
-@_as_index_forest.register(UnparsedSlice)
+@_as_index_forest.register(utils.Atom)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
     desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
@@ -250,12 +250,12 @@ def _(ellipsis: EllipsisType, /, *, axes, path) -> Index:
     except KeyError:
         raise InvalidIndexTargetException
 
-    return Slice(axis.label, [as_slice(c.label) for c in axis.components])
+    return Slice(axis.label, [utils.atom(c.label) for c in axis.components])
 
 
 @_desugar_index.register
-def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
-    return _desugar_index_label(unparsed.wrappee, axes=axes, path=path)
+def _(unparsed: utils.Atom, /, *, axes, path) -> Index:
+    return _desugar_index_label(unparsed.item, axes=axes, path=path)
 
 
 @_desugar_index.register(numbers.Integral)
@@ -282,7 +282,7 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
-            index = Slice(axis.label, as_slice(component.label))
+            index = Slice(axis.label, utils.atom(component.label))
 
     return index
 
@@ -300,11 +300,11 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
 
     if len(axis.components) == 1:
         if slice_is_full:
-            return Slice(axis.label, as_slice(axis.component.label))
+            return Slice(axis.label, utils.atom(axis.component.label))
         else:
             return Slice(axis.label, {axis.component.label: slice_})
     elif slice_is_full:
-        return Slice(axis.label, [as_slice(c.label) for c in axis.components])
+        return Slice(axis.label, [utils.atom(c.label) for c in axis.components])
     else:
         # badindexexception?
         # NOTE: We could in principle match multi-component things if the component
@@ -360,7 +360,7 @@ def _desugar_index_label(label, /, *, axes, path) -> Index:
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
     else:
-        return Slice(axis.label, as_slice(component.label))
+        return Slice(axis.label, utils.atom(component.label))
 
 
 # TODO: This function needs overhauling to work in more cases.
@@ -433,7 +433,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
 
     if len(matching_target_paths) == 0:
         # axis not found, need to emit a slice
-        slice_ = Slice(axis.label, [UnparsedSlice(c.label) for c in axis.components])
+        slice_ = Slice(axis.label, [utils.atom(c.label) for c in axis.components])
         index_tree = IndexTree(slice_)
 
         for axis_component, slice_component_label in zip(
@@ -506,7 +506,7 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 @_as_context_free_indices.register(slice)
 @_as_context_free_indices.register(EllipsisType)
 @_as_context_free_indices.register(numbers.Integral)
-@_as_context_free_indices.register(UnparsedSlice)
+@_as_context_free_indices.register(utils.Atom)
 def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT) -> tuple[Slice]:
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 

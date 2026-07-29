@@ -249,6 +249,9 @@ class AxisComponentRegion(pyop3.obj.Object):
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
+        # debugging
+        assert self.size is not None
+
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):

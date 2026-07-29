@@ -37,6 +37,8 @@ from pyop3.expr.tensor import Dat, Mat
 
 from .evaluate_arraywise import evaluate_arraywise
 
+import pyop3.visitors
+
 if typing.TYPE_CHECKING:
     from pyop3.axis_tree import AxisLabelT
 
@@ -328,87 +330,6 @@ def _(neg: pyop3.expr.Neg, /, replace_map) -> pyop3.expr.Neg:
     return type(neg)(_replace_terminals(neg.a, replace_map))
 
 
-def replace(obj: ExpressionT, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
-    new = _replace(obj, replace_map)
-    if assert_modified:
-        # TODO: could be another exception type
-        assert new != obj
-    return new
-
-
-@functools.singledispatch
-def _replace(obj: Any, /, replace_map) -> ExpressionT:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@_replace.register(pyop3.expr.AxisVar)
-@_replace.register(pyop3.expr.LoopIndexVar)
-def _(var: Any, /, replace_map) -> ExpressionT:
-    return replace_map.get(var, var)
-
-
-@_replace.register(pyop3.expr.NaN)
-@_replace.register(numbers.Number)
-def _(num: numbers.Number, /, replace_map) -> numbers.Number:
-    return num
-
-
-# I don't like doing this.
-@_replace.register(pyop3.expr.Dat)
-def _(dat: pyop3.expr.Dat, /, replace_map):
-    return _replace(dat.concretize(), replace_map)
-
-
-@_replace.register(pyop3.expr.ScalarBufferExpression)
-def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    return replace_map.get(expr, expr)
-
-
-@_replace.register(pyop3.expr.LinearDatBufferExpression)
-def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    try:
-        return replace_map[expr]
-    except KeyError:
-        pass
-
-    # reuse if untouched
-    updated_layout = _replace(expr.layout, replace_map)
-    if updated_layout == expr.layout:
-        return expr
-    else:
-        return expr.record_new(layout=updated_layout)
-
-
-@_replace.register(pyop3.expr.CompositeDat)
-def _(dat: pyop3.expr.CompositeDat, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    try:
-        return replace_map[dat]
-    except KeyError:
-        pass
-
-    raise AssertionError("Not sure about this here...")
-    replaced_layout = _replace(dat.layout, replace_map)
-    return dat.reconstruct(layout=replaced_layout)
-
-
-@_replace.register(pyop3.expr.Operator)
-def _(op: pyop3.expr.Operator, /, replace_map) -> pyop3.expr.Operator:
-    try:
-        return replace_map[op]
-    except KeyError:
-        pass
-
-    # reuse if untouched
-    updated_operands = tuple(_replace(operand, replace_map=replace_map) for operand in op.operands)
-    if updated_operands == op.operands:
-        return op
-    else:
-        return type(op)(*updated_operands)
-
-
 @functools.singledispatch
 def concretize_layouts(obj: Any, /, axis_trees: Iterable[AxisTree, ...]) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -671,66 +592,58 @@ def _materialize_composite_dat_cached(
     comm: MPI.Comm,  # needed now?
     linear,
 ) -> pyop3.expr.NonlinearDatBufferExpression:
+    import pyop3.visitors
+
     axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
-    assert not big_tree._all_region_labels
 
     # step 2: assign
     assignee = Dat.empty(big_tree, dtype=IntType)
 
-    # replace LoopIndexVars in the expression with AxisVars
-    # loop_index_replace_map = []
+
     loop_slices = []
-    for loop_var in collect_loop_index_vars(composite_dat):
-        orig_axis = loop_var.axis
-        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
+    for axis_var in loop_var_replace_map.values():
+        axis = axis_var.axis
+        loop_slices.append(Slice(axis.label, utils.atom(axis.component.label)))
 
-        loop_slice = Slice(new_axis.label, pyop3.index_tree.as_slice(orig_axis.component.label))
-        loop_slices.append(loop_slice)
-
-    to_skip = set()
     for leaf_path in composite_dat.axis_tree.leaf_paths:
-        expr = composite_dat.exprs[leaf_path]
-        expr = replace(expr, loop_var_replace_map)
+        leaf_expr = composite_dat.exprs[leaf_path]
+        leaf_expr = pyop3.visitors.replace(leaf_expr, loop_var_replace_map)
 
-        slices = [
-            Slice(axis, pyop3.index_tree.as_slice(component))
-            for axis, component in leaf_path.items()
+        slices = loop_slices + [
+            Slice(axis, utils.atom(component)) for axis, component in leaf_path.items()
         ]
-        iforest = IndexTree.from_iterable((*loop_slices, *slices))
-        assignee_ = assignee[iforest]
+        slice_tree = pyop3.index_tree.IndexTree.from_iterable(slices)
+        leaf_assignee = assignee[slice_tree]
 
-        if assignee_.size > 0:
-            assignee_.assign(
-                expr,
+        if leaf_assignee.size > 0:
+            leaf_assignee.assign(
+                leaf_expr,
                 eager=True,
                 eager_strategy="compile",
                 compiler_parameters={"propagate_negatives": True},
             )
-        else:
-            to_skip.add(leaf_path)
+
 
     # step 3: replace axis vars with loop indices in the layouts
+    # newlayouts = {}
+    # axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
+    will_modify = len(loop_var_replace_map) > 0
+    # if isinstance(composite_dat.axis_tree, _UnitAxisTree):
+    #     layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
+    #     newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
+    #     newlayouts[idict()] = newlayout
+    # else:
     newlayouts = {}
-    axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
-    will_modify = len(axis_to_loop_var_replace_map) > 0
-    if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-        layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
-        newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
-        newlayouts[idict()] = newlayout
-    else:
-        from pyop3.expr.base import get_loop_tree
-        loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
-        for path_ in composite_dat.axis_tree.node_map:
-            fullpath = loop_tree.leaf_path | path_
-            layout = assignee.axes.subst_layouts()[fullpath]
-            newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
-            newlayouts[path_] = newlayout
+    from pyop3.expr.base import get_loop_tree
+    loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
+    for path_ in composite_dat.axis_tree.node_map:
+        fullpath = loop_tree.leaf_path | path_
+        layout = assignee.axes.subst_layouts()[fullpath]
+        newlayout = pyop3.visitors.replace(layout, utils.invert_mapping(loop_var_replace_map), assert_modified=will_modify)
+        newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
-
-    if axes.nest_indices:
-        raise NotImplementedError("Need a buffer ref")
 
     if linear:
         layout = newlayouts[composite_dat.axis_tree.leaf_path]
@@ -911,7 +824,7 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
         fn = min_
 
     axes, loop_var_replace_map = loopified_shape(expr)
-    expr = replace(expr, loop_var_replace_map)
+    expr = pyop3.visitors.replace(expr, loop_var_replace_map)
     loop_index = axes.iter()
 
     # NOTE: might hit issues if things aren't linear
@@ -1372,102 +1285,3 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
             insns = transform.transform_out(tensor, prev_tensor) + prev_insns
         return tensor, insns
-
-
-# class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
-#     def __init__(self, relabeler):
-#         # TODO: relabeler could be some over-arching caching object so we don't
-#         # need to fully traverse everything
-#         self._relabeler = relabeler
-#         super().__init__()
-#
-#     @functools.singledispatchmethod
-#     def process(self, obj: ExpressionT, /) -> ExpressionT:
-#         return super().process(obj)
-#
-#     @process.register(numbers.Number)
-#     @process.register(pyop3.expr.NaN)
-#     @process.register(pyop3.expr.Operator)
-#     @process.register(pyop3.expr.OpaqueTerminal)
-#     def _(self, expr: ExpressionT, /) -> ExpressionT:
-#         return self.reuse_if_untouched(expr)
-#
-#     @process.register(pyop3.expr.AxisVar)
-#     def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
-#         relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
-#         return axis_var.record_new(axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.LoopIndexVar)
-#     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
-#         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
-#         relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
-#         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
-#         return loop_var.record_new(loop_index=relabeled_loop_index, axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.Scalar)
-#     @process.register(pyop3.expr.ScalarBufferExpression)
-#     def _(self, scalar: ExpressionT, /) -> ExpressionT:
-#         return scalar
-#
-#     @process.register(pyop3.expr.Dat)
-#     def _(self, dat: pyop3.expr.Dat, /) -> pyop3.expr.Dat:
-#         relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
-#         if dat.transform is not None:
-#             if isinstance(dat.transform, ReshapeTensorTransform):
-#                 relabeled_axis_trees = tuple(
-#                     canonicalize_axis_labels(tree, self._relabeler) for tree in dat.transform.axis_trees
-#                 )
-#                 if dat.transform.prev is not None:
-#                     relabeled_prev = self(dat.transform.prev)
-#                 else:
-#                     relabeled_prev = None
-#                 relabeled_transform = dat.transform.record_new(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-#             else:
-#                 raise NotImplementedError
-#         else:
-#             relabeled_transform = None
-#         return dat.record_new(axes=relabeled_axes, _transform=relabeled_transform)
-#
-#     @process.register(pyop3.expr.AggregateDat)
-#     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
-#         relabeled_axis = canonicalize_axis_labels(agg_dat.axis, self._relabeler)
-#         relabeled_subdats = np.asarray(
-#             [self(subdat) for subdat in agg_dat.subdats], dtype=object
-#         )
-#         return agg_dat.record_new(subdats=relabeled_subdats, axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.Mat)
-#     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
-#         relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
-#         relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
-#         if mat.transform is not None:
-#             if isinstance(mat.transform, ReshapeTensorTransform):
-#                 relabeled_axis_trees = tuple(
-#                     canonicalize_axis_labels(tree, self._relabeler) for tree in mat.transform.axis_trees
-#                 )
-#                 if mat.transform.prev is not None:
-#                     relabeled_prev = self(mat.transform.prev)
-#                 else:
-#                     relabeled_prev = None
-#                 relabeled_transform = mat.transform.record_new(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-#             else:
-#                 raise NotImplementedError
-#         else:
-#             relabeled_transform = None
-#         return mat.record_new(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
-#
-#     @process.register(pyop3.expr.LinearDatBufferExpression)
-#     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
-#         relabeled_layout = self(dat_expr.layout)
-#         return dat_expr.record_new(layout=relabeled_layout)
-#
-#     @process.register(pyop3.expr.NonlinearDatBufferExpression)
-#     def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
-#         relabeled_layouts = idict({
-#             path: self(layout) for path, layout in dat_expr.layouts.items()
-#         })
-#         return dat_expr.record_new(layouts=relabeled_layouts)
-#
-#
-# def canonicalize_labels(expr: ExpressionT, relabeler: Renamer) -> ExpressionT:
-#     return LabelCanonicalizer(relabeler)(expr)

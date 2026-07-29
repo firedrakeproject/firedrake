@@ -94,7 +94,12 @@ class AssignExprBuilder(DAGTraverser):
             # If we have a restricted function space we have different data
             # layouts so naive array assignment will fail and we have to fall
             # back to generating code.
-            if func.function_space().boundary_set != self.function_space.boundary_set:
+            if any(
+                func_fs.boundary_set != self_fs.boundary_set
+                for func_fs, self_fs in zip(
+                    func.function_space(), self.function_space, strict=True
+                )
+            ):
                 self.array_assign_safe = False
 
         # NOTE: Is it really valid to consider Real a scalar type here?

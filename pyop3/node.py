@@ -6,7 +6,7 @@ import functools
 import itertools
 from collections.abc import Hashable
 from functools import cached_property
-from typing import Any
+from typing import Any, Union
 
 from immutabledict import immutabledict as idict
 
@@ -104,14 +104,20 @@ class Visitor(abc.ABC):
 
     def __init__(
         self,
-        compress: bool | None = True,
-        visited_cache: dict[tuple, Expr] | None = None,
-        result_cache: dict[Expr, Expr] | None = None,
+        *,
+        allowed_types: type | tuple[type, ...] | Union | None = None,
+        reuse_results: bool = True,
     ) -> None:
-        """Initialise."""
-        self._compress = compress
-        self._visited_cache = {} if visited_cache is None else visited_cache
-        self._result_cache = {} if result_cache is None else result_cache
+        if reuse_results:
+            result_cache = {}
+        else:
+            result_cache = None
+
+        self.allowed_types = allowed_types
+        self.reuse_results = reuse_results
+
+        self._visited_cache = {}
+        self._result_cache = result_cache
         self.index = ()
         self._index_stack = collections.defaultdict(itertools.count)
 
@@ -159,6 +165,15 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
+        if (
+            self.allowed_types is not None
+            and not isinstance(node, self.allowed_types)
+        ):
+            raise TypeError(
+                f"'{utils.pretty_type(node)}' is not one of the allowed types "
+                f"({self.allowed_types}) for {utils.pretty_type(self)}"
+            )
+
         prev_index = self.index
         self.index += (next(self._index_stack[self.index]),)
 
@@ -168,9 +183,9 @@ class Visitor(abc.ABC):
         except KeyError:
             preprocessed = self.preprocess_node(node)
             result = self.process(*preprocessed, **kwargs)
-            # Optionally check if r is in result_cache, a memory optimization
+            # Conditionally check if r is in result_cache, a memory optimization
             # to be able to keep representation of result compact
-            if self._compress:
+            if self.reuse_results:
                 try:
                     # Cache hit: Use previously computed object, allowing current
                     # ``result`` to be garbage collected as soon as possible
