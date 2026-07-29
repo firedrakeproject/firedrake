@@ -1442,7 +1442,6 @@ class MeshTopology(AbstractMeshTopology):
         boundary.
         """
         num_facets = self.ufl_cell().num_facets
-        num_vertices = self.ufl_cell().num_vertices
 
         dset = op2.DataSet(self.cell_set, dim=num_facets)
 
@@ -1454,17 +1453,17 @@ class MeshTopology(AbstractMeshTopology):
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
 
         for c_plex_point in range(cStart, cEnd):
-            c_id = self._cell_numbering.getOffset(c_plex_point) # get Firedrake cell ID of plex cell point number
+            cid = self._cell_numbering.getOffset(c_plex_point) # get Firedrake cell ID of plex cell point number
             
             # Instead of iterating over the plex facet points, iterate over FIAT's local facet IDs
             for lf in range(num_facets):
-                lf_plex_point = self.cell_closure[c_id, num_vertices + lf] # get plex point number corresponding to facet lf
+                lf_plex_point = self._cell_facet_point(cid, lf)  # get plex point number corresponding to facet lf
                 support = plex.getSupport(lf_plex_point)
                 if len(support) == 2:
                     # an interior facet has 2 adjacent cells
                     # so the neighbouring cell corresponds to the adjacent cell that's not the current cell
                     other_c_plex_point = support[0] if support[1] == c_plex_point else support[1]
-                    cell_neighbours[c_id, lf] = self._cell_numbering.getOffset(other_c_plex_point)
+                    cell_neighbours[cid, lf] = self._cell_numbering.getOffset(other_c_plex_point)
 
         cell_facet_neighbours = op2.Dat(
             dset,
@@ -1481,6 +1480,18 @@ class MeshTopology(AbstractMeshTopology):
         return cell_facet_neighbours
     
     # helper methods
+
+    @cached_property
+    def _cell_closure_facet_offset(self):
+        """Returns the correct column in cell_closure for a given local facet."""
+        facet_dim = self.cell_dimension() - 1
+        topology = FIAT.ufc_cell(self.ufl_cell()).get_topology()
+        return sum(len(topology[d]) for d in range(facet_dim))
+
+    def _cell_facet_point(self, cell, local_facet):
+        """Returns the DMPlex point for a local facet of a cell."""
+        return self.cell_closure[cell, self._cell_closure_facet_offset + local_facet]
+
     def _get_facet_embedding_maps(self):
         """
         For every local facet `lf` of the reference cell, FIAT provides an entity transform 
@@ -1498,10 +1509,21 @@ class MeshTopology(AbstractMeshTopology):
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
         facet_dim = ref_cell.get_spatial_dimension() - 1
         num_facets = len(ref_cell.get_topology()[facet_dim])
-        
+
         A = []
         b = []
         A_inv = []
+
+        if facet_dim == 0:
+            vertices = np.asarray(ref_cell.get_vertices())
+            for lf in range(num_facets):
+                A_lf = np.empty((ref_cell.get_spatial_dimension(), 0), dtype=RealType)
+                b_lf = np.asarray(vertices[lf], dtype=RealType)
+                A.append(A_lf)
+                b.append(b_lf)
+                A_inv.append(np.empty((0, ref_cell.get_spatial_dimension()), dtype=RealType))
+            return A, b, A_inv
+
         for lf in range(num_facets):
             phi = ref_cell.get_entity_transform(facet_dim, lf)
             facet_on_ref_cell = ref_cell.construct_subelement(facet_dim)
@@ -1515,7 +1537,7 @@ class MeshTopology(AbstractMeshTopology):
             b.append(b_lf)
             A_inv.append(np.linalg.pinv(A_lf))
 
-        return A, b, A_inv
+        return (A, b, A_inv)
     
     def _get_facet_orientation_coord_maps(self):
         """
@@ -1549,6 +1571,15 @@ class MeshTopology(AbstractMeshTopology):
         import FIAT
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
         facet_dim = ref_cell.get_spatial_dimension() - 1
+
+        if facet_dim == 0:
+            return {
+                0: (
+                    np.empty((0, 0), dtype=RealType),
+                    np.empty((0,), dtype=RealType),
+                )
+            }
+
         facet_ref = ref_cell.construct_subelement(facet_dim)
         facet_verts = np.asarray(facet_ref.get_vertices()) # FIAT's canonical facet vertices
 
@@ -1605,7 +1636,6 @@ class MeshTopology(AbstractMeshTopology):
 
         return o_coord_maps
     
-    # TODO: ensure the transform works between two ghost cells in the halo bound
     @cached_property
     def cell_facet_coord_transforms(self):
         """Returns affine reference-coordinate transforms between neighbouring cells across a given facet.
@@ -1706,28 +1736,35 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_facet_exterior_mask(self):
-        """Identify exterior facets of each cell.
-        
-        Returns a boolean array of shape ``(num_cells, num_facets)`` whose entry
-        ``cell_facet_exterior_mask[c, i]`` is ``True`` if local facet ``i`` of
-        cell ``c`` lies on the domain boundary, and ``False`` otherwise (if ``i`` is a partition boundary).
+        """Identify exterior facets of each local cell, including halo cells.
+
+        Returns a boolean array of shape ``(num_cells_with_halos, num_facets)``.
+        The entry ``cell_facet_exterior_mask[c, i]`` is ``True`` if local facet
+        ``i`` of local cell ``c`` lies on the domain boundary, and ``False``
+        otherwise.
         """
         num_facets = self.ufl_cell().num_facets
-        num_vertices = self.ufl_cell().num_vertices
-        mask = np.zeros((self.num_cells(), num_facets), dtype=bool)
+        mask = np.zeros((self.cell_set.total_size, num_facets), dtype=bool)
 
-        plex = self._topology_dm
+        plex = self.topology_dm
         if plex.getStratumSize("exterior_facets", 1) > 0:
-            ext_plex_points = frozenset(plex.getStratumIS("exterior_facets", 1).getIndices().tolist())
+            ext_plex_points = frozenset(
+                plex.getStratumIS("exterior_facets", 1).getIndices().tolist()
+            )
         else:
             ext_plex_points = frozenset()
 
         cstart, cend = plex.getHeightStratum(0)
         for c_plex in range(cstart, cend):
-            cid = self._cell_numbering.getOffset(c_plex) # plex point -> Firedrake entity mapping
+            cid = self._cell_numbering.getOffset(c_plex)
+
+            if cid < 0 or cid >= self.cell_set.total_size:
+                continue
+
             for lf in range(num_facets):
-                f_point = self.cell_closure[cid, num_vertices + lf]
+                f_point = self._cell_facet_point(cid, lf)
                 mask[cid, lf] = f_point in ext_plex_points
+
         return mask
     
 
