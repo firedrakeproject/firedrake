@@ -189,7 +189,6 @@ class LoopyCodegenContext(CodegenContext):
 
             if buffer_key in self._kernel_names:
                 if intent != self.global_buffer_intents[buffer_key]:
-                    raise NotImplementedError("is this safe at all? I don't think so")
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
                     self.global_buffer_intents[buffer_key] = RW

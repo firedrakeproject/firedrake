@@ -4,7 +4,6 @@ from firedrake import *
 from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 ksp = {
     "mat_type": "matfree",
