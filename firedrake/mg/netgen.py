@@ -242,7 +242,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     order = flags.get("degree", 1)
     if isinstance(order, int):
         order = [order]*(levs+1)
-    permutation_tol = flags.get("permutation_tol", 1e-8)
+    permutation_tol = flags.get("permutation_tol", None)
     refType = flags.get("refinement_type", "uniform")
     optMoves = flags.get("optimisation_moves", False)
     snap = flags.get("snap_to", "geometry")
