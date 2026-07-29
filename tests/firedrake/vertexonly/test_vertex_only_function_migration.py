@@ -1,13 +1,14 @@
 from firedrake import *
 from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
-from pyop2.mpi import MPI
 from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 import pytest
 
+
 @pytest.fixture
 def parent_mesh():
     return UnitSquareMesh(5, 5, quadrilateral=False)
+
 
 @pytest.fixture
 def vom(request, parent_mesh):
@@ -19,6 +20,7 @@ def vom(request, parent_mesh):
     points = cell_midpoints(parent_mesh, with_halos=with_halos)
 
     return VertexOnlyMesh(parent_mesh, points, redundant=False)
+
 
 @pytest.fixture(params=["scalar-DG0", "vector-DG0", "tensor-DG0"])
 def vom_fs(request, vom):
@@ -32,6 +34,7 @@ def vom_fs(request, vom):
         return TensorFunctionSpace(vom, "DG", 0, shape=(vom.geometric_dimension, vom.geometric_dimension))
 
 # Utility Functions
+
 
 def cell_midpoints(mesh, with_halos=False):
     """
@@ -48,10 +51,12 @@ def cell_midpoints(mesh, with_halos=False):
 
     return data[cell_nodes].copy()
 
+
 def locate_points(mesh, points):
     """Get local data (reference coordinates + parent cells) from physical point coordinates."""
     parent_cells, refcoords, _ = mesh.locate_cells_ref_coords_and_dists(points)
     return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
+
 
 def assign_function_values_using_pids(pids, value_size, dtype):
     pids = np.asarray(pids)[:, None]
@@ -59,11 +64,12 @@ def assign_function_values_using_pids(pids, value_size, dtype):
 
     return (pids + components + 0.25).astype(dtype)
 
+
 @pytest.mark.parallel([1, 3])
 def test_vom_functions_migrate_lazily(vom, vom_fs):
     f = Function(vom_fs)
     g = Function(vom_fs)
-    
+
     old_f_topo_version = f._mesh_topology_version
     old_g_topo_version = g._mesh_topology_version
 
@@ -74,11 +80,11 @@ def test_vom_functions_migrate_lazily(vom, vom_fs):
 
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int) 
+    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
-    
+
     # Verify that rebuilding the VOM does not eagerly migrate the Functions
     parallel_assert(
         f._mesh_topology_version == old_f_topo_version
@@ -89,7 +95,7 @@ def test_vom_functions_migrate_lazily(vom, vom_fs):
     # Only access one of the two Functins first
     _ = f.dat
 
-    parallel_assert(f._mesh_topology_version == new_vom_topo_version, "Accessing the Function's data did not migrate it to the current VOM topology")    
+    parallel_assert(f._mesh_topology_version == new_vom_topo_version, "Accessing the Function's data did not migrate it to the current VOM topology")
     parallel_assert(g._mesh_topology_version == old_g_topo_version, "A Function who's data wasn't accessed after the VOM's rebuild was unexpectedly migrated")
 
     # Access the other Function now and ensure it has migrated
@@ -112,7 +118,7 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs):
 
     old_vom_topo_version = vom.topology._topology_version
 
-    parallel_assert(old_f_topo_version == old_vom_topo_version 
+    parallel_assert(old_f_topo_version == old_vom_topo_version
                     and old_g_topo_version == old_vom_topo_version
                     and h._mesh_topology_version == old_vom_topo_version,
                     "Functions did not start on the current VOM topology")
@@ -200,7 +206,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
 
     absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
     absorbed_pids = {int(pids_before_migration[i]) for i in absorbed_local_indices}
-    
+
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}
     expected_local_count = old_local_count - len(absorbed_local_indices)
 
@@ -211,7 +217,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
     f_vals_after_migration = new_dat.data_ro.reshape(-1, value_size).copy()
     pids_after_migration = vom._particle_ids.dat.data_ro.copy()
     expected_f_vals = assign_function_values_using_pids(pids_after_migration, value_size, new_dat.dtype)
-    
+
     actual_surviving_pids = {int(pid) for pid in pids_after_migration}
 
     function_migration_is_correct = (
@@ -222,17 +228,18 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
         # -- check storage was correctly replaced (uses current FS layout)
         and new_dat is not old_dat
         and new_dat.dataset is vom_fs.dof_dset
-        and new_dat.dataset.size == vom_fs.cell_set.size # owned nodes match VOM
-        and new_dat.dataset.cdim == vom_fs.block_size # scalar components stored per node matches FS
+        and new_dat.dataset.size == vom_fs.cell_set.size  # owned nodes match VOM
+        and new_dat.dataset.cdim == vom_fs.block_size  # scalar components stored per node matches FS
         and f.function_space() is vom_fs
         and f._mesh_topology_version == vom.topology._topology_version
-        and f._mesh_topology_version == old_function_topo_version + 1 
+        and f._mesh_topology_version == old_function_topo_version + 1
     )
 
     parallel_assert(
         function_migration_is_correct,
         "Function values were not migrated correctly after removing some points from the VOM",
     )
+
 
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize(
@@ -250,7 +257,7 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs):
 
     absorbed_local_indices = np.arange(0, vom.cell_set.size, dtype=int)
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
-    
+
     new_vom_version = vom.topology._topology_version
 
     # Trigger Function migration through dat access
@@ -319,7 +326,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
         target_plex_cell_id = parent_mesh.topology.cell_closure[target_cell, -1]
 
         destination_rank = leaf_owning_ranks.get(target_plex_cell_id, None)
-    
+
     destination_rank = parent_mesh.comm.bcast(destination_rank, root=0)
     moved_pid = parent_mesh.comm.bcast(moved_pid, root=0)
 
@@ -334,9 +341,9 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
 
     mutator.commit_reference_state(new_parent_cells, new_refcoords)
 
-    mutator.rebuild_vom() # redistribute particles
+    mutator.rebuild_vom()  # redistribute particles
 
-    new_dat = f.dat # trigger migration
+    new_dat = f.dat  # trigger migration
     pids_after_migration = vom._particle_ids.dat.data_ro.copy()
     f_values_after_migration = new_dat.data_ro.reshape((-1, value_size)).copy()
 
@@ -365,7 +372,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
 def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
     f = Function(vom_fs)
     value_size = vom_fs.value_size
-    
+
     mutator = VertexOnlyMeshMutator(vom)
 
     v0 = vom.topology._topology_version
@@ -374,7 +381,7 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
 
     parallel_assert(f_version_v0 == v0,
                     "The Function did not start on the current VOM topology")
-    
+
     # We do successive VOM rebuilds, removing one particle from each rank at each rebuild
     # Hence we need at least 3 particles on each rank
 
@@ -385,9 +392,9 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
 
     # Assign PID-dependent values to the Function so we're able to trace its values through the rebuilds
     pids_v0 = vom._particle_ids.dat.data_ro.copy()
-    
+
     old_dat = f.dat
-    values_v0 = assign_function_values_using_pids(pids_v0,value_size,old_dat.dtype,)
+    values_v0 = assign_function_values_using_pids(pids_v0, value_size, old_dat.dtype)
     old_dat.data_wo.reshape((-1, value_size))[:] = values_v0
 
     # First VOM rebuild: absorb the current first particle on each rank

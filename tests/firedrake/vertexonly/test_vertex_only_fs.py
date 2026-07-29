@@ -385,10 +385,12 @@ def test_tensorfs_permutation(tensorfs_and_expr):
 def parent_mesh():
     return UnitSquareMesh(5, 5, quadrilateral=False)
 
+
 @pytest.fixture
 def vom(parent_mesh):
     points = cell_midpoints(parent_mesh, with_halos=False)
     return VertexOnlyMesh(parent_mesh, points, redundant=False)
+
 
 @pytest.fixture(params=["scalar", "vector", "tensor"])
 def vom_fs(request, vom):
@@ -400,6 +402,7 @@ def vom_fs(request, vom):
 
     if request.param == "tensor":
         return TensorFunctionSpace(vom, "DG", 0, shape=(2, 2))
+
 
 def cell_midpoints(mesh, with_halos=False):
     """
@@ -416,18 +419,20 @@ def cell_midpoints(mesh, with_halos=False):
 
     return data[cell_nodes].copy()
 
+
 def locate_points(mesh, points):
     """Get local data (reference coordinates + parent cells) from physical point coordinates."""
     parent_cells, refcoords, _ = mesh.locate_cells_ref_coords_and_dists(points)
     return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
 
+
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_data_refreshes_after_vom_mutation(vom, vom_fs):
     """Check that FunctionSpace caches get invalidated and recomputed after a VOM topology change."""
     mutator = VertexOnlyMeshMutator(vom)
-    
+
     T = vom_fs.topological
-    
+
     # Read topology-dependent properties from the caches
     old_shared_data = T._shared_data
     old_dof_dset = T.dof_dset
@@ -463,8 +468,8 @@ def test_vom_fs_data_resizes_to_match_vom_topology(vom, vom_fs):
     T = vom_fs.topological
     mutator = VertexOnlyMeshMutator(vom)
 
-    n_old_local_nodes = T.node_set.size # 1 node per VOM point
-    n_old_global_dofs = T.dim() # total number of scalar DoFs across all ranks
+    n_old_local_nodes = T.node_set.size  # 1 node per VOM point
+    n_old_global_dofs = T.dim()  # total number of scalar DoFs across all ranks
 
     # Mutate the VOM topologically by removing every other point on each rank
     absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
@@ -501,12 +506,13 @@ def test_vom_fs_data_resizes_to_match_vom_topology(vom, vom_fs):
 
     assert new_n_global_dofs == expected_n_global_dofs
 
+
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
     T = vom_fs.topological
     mutator = VertexOnlyMeshMutator(vom)
 
-    block_size = T.block_size # number of scalar DoFs per node
+    block_size = T.block_size  # number of scalar DoFs per node
     v0 = vom.topology._topology_version
 
     shared_data_v0 = T._shared_data
@@ -550,7 +556,7 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
     )
 
     parallel_assert(
-        fs_layout_matches_vom_topology_post_rebuild_1, 
+        fs_layout_matches_vom_topology_post_rebuild_1,
         "The FunctionSpace was not rebuilt correctly after the first VOM mutation"
     )
 
@@ -568,7 +574,7 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
 
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_v2)
 
-    # Access the FS state after the second rebuild 
+    # Access the FS state after the second rebuild
     v2 = vom.topology._topology_version
     shared_data_2 = T._shared_data
     dof_dset_2 = T.dof_dset
@@ -593,6 +599,7 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
         fs_layout_matches_vom_topology_post_rebuild_2,
         "The FunctionSpace was not rebuilt correctly after the second VOM mutation",
     )
+
 
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_rebuils_to_matche_empty_vom(vom, vom_fs):
@@ -650,6 +657,7 @@ def test_vom_fs_rebuils_to_matche_empty_vom(vom, vom_fs):
         "The FunctionSpace data structures are non-empty despite the VOM being empty"
     )
 
+
 @pytest.mark.parallel(nprocs=3)
 def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
     mutator = VertexOnlyMeshMutator(vom)
@@ -681,11 +689,11 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
             for leaf, remote in zip(sf_leaves, sf_remotes)
         }
 
-        target_plex_cell = parent_mesh.topology.cell_closure[target_cell, -1] # Firedrake cell ID -> plex cell ID
+        target_plex_cell = parent_mesh.topology.cell_closure[target_cell, -1]  # Firedrake cell ID -> plex cell ID
         destination_rank = leaf_owning_ranks.get(target_plex_cell)
 
     destination_rank = parent_mesh.comm.bcast(destination_rank, root=0)
-    
+
     parallel_assert(destination_rank is not None and destination_rank != 0, "Rank 0 failed to choose a destination rank to migrate its particle to")
 
     # Commit new state on every rank
@@ -698,8 +706,8 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
     expected_local_nodes = old_local_nodes
 
     if parent_mesh.comm.rank == 0:
-        expected_local_nodes -=1
-    
+        expected_local_nodes -= 1
+
     if parent_mesh.comm.rank == destination_rank:
         expected_local_nodes += 1
 
@@ -707,7 +715,7 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
     fs_layout_matches_migration = (
         vom.cell_set.size == expected_local_nodes
         and T.node_set.size == expected_local_nodes
-        and T.node_set.total_size == expected_local_nodes # no ghost points by construction
+        and T.node_set.total_size == expected_local_nodes  # no ghost points by construction
         and T.dof_dset.size == expected_local_nodes
         and T.node_count == expected_local_nodes
         and T.dof_count == expected_local_nodes * T.block_size
@@ -718,7 +726,7 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
         and T.dm is not old_dm
         and T._ises is not old_ises
         and T._ises is T.dof_dset.field_ises
-        and T.dim() == old_global_dim # no points absorbed
+        and T.dim() == old_global_dim  # no points absorbed
     )
 
     parallel_assert(fs_layout_matches_migration, "The FunctionSpace layout does not match the migrated VOM topology")

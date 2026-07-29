@@ -6,11 +6,13 @@ from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 import pytest
 
+
 @pytest.fixture
 def parent_mesh():
     return UnitSquareMesh(5, 5, quadrilateral=False)
 
 # Utility Functions
+
 
 def cell_midpoints(mesh, with_halos=False):
     """Create deterministic physical point locations: one point at the midpoint of each mesh cell.
@@ -21,10 +23,12 @@ def cell_midpoints(mesh, with_halos=False):
     data = x.dat.data_ro_with_halos if with_halos else x.dat.data_ro
     return data.reshape((-1, mesh.geometric_dimension))
 
+
 def locate_points(mesh, points):
     """Get local data (reference coordinates + parent cells) from physical point coordinates."""
     parent_cells, refcoords, _ = mesh.locate_cells_ref_coords_and_dists(points)
     return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
+
 
 def vom_state_by_particle_id(vom):
     """Collect and return data on locally owned VOM points as a dictionary keyed by particle ID."""
@@ -42,6 +46,7 @@ def vom_state_by_particle_id(vom):
         )
         for i, particle_id in enumerate(particle_ids)
     }
+
 
 # Tests
 @pytest.mark.parallel([1, 3])
@@ -63,7 +68,7 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
     n_owned = vom.cell_set.size
     vom_to_swarm = vom.cell_closure[:n_owned, -1]
 
-    # Force the cached property to exist before the update. 
+    # Force the cached property to exist before the update
     # Calling `commit_reference_state` should update this property's data in place.
     _ = vom.topology.cell_parent_cell_list
 
@@ -120,7 +125,7 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh):
     """Verify that rebuilding the VOM without absorption preserves particle state, that is
-    we get the same set of particles and each particle ID remains associated 
+    we get the same set of particles and each particle ID remains associated
     with the same physical coordinates, reference coordinates, and parent cell s
     regardless of any change in VOM ordering.
     """
@@ -128,11 +133,11 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
     mutator = VertexOnlyMeshMutator(vom)
 
-    # Give each particle a changed but valid state. 
+    # Give each particle a changed but valid state.
     # Reversing locally owned midpoints keeps the particles on cells owned by the same rank.
     new_coordinates = vom.coordinates.dat.data_ro[::-1].copy()
     new_parent_cells, new_reference_coordinates = locate_points(parent_mesh, new_coordinates)
-    
+
     # NOTE: We write the updated state onto the VOM BEFORE rebuilding
     vom.coordinates.dat.data[:] = new_coordinates
     mutator.commit_reference_state(
@@ -158,7 +163,7 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     state_is_preserved = all(
         np.allclose(actual_state[pid][0], expected_state[pid][0])  # coords
         and np.allclose(actual_state[pid][1], expected_state[pid][1])  # ref coords
-        and actual_state[pid][2] == expected_state[pid][2]  # parent cells
+        and actual_state[pid][2] == expected_state[pid][2]  # parent cells
         for pid in expected_state
     )
 
@@ -218,11 +223,10 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     expected_ranks[0] = destination_rank
 
     # lists particles originating on this rank before migration
-    expected_state_pre_rebuild = [(pid, destination_rank, coord.copy())
-                      for pid, destination_rank, coord in zip(particle_ids, expected_ranks, new_coords)]
+    expected_state_pre_rebuild = [(pid, destination_rank, coord.copy()) for pid, destination_rank, coord in zip(particle_ids, expected_ranks, new_coords)]
 
     gathered_expected_state_pre_rebuild = parent_mesh.comm.allgather(expected_state_pre_rebuild)
-    
+
     expected_state_post_rebuild = {
         pid: coord
         for rank_expected_state in gathered_expected_state_pre_rebuild
@@ -243,7 +247,7 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
 
     state_post_rebuild = {
         pid: coord.copy()
-        for pid, coord in zip (pids_post_rebuild, coords_post_rebuild)
+        for pid, coord in zip(pids_post_rebuild, coords_post_rebuild)
     }
 
     parallel_assert(
@@ -259,6 +263,7 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
         "Particle coordinates changed during migration"
     )
 
+
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_with_absorption(parent_mesh):
     """Verify that absorbed VOM indices disappear and that the VOM is correctly resized."""
@@ -272,7 +277,7 @@ def test_rebuild_vom_with_absorption(parent_mesh):
     # Counts
     local_count_pre_rebuild = vom.cell_set.size
     global_count_pre_rebuild = parent_mesh.comm.allreduce(local_count_pre_rebuild, op=MPI.SUM)
- 
+
     # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
     absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
     absorbed_pids = {pids_pre_rebuild[idx] for idx in absorbed_local_indices}
@@ -319,8 +324,9 @@ def test_rebuild_vom_with_absorption(parent_mesh):
         "The local VOM size post rebuild does not match the expect local count"
     )
 
-    assert(global_count_post_rebuild == global_count_pre_rebuild - global_absorbed_count)
-    
+    assert global_count_post_rebuild == global_count_pre_rebuild - global_absorbed_count
+
+
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_produces_empty_vom(parent_mesh):
     points = cell_midpoints(parent_mesh, with_halos=False)
@@ -334,7 +340,7 @@ def test_rebuild_vom_produces_empty_vom(parent_mesh):
     absorbed_local_indices = np.arange(old_local_count, dtype=int)
 
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
-    
+
     # Check that the rebuild completes
     parallel_assert(
         vom.cell_set.size == 0,
@@ -349,23 +355,14 @@ def test_rebuild_vom_produces_empty_vom(parent_mesh):
     # Check that the point SF of the mutated swarm is empty
     point_sf = vom.topology_dm.getPointSF()
     nroots, ilocal, iremote = point_sf.getGraph()
-    
+
     nleaves = 0 if iremote is None else len(iremote)
 
-    parallel_assert(
-    vom.topology_dm.getLocalSize() == 0,
-        "The swarm still contains particles",
-    )
+    parallel_assert(vom.topology_dm.getLocalSize() == 0, "The swarm still contains particles")
 
-    parallel_assert(
-        nroots == 0,
-        "The empty swarm point SF has roots",
-    )
+    parallel_assert(nroots == 0, "The empty swarm point SF has roots")
 
-    parallel_assert(
-        nleaves == 0,
-        "The empty swarm point SF has leaves",
-    )
+    parallel_assert(nleaves == 0, "The empty swarm point SF has leaves")
 
 
 @pytest.mark.parallel([1, 3])
@@ -408,7 +405,7 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
     points = cell_midpoints(parent_mesh, with_halos=False)
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
     mutator = VertexOnlyMeshMutator(vom)
-    
+
     # Define root values, same as the `globalindex` swarm field when the VOM is created
     old_local_count = vom.cell_set.size
     offset = (parent_mesh.comm.scan(old_local_count, op=MPI.SUM) - old_local_count)
@@ -494,14 +491,15 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
 
     parallel_assert(np.array_equal(leaf_values, expected_leaf_values))
 
+
 @pytest.mark.parallel(nprocs=3)
 def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     """Validate the step SF created during a cross-rank VOM rebuild.
-    
+
     This test moves a local VOM particle into a halo parent cell so that rebuilding
     the VOM causes the particle to be migrated over to another rank.
 
-    The test then checks that the step SF for the new topology version maps each point in the (new) VOM 
+    The test then checks that the step SF for the new topology version maps each point in the (new) VOM
     back to the correct point in the old VOM.
     """
     comm = parent_mesh.comm
@@ -581,7 +579,7 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     global_indices = swarm.getField("globalindex").ravel().copy()
     swarm.restoreField("globalindex")
 
-    vom_to_swarm = vom.topology.cell_closure[:, -1] # Firedrake cell point -> swarm point
+    vom_to_swarm = vom.topology.cell_closure[:, -1]  # Firedrake cell point -> swarm point
     global_indices_in_new_vom_order = global_indices[vom_to_swarm]
 
     parallel_assert(
@@ -601,13 +599,13 @@ def test_successive_vom_rebuilds(parent_mesh):
     local_count_v0 = vom.cell_set.size
     global_count_v0 = parent_mesh.comm.allreduce(local_count_v0, op=MPI.SUM)
 
-    # We want to absorb 2 particles on each rank in two successive VOM rebuilds 
+    # We want to absorb 2 particles on each rank in two successive VOM rebuilds
     # so we first ensure there are enough points on each rank
     parallel_assert(local_count_v0 >= 3)
 
-    absorbed_indices_1 = np.asarray([0], dtype=int) # absorb first local particle
+    absorbed_indices_1 = np.asarray([0], dtype=int)  # absorb first local particle
     pids_0 = vom._particle_ids.dat.data_ro.copy()
-    absorbed_pid_1 = pids_0[absorbed_indices_1[0]] # get pid of absorbed particle
+    absorbed_pid_1 = pids_0[absorbed_indices_1[0]]  # get pid of absorbed particle
 
     # First rebuild
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_indices_1)
@@ -625,10 +623,10 @@ def test_successive_vom_rebuilds(parent_mesh):
 
     parallel_assert(nroots_1 == local_count_v0)
     parallel_assert(nleaves_1 == local_count_v1)
-    
-    absorbed_indices_2 = np.asarray([0], dtype=int) # absorb first local particle
+
+    absorbed_indices_2 = np.asarray([0], dtype=int)  # absorb first local particle
     pids_1 = vom._particle_ids.dat.data_ro.copy()
-    absorbed_pid_2 = pids_1[absorbed_indices_2[0]] # get pid of absorbed particle
+    absorbed_pid_2 = pids_1[absorbed_indices_2[0]]  # get pid of absorbed particle
 
     # Second rebuild
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_indices_2)
@@ -658,14 +656,4 @@ def test_successive_vom_rebuilds(parent_mesh):
     # Verify that the global topology has changed
     global_count_v2 = parent_mesh.comm.allreduce(local_count_v2, op=MPI.SUM)
 
-    assert(global_count_v2 == global_count_v0 - 2*parent_mesh.comm.size)
-
-
-
-
-
-
-
-
-
-
+    assert (global_count_v2 == global_count_v0 - 2*parent_mesh.comm.size)
