@@ -64,6 +64,8 @@ Cyrus Cheng
 
 Teodoro Fields Collin
 
+Leo Collins
+
 Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
@@ -106,7 +108,7 @@ Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
 Tuomas Kärnä
 
-Michael Lange.................<https://www.linkedin.com/in/michael-lange-56675994/>
+Michael Lange
 
 Nicolas Loriant
 
@@ -158,7 +160,7 @@ Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/danie
 
 Jemma Shipton
 
-Tianjiao Sun..................<https://www.doc.ic.ac.uk/~ts2914/>
+Tianjiao Sun
 
 Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbecke18>
 

@@ -381,16 +381,16 @@ def test_numbering_quad():
                        [2, 4, 5, 7, 8, 10, 11, 13, 14, 16, 18, 20, 21, 24]).all()
 
     assert numpy.equal(DirichletBC(V, 0, 1).nodes,
-                       [0, 1, 2, 3, 4, 5, 17, 18]).all()
-
-    assert numpy.equal(DirichletBC(V, 0, 2).nodes,
-                       [12, 13, 14, 15, 16, 22, 23, 24]).all()
-
-    assert numpy.equal(DirichletBC(V, 0, 3).nodes,
                        [0, 1, 2, 9, 10, 11, 15, 16]).all()
 
-    assert numpy.equal(DirichletBC(V, 0, 4).nodes,
+    assert numpy.equal(DirichletBC(V, 0, 2).nodes,
                        [17, 18, 19, 20, 21, 22, 23, 24]).all()
+
+    assert numpy.equal(DirichletBC(V, 0, 3).nodes,
+                       [0, 1, 2, 3, 4, 5, 17, 18]).all()
+
+    assert numpy.equal(DirichletBC(V, 0, 4).nodes,
+                       [12, 13, 14, 15, 16, 22, 23, 24]).all()
 
 
 @pytest.mark.parametrize(["domain", "expected"],
@@ -497,8 +497,8 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 1:
         #  Top view, plex points
@@ -545,8 +545,8 @@ def test_layer_extents_parallel():
             # edges
             [0, 3, 0, 3],
             [0, 3, 0, 3],
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 3:
         #  Top view, plex points
@@ -569,8 +569,8 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 3, 0, 3],
             # edges
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],

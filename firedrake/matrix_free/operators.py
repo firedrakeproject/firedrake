@@ -1,15 +1,18 @@
 from collections import OrderedDict
+from typing import Any, Iterable
 import itertools
 
 from mpi4py import MPI
 import numpy
+import ufl
 
-from pyop2.mpi import internal_comm, temp_internal_comm
+from pyop2.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
+from functools import cached_property
+
 from firedrake.petsc import PETSc
-from firedrake.utils import cached_property
 from firedrake.function import Function
 from ufl.form import ZeroBaseForm
 
@@ -67,36 +70,43 @@ class ImplicitMatrixContext(object):
     # (0,0) block of a 1x1 block matrix is on the diagonal).
     on_diag = True
 
-    """This class gives the Python context for a PETSc Python matrix.
-
-    :arg a: The bilinear form defining the matrix
-
-    :arg row_bcs: An iterable of the :class.`.DirichletBC`s that are
-      imposed on the test space.  We distinguish between row and
-      column boundary conditions in the case of submatrices off of the
-      diagonal.
-
-    :arg col_bcs: An iterable of the :class.`.DirichletBC`s that are
-       imposed on the trial space.
-
-    :arg fcparams: A dictionary of parameters to pass on to the form
-       compiler.
-
-    :arg appctx: Any extra user-supplied context, available to
-       preconditioners and the like.
-
-    """
     @PETSc.Log.EventDecorator()
-    def __init__(self, a, row_bcs=[], col_bcs=[],
-                 fc_params=None, appctx=None):
+    def __init__(
+        self,
+        a: ufl.BaseForm,
+        row_bcs: Iterable[DirichletBC] = (),
+        col_bcs: Iterable[DirichletBC] = (),
+        fc_params: dict[str, Any] | None = None,
+        appctx: dict[str, Any] | None = None
+    ):
+        """This class gives the Python context for a PETSc Python matrix.
+
+        Parameters
+        ----------
+        a
+            The bilinear form defining the matrix.
+        row_bcs
+            An iterable of the :class.`.DirichletBC`s that are
+            imposed on the test space. We distinguish between row and
+            column boundary conditions in the case of submatrices off
+            of the diagonal. Empty tuple by default.
+        col_bcs
+            An iterable of the :class.`.DirichletBC`s that are imposed
+            on the trial space. Empty tuple by default.
+        fc_params
+            A dictionary of parameters to pass on to the form compiler.
+            By default None.
+        appctx
+            Any extra user-supplied context, available to preconditioners
+            and the like. By default None.
+        """
         from firedrake.assemble import get_assembler
 
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm, self)
-        self.fc_params = fc_params
-        self.appctx = appctx
+        self.fc_params = {} if fc_params is None else fc_params
+        self.appctx = {} if appctx is None else appctx
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.
@@ -352,10 +362,12 @@ class ImplicitMatrixContext(object):
         if info == PETSc.Mat.InfoType.LOCAL:
             return {"memory": memory}
         elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
-            gmem = self._comm.allreduce(memory, op=MPI.SUM)
+            with temp_internal_comm(self.comm) as icomm:
+                gmem = icomm.allreduce(memory, op=MPI.SUM)
             return {"memory": gmem}
         elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
-            gmem = self._comm.allreduce(memory, op=MPI.MAX)
+            with temp_internal_comm(self.comm) as icomm:
+                gmem = icomm.allreduce(memory, op=MPI.MAX)
             return {"memory": gmem}
         else:
             raise ValueError("Unknown info type %s" % info)
@@ -426,7 +438,7 @@ class ImplicitMatrixContext(object):
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
-        submat = PETSc.Mat().create(comm=self._comm)
+        submat = PETSc.Mat().create(comm=self.comm)
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes),
                         bsize=submat_ctx.block_size)
@@ -437,7 +449,6 @@ class ImplicitMatrixContext(object):
 
     @PETSc.Log.EventDecorator()
     def duplicate(self, mat, copy):
-
         if copy == 0:
             raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy=0")
         newmat_ctx = ImplicitMatrixContext(self.a,
@@ -445,7 +456,7 @@ class ImplicitMatrixContext(object):
                                            col_bcs=self.bcs_col,
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
-        newmat = PETSc.Mat().create(comm=self._comm)
+        newmat = PETSc.Mat().create(comm=self.comm)
         newmat.setType("python")
         newmat.setSizes((newmat_ctx.row_sizes, newmat_ctx.col_sizes),
                         bsize=newmat_ctx.block_size)

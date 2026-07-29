@@ -16,21 +16,24 @@ from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import finat.ufl
-from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from functools import cached_property
+
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
-from pyop2.utils import cached_property
 
 
 __all__ = "assemble",
@@ -237,7 +240,7 @@ class ExprAssembler(object):
             if isinstance(expr, ufl.algebra.Sum):
                 a, b = [assemble(e) for e in expr.ufl_operands]
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
-                if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                if not all(isinstance(op, MatrixBase) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
                 return assemble(ufl.FormSum((a, 1), (b, 1)), tensor=tensor)
             elif isinstance(expr, ufl.algebra.Product):
@@ -355,7 +358,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
-            if isinstance(self._form, matrix.MatrixBase):
+            if isinstance(self._form, MatrixBase):
                 return self._form
             elif self._mat_type == "matfree":
                 return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
@@ -364,9 +367,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                                     sub_mat_type=self._sub_mat_type,
-                                     options_prefix=self._options_prefix)
+                op2mat = op2.Mat(sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type, dtype=ScalarType)
+                return Matrix(self._form, op2mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -473,13 +475,14 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Out-of-place Hermitian transpose
             mat.petscmat.hermitianTranspose(out=result)
             if tensor is None:
-                tensor = self.assembled_matrix(expr, bcs, result)
+                tensor = Matrix(expr, result, bcs=bcs,
+                                options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
             return tensor
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")
             lhs, rhs = args
-            if isinstance(lhs, matrix.MatrixBase):
+            if isinstance(lhs, MatrixBase):
                 if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
@@ -488,11 +491,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
                         petsc_mat.mult(v_vec, res_vec)
                     return res
-                elif isinstance(rhs, matrix.MatrixBase):
+                elif isinstance(rhs, MatrixBase):
                     result = tensor.petscmat if tensor else PETSc.Mat()
                     lhs.petscmat.matMult(rhs.petscmat, result=result)
                     if tensor is None:
-                        tensor = self.assembled_matrix(expr, bcs, result)
+                        tensor = Matrix(expr, result, bcs=bcs, options_prefix=self._options_prefix)
                     return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
@@ -501,6 +504,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     # Return scalar value
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
+                    return res
+                elif isinstance(rhs, MatrixBase):
+                    # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                    petsc_mat = rhs.petscmat
+                    (_, col) = rhs.arguments()
+                    res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                    with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.multHermitian(v_vec, res_vec)
                     return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
@@ -575,7 +586,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                         op.handle.copy(result=result)
                         result.scale(w)
                 if tensor is None:
-                    tensor = self.assembled_matrix(expr, bcs, result)
+                    tensor = Matrix(expr.arguments(), result, bcs=bcs,
+                                    options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
                 return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
@@ -613,17 +625,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # Get the target space
-            V = v.function_space().dual()
-
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            if rank == 1 and isinstance(tensor, firedrake.Function):
-                V = tensor
-            interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
-            # Assembly
-            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
+            interpolator = get_interpolator(expr)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -632,10 +635,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
-
-    def assembled_matrix(self, expr, bcs, petscmat):
-        return matrix.AssembledMatrix(expr.arguments(), bcs, petscmat,
-                                      options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
@@ -838,6 +837,12 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
+            # Action(Adjoint(A), w*) -> Action(w*, A)
+            if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
+                # TODO: ufl.action(Coefficient, Form) currently fails. When it is fixed, we can remove the
+                # `not isinstance(right, firedrake.Function)` check.
+                return ufl.action(right, left.form())
+
         # -- Case (4) -- #
         if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
             B = expr.form()
@@ -863,6 +868,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
+
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form) and len(expr.argument_slots()[0].arguments()) == 2:
+            form, operand = expr.argument_slots()
+            vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
+            expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
+            return ufl.action(expr, form)
         return expr
 
     @staticmethod
@@ -1092,17 +1106,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
-
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domains = extract_domains(o)
-            for domain in domains:
-                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
@@ -1167,13 +1170,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):
@@ -1251,6 +1254,9 @@ class OneFormAssembler(ParloopFormAssembler):
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
+            if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
+                # form is empty, do nothing
+                return
             OneFormAssembler(bc.f, bcs=bc.bcs,
                              form_compiler_parameters=self._form_compiler_params,
                              needs_zeroing=False,
@@ -1374,10 +1380,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._mat_type,
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
-        return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             sub_mat_type=self._sub_mat_type,
-                             options_prefix=self._options_prefix,
-                             fc_params=self._form_compiler_params)
+        op2mat = op2.Mat(
+            sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+            dtype=ScalarType
+        )
+        return Matrix(self._form, op2mat, bcs=self._bcs,
+                      fc_params=self._form_compiler_params, options_prefix=self._options_prefix)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
@@ -1576,10 +1584,17 @@ class MatrixFreeAssembler(FormAssembler):
         self._appctx = appctx
 
     def allocate(self):
-        return matrix.ImplicitMatrix(self._form, self._bcs,
-                                     fc_params=self._form_compiler_params,
-                                     options_prefix=self._options_prefix,
-                                     appctx=self._appctx or {})
+        from firedrake.matrix_free.operators import ImplicitMatrixContext
+        ctx = ImplicitMatrixContext(
+            self._form, row_bcs=self._bcs, col_bcs=self._bcs,
+            fc_params=self._form_compiler_params,
+            appctx=self._appctx
+        )
+        return ImplicitMatrix(
+            self._form, ctx, self._bcs,
+            fc_params=self._form_compiler_params,
+            options_prefix=self._options_prefix
+        )
 
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
@@ -1851,9 +1866,12 @@ def _as_global_kernel_arg_coefficient(_, self):
     else:
         index = None
 
-    ufl_element = V.ufl_element()
-    if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((V.value_size,))
+    if V.ufl_element().family() == "Real":
+        # Interior facet integrals double Real coefficients for the
+        # two sides of the facet, matching the TSFC-generated kernel.
+        return op2.GlobalKernelArg(
+            (V.block_size,), double=self._integral_type.startswith("interior_facet")
+        )
     else:
         return self._make_dat_global_kernel_arg(V, index=index)
 

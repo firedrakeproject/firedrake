@@ -423,8 +423,8 @@ def test_bcs_mixed_real():
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
-    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+    assert np.allclose(A.M[0][1].values, [[0.00], [0.25], [0.25], [0.00]])
+    assert np.allclose(A.M[1][0].values, [[0.00, 0.25, 0.25, 0.00]])
 
 
 def test_bcs_mixed_real_vector():
@@ -437,8 +437,8 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
-    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
+    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.25], [0.25], [0.25], [0.25], [0.]]])
+    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.]])
 
 
 def test_homogeneous_bc_residual():

@@ -18,6 +18,11 @@
 
 # -- General configuration -----------------------------------------------
 
+# Disable warnings for missing options when running sphinx as PETSc does
+# not know what to do with the sphinx arguments.
+import os
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
@@ -37,7 +42,29 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
     'sphinx_copybutton',
+    'nbsphinx',
 ]
+
+# Render the tutorial notebooks. They are generated as .ipynb from the
+# py:percent sources in docs/notebooks and *executed* by the ``copy_notebooks``
+# Makefile target, so nbsphinx only needs to render the stored output. This
+# avoids re-executing the (heavy) notebooks once per Sphinx builder
+# (html/latex/latexpdf/linkcheck all run in the docs CI job).
+nbsphinx_execute = 'never'
+
+# Add a "Run on Colab" banner to the top of every rendered notebook, pointing at
+# the corresponding notebook in the firedrakeproject/notebooks repository.
+nbsphinx_prolog = r"""
+{% set name = env.docname.split('/')|last %}
+
+.. raw:: html
+
+    <div class="admonition note">
+      <p class="admonition-title">Note</p>
+      <p>You can run this notebook on
+      <a href="https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/{{ name }}.ipynb">Google Colab</a>.</p>
+    </div>
+"""
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
 
@@ -104,7 +131,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -138,6 +165,8 @@ nitpick_ignore_regex = [
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
+    ('py:class', 'pyop2.op2.Kernel'),
+    ('py:class', 'pyop2.types.mat.Mat'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -152,10 +181,19 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
+    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
+    ("py:obj", r"typing\.Literal\[.*"),
+]
+
+# sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
+# not as unresolved references handled by nitpick_ignore_regex.
+suppress_warnings = [
+    "bibtex.duplicate_citation",
 ]
 
 # Dodgy links
 linkcheck_ignore = [
+    r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
@@ -171,6 +209,10 @@ linkcheck_ignore = [
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
+    r'https://fluids.leeds.ac.uk/',
+    r'https://www.ox.ac.uk',
+    r'https://buy.crosscountrytrains.co.uk',
+    r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
 
@@ -415,15 +457,17 @@ intersphinx_mapping = {
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
-    'torch': ('https://pytorch.org/docs/stable/', None),
+    'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 

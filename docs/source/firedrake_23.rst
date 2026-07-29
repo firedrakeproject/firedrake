@@ -11,7 +11,7 @@ Firedrake '23
 -------------
                
 The seventh Firedrake user and developer workshop was
-held at `Missenden Abbey <https://missendenabbey.co.uk>`__ from 13-15
+held at Missenden Abbey from 13-15
 September 2023. The event was hosted by Imperial College London.
 
 The workshop was an opportunity for Firedrake users and

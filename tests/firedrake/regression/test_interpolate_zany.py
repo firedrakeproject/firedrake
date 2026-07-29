@@ -1,5 +1,6 @@
 import numpy
 import pytest
+import ufl
 from firedrake import *
 
 
@@ -132,3 +133,19 @@ def test_interpolate_zany_into_vom(V, mesh, which, expr_at_vom):
     expr_vom = assemble(interpolate(vexpr, Fvom))
     f_at_vom = assemble(action(expr_vom, f))
     assert numpy.allclose(f_at_vom, expected_action)
+
+
+@pytest.mark.parametrize("family,degree", [("Bernardi-Raugel", 1)])
+def test_interpolate_into_zany_piola_mapped(mesh, family, degree):
+    V = FunctionSpace(mesh, family, degree)
+
+    CG = VectorFunctionSpace(mesh, "CG", 1)
+    RT = FunctionSpace(mesh, "RT", 1)
+
+    x = SpatialCoordinate(mesh)
+    u1 = Function(CG).interpolate(x)
+    u2 = Function(RT).interpolate(x)
+
+    for source in (x, u1, u2):
+        u = assemble(interpolate(source, V))
+        assert errornorm(source, u) < 1E-12

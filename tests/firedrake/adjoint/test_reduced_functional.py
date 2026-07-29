@@ -1,26 +1,14 @@
 import pytest
+import numpy as np
 
 from firedrake import *
 from firedrake.adjoint import *
-
-from numpy.random import rand
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -65,7 +53,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -251,3 +239,120 @@ def test_interpolate_mixed():
     h.subfunctions[0].dat.data[:] = 5
     h.subfunctions[1].dat.data[:] = 6
     assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_assign_numpy():
+    """Check that Function._ad_assign_numpy correctly handles
+    zero length arrays on some ranks for Real space in parallel.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    dst = Function(R)
+    src = dst.dat.dataset.layout_vec.array_r.copy()
+    data = 1 + np.arange(src.shape[0])
+    src[:] = data
+    dst._ad_assign_numpy(dst, src, offset=0)
+    parallel_assert(np.allclose(dst.dat.data_ro, data))
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_parallel():
+    """Check that scipy.optimize works for Real space in parallel
+    despite dat.data array having zero length on some ranks.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R)
+    J = assemble((m-1)**2*dx)
+    Jhat = ReducedFunctional(J, Control(m))
+    opt = minimize(Jhat)
+    parallel_assert(np.allclose(opt.dat.data_ro, 1))
+
+
+@pytest.mark.parametrize("riesz_representation", ["l2", "L2", "H1"])
+@pytest.mark.skipcomplex
+def test_ad_dot(riesz_representation):
+    mesh = IntervalMesh(10, 0, 1)
+    V = FunctionSpace(mesh, "Lagrange", 1)
+
+    c = Constant(1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0])
+
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Constant(1), "on_boundary")
+
+    F = inner(grad(u), grad(v))*dx - f**2*v*dx
+    solve(F == 0, u, bc)
+
+    J = assemble(c**2*u*dx)
+    Jhat = ReducedFunctional(J, Control(f, riesz_map=riesz_representation))
+    dJhat = Jhat.derivative(apply_riesz=True)
+
+    h = Function(V)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
+    assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_fieldsplit():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = MixedFunctionSpace([V, Q])
+
+    bcs = [DirichletBC(W.sub(0), Constant((0, 0)), (1, 2, 3)),
+           DirichletBC(W.sub(0), Constant((1, 0)), 4)]
+
+    sp = {
+        'mat_type': 'nest',
+        'snes_converged_reason': None,
+        'ksp_converged_reason': None,
+        'ksp_type': 'fgmres',
+        'pc_type': 'fieldsplit',
+        'pc_fieldsplit_type': 'schur',
+        'pc_fieldsplit_schur_factorization_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            "pc_factor_mat_solver_type": 'mumps',
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'cg',
+            'ksp_rtol': 1e-9,
+            'ksp_atol': 1e-9,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_pc_type': 'lu',
+            'Mp_pc_factor_mat_solver_type': 'mumps',
+        },
+    }
+
+    constant_nsp = VectorSpaceBasis(constant=True, comm=Q.comm)
+    nsp = MixedVectorSpaceBasis(W, [W.sub(0), constant_nsp])
+
+    A = FunctionSpace(mesh, "CG", 1)
+    rho = Function(A).interpolate(Constant(1))
+
+    w = Function(W)
+    (u, p) = split(w)
+    z = TestFunction(W)
+    (v, q) = split(z)
+    F = (inner(sym(grad(u)) * rho, sym(grad(v))) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx
+         )
+    solve(F == 0, w, bcs, solver_parameters=sp, nullspace=nsp)
+
+    J = assemble(0.5*inner(sym(grad(u)) * rho, sym(grad(u))) * dx)
+    Jhat = ReducedFunctional(J, Control(rho))
+
+    rg = RandomGenerator(PCG64(seed=0))
+    h = rg.uniform(A)
+    assert taylor_test(Jhat, rho, h) > 1.9

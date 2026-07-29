@@ -72,6 +72,9 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
 
     for package in packages:
         logger = logging.getLogger(package)
+        # Avoids duplicating messages if someone directly invokes logging.info:
+        logger.propagate = False
+
         for handler in logger.handlers:
             logger.removeHandler(handler)
 

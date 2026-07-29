@@ -7,6 +7,7 @@ from pyop2 import (
     mpi,
     utils
 )
+from functools import cached_property
 from pyop2.types.access import Access
 
 
@@ -18,27 +19,27 @@ class DataCarrier(abc.ABC):
     (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
-    @utils.cached_property
+    @cached_property
     def dtype(self):
         """The Python type of the data."""
         return self._data.dtype
 
-    @utils.cached_property
+    @cached_property
     def ctype(self):
         """The c type of the data."""
         return dtypes.as_cstr(self.dtype)
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined label."""
         return self._name
 
-    @utils.cached_property
+    @cached_property
     def dim(self):
         """The shape tuple of the values for each element of the object."""
         return self._dim
 
-    @utils.cached_property
+    @cached_property
     def cdim(self):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
@@ -64,7 +65,7 @@ class EmptyDataMixin(abc.ABC):
             self._numpy_data = utils.verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
 
-    @utils.cached_property
+    @cached_property
     def _data(self):
         """Return the user-provided data buffer, or a zeroed buffer of
         the correct size if none was provided."""

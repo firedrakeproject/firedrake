@@ -76,7 +76,6 @@ cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
     PetscErrorCode DMPlexDistributeOverlap(PETSc.PetscDM,PetscInt,PETSc.PetscSF*,PETSc.PetscDM*)
 
-    PetscErrorCode DMPlexFilter(PETSc.PetscDM,PETSc.PetscDMLabel,PetscInt,PetscBool,PetscBool,PETSc.PetscSF*,PETSc.PetscDM*)
     PetscErrorCode DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
     PetscErrorCode DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     PetscErrorCode DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
@@ -103,6 +102,10 @@ cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
     PetscErrorCode DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     PetscErrorCode DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
+
+    PetscErrorCode DMGetPeriodicity(PETSc.PetscDM,PetscReal *[], PetscReal *[], PetscReal *[])
+    PetscErrorCode DMGetSparseLocalize(PETSc.PetscDM,PetscBool *)
+    PetscErrorCode DMSetSparseLocalize(PETSc.PetscDM,PetscBool)
 
 cdef extern from "petscdmswarm.h" nogil:
     PetscErrorCode DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
@@ -180,6 +183,8 @@ cdef extern from "petscpc.h" nogil:
    PetscErrorCode PCPatchSetComputeFunctionInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
    PetscErrorCode PCPatchSetComputeOperator(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
    PetscErrorCode PCPatchSetComputeOperatorInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeOperatorExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeFunctionExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
 
 cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT

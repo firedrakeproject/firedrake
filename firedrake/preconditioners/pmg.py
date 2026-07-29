@@ -1,4 +1,4 @@
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
@@ -8,8 +8,7 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.utils import IntType_c, cached_property
-from finat.element_factory import create_element
+from firedrake.utils import IntType_c
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import serial_cache
@@ -145,6 +144,7 @@ class PMGBase(PCSNESBase):
         if self.is_snes:
             pdm.setSNESFunction(_SNESContext.form_function)
             pdm.setSNESJacobian(_SNESContext.form_jacobian)
+            pdm.setKSPCreateOperators(_SNESContext.create_operators)
             pdm.setKSPComputeOperators(_SNESContext.compute_operators)
 
         set_function_space(pdm, get_function_space(odm))
@@ -268,6 +268,7 @@ class PMGBase(PCSNESBase):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx), teardown=partial(pop_appctx, cdm, cctx), call_setup=True)
 
         cdm.setOptionsPrefix(fdm.getOptionsPrefix())
+        cdm.setKSPCreateOperators(_SNESContext.create_operators)
         cdm.setKSPComputeOperators(_SNESContext.compute_operators)
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
@@ -529,8 +530,7 @@ class PMGSNES(SNESBase, PMGBase):
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
-    to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, Vf.ufl_element())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.mesh().coordinates] + coefficients
@@ -1101,13 +1101,13 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    prolong_map_code = cache_generate_code(prolong_map_kernel, Q._comm)
+    prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
     prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
     coefficients.remove(u)
 
     expr = ufl.dot(u, tensor)
     restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    restrict_map_code = cache_generate_code(restrict_map_kernel, Q._comm)
+    restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
     restrict_map_code = restrict_map_code.replace("#include <complex.h>", "")
@@ -1248,14 +1248,14 @@ class StandaloneInterpolationMatrix(object):
             return self._build_custom_interpolators()
 
     def _build_native_interpolators(self):
-        from firedrake.interpolation import interpolate, Interpolator
-        P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
+        from firedrake.interpolation import interpolate, get_interpolator
+        P = get_interpolator(interpolate(self.uc, self.Vf))
         prolong = partial(P.assemble, tensor=self.uf)
 
         rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
         rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
         vc = firedrake.TestFunction(self.Vc)
-        R = Interpolator(interpolate(vc, rf), self.Vf)
+        R = get_interpolator(interpolate(vc, rf))
         restrict = partial(R.assemble, tensor=rc)
         return prolong, restrict
 
@@ -1529,7 +1529,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         if i == j:
             s = self._standalones[i]
             sizes = (s.uf.dof_dset.layout_vec.getSizes(), s.uc.dof_dset.layout_vec.getSizes())
-            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf._comm)
+            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
             M_shll.setUp()
             return M_shll
         else:
@@ -1543,7 +1543,8 @@ def prolongation_matrix_aij(Vc, Vf, Vc_bcs=(), Vf_bcs=()):
         Vc = Vc.function_space()
     bcs = Vc_bcs + Vf_bcs
     interp = firedrake.interpolate(firedrake.TrialFunction(Vc), Vf)
-    mat = firedrake.assemble(interp, bcs=bcs)
+    mat_type = "nest" if len(Vc) > 1 or len(Vf) > 1 else None
+    mat = firedrake.assemble(interp, bcs=bcs, mat_type=mat_type)
     return mat.petscmat
 
 
@@ -1555,6 +1556,6 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
-    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
+    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.comm)
     M_shll.setUp()
     return M_shll

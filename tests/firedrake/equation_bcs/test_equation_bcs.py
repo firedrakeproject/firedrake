@@ -174,8 +174,8 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     u1 = cos(2 * pi * y) / 2
     n = FacetNormal(mesh)
 
-    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
+    a = inner(sigma, tau)*dx + inner(u, div(tau))*dx + inner(div(sigma), v + div(tau))*dx
+    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v + div(tau)) * dx
 
     g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
@@ -331,24 +331,24 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     eq_type = "linear"
     porder = 0
     # Mixed poisson with EquationBCs
-    # matfree with fieldsplit pc
+    # matfree with fieldsplit schur direct solver
 
     solver_parameters = {'mat_type': mat_type,
-                         'ksp_type': 'fgmres',
-                         'ksp_atol': 1e-11,
-                         'ksp_max_it': 200,
+                         'ksp_type': 'preonly',
                          'pc_type': 'fieldsplit',
                          'pc_fieldsplit_type': 'schur',
                          'pc_fieldsplit_schur_fact_type': 'full',
-                         'fieldsplit_0_ksp_type': 'cg',
+                         'fieldsplit_0_ksp_type': 'preonly',
                          'fieldsplit_0_pc_type': 'python',
                          'fieldsplit_0_pc_python_type': 'firedrake.AssembledPC',
                          'fieldsplit_0_assembled_pc_type': 'lu',
-                         'fieldsplit_1_ksp_type': 'cg',
-                         'fieldsplit_1_pc_use_amat': True,
+                         'fieldsplit_0_assembled_pc_factor_mat_solver_type': 'mumps',
+                         'fieldsplit_1_ksp_type': 'gmres',
                          'fieldsplit_1_pc_type': 'python',
                          'fieldsplit_1_pc_python_type': 'firedrake.MassInvPC',
-                         'fieldsplit_1_Mp_pc_type': 'icc'}
+                         'fieldsplit_1_Mp_pc_type': 'lu',
+                         'fieldsplit_1_Mp_pc_factor_mat_solver_type': 'mumps',
+                         }
     err = []
     mesh_sizes = [16, 32]
     if eq_type == "linear":

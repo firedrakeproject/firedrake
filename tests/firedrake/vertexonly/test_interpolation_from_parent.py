@@ -3,7 +3,6 @@ import pytest
 import numpy as np
 from functools import reduce
 from operator import add
-import subprocess
 
 
 # Utility Functions and Fixtures
@@ -70,12 +69,9 @@ def fs(request):
                         ("N2curl", 2, FunctionSpace),
                         ("N1div", 2, FunctionSpace),
                         ("N2div", 2, FunctionSpace),
-                        pytest.param(("RTCE", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict")),
-                        pytest.param(("RTCF", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict"))],
+                        ("RTCE", 2, FunctionSpace),
+                        ("RTCF", 2, FunctionSpace),
+                        ],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def vfs(request, parentmesh):
     family = request.param[0]
@@ -310,11 +306,6 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    # Remove below when interpolating constant onto Real works for extruded
-    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
-        with pytest.raises(ValueError):
-            assemble(interpolate(Constant(1), V))
-        return
     v = assemble(interpolate(Constant(1), V))
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 1.)

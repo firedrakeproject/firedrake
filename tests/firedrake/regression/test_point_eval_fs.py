@@ -1,4 +1,5 @@
 from os.path import abspath, dirname
+from numbers import Number
 import numpy as np
 import pytest
 
@@ -104,6 +105,11 @@ def test_triangle_tensor(mesh_triangle, family, degree):
 
     assert np.allclose([[0.4, 0.8], [0.48, 0.08]], f([0.6, 0.4]))
     assert np.allclose([[0.9, 0.2], [0.00, 0.18]], f([0.0, 0.9]))
+    res = f([0.1, 0.2])
+    assert isinstance(res, np.ndarray)
+    assert res.shape == (2, 2)
+    assert isinstance(res[0, :], np.ndarray)
+    assert isinstance(res[0, 0], Number)
 
 
 def test_triangle_mixed(mesh_triangle):
@@ -143,6 +149,10 @@ def test_quadrilateral(mesh_quadrilateral, family, degree):
     f = Function(V).interpolate((x[0] - 0.5)*(x[1] - 0.2))
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
+    res = f([0.1, 0.2])
+    assert isinstance(res, np.ndarray)
+    assert len(res.shape) == 0
+    assert isinstance(res.item(), Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -161,6 +171,10 @@ def test_quadrilateral_vector(mesh_quadrilateral, family, degree):
 
     assert np.allclose([0.6, 0.56], f([0.6, 0.4]))
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
+    res = f([0.1, 0.2])
+    assert isinstance(res, np.ndarray)
+    assert len(res.shape) == 1
+    assert isinstance(res[0], Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -172,6 +186,10 @@ def test_tetrahedron(mesh_tetrahedron, family, degree):
     f = Function(V).interpolate((x[0] - 0.5)*(x[1] - x[2]))
     assert np.allclose(+0.01, f([0.6, 0.4, 0.3]))
     assert np.allclose(-0.06, f([0.4, 0.7, 0.1]))
+    res = f([0.2, 0.3, 0.4])
+    assert isinstance(res, np.ndarray)
+    assert len(res.shape) == 0
+    assert isinstance(res.item(), Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -192,6 +210,10 @@ def test_tetrahedron_vector(mesh_tetrahedron, family, degree):
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.9, 0.34, 0.7], f([0.4, 0.7, 0.1]))
+    res = f([0.2, 0.3, 0.4])
+    assert isinstance(res, np.ndarray)
+    assert len(res.shape) == 1
+    assert isinstance(res[0], Number)
 
 
 def test_point_eval_forces_writes():
@@ -211,13 +233,29 @@ def test_point_reset_works():
 
     assert np.allclose([0.0], f._at((0.3, 0.3)))
     f.assign(1)
-    m.clear_spatial_index()
+    m.clear_rtree()
     assert np.allclose([1.0], f._at((0.3, 0.3)))
 
 
-def test_changing_coordinates_invalidates_spatial_index():
+def test_changing_coordinates_invalidates_rtree():
     mesh = UnitSquareMesh(2, 2)
-
-    saved_spatial_index = mesh.spatial_index
+    assert mesh.rtree is mesh.rtree
+    saved_rtree = mesh.rtree
     mesh.coordinates.assign(mesh.coordinates * 2)
-    assert mesh.spatial_index != saved_spatial_index
+    assert mesh.rtree != saved_rtree
+
+
+def test_changing_coordinates_invalidates_bounding_box():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.bounding_box_coords is mesh.bounding_box_coords
+    saved_bounding_box_coords = mesh.bounding_box_coords
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert not np.allclose(mesh.bounding_box_coords, saved_bounding_box_coords)
+
+
+def test_changing_tolerance_invalidates_rtree():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.rtree is mesh.rtree
+    saved_rtree = mesh.rtree
+    mesh.tolerance = 1e-5
+    assert mesh.rtree != saved_rtree

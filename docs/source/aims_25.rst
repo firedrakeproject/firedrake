@@ -60,6 +60,6 @@ Course lecturers
 
 * `David Ham <https://profiles.imperial.ac.uk/david.ham>`__, Department of Mathematics, Imperial College London
 * `Nicolas Boullé <https://profiles.imperial.ac.uk/n.boulle>`__, Department of Mathematics, Imperial College London
-* `Jack Betteridge <https://www.devitocodes.com/about/#jack-betteridge-research-scientist>`__, Devito Codes and Department of Mathematics, Imperial College London
+* `Jack Betteridge <https://www.imperial.ac.uk/people/j.betteridge>`__, Devito Codes and Department of Mathematics, Imperial College London
 
 

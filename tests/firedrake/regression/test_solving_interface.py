@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm
@@ -83,6 +84,14 @@ def test_assembled_solver_gced(a_L_out):
     after = count_refs(LinearSolver)
 
     assert before == after
+
+
+def test_linear_solve_zero_rhs(a_L_out):
+    a, L, out = a_L_out
+
+    out.assign(1)
+    solve(a == 0, out)
+    assert np_norm(out.dat.data_ro) < 1E-13
 
 
 def test_nonlinear_solver_gced(a_L_out):

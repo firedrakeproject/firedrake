@@ -21,7 +21,6 @@ transfer = TransferManager()
 
 
 @pytest.mark.parametrize("sub", (True, False), ids=["Z.sub(0)", "V"])
-@pytest.mark.skipcomplexnoslate
 def test_transfer_manager_inside_coarsen(sub, mesh):
     V = FunctionSpace(mesh, "N1curl", 2)
     Q = FunctionSpace(mesh, "P", 1)
@@ -78,9 +77,7 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
 
     source = Function(Vsource)
     target = Function(Vtarget)
-    family = Vsource.ufl_element().family()
-    if complex_mode and ((family == "Discontinuous Lagrange" and transfer_op == "inject")
-                         or family not in {"Lagrange", "Discontinuous Lagrange"}):
+    if complex_mode and Vsource.finat_element.is_dg() and transfer_op == "inject":
         with pytest.raises(NotImplementedError):
             op(source, target)
         return

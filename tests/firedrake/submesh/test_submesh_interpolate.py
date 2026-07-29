@@ -346,3 +346,51 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     # Test 0-form
     result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
     assert np.isclose(result_0, expected)
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_8_processes():
+    # Regression test: ranks with zero Submesh cells crashed with IndexError
+    # in _pic_swarm_in_mesh (-1 sentinels invalid on empty-rank cell_closure).
+    mesh = UnitCubeMesh(2, 2, 2)
+    x, y, z = SpatialCoordinate(mesh)
+    V_marker = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_indicator = Function(V_marker).interpolate(
+        conditional(x > 0.999, 1.0, 0.0)
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_indicator], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
+    subm.tolerance = 0.1
+    x, y, z = SpatialCoordinate(mesh)
+    xs, ys, zs = SpatialCoordinate(subm)
+    V_sub = FunctionSpace(subm, "CG", 1)
+    V_parent = FunctionSpace(mesh, "CG", 1)
+    f_sub = Function(V_sub).interpolate(ys + zs)
+    f_parent = Function(V_parent)
+    f_parent.interpolate(f_sub, allow_missing_dofs=True)
+    expected = Function(V_parent).interpolate(
+        conditional(x > 0.999, y + z, 0.0)
+    )
+    assert np.allclose(
+        f_parent.dat.data_with_halos, expected.dat.data_with_halos
+    )
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_interpolate_3Dcell_extruded_empty_rank_8_processes():
+    # Regression test for the same IndexError in the extruded branch of
+    # _pic_swarm_in_mesh: ExtrudedMesh(UnitSquareMesh(1,1), layers=3) has 6
+    # cells, so with nprocs=8 at least two ranks own zero extruded cells.
+    base = UnitSquareMesh(1, 1)
+    ext = ExtrudedMesh(base, layers=3)
+    xe, ye, ze = SpatialCoordinate(ext)
+    V_ext = FunctionSpace(ext, "CG", 1)
+    f_ext = Function(V_ext).interpolate(xe + ye + ze)
+    mesh = UnitCubeMesh(2, 2, 2)
+    xt, yt, zt = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    f.interpolate(f_ext, allow_missing_dofs=True)
+    expected = Function(V).interpolate(xt + yt + zt)
+    assert np.allclose(f.dat.data_with_halos, expected.dat.data_with_halos)

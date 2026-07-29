@@ -112,7 +112,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         Notes
         -----
-        More information can be found at `www.firedrakeproject.org/external_operators.html#build-your-own-external-operator`.
+        More information can be found at ``www.firedrakeproject.org/external_operators.html#build-your-own-external-operator``.
         """
         # Checks
         if not isinstance(derivs, (tuple, int)) or not isinstance(args, tuple):
@@ -154,7 +154,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         Notes
         -----
-        More information can be found at `www.firedrakeproject.org/external_operators.html#assembly`.
+        More information can be found at ``www.firedrakeproject.org/external_operators.html#assembly``.
         """
 
         # -- Checks -- #

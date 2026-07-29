@@ -3,6 +3,7 @@ import numpy as np
 
 import ufl
 from firedrake import *
+from firedrake.matrix import MatrixBase
 
 
 @pytest.fixture(scope='module')

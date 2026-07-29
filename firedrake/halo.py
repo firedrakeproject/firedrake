@@ -1,7 +1,7 @@
-from pyop2 import mpi, op2, utils
+from pyop2 import op2
 from mpi4py import MPI
 import numpy
-from functools import partial
+from functools import partial, cached_property
 
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, complex_mode
@@ -96,15 +96,14 @@ class Halo(op2.Halo):
     def __init__(self, dm, section, comm):
         super(Halo, self).__init__()
         self.comm = comm
-        self._comm = mpi.internal_comm(comm, self)
         # Use a DM to create the halo SFs
         if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
-        self.dm = PETSc.DMShell().create(self._comm)
+        self.dm = PETSc.DMShell().create(self.comm)
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
 
-    @utils.cached_property
+    @cached_property
     def sf(self):
         sf = dmcommon.create_halo_exchange_sf(self.dm)
         sf.setFromOptions()
@@ -112,11 +111,11 @@ class Halo(op2.Halo):
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
         return sf
 
-    @utils.cached_property
+    @cached_property
     def comm(self):
         return self.comm
 
-    @utils.cached_property
+    @cached_property
     def local_to_global_numbering(self):
         lsec = self.dm.getDefaultSection()
         gsec = self.dm.getDefaultGlobalSection()

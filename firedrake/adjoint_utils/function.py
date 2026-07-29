@@ -1,4 +1,5 @@
 from functools import wraps
+from pyop2.mpi import temp_internal_comm
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -269,7 +270,7 @@ class FunctionMixin(FloatingType):
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":
             return assemble((firedrake.inner(self, other)
-                            + firedrake.inner(firedrake.grad(self), other))*firedrake.dx)
+                            + firedrake.inner(firedrake.grad(self), firedrake.grad(other)))*firedrake.dx)
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
@@ -278,7 +279,13 @@ class FunctionMixin(FloatingType):
     def _ad_assign_numpy(dst, src, offset):
         range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
         m_a_local = src[offset + range_begin:offset + range_end]
-        dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
+        if dst.function_space().ufl_element().family() == "Real":
+            # Real space keeps a redundant copy of the data on every rank
+            comm = dst.function_space().mesh().comm
+            with temp_internal_comm(comm) as icomm:
+                dst.dat.data_wo[...] = icomm.bcast(m_a_local, root=0)
+        else:
+            dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
         offset += dst.dat.dataset.layout_vec.size
         return dst, offset
 

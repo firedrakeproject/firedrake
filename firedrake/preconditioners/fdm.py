@@ -1,5 +1,5 @@
 from textwrap import dedent
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -8,21 +8,20 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import restrict, restricted_dofs, split_dofs
+from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
-from firedrake.utils import cached_property
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir, as_tuple
+from pyop2.utils import as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
@@ -1024,9 +1023,9 @@ class SchurComplementBlockLU(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its LU factorization to compute S = A11 - (A10 U^-1) (L^-1 A01)."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, bsize, irow, icol, nnz, iswap, *ipiv, *perm;
+        PetscInt m, bsize, irow, icol, nnz, iswap, *perm;
         const PetscInt *ai;
         PetscScalar *vals, *work, *L, *U;
         Mat X;
@@ -1124,9 +1123,9 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its inverse to compute S = A11 - A10 A00^-1 A01."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, irow, bsize, *ipiv;
+        PetscInt m, irow, bsize;
         const PetscInt *ai;
         PetscScalar *vals, *work, *ainv, swork;
         PetscCall(MatProductNumeric(A11));
@@ -1230,7 +1229,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
 
-        matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = cache_generate_code(kernel, V.comm)
         matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
 
         ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))
@@ -1602,7 +1601,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 def broken_function(V, val):
     """Return a Function(V, val=val) interpolated onto the broken space."""
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
+    W = V.broken_space()
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"
@@ -1831,11 +1830,13 @@ class SparseAssembler:
 
     @staticmethod
     def load_c_code(code, name, comm, argtypes, restype):
-        petsc_dir = get_petsc_dir()
-        cppargs = [f"-I{d}/include" for d in petsc_dir]
-        ldargs = ([f"-L{d}/lib" for d in petsc_dir]
-                  + [f"-Wl,-rpath,{d}/lib" for d in petsc_dir]
-                  + ["-lpetsc", "-lm"])
+        cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+        ldargs = (
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+        )
         dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
         fn = getattr(dll, name)
         fn.argtypes = argtypes

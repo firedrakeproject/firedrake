@@ -24,8 +24,9 @@ from ufl.coefficient import BaseCoefficient
 from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
-from firedrake.utils import cached_property, unique
+from firedrake.utils import unique
 
+from functools import cached_property
 from itertools import chain, count
 
 from pyop2.utils import as_tuple
@@ -668,7 +669,8 @@ class Block(TensorBase):
         """Constructor for the Block class."""
         super(Block, self).__init__()
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(map(as_tuple, indices)))
+        indices = tuple(map(as_tuple, indices))
+        self._blocks = dict(enumerate(indices))
         self._indices = indices
 
     @cached_property

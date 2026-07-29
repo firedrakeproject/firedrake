@@ -1,5 +1,4 @@
 import pytest
-import os
 from firedrake import *
 import numpy as np
 
@@ -21,11 +20,6 @@ def fs(request):
     return request.param
 
 
-@pytest.fixture
-def dumpfile(dumpdir):
-    return os.path.join(dumpdir, "dump")
-
-
 @pytest.fixture(scope="module")
 def f():
     m = UnitSquareMesh(2, 2)
@@ -34,6 +28,13 @@ def f():
     x = SpatialCoordinate(m)
     f.interpolate(x[0]*x[1])
     return f
+
+
+def test_deprecation_warning(dumpfile):
+    match = "DumbCheckpoint is deprecated and will be removed soon; use CheckpointFile instead."
+    with pytest.warns(DeprecationWarning, match=match):
+        with DumbCheckpoint(dumpfile, mode=FILE_CREATE):
+            pass
 
 
 def run_store_load(mesh, fs, degree, dumpfile):

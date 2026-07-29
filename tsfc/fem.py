@@ -252,6 +252,11 @@ class CoordinateMapping(PhysicalGeometry):
         num_edges = len(cell.get_topology()[1])
         return gem.Literal(numpy.asarray([cell.compute_edge_tangent(i) for i in range(num_edges)]))
 
+    def normalized_reference_edge_tangents(self):
+        cell = self.interface.fiat_cell
+        num_edges = len(cell.get_topology()[1])
+        return gem.Literal(numpy.asarray([cell.compute_normalized_edge_tangent(i) for i in range(num_edges)]))
+
     def physical_tangents(self):
         cell = self.interface.fiat_cell
         sd = cell.get_spatial_dimension()
@@ -738,11 +743,6 @@ def translate_constant_value(terminal, mt, ctx):
 def translate_coefficient(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
-
-    if terminal.ufl_element().family() == 'Real':
-        assert mt.local_derivatives == 0
-        return vec
-
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities

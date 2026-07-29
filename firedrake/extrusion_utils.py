@@ -65,7 +65,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology._comm)
+    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology.comm)
 
     if kernel is not None:
         op2.ParLoop(kernel,

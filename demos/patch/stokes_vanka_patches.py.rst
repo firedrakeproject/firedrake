@@ -21,7 +21,7 @@ operators are extracted from the globally assembled stiffness matrix.
 We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the Vanka patches. This is set
-via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 
@@ -114,7 +114,7 @@ patch operators for each patch from the already-assembled global stiffness matri
        "pc_vanka_backend": "tinyasm"
        })
 
-The `tinyasm` backend uses LAPACK to invert all the patch operators.  If this option
+The ``tinyasm`` backend uses LAPACK to invert all the patch operators.  If this option
 is not specified, PETSc's ASM framework will set up a small KSP for each patch.
 This can be useful when the patches become larger and one wants to use a sparse
 direct or Krylov method on each one.
