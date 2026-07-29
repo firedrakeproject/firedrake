@@ -9,6 +9,8 @@ from loopy import generate_code_v2
 import loopy as lp
 import pyop3 as op3
 import tsfc
+import firedrake
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
@@ -25,6 +27,11 @@ from firedrake import (
     LinearVariationalSolver,
     VertexOnlyMeshTopology,
     PETSc
+)
+
+
+_with_mesh_heavy_cache = op3.cache.with_heavy_caches(
+    lambda self, *a, **kw: extract_mesh_topologies(self.function_space.mesh())
 )
 
 
@@ -273,7 +280,18 @@ class PetscNoiseBackend(NoiseBackendBase):
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
+        self.Cz = Cofunction(self.broken_space.dual())
+        self.b = Cofunction(self.function_space.dual())
 
+    @cached_property
+    def interpolator(self):
+        return firedrake.get_interpolator(firedrake.interpolate(TestFunction(self.function_space), self.Cz))
+
+        v, = self.arguments()
+        interp = interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
+
+    @_with_mesh_heavy_cache
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -284,12 +302,15 @@ class PetscNoiseBackend(NoiseBackendBase):
         z = rng.standard_normal(self.broken_space)
         # C z
         self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
+        assemble(self.M, tensor=self.Cz)
         # L C z
-        b = Cofunction(V.dual()).interpolate(Cz)
+        # not sure about self.b
+        self.interpolator.assemble(tensor=self.b)
 
         if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
+            b = self.b.riesz_representation(self.riesz_map)
+        else:
+            b = self.b
 
         if tensor:
             tensor.assign(b)
