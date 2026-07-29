@@ -13,7 +13,7 @@ import numpy as np
 # Constants
 PLOT = False
 VERBOSE = True
-w2 = Constant(100.0)  # Nitsche penalty weight
+w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight TODO: Move below where mesh2 is defined
 
 # Variables initialised for convergence analysis
 n1_list = [2,4,8,16,32]
@@ -175,6 +175,8 @@ if VERBOSE:
             print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {'-':>10}")
         else:
             print(f"{h2_array[i]:10.5f} {errors_2[i]:15.6e} {ratios_2[i-1]:10.4f}")
+
+# PETSc.Sys.Print(f"...")
 
     plt.figure(figsize=(8,8))
     plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")

@@ -3,10 +3,35 @@ Coupled equations
 
 This tutorial shows how Firedrake can handle coupled equations with coupled meshes. The first example implements a poisson equation coupled to a Helmholtz equation.
 
+Dirichlet-Neumann Method
+------------------------
+
+Before defining the specified problem we first introduce the Dirichlet-Neumann method. To provide an accurate computational approximation of the coupled problem, the Dirichlet-Neumann method is applied. This method enforces further conditions on the solution:
+
+.. math::
+
+  \begin{cases}
+
+    L u_1^{(k)} &= f \ \textrm{in}\ \Omega_1,\\
+    u_1^{(k)} &= u_2^{(k-1)} \ \textrm{on}\ \Gamma,\\
+    u_1^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_1 \setminus \Gamma.
+  
+  \end{cases}
+
+  \begin{cases}
+
+    L u_2^{(k)} &= f \ \textrm{in}\ \Omega_2,\\
+    \frac{\partial u_2^{(k)}}{\partial n} &= \frac{\partial u_1^{(k)}}{\partial n} \ \textrm{on}\ \Gamma,\\
+    u_2^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma.
+
+  \end{cases}
+
+The Neumann boundary condition is applied to the poisson equation whereas the Dirichlet boundary condition is applied to the Helmholtz equation.
+
 Coupled Poisson and Helmholtz equations
 ---------------------------------------
 
-Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` with boundary :math:`\Gamma` and :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square. The poisson equation is defined on :math:`\Omega_1` as
+Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` with boundary :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square. The poisson equation is defined on :math:`\Omega_1` as
 
 .. math::
 
@@ -28,11 +53,11 @@ The weak forms for these equations can be found by multiplying by an arbitrary t
 
 .. math::
 
-  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x - \int_{V_1}v_1 \nabla u_1 \cdot n  \ {\rm d} s,
+  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x,
 
   L_1 (v_1) &= \int_{\Omega_1}f v_1  \ {\rm d} x.
 
-Similarly, the variational problem for the Helmholtz equation involves finding :math:`u_2 \in V^2` such that :math:`a_{22} (u_2, v_2) = L_2 (v_2) \ \textrm{for all}\ v_2 \in V^2` where
+Similarly, the variational problem for the Helmholtz equation involves finding :math:`u_2 \in V^2` such that :math:`a_{22} (u_2, v_2) = L_2 (v_2) \ \textrm{for all}\ v_2 \in V^2` where [TODO: Remove second term]
 
 .. math::
 
@@ -40,52 +65,29 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
   L_2 (v_2) &= \int_{\Omega_2}g v_2  \ {\rm d} x.
 
-These equations are then coupled along the shared interface :math:`\Gamma` with Nitsche's method to enforce the boundary conditions in the weak form. This is done by adding a boundary penalty term to both sides of the weak forms. The poisson and Helmholtz weak form equations are updated to become
+These equations are then coupled along the shared interface :math:`\Gamma` with Nitsche's method to enforce the Dirichlet boundary condition in the weak form. We add a boundary penalty term to the Helmholtz weak form equation. We also enforce the Neumann boundary condition :math:`\frac{\partial u_2}{\partial n} = \frac{\partial u_1}{\partial n}` on the poisson weak form equation
 
 .. math::
 
-  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x - \int_{V_1}v_1 \nabla u_1 \cdot n \ {\rm d} s + w_1 \int_{\Gamma}u_1 v_1 \ {\rm d} s,
+  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x,
 
-  a_{22}(u_2, v_2) &= \int_{\Omega_2}\nabla u_2 \cdot \nabla u_2 + u_2 v_2  \ {\rm d} x - \int_{\Gamma}v_2 \nabla u_2 \cdot n \ {\rm d} s + w_2 \int_{\Gamma}u_2 v_2 \ {\rm d} s.
+  a_{22}(u_2, v_2) &= \int_{\Omega_2}\nabla u_2 \cdot \nabla u_2 + u_2 v_2  \ {\rm d} x - \int_{\Gamma}\frac{\partial u_2}{\partial n} v_2 \ {\rm d} s + w_2 \int_{\Gamma}u_2 v_2 \ {\rm d} s.
 
 
 The coupling terms are also defined as
 
 .. math::
 
-  a_{12}(u_2, v_1) &= -w_1 \int_{\Gamma}\mathcal{I}_{V^1} (u_2) v_1 \ {\rm d} s,
+  a_{12}(u_2, v_1) &= - \int_{\Gamma}\mathcal{I}_{V^1} (u_2) v_1 \ {\rm d} s,
 
   a_{21}(u_1, v_2) &= -w_2 \int_{\Gamma}\mathcal{I}_{V^2} (u_1) v_2 \ {\rm d} s,
 
-where :math:`w_1, w_2 \>\> 0` are penalty parameters and :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` is a cross-mesh interpolation operator. Therefore, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
+where :math:`w_2 \>\> 0` are penalty parameters and :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` is a cross-mesh interpolation operator. Therefore, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
 
 .. math::
 
   a_{11}(u_1,v_1) + a_{12}(u_2,v_1) + a_{22}(u_2,v_2) + a_{21}(u_1,v_2) = L_1(v_1) + L_2(v_2) \ \textrm{for all}\ (v_1, v_2) \in V^1 \times V^2.
 
-
-Dirichlet-Neumann Method
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-To computationally approximate the coupled problem, the Dirichlet-Neumann method is applied. This method enforces further conditions on the solution:
-
-.. math::
-
-  \begin{cases}
-
-    L u_1^{(k)} &= f \ \textrm{in}\ \Omega_1,\\
-    u_1^{(k)} &= u_2^{(k-1)} \ \textrm{on}\ \Gamma,\\
-    u_1^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_1 \setminus \Gamma.
-  
-  \end{cases}
-
-  \begin{cases}
-
-    L u_2^{(k)} &= f \ \textrm{in}\ \Omega_2,\\
-    \frac{\partial u_2^{(k)}}{\partial n} &= \frac{\partial u_1^{(k)}}{\partial n} \ \textrm{on}\ \Gamma,\\
-    u_2^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma.
-
-  \end{cases}
 
 Method of Manufactured Solutions (MMS)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -165,11 +167,7 @@ Function spaces ``V1`` and ``V2`` are combined to create a mixed function space 
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
 
-The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. Intermediate spaces are used for defining the coupling terms in the variational problem. These coupling terms are calculated by multiplying the cross-mesh interpolation matrices ``B12`` and ``B21`` with the mas matrices ``M1`` and ``M2``. ::
-  
-    # Intermediate spaces
-    Q1v = VectorFunctionSpace(mesh1, "CG", 3)
-    Q2 = FunctionSpace(mesh2, "CG", 3)
+The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. Intermediate spaces are used for defining the coupling terms in the variational problem. These coupling terms are calculated by multiplying the cross-mesh interpolation matrices ``B12`` and ``B21`` with the mass matrices ``M1`` and ``M2``. ``A12`` follows the Neumann boundary condition whilst ``A21`` follows the Dirichlet boundary condition with Nitsche's penalty weight applied. [TODO: Talk about why cross-mesh interpolation and mass matrices occur] ::
 
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1
@@ -179,9 +177,12 @@ The matrices ``A11`` and ``A22`` are defined directly on the above function spac
                 - inner(dot(grad(u2), n2), v2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
     
+    # Intermediate spaces
+    Q1v = VectorFunctionSpace(mesh1, "CG", 3)
+    Q2 = FunctionSpace(mesh2, "CG", 3)
+    
     # A12: row v1, column u2
     # W --B12--> Q1v --M1--> W^*
-    # inner(dot(grad(u2), n1), v1) * ds1
     q1v = TrialFunction(Q1v)
     M1 = -inner(dot(q1v, n1), v1) * ds1  # Q1v -> W^*
     B12 = interpolate(grad(u2), Q1v, allow_missing_dofs=True)  # W -> Q1v
