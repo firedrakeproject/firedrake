@@ -796,4 +796,4 @@ def restricted_function_space(V, ids):
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces, name=V.name)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name, _labels=V._labels)

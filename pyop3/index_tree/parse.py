@@ -20,7 +20,7 @@ from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
-from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
+from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -270,13 +270,13 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
 
     # single-component axis - return a scalar index
     if len(axis.components) == 1 and axis.component.label is None:
-        component = just_one(axis.components)
+        component = utils.just_one(axis.components)
         index = ScalarIndex(axis.label, component.label, num)
 
     # match on component label
     else:
         try:
-            component = just_one(c for c in axis.components if c.label == num)
+            component = utils.just_one(c for c in axis.components if c.label == num)
         except pyop3.exceptions.EmptyIterableException as err:
             raise ValueError(f"Component label '{num}' does not exist in this axis") from err
         if component.size == 1:
@@ -355,7 +355,10 @@ def _(label: str, /, *, axes, path) -> Index:
 def _desugar_index_label(label, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
-    component = just_one(c for c in axis.components if c.label == label)
+    try:
+        component = utils.just_one(c for c in axis.components if c.label == label)
+    except pyop3.exceptions.EmptyIterableException as err:
+        raise ValueError(f"Component label '{label}' does not exist in this axis") from err
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
@@ -582,6 +585,6 @@ def _(
 
 def as_context_free_index_tree(index_tree: IndexTree, loop_context) -> IndexTree:
     index_forests = as_index_forests(index_tree)
-    loop_context_, index_forest = just_one(index_forests.items())
+    loop_context_, index_forest = utils.just_one(index_forests.items())
     assert loop_context_ == loop_context
-    return just_one(index_forest)
+    return utils.just_one(index_forest)
