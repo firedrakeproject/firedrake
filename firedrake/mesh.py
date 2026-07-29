@@ -2757,17 +2757,18 @@ values from f.)"""
             return cache[tolerance]
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
-            # locator returns an error code which is always a 32-bit int rather than IntType_c.
             src += dedent(f"""
-                int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                PetscErrorCode locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
                 {{
+                    PetscErrorCode locate_err = PETSC_SUCCESS;
                     int64_t *candidate_ids = NULL;
                     size_t *candidate_offsets = NULL;
+
                     RTreeError rtree_err = rtree_locate_all_at_points(
                         (const struct RTreeH *)f->rtree, x, npoints, &candidate_ids, &candidate_offsets);
                     if (rtree_err != Success) {{
                         fputs("ERROR: rtree_locate_all_at_points failed.\\n", stderr);
-                        return -1;
+                        return PETSC_ERR_LIB;
                     }}
 
                     size_t j = 0;  /* index into x and X */
@@ -2787,16 +2788,14 @@ values from f.)"""
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         {IntType_c} *cells_ignore_i = cells_ignore + i*ncells_ignore;
 
-                        PetscErrorCode locate_err = locate_cell_from_candidates(
+                        locate_err = locate_cell_from_candidates(
                             f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
                             &temp_reference_coords, &found_reference_coords,
                             &ref_cell_dists_l1[i], nids_i, ids_i,
                             ncells_ignore, cells_ignore_i, &cells[i]);
 
                         if (locate_err != PETSC_SUCCESS) {{
-                            rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
-                            rtree_free_offsets(candidate_offsets, npoints + 1);
-                            return locate_err;
+                            break;
                         }}
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
@@ -2806,7 +2805,7 @@ values from f.)"""
                     }}
                     rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
                     rtree_free_offsets(candidate_offsets, npoints + 1);
-                    return 0;
+                    return locate_err;
                 }}
             """)
 
