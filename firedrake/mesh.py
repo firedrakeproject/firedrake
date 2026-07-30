@@ -4030,11 +4030,19 @@ values from f.)"""
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
-            run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+            err = run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+        if err != 0:
+            raise RuntimeError(f"C locator failed with error code {err}")
         return cells, Xs, ref_cell_dists_l1
 
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
+        """Generates C code to compute containing cells and reference coordinates for a set of points.
+
+        First, the rtree is queried to find candidate cells for each point. Then, for each point, we locate
+        the single owning cell from the candidates. This owning cell is the one which is closest to the point
+        in the L1 norm in reference coordinates.
+        """
         from pyop3 import compile as compilation
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
@@ -4044,31 +4052,55 @@ values from f.)"""
             return cache[tolerance]
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
-            # locator returns an error code which is always a 32-bit int rather than IntType_c.
             src += dedent(f"""
-                int locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, {IntType_c} npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                PetscErrorCode locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
                 {{
-                    {IntType_c} j = 0;  /* index into x and X */
-                    for({IntType_c} i=0; i<npoints; i++) {{
+                    PetscErrorCode locate_err = PETSC_SUCCESS;
+                    int64_t *candidate_ids = NULL;
+                    size_t *candidate_offsets = NULL;
+
+                    RTreeError rtree_err = rtree_locate_all_at_points(
+                        (const struct RTreeH *)f->rtree, x, npoints, &candidate_ids, &candidate_offsets);
+                    if (rtree_err != Success) {{
+                        fputs("ERROR: rtree_locate_all_at_points failed.\\n", stderr);
+                        return PETSC_ERR_LIB;
+                    }}
+
+                    size_t j = 0;  /* index into x and X */
+                    for(size_t i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
 
                         /* The type definitions and arguments used here are defined as
                         statics in pointquery_utils.py */
                         struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
+                        size_t nids_i = candidate_offsets[i + 1] - candidate_offsets[i];
+                        int64_t *ids_i = candidate_ids + candidate_offsets[i];
+
                         /* to_reference_coords is defined in
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         {IntType_c} *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
+
+                        locate_err = locate_cell_from_candidates(
+                            f, &x[j], &to_reference_coords,
+                            &temp_reference_coords, &found_reference_coords,
+                            &ref_cell_dists_l1[i], nids_i, ids_i,
+                            ncells_ignore, cells_ignore_i, &cells[i]);
+
+                        if (locate_err != PETSC_SUCCESS) {{
+                            break;
+                        }}
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
                             j++;
                         }}
                     }}
-                    return 0;
+                    rtree_free_ids(candidate_ids, candidate_offsets[npoints]);
+                    rtree_free_offsets(candidate_offsets, npoints + 1);
+                    return locate_err;
                 }}
             """)
 
@@ -4094,7 +4126,7 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(IntType)),
-                                as_ctypes(IntType),
+                                ctypes.c_size_t,
                                 ctypes.c_size_t,
                                 np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int

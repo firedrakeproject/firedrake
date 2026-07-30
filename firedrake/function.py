@@ -11,7 +11,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
@@ -689,6 +689,10 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+            elif err == -2:
+                raise RuntimeError("Rtree query failed.")
+            elif err != 0:
+                raise RuntimeError(f"C point evaluator failed with error code {err}")
 
         if not len(arg.shape) <= 2:
             raise ValueError("Function.at expects point or array of points.")
