@@ -3,7 +3,7 @@ from functools import partial
 from itertools import chain, zip_longest
 
 from gem.gem import Delta, FactorisationAtom, Indexed, Sum, index_sum, one
-from gem.node import Memoizer, MemoizerArg
+from gem.node import Memoizer, MemoizerArg, traversal
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
@@ -131,7 +131,11 @@ def classify(argument_indices, expression, delta_inside):
     if n == 0:
         return OTHER
     elif n == 1:
-        if isinstance(expression, (Delta, Indexed)) and not delta_inside(expression):
+        mapped = any(isinstance(node, FactorisationAtom)
+                     and node.linear_closure
+                     for node in traversal((expression,)))
+        if (mapped or isinstance(expression, (Delta, Indexed))) \
+                and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND
