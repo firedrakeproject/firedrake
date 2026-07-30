@@ -3260,24 +3260,6 @@ class ExtrudedMeshTopology(MeshTopology):
             for d in dofs_per_entity
         )
 
-    def entity_layers(self, height, label=None):
-        """Return the number of layers on each entity of a given plex
-        height.
-
-        :arg height: The height of the entity to compute the number of
-           layers (0 -> cells, 1 -> facets, etc...)
-        :arg label: An optional label name used to select points of
-           the given height (if None, then all points are used).
-        :returns: a numpy array of the number of layers on the asked
-           for entities (or a single layer number for the constant
-           layer case).
-        """
-        assert False, "old code"
-        if self.variable_layers:
-            return extnum.entity_layers(self, height, label)
-        else:
-            return self.cell_set.layers
-
     @cached_property
     def num_cells_per_column(self) -> op3.Scalar:
         """The number of cells in each column."""

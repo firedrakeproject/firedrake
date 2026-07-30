@@ -164,13 +164,6 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "dmcommon.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/extrusion_numbering.pyx: petsc, numpy
-    cython_list.append(Extension(
-        name="firedrake.cython.extrusion_numbering",
-        language="c",
-        sources=[os.path.join("firedrake", "cython", "extrusion_numbering.pyx")],
-        **(mpi_ + petsc_ + numpy_)
-    ))
     # firedrake/cython/hdf5interface.pyx: petsc, numpy, hdf5
     cython_list.append(Extension(
         name="firedrake.cython.hdf5interface",
