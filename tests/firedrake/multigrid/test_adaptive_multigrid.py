@@ -5,7 +5,7 @@ from firedrake import *
 
 
 def corner_adaptive_hierarchy(base, nlevels):
-    mh = AdaptiveMeshHierarchy(base)
+    mh = MeshHierarchy(base)
     for l in range(nlevels):
         mesh = mh[-1]
         x = SpatialCoordinate(mesh)
@@ -56,23 +56,23 @@ def coarse_mesh(request):
 
 
 @pytest.fixture
-def amh(coarse_mesh):
+def mh(coarse_mesh):
     return corner_adaptive_hierarchy(coarse_mesh, nlevels=2)
 
 
 def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     mesh = coarse_mesh
-    amh = AdaptiveMeshHierarchy(mesh)
+    mh = MeshHierarchy(mesh)
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    amh.add_mesh(refined_mesh)
+    mh.add_mesh(refined_mesh)
 
-    coarse_to_fine = amh.coarse_to_fine_cells[0]
-    fine_to_coarse = amh.fine_to_coarse_cells[1]
+    coarse_to_fine = mh.coarse_to_fine_cells[0]
+    fine_to_coarse = mh.fine_to_coarse_cells[1]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
     assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
@@ -99,7 +99,7 @@ def test_refine_marked_elements_is_local():
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    coarse_to_fine, _ = refined_mesh._adaptive_cell_maps
+    coarse_to_fine, _ = refined_mesh.adaptive_cell_maps
 
     n_children = (coarse_to_fine >= 0).sum(axis=1)
     unmarked = np.ones(ncoarse, dtype=bool)
@@ -109,6 +109,57 @@ def test_refine_marked_elements_is_local():
     # neighbouring cells (to avoid hanging nodes), but with a marked region
     # this small, most of the mesh must be left untouched.
     assert (n_children[unmarked] == 1).sum() >= 0.5 * unmarked.sum()
+
+
+@pytest.mark.parallel([1, 2])
+def test_refine_marked_elements_repeats(coarse_mesh):
+    """A marker value of n refines the marked cells n times, and the cell maps
+    reach all the way from the original mesh to the n-times-refined one."""
+    mesh = coarse_mesh
+    ncells = {}
+    max_children = {}
+    for n in (1, 2):
+        M = FunctionSpace(mesh, "DG", 0)
+        markers = Function(M)
+        markers.dat.data_wo[:1] = n
+
+        refined_mesh = mesh.refine_marked_elements(markers)
+        coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
+
+        assert coarse_to_fine.shape[0] == mesh.cell_set.size
+        assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+        for coarse_cell, fine_cells in enumerate(coarse_to_fine):
+            fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
+            assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
+        assert np.allclose(assemble(1*dx(refined_mesh)), assemble(1*dx(mesh)))
+
+        ncells[n] = mesh.comm.allreduce(refined_mesh.cell_set.size)
+        max_children[n] = mesh.comm.allreduce(
+            (coarse_to_fine >= 0).sum(axis=1).max(initial=0), op=MPI.MAX)
+
+    # Each extra round bisects the marked cells again, so they gain both cells
+    # overall and descendants of the cell they came from.
+    assert ncells[2] > ncells[1]
+    assert max_children[2] > max_children[1]
+
+
+def test_add_mesh_rejects_unrelated_mesh():
+    """Cell maps are only meaningful relative to the mesh they were built
+    against, so a mesh refined from anything but the finest level is refused
+    rather than silently recorded with somebody else's maps."""
+    mh = MeshHierarchy(UnitSquareMesh(2, 2))
+
+    other = UnitSquareMesh(4, 4)
+    assert other.adaptive_parent is None
+    with pytest.raises(ValueError):
+        mh.add_mesh(other)
+
+    markers = Function(FunctionSpace(other, "DG", 0))
+    markers.dat.data_wo[:1] = 1
+    foreign = other.refine_marked_elements(markers)
+    assert foreign.adaptive_parent is other
+    with pytest.raises(ValueError):
+        mh.add_mesh(foreign)
 
 
 @pytest.mark.parallel([1, 2, 4])
@@ -124,15 +175,15 @@ def test_adapt_basic():
 
 def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
     mesh = coarse_mesh
-    amh = AdaptiveMeshHierarchy(mesh)
+    mh = MeshHierarchy(mesh)
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[0] = 1
     refined_mesh = mesh.refine_marked_elements(markers)
-    amh.add_mesh(refined_mesh)
+    mh.add_mesh(refined_mesh)
 
-    assert (amh.coarse_to_fine_cells[0] < 0).any()
+    assert (mh.coarse_to_fine_cells[0] < 0).any()
 
     V_coarse = FunctionSpace(mesh, "CG", 1)
     V_fine = FunctionSpace(refined_mesh, "CG", 1)
@@ -160,14 +211,14 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
     )
 
 
-def _assert_adapt_after_uniform_refinement(mesh):
-    """Adaptively refine ``mesh`` (assumed to be the finest level of a
-    (possibly trivial) uniformly-refined hierarchy) by marking a single
-    cell, and check that the resulting `AdaptiveMeshHierarchy` cell maps
-    are sane. Shared by the ``test_adapt_after_uniform_*refinement``
-    tests, which only differ in how ``mesh`` itself was built.
+def _assert_adapt_after_uniform_refinement(mh):
+    """Adaptively refine the finest level of the uniformly-refined hierarchy
+    ``mh`` by marking a single cell, and check that the cell maps of the level
+    this adds are sane. Shared by the ``test_adapt_after_uniform_*refinement``
+    tests, which only differ in how ``mh`` itself was built.
     """
-    amh = AdaptiveMeshHierarchy(mesh)
+    mesh = mh[-1]
+    level = len(mh)
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
@@ -177,11 +228,12 @@ def _assert_adapt_after_uniform_refinement(mesh):
     # refine_marked_elements and hanging the surviving ranks.
     markers.dat.data_wo[:1] = 1
 
-    refined_mesh = mesh.refine_marked_elements(markers)
-    amh.add_mesh(refined_mesh)
+    refined_mesh = mh.add_mesh(mesh.refine_marked_elements(markers))
+    assert len(mh) == level + 1
+    assert mh[-1] is refined_mesh
 
-    coarse_to_fine = amh.coarse_to_fine_cells[0]
-    fine_to_coarse = amh.fine_to_coarse_cells[1]
+    coarse_to_fine = mh.coarse_to_fine_cells[level - 1]
+    fine_to_coarse = mh.fine_to_coarse_cells[level]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
     assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
@@ -202,24 +254,24 @@ def test_adapt_after_uniform_netgen_refinement():
     netgen_mesh = geo.GenerateMesh(maxh=0.5)
     netgen_mesh.Refine()
     mesh = Mesh(netgen_mesh)
-    _assert_adapt_after_uniform_refinement(mesh)
+    _assert_adapt_after_uniform_refinement(MeshHierarchy(mesh))
 
 
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
+    """A hierarchy built by uniform refinement can be adaptively refined."""
     netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
     mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
-    base = mh[-1]
-    _assert_adapt_after_uniform_refinement(base)
+    _assert_adapt_after_uniform_refinement(mh)
 
 
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_DG0(amh, operator):
+def test_DG0(mh, operator):
     """Prolongation & Injection test for DG0"""
-    V_coarse = FunctionSpace(amh[0], "DG", 0)
-    V_fine = FunctionSpace(amh[-1], "DG", 0)
+    V_coarse = FunctionSpace(mh[0], "DG", 0)
+    V_fine = FunctionSpace(mh[-1], "DG", 0)
     u_coarse = Function(V_coarse)
     u_fine = Function(V_fine)
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
@@ -243,10 +295,10 @@ def test_DG0(amh, operator):
 
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_CG1(amh, operator):
+def test_CG1(mh, operator):
     """Prolongation & Injection test for CG1"""
-    V_coarse = FunctionSpace(amh[0], "CG", 1)
-    V_fine = FunctionSpace(amh[-1], "CG", 1)
+    V_coarse = FunctionSpace(mh[0], "CG", 1)
+    V_fine = FunctionSpace(mh[-1], "CG", 1)
     u_coarse = Function(V_coarse)
     u_fine = Function(V_fine)
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
@@ -267,10 +319,10 @@ def test_CG1(amh, operator):
 
 
 @pytest.mark.parallel([1, 2, 4])
-def test_restrict_CG1(amh):
+def test_restrict_CG1(mh):
     """Test restriction with CG1"""
-    V_coarse = FunctionSpace(amh[0], "CG", 1)
-    V_fine = FunctionSpace(amh[-1], "CG", 1)
+    V_coarse = FunctionSpace(mh[0], "CG", 1)
+    V_fine = FunctionSpace(mh[-1], "CG", 1)
     u_coarse = Function(V_coarse)
     u_fine = Function(V_fine)
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
@@ -290,10 +342,10 @@ def test_restrict_CG1(amh):
 
 
 @pytest.mark.parallel([1, 2, 4])
-def test_restrict_DG0(amh):
+def test_restrict_DG0(mh):
     """Test restriction with DG0"""
-    V_coarse = FunctionSpace(amh[0], "DG", 0)
-    V_fine = FunctionSpace(amh[-1], "DG", 0)
+    V_coarse = FunctionSpace(mh[0], "DG", 0)
+    V_fine = FunctionSpace(mh[-1], "DG", 0)
     u_coarse = Function(V_coarse)
     u_fine = Function(V_fine)
     xc, *_ = SpatialCoordinate(V_coarse.mesh())
@@ -313,10 +365,10 @@ def test_restrict_DG0(amh):
 
 
 @pytest.mark.parallel([1, 2])
-def test_mg_jacobi(amh):
+def test_mg_jacobi(mh):
     """Test multigrid with jacobi smoothers"""
-    V = FunctionSpace(amh[-1], "CG", 1)
-    x = SpatialCoordinate(amh[-1])
+    V = FunctionSpace(mh[-1], "CG", 1)
+    x = SpatialCoordinate(mh[-1])
     u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
     u = Function(V)
     v = TestFunction(V)
@@ -347,7 +399,7 @@ def test_mg_jacobi(amh):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("backend", ["jacobi", "patch", "tinyasm"])
-def test_mg_patch(amh, backend):
+def test_mg_patch(mh, backend):
     """Test multigrid with patch relaxation"""
     if backend == "jacobi":
         solver_params = {
@@ -409,7 +461,7 @@ def test_mg_patch(amh, backend):
             "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
         }
 
-    mesh = amh[-1]
+    mesh = mh[-1]
     V = FunctionSpace(mesh, "CG", 1)
     x = SpatialCoordinate(mesh)
     u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
@@ -424,5 +476,5 @@ def test_mg_patch(amh, backend):
     solver.solve()
     pc = solver.snes.ksp.pc
     assert pc.getType() == "mg"
-    assert pc.getMGLevels() == len(amh)
+    assert pc.getMGLevels() == len(mh)
     assert errornorm(u_ex, u) <= 1e-8

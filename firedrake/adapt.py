@@ -2,7 +2,6 @@
 import numpy as np
 import petsctools
 
-from pyop2.mpi import MPI
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
 from firedrake.utils import IntType
@@ -15,18 +14,22 @@ from firedrake.netgen import _transfer_high_order_coordinates
 # PETSc's DMAdaptFlag value requesting refinement, for the adapt label.
 DM_ADAPT_REFINE = 1
 
+# Label holding, on every cell, the number of the cell of the original mesh it
+# descends from. The refinement transform propagates labels from a cell to its
+# children, so this stays relative to the original mesh however many times we
+# refine.
+PARENT_LABEL = "_adaptive_dmplex_parent"
 
-def _refine_marked_elements_once(mesh, cell_marker):
-    """Refine marked cells once and return parent-child cell maps."""
+ADAPT_LABEL = "_adaptive_dmplex_adapt"
+
+
+def _adapt_marked_cells(mesh, cell_marker):
+    """Refine the cells of ``mesh`` marked by ``cell_marker`` and return the refined DMPlex."""
     dm = mesh.topology_dm
     ncoarse = mesh.cell_set.size
 
-    parent_name = "_adaptive_dmplex_parent"
-    adapt_name = "_adaptive_dmplex_adapt"
-    dm.createLabel(parent_name)
-    dm.createLabel(adapt_name)
-    impl.set_adaptive_parent_label(dm, mesh._cell_numbering, ncoarse, parent_name)
-    adapt_label = dm.getLabel(adapt_name)
+    dm.createLabel(ADAPT_LABEL)
+    adapt_label = dm.getLabel(ADAPT_LABEL)
     adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
     adapt_indicator[:ncoarse] = cell_marker.dat.data_ro.real > 0
     dmcommon.mark_points_with_function_array(
@@ -38,36 +41,20 @@ def _refine_marked_elements_once(mesh, cell_marker):
     try:
         # options_prefix="" is essential
         with petsctools.inserted_options(parameters=parameters, options_prefix=""):
-            new_dm = dm.adaptLabel(adapt_name)
+            new_dm = dm.adaptLabel(ADAPT_LABEL)
     finally:
-        dm.removeLabel(parent_name)
-        dm.removeLabel(adapt_name)
+        dm.removeLabel(ADAPT_LABEL)
 
     # The transform propagates every label, including the temporary adapt
     # label and the coarse mesh's stale pyop2_core/owned/ghost point
     # classification. Mesh() skips recomputing that classification if it's
     # already present, so it must be dropped here to force a fresh one for
     # the new mesh's own point count and distribution.
-    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", adapt_name):
+    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", ADAPT_LABEL):
         if new_dm.hasLabel(label):
             new_dm.removeLabel(label)
 
-    new_mesh = Mesh(
-        new_dm,
-        dim=mesh.geometric_dimension,
-        reorder=False,
-        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-        comm=mesh.comm,
-        tolerance=mesh.tolerance,
-    )
-
-    coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
-        new_dm, new_mesh._cell_numbering, ncoarse, new_mesh.cell_set.size,
-        parent_name,
-    )
-    new_dm.removeLabel(parent_name)
-
-    return new_mesh, coarse_to_fine, fine_to_coarse
+    return new_dm
 
 
 def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
@@ -99,9 +86,10 @@ def refine_marked_elements(mesh, cell_marker):
     Returns
     -------
     MeshGeometry
-        The adaptively refined mesh, with ``_adaptive_cell_maps`` set
-        to the ``(coarse_to_fine, fine_to_coarse)`` cell maps relative
-        to ``mesh``.
+        The adaptively refined mesh, with ``adaptive_parent`` set to
+        ``mesh`` and ``adaptive_cell_maps`` set to the
+        ``(coarse_to_fine, fine_to_coarse)`` cell maps relative to it.
+
     """
     with cell_marker.dat.vec_ro as v:
         _, num_refinements = v.max()
@@ -109,58 +97,41 @@ def refine_marked_elements(mesh, cell_marker):
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
     num_refinements = max(int(np.rint(num_refinements)), 1)
 
+    ncoarse = mesh.cell_set.size
+    coarse_dm = mesh.topology_dm
+    if coarse_dm.hasLabel(PARENT_LABEL):
+        coarse_dm.removeLabel(PARENT_LABEL)
+    coarse_dm.createLabel(PARENT_LABEL)
+    impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, ncoarse, PARENT_LABEL)
+
     current_mesh = mesh
     current_mark = cell_marker
-    coarse_to_fine_total = None
-    fine_to_coarse_total = None
-    for ref in range(num_refinements):
-        new_mesh, c2f, f2c = _refine_marked_elements_once(current_mesh, current_mark)
-        parent = f2c[:, 0]
-        if fine_to_coarse_total is None:
-            # After a single round, c2f/f2c from _refine_marked_elements_once
-            # are already relative to the original `mesh`, so there's no
-            # composing/inverting to do; just keep c2f as-is in case this is
-            # also the last (and only) round.
-            coarse_to_fine_total = c2f
-            fine_to_coarse_total = f2c.copy()
-        else:
-            # f2c maps this round's fine cells to their *immediate* parents,
-            # i.e. cells of the previous round's mesh, not of the original
-            # `mesh`. fine_to_coarse_total already maps those parents back
-            # to their ultimate ancestor in `mesh`, so composing the two
-            # gives each new fine cell's ultimate original ancestor.
-            composed = np.full_like(f2c, -1)
-            valid = parent >= 0
-            composed[valid, 0] = fine_to_coarse_total[parent[valid], 0]
-            fine_to_coarse_total = composed
-
-        if ref < num_refinements - 1:
-            next_mark = Function(FunctionSpace(new_mesh, "DG", 0))
-            valid = (parent >= 0)
-            next_mark.dat.data_wo[valid] = np.maximum(current_mark.dat.data_ro[parent[valid]] - 1, 0)
-            current_mark = next_mark
-        current_mesh = new_mesh
-
-    if num_refinements > 1:
-        # coarse_to_fine_total from a single round only covers direct
-        # children, not further-refined grandchildren, so with more than
-        # one round it must be rebuilt from scratch by inverting
-        # fine_to_coarse_total (each final fine cell's ultimate ancestor in
-        # `mesh`) into, for every original coarse cell, the list of all its
-        # fine descendants after every round of refinement above.
-        ncoarse = mesh.cell_set.size
-        children = [[] for _ in range(ncoarse)]
-        for fine_cell, parent in enumerate(fine_to_coarse_total[:, 0]):
-            if parent >= 0:
-                children[parent].append(fine_cell)
-        max_children = max((len(c) for c in children), default=0)
-        max_children = mesh.comm.allreduce(max_children, MPI.MAX)
-        # children is ragged (coarse cells refined more times end up with
-        # more descendants); right-pad each row with -1 up to max_children
-        # so coarse_to_fine_total is rectangular.
-        coarse_to_fine_total = np.full((ncoarse, max_children), -1, dtype=IntType)
-        for coarse_cell, fine_cells in enumerate(children):
-            coarse_to_fine_total[coarse_cell, :len(fine_cells)] = fine_cells
+    try:
+        for ref in range(num_refinements):
+            new_dm = _adapt_marked_cells(current_mesh, current_mark)
+            current_mesh = Mesh(
+                new_dm,
+                dim=mesh.geometric_dimension,
+                reorder=False,
+                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+                comm=mesh.comm,
+                tolerance=mesh.tolerance,
+            )
+            coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
+                new_dm, current_mesh._cell_numbering, ncoarse,
+                current_mesh.cell_set.size, PARENT_LABEL,
+            )
+            if ref < num_refinements - 1:
+                # A cell asking for n refinements stays marked until n rounds
+                # have happened, so its descendants inherit n minus the number
+                # of rounds so far.
+                ancestor = fine_to_coarse[:, 0]
+                refined = ancestor >= 0
+                current_mark = Function(FunctionSpace(current_mesh, "DG", 0))
+                current_mark.dat.data_wo[refined] = \
+                    cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
+    finally:
+        coarse_dm.removeLabel(PARENT_LABEL)
 
     final_mesh = current_mesh
     if hasattr(mesh, "netgen_mesh"):
@@ -168,6 +139,8 @@ def refine_marked_elements(mesh, cell_marker):
         if order > 1:
             final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
 
-    final_mesh._adaptive_cell_maps = (coarse_to_fine_total, fine_to_coarse_total)
+    final_mesh.topology_dm.removeLabel(PARENT_LABEL)
+    final_mesh.adaptive_parent = mesh
+    final_mesh.adaptive_cell_maps = (coarse_to_fine, fine_to_coarse)
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh

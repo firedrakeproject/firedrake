@@ -68,7 +68,7 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
     rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     mesh = Mesh(OCCGeometry(rect1 + rect2, dim=2).GenerateMesh(maxh=0.8))
-    amh = AdaptiveMeshHierarchy(mesh)
+    mh = MeshHierarchy(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -138,9 +138,9 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     hierarchy, level = get_level(adapted_mesh)
 
     assert seen[0] == mesh
-    assert hierarchy is amh
+    assert hierarchy is mh
     assert level == refinements
-    assert len(amh) == refinements + 1
+    assert len(mh) == refinements + 1
     assert adapted_mesh is not mesh
     assert u_adapted is not uh
     assert u_adapted.function_space().dim() > old_dim

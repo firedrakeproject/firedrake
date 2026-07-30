@@ -2395,6 +2395,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
         self.variable_layers = self.extruded and topology.variable_layers
         self._base_mesh = None  # this is set by extruded meshes in a later step
+        # these are set by firedrake.adapt.refine_marked_elements
+        self.adaptive_parent = None
+        self.adaptive_cell_maps = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -2933,7 +2936,10 @@ values from f.)"""
         Returns
         -------
         MeshGeometry
-            The adaptively refined mesh.
+            The adaptively refined mesh, recording this mesh as its
+            ``adaptive_parent`` and the cell maps relative to it as its
+            ``adaptive_cell_maps``, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)

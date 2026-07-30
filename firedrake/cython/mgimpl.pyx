@@ -209,13 +209,10 @@ def set_adaptive_parent_label(PETSc.DM coarse_dm,
                               label_name):
     """Seed each coarse cell's own Firedrake cell number onto a label.
 
-    This must be called on ``coarse_dm`` *before* it is refined. The
-    DMPlex transform used for adaptive refinement propagates labels
-    from a cell to its children, so once refinement has happened,
-    every fine cell created from a given coarse cell carries that
-    coarse cell's Firedrake number under ``label_name``. This is what
-    lets :func:`adaptive_parent_child_cell_maps` later recover, for
-    each fine cell, which coarse cell it descends from.
+    Must be called *before* refining ``coarse_dm``. Since the refinement
+    transform propagates labels from a cell to its children, every cell of
+    every subsequent refinement then carries the number of the coarse cell it
+    descends from, which :func:`adaptive_parent_child_cell_maps` reads back.
 
     :arg coarse_dm: the (pre-refinement) coarse mesh DMPlex.
     :arg coarse_cell_numbering: the coarse mesh's cell numbering section.
@@ -245,12 +242,9 @@ def adaptive_parent_child_cell_maps(PETSc.DM fine_dm,
                                     label_name):
     """Build Firedrake-numbered parent/child cell maps from a DMPlex label.
 
-    Must be called on ``fine_dm``, the DMPlex obtained by refining the
-    coarse mesh that :func:`set_adaptive_parent_label` was seeded on.
-    Each fine cell's coarse parent number is read back from
-    ``label_name`` (populated by the refinement transform propagating
-    the label set by :func:`set_adaptive_parent_label`) and used to
-    assemble both the coarse-to-fine and fine-to-coarse cell maps.
+    Must be called on ``fine_dm``, a DMPlex obtained by refining the coarse
+    mesh that :func:`set_adaptive_parent_label` was seeded on, however many
+    times.
 
     :arg fine_dm: the refined (child) mesh DMPlex.
     :arg fine_cell_numbering: the fine mesh's cell numbering section.

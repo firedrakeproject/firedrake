@@ -76,6 +76,11 @@ toolchain:
   mesh-bound data.
 * **Docstrings:** All public-facing APIs must include properly formatted `numpydoc`-style docstrings.
 * **Type Hints:** New code should include type hints on function/method signatures.
+* **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
+  `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
+  ending in `::` makes the indented block after it *executable*; a `.. code-block:: python` directive is
+  excluded from that rule, so its snippet renders in the docs but never runs. Prefer `::` — reach for
+  the directive only for an illustrative fragment naming things the demo never defines.
 
 ## Testing Requirements
 
