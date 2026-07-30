@@ -7,6 +7,7 @@ import itertools
 import numbers
 
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.axis_tree
@@ -452,14 +453,17 @@ def _collect_candidate_indirections(
     *,
     compress: bool,
 ):
-    collector = _get_candidate_indirections_collector(obj.comm)
+    collector = _get_candidate_indirections_collector()
     collector.index = ()  # reset counter
     collector._index_stack = collections.defaultdict(itertools.count)
     return collector(obj, compress=compress)
 
 
-@pyop3.cache.memory_cache(heavy=True)
-def _get_candidate_indirections_collector(comm):
+# We heavy cache this visitor so we can reuse its cache if possible, but we have
+# to be careful to only work with heavy caches on COMM_SELF because the visitor
+# is only ever called on one rank and the result broadcast.
+@pyop3.cache.memory_cache(heavy=True, get_comm=lambda: MPI.COMM_SELF)
+def _get_candidate_indirections_collector():
     return _CandidateIndirectionsCollector()
 
 
