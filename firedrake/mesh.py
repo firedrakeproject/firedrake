@@ -1516,7 +1516,7 @@ class AbstractMeshTopology(abc.ABC):
         return dmcommon.quadrilateral_closure_ordering(self, cell_orientations)
 
     def _reorder_closure_fiat_hex(self, plex_closures):
-        return dmcommon.create_cell_closure(plex_closures)
+        return dmcommon.reorder_closure_fiat_hex(plex_closures)
 
     def star(self, index, *, k=None):
         return self._star(k=k)(index)

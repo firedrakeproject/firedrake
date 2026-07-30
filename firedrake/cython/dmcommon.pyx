@@ -490,200 +490,52 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
 
 
-cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
-                                           PetscInt p,
-                                           PetscInt *plex_closure,
-                                           PetscInt *fiat_closure):
-    """Reorder DMPlex closure for FIAT closure.
-
-    :arg dm: The DMPlex object
-    :arg p: The plex point
-    :arg plex_closure: The original DMPlex closure
-    :arg fiat_closure: The reorderd closure (output)
-
-    This function defines fixed rules to reorder DMPlex closures
-    for FIAT closures.
-    Constructing cell_closure using _reorder_plex_closure() and
-    reordering plex_cone using _reorder_plex_cone(), we make it
-    sure that the cell orientation is always 0 in entity_orientations().
-    Indeed the same FIAT closure can be obtained merely using
-    _reorder_plex_cone() and ensuring that the cell orientation is 0.
-    """
-    if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
-        raise RuntimeError(f"POINT has no cone")
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
-        # UFCInterval:            0---2---1
-        #
-        # PETSc.DM.PolytopeType.  1---0---2
-        # SEGMENT:
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
-        # UFCTriangle:            1
-        #                         | \
-        #                         5   3
-        #                         |  6   \
-        #                         0---4---2
-        #
-        # PETSc.DM.PolytopeType.  4
-        # TRIANGLE:               | \
-        #                         3   1
-        #                         |  0   \
-        #                         6---2---5
-        fiat_closure[0] = plex_closure[2 * 6]
-        fiat_closure[1] = plex_closure[2 * 4]
-        fiat_closure[2] = plex_closure[2 * 5]
-        fiat_closure[3] = plex_closure[2 * 1]
-        fiat_closure[4] = plex_closure[2 * 2]
-        fiat_closure[5] = plex_closure[2 * 3]
-        fiat_closure[6] = plex_closure[2 * 0]
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
-        # UFCTetrahedron:         0---9---1---9---0
-        #                          \ 12  / \ 13  /
-        # cell = 14                 7   5   6   8
-        #                            \ / 10  \ /
-        #                             3---4---2
-        #                              \ 11  /
-        #                               7   8
-        #                                \ /
-        #                                 0
-        #
-        # PETSc.DM.PolytopeType. 14--10--13--10---14
-        # TETRAHEDRON:             \  3  / \  4  /
-        #                           8   7   6   9
-        # cell = 0                   \ /  1  \ /
-        #                            11---5---12
-        #                              \  2  /
-        #                               8   9
-        #                                \ /
-        #                                14
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
-        # UFCQuadrilateral:       1---7---3
-        #                         |       |
-        #                         4   8   5
-        #                         |       |
-        #                         0---6---2
-        #
-        # PETSc.DM.PolytopeType.  5---4---8
-        # QUADRILATERAL:          |       |
-        #                         1   0   3
-        #                         |       |
-        #                         6---2---7
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
-    elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
-        # FInAT (tensor-product) hex numbering:
-        #
-        #           v3╶───╴e11╶─────╴v7            v3╶─────e11─────╴v7
-        #           ╱                ╱│            ╱|                │
-        #          ╱                ╱ │           ╱ |                │
-        #        e3       f5      e7  │         e3  |                │
-        #        ╱                ╱  e5         ╱  e1       f3      e5
-        #       ╱                ╱    │        ╱    |                │
-        #     v1╶─────e9──────╴v5     │      v1     |                │
-        #      │                │ f1  │       │ f0  |                │
-        #      │                │    v6       │     v2-----e10------v6
-        #      │                │    ╱        │    /                ╱
-        #     e0      f2       e4   ╱        e0   /                ╱
-        #      │                │ e6          │ e2       f4      e6
-        #      │                │ ╱           │ /                ╱
-        #      │                │╱            │/                ╱
-        #     v0╶─────e8──────╴v4            v0╶──────e8─────╴v4
-        #
-        # DMPlex hex numbering:
-        #
-        #
-        #           v7╶────╴e6╶─────╴v6            v7╶─────╴e6─────╴v6
-        #           ╱                ╱│            ╱|                │
-        #          ╱                ╱ │           ╱ |                │
-        #        e7       f1      e5  │         e7  |                │
-        #        ╱                ╱ e11         ╱ e10       f3     e11
-        #       ╱                ╱    │        ╱    |                │
-        #     v4╶─────e4──────╴v5     │      v4     |                │
-        #      │                │ f4  │       │ f5  |                │
-        #      │                │    v2       │     v1------e1------v2
-        #      │                │    ╱        │    /                ╱
-        #     e9      f2       e8   ╱        e9   /                ╱
-        #      │                │ e2          │ e0       f0      e2
-        #      │                │ ╱           │ /                ╱
-        #      │                │╱            │/                ╱
-        #     v0╶─────e3──────╴v3            v0╶──────e3─────╴v3
-        #
-        # UFCHexahedron:            3--19---7     3--19---7
-        #                         13.       |   13  25  15|
-        # cell = 26               1 9  23  11   1--17---5 11
-        #                         |20       |   |       |21
-        #                         8 2...18..6   8  22  10 6
-        #                         |12  24  14   |       |14
-        #                         0---16--4     0--16---4
-        #
-        # PETSc.DM.PolytopeType.   26--13--25    26--13---25
-        # HEXAHEDRON:             14.       |   14   2  12|
-        #                        23 17  4  18  23--11--24 18
-        # cell = 0                |6.       |   |       |5|
-        #                        16 20..8..21  16   3  15 21
-        #                         |7   1   9    |       |9
-        #                        19---10--22   19--10--22
-        #
-        # To check, run the following with "-dm_view ascii::ascii_info_detail":
-        #
-        # >>> mesh = UnitCubeMesh(1, 1, 1, hexahedral=True)
-        # >>> fiat_cell = as_fiat_cell(mesh.ufl_cell())
-        # >>> print(fiat_cell.vertices)
-        # >>> print(fiat_cell.topology)
-        # >>> mesh.topology_dm.viewFromOptions("-dm_view")
-        # >>> closure, _ = mesh.topology_dm.getTransitiveClosure(0)
-        # >>> print(closure)
-        fiat_closure[0] = plex_closure[2 * 19]
-        fiat_closure[1] = plex_closure[2 * 23]
-        fiat_closure[2] = plex_closure[2 * 20]
-        fiat_closure[3] = plex_closure[2 * 26]
-        fiat_closure[4] = plex_closure[2 * 22]
-        fiat_closure[5] = plex_closure[2 * 24]
-        fiat_closure[6] = plex_closure[2 * 21]
-        fiat_closure[7] = plex_closure[2 * 25]
-        fiat_closure[8] = plex_closure[2 * 16]
-        fiat_closure[9] = plex_closure[2 * 17]
-        fiat_closure[10] = plex_closure[2 * 15]
-        fiat_closure[11] = plex_closure[2 * 18]
-        fiat_closure[12] = plex_closure[2 * 7]
-        fiat_closure[13] = plex_closure[2 * 14]
-        fiat_closure[14] = plex_closure[2 * 9]
-        fiat_closure[15] = plex_closure[2 * 12]
-        fiat_closure[16] = plex_closure[2 * 10]
-        fiat_closure[17] = plex_closure[2 * 11]
-        fiat_closure[18] = plex_closure[2 * 8]
-        fiat_closure[19] = plex_closure[2 * 13]
-        fiat_closure[20] = plex_closure[2 * 6]
-        fiat_closure[21] = plex_closure[2 * 5]
-        fiat_closure[22] = plex_closure[2 * 3]
-        fiat_closure[23] = plex_closure[2 * 4]
-        fiat_closure[24] = plex_closure[2 * 1]
-        fiat_closure[25] = plex_closure[2 * 2]
-        fiat_closure[26] = plex_closure[2 * 0]
-    else:
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_cell_closure(plex_closures):
-    """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
+def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
+    """Reorder DMPlex closures to match FIAT entity numbering for hexes.
 
-    :arg dm: The DM object encapsulating the mesh topology
-    :arg _closureSize: Number of entities in the cell
+    Parameters
+    ----------
+    plex_closures
+        2D array of cell closures in DMPlex canonical ordering.
+
+    Returns
+    -------
+    numpy.ndarray
+        2D array of cell closures using the FIAT canonical ordering. Note
+        that things are not renumbered: we are still using DMPlex entity
+        numbering here. Only the *order* is changing.
+
     """
-    cdef:
-        PetscInt c, cStart, cEnd, cell, i, ncells
-        PetscInt closureSize
-        PetscInt *plex_closure = NULL
-        PetscInt *fiat_closure = NULL
-        np.ndarray cell_closure
+    # UFCHexahedron:            3--19---7     3--19---7
+    #                         13.       |   13  25  15|
+    # cell = 26               1 9  23  11   1--17---5 11
+    #                         |20       |   |       |21
+    #                         8 2...18..6   8  22  10 6
+    #                         |12  24  14   |       |14
+    #                         0---16--4     0--16---4
+    #
+    # PETSc.DM.PolytopeType.   26--13--25    26--13---25
+    # HEXAHEDRON:             14.       |   14   2  12|
+    #                        23 17  4  18  23--11--24 18
+    # cell = 0                |6.       |   |       |5|
+    #                        16 20..8..21  16   3  15 21
+    #                         |7   1   9    |       |9
+    #                        19---10--22   19--10--22
+    #
+    # To check, run the following with "-dm_view ascii::ascii_info_detail":
+    #
+    # >>> mesh = UnitCubeMesh(1, 1, 1, hexahedral=True)
+    # >>> fiat_cell = as_fiat_cell(mesh.ufl_cell())
+    # >>> print(fiat_cell.vertices)
+    # >>> print(fiat_cell.topology)
+    # >>> mesh.topology_dm.viewFromOptions("-dm_view")
+    # >>> closure, _ = mesh.topology_dm.getTransitiveClosure(0)
+    # >>> print(closure)
 
-    ncells, closureSize = plex_closures.shape
     cell_closure = np.empty_like(plex_closures)
-    # CHKERR(PetscMalloc1(closureSize, &fiat_closure))
-    for c in range(ncells):
-        # plex_closure = plex_closures[c]
+    for c in range(len(plex_closures)):
         cell_closure[c, 0] = plex_closures[c, 19]
         cell_closure[c, 1] = plex_closures[c, 23]
         cell_closure[c, 2] = plex_closures[c, 20]
@@ -711,7 +563,6 @@ def create_cell_closure(plex_closures):
         cell_closure[c, 24] = plex_closures[c, 1]
         cell_closure[c, 25] = plex_closures[c, 2]
         cell_closure[c, 26] = plex_closures[c, 0]
-    # PETSc.CHKERR(PetscFree(fiat_closure))
     return cell_closure
 
 
@@ -1700,7 +1551,6 @@ def _get_firedrake_plex_permutation_dg_transitive_closure(PETSc.DM dm):
     # This is the default PETSc DG coordinate representation,
     # which works with the default PETSc CG coordinate FE
     # in refinement.
-    # See _reorder_plex_closure for the transitive closure orderings.
     cStart, cEnd = dm.getHeightStratum(0)
     if cEnd == cStart:
         dm_cell_type = -1
