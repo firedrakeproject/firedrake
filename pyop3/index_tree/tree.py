@@ -692,14 +692,13 @@ class Map(AbstractMap):
 class ScalarMap(AbstractMap):
     """An arity 1 map that does not produce an additional axis in the tree."""
 
-    _connectivity: idict
+    connectivity: idict
     """map connectivity. for each input path it can produce multiple equivalent targets
     (think points vs cells) but never more than one at a time. This differs from other
     map types where for instance the closure of a cell yields multiple result types.
 
     """
 
-    connectivity: idict
     _name: str
 
     def __init__(self, connectivity, name):
