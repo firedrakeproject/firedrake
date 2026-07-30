@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
+from firedrake.utils import IntType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -485,3 +486,36 @@ def test_pyop2_labelling():
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
     assert vm.cell_set.total_size == 0
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("redundant", [True, False], ids=["redundant", "nonredundant"])
+def test_vertex_only_mesh_particle_ids(redundant):
+    parent_mesh = UnitSquareMesh(4, 4)
+
+    points = np.asarray([
+        [0.75, 0.75],
+        [0.25, 0.25],
+        [0.75, 0.25],
+        [0.25, 0.75],
+    ])
+
+    if redundant:
+        local_points = points
+    else:
+        local_points = np.ascontiguousarray(
+            points[parent_mesh.comm.rank::parent_mesh.comm.size]
+        )
+
+    vom = VertexOnlyMesh(parent_mesh, local_points, redundant=redundant)
+
+    pids = vom._particle_ids
+    assert pids is not None
+    assert pids.name() == "firedrake_particle_ids"
+
+    local_ids = vom._particle_ids.dat.data_ro.copy()
+
+    gathered = parent_mesh.comm.allgather(local_ids)
+    all_ids = np.concatenate(gathered)
+
+    assert np.array_equal(np.sort(all_ids), np.arange(len(all_ids), dtype=IntType))
