@@ -1,6 +1,7 @@
 import dataclasses
 import numpy as np
 import ctypes
+from contextlib import contextmanager
 import os
 import sys
 import ufl
@@ -9,7 +10,7 @@ import FIAT
 import weakref
 from typing import Tuple
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence
+from collections.abc import Sequence, Generator
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain
@@ -2100,14 +2101,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
             cell_id_name = swarm.getCellDMActive().getCellID()
-            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-            # Use kind = 'stable' to make the ordering deterministic.
-            perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-            swarm.restoreField(cell_id_name)
+            with swarm.field(cell_id_name) as swarm_parent_cell_nums:
+                # Use kind = 'stable' to make the ordering deterministic.
+                perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart], kind='stable').astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
@@ -2207,8 +2207,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
         """
-        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
-        self.topology_dm.restoreField("parentcellnum")
+        with self.topology_dm.field("parentcellnum") as parentcellnum_field:
+            cell_parent_cell_list = parentcellnum_field.ravel().copy()
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
@@ -2226,8 +2226,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
-        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum").ravel())
-        self.topology_dm.restoreField("parentcellbasenum")
+        with self.topology_dm.field("parentcellbasenum") as parentcellbasenum_field:
+            cell_parent_base_cell_list = parentcellbasenum_field.ravel().copy()
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
@@ -2247,8 +2247,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
-        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight").ravel())
-        self.topology_dm.restoreField("parentcellextrusionheight")
+        with self.topology_dm.field("parentcellextrusionheight") as parentcellextrusionheight_field:
+            cell_parent_extrusion_height_list = parentcellextrusionheight_field.ravel().copy()
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
     @cached_property  # TODO: Recalculate if mesh moves
@@ -2267,8 +2267,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
-        cell_global_index = np.copy(self.topology_dm.getField("globalindex").ravel())
-        self.topology_dm.restoreField("globalindex")
+        with self.topology_dm.field("globalindex") as globalindex_field:
+            cell_global_index = globalindex_field.ravel().copy()
         return cell_global_index
 
     @cached_property  # TODO: Recalculate if mesh moves
@@ -2302,18 +2302,18 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
         sf = PETSc.SF().create(comm=swarm.comm)
-        input_ranks = swarm.getField("inputrank").ravel()
-        input_indices = swarm.getField("inputindex").ravel()
-        nleaves = len(input_ranks)
-        if ilocal is not None and nleaves != len(ilocal):
-            swarm.restoreField("inputrank")
-            swarm.restoreField("inputindex")
-            raise RuntimeError(f"Mismatching leaves: nleaves {nleaves} != len(ilocal) {len(ilocal)}")
-        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        swarm.restoreField("inputrank")
-        swarm.restoreField("inputindex")
+        with (
+            swarm.field("inputrank") as input_ranks,
+            swarm.field("inputindex") as input_indices,
+        ):
+            input_ranks = input_ranks.ravel()
+            input_indices = input_indices.ravel()
+            nleaves = len(input_ranks)
+            if ilocal is not None and nleaves != len(ilocal):
+                raise RuntimeError(f"Mismatching leaves: nleaves {nleaves} != len(ilocal) {len(ilocal)}")
+            input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+            input_ranks_and_idxs[0::2] = input_ranks
+            input_ranks_and_idxs[1::2] = input_indices
         sf.setGraph(nroots, ilocal, input_ranks_and_idxs)
         return sf
 
@@ -3710,6 +3710,28 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         self._default_extra_fields = None
         self._other_fields = None
 
+    @contextmanager
+    def field(self, name: str) -> Generator[np.ndarray]:
+        """Context manager to access a field on the DMSwarm.
+
+        Parameters
+        ----------
+        name : str
+            The name of the field to access.
+
+        Yields
+        ------
+        numpy.ndarray
+            The field as a NumPy array. The array and views derived from it
+            must not be used after leaving the context.
+        """
+        # petsc4py will error if you try to access an active field without first restoring it.
+        values = self.getField(name)
+        try:
+            yield values
+        finally:
+            self.restoreField(name)
+
     @property
     def fields(self):
         return self._fields
@@ -3963,29 +3985,29 @@ def _pic_swarm_in_mesh(
     # local_points[halo_indices] (it also updates local_points[~halo_indices]`, not changing any values there).
     # If some index of local_points_reduced corresponds to a missing point, local_points_reduced[index] is not updated
     # when we reduce and it does not update any leaf data, i.e., local_points, when we bcast.
-    owners = swarm.getField("DMSwarm_rank").ravel()
-    halo_indices, = np.where(owners != parent_mesh.comm.rank)
-    halo_indices = halo_indices.astype(IntType)
-    n = coords.shape[0]
-    m = owners.shape[0]
-    _swarm_input_ordering_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, n, None)  # sf: swarm local point <- (inputrank, inputindex)
-    local_points_reduced = np.empty(n, dtype=utils.IntType)
-    local_points_reduced.fill(-1)
-    local_points = np.arange(m, dtype=utils.IntType)  # swarm local point numbers
-    local_points[halo_indices] = -1
-    unit = MPI._typedict[np.dtype(utils.IntType).char]
-    _swarm_input_ordering_sf.reduceBegin(unit, local_points, local_points_reduced, MPI.MAX)
-    _swarm_input_ordering_sf.reduceEnd(unit, local_points, local_points_reduced, MPI.MAX)
-    _swarm_input_ordering_sf.bcastBegin(unit, local_points_reduced, local_points, MPI.REPLACE)
-    _swarm_input_ordering_sf.bcastEnd(unit, local_points_reduced, local_points, MPI.REPLACE)
-    if np.any(local_points < 0):
-        raise RuntimeError("Unable to make swarm pointSF due to inconsistent data")
-    # Interleave each rank and index into (rank, index) pairs for use as remote
-    # in the SF
-    remote_ranks_and_idxs = np.empty(2 * len(halo_indices), dtype=IntType)
-    remote_ranks_and_idxs[0::2] = owners[halo_indices]
-    remote_ranks_and_idxs[1::2] = local_points[halo_indices]
-    swarm.restoreField("DMSwarm_rank")
+    with swarm.field("DMSwarm_rank") as owners:
+        owners = owners.ravel()
+        halo_indices, = np.where(owners != parent_mesh.comm.rank)
+        halo_indices = halo_indices.astype(IntType)
+        n = coords.shape[0]
+        m = owners.shape[0]
+        _swarm_input_ordering_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, n, None)  # sf: swarm local point <- (inputrank, inputindex)
+        local_points_reduced = np.empty(n, dtype=utils.IntType)
+        local_points_reduced.fill(-1)
+        local_points = np.arange(m, dtype=utils.IntType)  # swarm local point numbers
+        local_points[halo_indices] = -1
+        unit = MPI._typedict[np.dtype(utils.IntType).char]
+        _swarm_input_ordering_sf.reduceBegin(unit, local_points, local_points_reduced, MPI.MAX)
+        _swarm_input_ordering_sf.reduceEnd(unit, local_points, local_points_reduced, MPI.MAX)
+        _swarm_input_ordering_sf.bcastBegin(unit, local_points_reduced, local_points, MPI.REPLACE)
+        _swarm_input_ordering_sf.bcastEnd(unit, local_points_reduced, local_points, MPI.REPLACE)
+        if np.any(local_points < 0):
+            raise RuntimeError("Unable to make swarm pointSF due to inconsistent data")
+        # Interleave each rank and index into (rank, index) pairs for use as remote
+        # in the SF
+        remote_ranks_and_idxs = np.empty(2 * len(halo_indices), dtype=IntType)
+        remote_ranks_and_idxs[0::2] = owners[halo_indices]
+        remote_ranks_and_idxs[1::2] = local_points[halo_indices]
     sf = swarm.getPointSF()
     sf.setGraph(m, halo_indices, remote_ranks_and_idxs)
     swarm.setPointSF(sf)
@@ -4171,42 +4193,33 @@ def _dmswarm_create(
     # same cells. For extruded meshes the DMPlex dimension is based on the
     # topological dimension of the base mesh.
 
-    # NOTE ensure that swarm.restoreField is called for each field too!
-    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
     cell_id_name = swarm.getCellDMActive().getCellID()
-    swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-    field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
-    field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
-    field_global_index = swarm.getField("globalindex").ravel()
-    field_rank = swarm.getField("DMSwarm_rank").ravel()
-    field_input_rank = swarm.getField("inputrank").ravel()
-    field_input_index = swarm.getField("inputindex").ravel()
-    swarm_coords[...] = coords
-    swarm_parent_cell_nums[...] = plex_parent_cell_nums
-    field_parent_cell_nums[...] = parent_cell_nums
-    field_reference_coords[...] = reference_coords
-    field_global_index[...] = coords_idxs
-    field_rank[...] = ranks
-    field_input_rank[...] = input_ranks
-    field_input_index[...] = input_coords_idxs
-
-    # have to restore fields once accessed to allow access again
-    swarm.restoreField("inputindex")
-    swarm.restoreField("inputrank")
-    swarm.restoreField("DMSwarm_rank")
-    swarm.restoreField("globalindex")
-    swarm.restoreField("refcoord")
-    swarm.restoreField("parentcellnum")
-    swarm.restoreField("DMSwarmPIC_coor")
-    swarm.restoreField(cell_id_name)
+    with (
+        swarm.field("DMSwarmPIC_coor") as swarm_coords,
+        swarm.field(cell_id_name) as swarm_parent_cell_nums,
+        swarm.field("parentcellnum") as field_parent_cell_nums,
+        swarm.field("refcoord") as field_reference_coords,
+        swarm.field("globalindex") as field_global_index,
+        swarm.field("DMSwarm_rank") as field_rank,
+        swarm.field("inputrank") as field_input_rank,
+        swarm.field("inputindex") as field_input_index,
+    ):
+        swarm_coords[...] = coords
+        swarm_parent_cell_nums[:, 0] = plex_parent_cell_nums
+        field_parent_cell_nums[:, 0] = parent_cell_nums
+        field_reference_coords[...] = reference_coords
+        field_global_index[:, 0] = coords_idxs
+        field_rank[:, 0] = ranks
+        field_input_rank[:, 0] = input_ranks
+        field_input_index[:, 0] = input_coords_idxs
 
     if extruded:
-        field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
-        field_extrusion_heights = swarm.getField("parentcellextrusionheight").ravel()
-        field_base_parent_cell_nums[...] = base_parent_cell_nums
-        field_extrusion_heights[...] = extrusion_heights
-        swarm.restoreField("parentcellbasenum")
-        swarm.restoreField("parentcellextrusionheight")
+        with (
+            swarm.field("parentcellbasenum") as field_base_parent_cell_nums,
+            swarm.field("parentcellextrusionheight") as field_extrusion_heights,
+        ):
+            field_base_parent_cell_nums[:, 0] = base_parent_cell_nums
+            field_extrusion_heights[:, 0] = extrusion_heights
 
     return swarm
 
