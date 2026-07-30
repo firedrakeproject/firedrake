@@ -154,8 +154,8 @@ def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
         coordinates curved to ``order`` against ``coarse_mesh``'s geometry.
 
     """
-    # Mesh construction layers its own numbering and labels onto the plex it is
-    # given, so build the netgen mesh from a pristine clone of it first.
+    # The netgen mesh follows the plex's local numbering, so build both from
+    # the same clone, leaving fine_mesh's own plex untouched.
     dm_clone = fine_mesh.topology_dm.clone()
     fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
     straight_mesh = firedrake.Mesh(
