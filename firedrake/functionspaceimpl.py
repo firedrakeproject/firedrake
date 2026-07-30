@@ -624,71 +624,6 @@ class WithGeometryBase:
             V = V.sub(i)
         return V
 
-    # {{{ submesh
-
-    @cached_property
-    def submesh_parent_to_child_map(self) -> op3.Map:
-        """Return the map between parent and child meshes.
-
-        This method augments the existing point to point maps stored on the
-        mesh with an additional node to node map.
-
-        """
-        mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
-        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
-        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
-        return op3.ScalarMap(
-            connectivity,
-            name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
-        )
-
-    @cached_property
-    def submesh_child_to_parent_map(self) -> op3.Map:
-        """Return the map between child and parent meshes.
-
-        This method augments the existing point to point maps stored on the
-        mesh with an additional node to node map.
-
-        """
-        mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
-        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
-        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
-        return op3.ScalarMap(
-            connectivity,
-            name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",
-        )
-
-    def _make_submesh_node_to_node_map(
-        self, direction: Literal["parent_to_child", "child_to_parent"]
-    ) -> dict:
-        # NOTE: This is really a topological consideration and only here
-        # because topological function spaces don't have a reconstruct
-        # method.
-        parent_space = self.reconstruct(mesh=self.mesh().submesh_parent)
-
-        if direction == "parent_to_child":
-            plex_indices = self.mesh()._parent_to_submesh_plex_index_map
-            from_section = parent_space.local_section
-            to_section = self.local_section
-            nodes_axis = parent_space.nodes
-        else:
-            plex_indices = self.mesh()._submesh_to_parent_plex_index_map
-            from_section = self.local_section
-            to_section = parent_space.local_section
-            nodes_axis = self.nodes
-
-        node_to_node_map_array = dmcommon.make_node_to_node_map(
-            plex_indices, from_section, to_section, self.block_size
-        )
-        node_to_node_map_dat = op3.Dat(nodes_axis, data=node_to_node_map_array)
-        return {
-            idict({"nodes": None}): [
-                op3.TabulatedMapComponent("nodes", None, node_to_node_map_dat, label=None)
-            ]
-        }
-
-    # }}}
-
 
 class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 
@@ -1121,6 +1056,75 @@ class AbstractFunctionSpace:
 
     # }}}
 
+    # {{{ submesh
+
+    @abc.abstractmethod
+    def _with_mesh(self, mesh) -> Self:
+        """Reconstruct the function space on the new mesh."""
+        # This is functionally the same kind of thing as WithGeometry.reconstruct
+        # but that is really tangled and I need something very specific.
+
+    @cached_property
+    def submesh_parent_to_child_map(self) -> op3.Map:
+        """Return the map between parent and child meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
+        )
+
+    @cached_property
+    def submesh_child_to_parent_map(self) -> op3.Map:
+        """Return the map between child and parent meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",
+        )
+
+    def _make_submesh_node_to_node_map(
+        self, direction: Literal["parent_to_child", "child_to_parent"]
+    ) -> dict:
+        parent_space = self._with_mesh(self.mesh().submesh_parent)
+
+        if direction == "parent_to_child":
+            plex_indices = self.mesh()._parent_to_submesh_plex_index_map
+            from_section = parent_space.local_section
+            to_section = self.local_section
+            nodes_axis = parent_space.nodes
+        else:
+            plex_indices = self.mesh()._submesh_to_parent_plex_index_map
+            from_section = self.local_section
+            to_section = parent_space.local_section
+            nodes_axis = self.nodes
+
+        node_to_node_map_array = dmcommon.make_node_to_node_map(
+            plex_indices, from_section, to_section, self.block_size
+        )
+        node_to_node_map_dat = op3.Dat(nodes_axis, data=node_to_node_map_array)
+        return {
+            idict({"nodes": None}): [
+                op3.TabulatedMapComponent("nodes", None, node_to_node_map_dat, label=None)
+            ]
+        }
+
+    # }}}
+
+
 
 class FunctionSpace(AbstractFunctionSpace):
     r"""A representation of a function space.
@@ -1527,7 +1531,6 @@ class FunctionSpace(AbstractFunctionSpace):
             region_size = scalar_axis_tree.with_region_labels(region_set).size
             regions.append(op3.AxisComponentRegion(region_size, frozenset(region_set)))
 
-        # return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
         return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
     @cached_property
@@ -1541,6 +1544,9 @@ class FunctionSpace(AbstractFunctionSpace):
         # relabeling_slice = op3.Slice("layoutnodes", [op3.AffineSliceComponent(None, label=None)], label="nodes")
         relabeling_slice = op3.Slice("layoutnodes", None, label="nodes")
         return self.nodal_layout_axes[relabeling_slice]
+
+    def _with_mesh(self, mesh):
+        return type(self)(mesh, self.element, name=self.name, layout=self._layout)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -2061,6 +2067,12 @@ class MixedFunctionSpace(AbstractFunctionSpace):
 
     def mesh(self):
         return self._mesh
+
+    def _with_mesh(self, mesh):
+        spaces = []
+        for m, s in zip(mesh, self._orig_spaces, strict=True):
+            spaces.append(s._with_mesh(m))
+        return type(self)(spaces, mesh, name=self.name, layout=self._layout, _labels=self._labels)
 
     @property
     def topological(self):
