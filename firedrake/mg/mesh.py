@@ -440,9 +440,7 @@ def AdaptiveMeshHierarchy(*args, **kwargs):
 
 
 def NonNestedHierarchy(*meshes):
-    coarse_to_fine_cells = {Fraction(i, 1): None for i in range(len(meshes) - 1)}
-    fine_to_coarse_cells = {Fraction(i, 1): None for i in range(len(meshes))}
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+    return HierarchyBase(meshes, [None for _ in meshes], [None for _ in meshes],
                          nested=False)
 
 
