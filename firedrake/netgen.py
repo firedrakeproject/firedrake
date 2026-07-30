@@ -138,13 +138,24 @@ def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
     same underlying CAD geometry as the coarse one, rather than just
     interpolating the coarse mesh's straight-edged coordinates.
 
-    :arg coarse_mesh: the coarse mesh, carrying the Netgen geometry to curve against.
-    :arg fine_mesh: a straight-edged refinement of ``coarse_mesh``.
-    :arg order: the polynomial order of the curved coordinate field.
-    :returns: a new mesh, topologically equivalent to ``fine_mesh``, with
+    Parameters
+    ----------
+    coarse_mesh : MeshGeometry
+        The coarse mesh, carrying the Netgen geometry to curve against.
+    fine_mesh : MeshGeometry
+        A straight-edged refinement of ``coarse_mesh``.
+    order : int
+        The polynomial order of the curved coordinate field.
+
+    Returns
+    -------
+    MeshGeometry
+        A new mesh, topologically equivalent to ``fine_mesh``, with
         coordinates curved to ``order`` against ``coarse_mesh``'s geometry.
+
     """
-    # Run createNetgenMesh before Mesh construction renumbers the plex.
+    # Mesh construction layers its own numbering and labels onto the plex it is
+    # given, so build the netgen mesh from a pristine clone of it first.
     dm_clone = fine_mesh.topology_dm.clone()
     fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
     straight_mesh = firedrake.Mesh(
@@ -162,9 +173,6 @@ def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
     curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
     curved_mesh.netgen_mesh = fresh_ngmesh
     curved_mesh.netgen_flags = straight_mesh.netgen_flags
-    curved_mesh._distribution_parameters = dict(fine_mesh._distribution_parameters)
-    curved_mesh._did_reordering = fine_mesh._did_reordering
-    curved_mesh._tolerance = fine_mesh.tolerance
     return curved_mesh
 
 

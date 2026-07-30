@@ -175,10 +175,6 @@ def physical_node_locations(V):
         return cache.setdefault(key, locations)
 
 
-def set_dm_refine_level(mesh, level):
-    mesh.topology_dm.setRefineLevel(level)
-
-
 def set_level(obj, hierarchy, level):
     """Attach hierarchy and level info to an object."""
     setattr(obj.topological, "__level_info__", (hierarchy, level))

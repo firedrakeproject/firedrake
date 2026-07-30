@@ -43,6 +43,7 @@ def _adapt_marked_cells(mesh, cell_marker):
         with petsctools.inserted_options(parameters=parameters, options_prefix=""):
             new_dm = dm.adaptLabel(ADAPT_LABEL)
     finally:
+        # Ensure the temporary label is removed even if adaptation fails
         dm.removeLabel(ADAPT_LABEL)
 
     # The transform propagates every label, including the temporary adapt
@@ -97,12 +98,8 @@ def refine_marked_elements(mesh, cell_marker):
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
     num_refinements = max(int(np.rint(num_refinements)), 1)
 
-    ncoarse = mesh.cell_set.size
     coarse_dm = mesh.topology_dm
-    if coarse_dm.hasLabel(PARENT_LABEL):
-        coarse_dm.removeLabel(PARENT_LABEL)
-    coarse_dm.createLabel(PARENT_LABEL)
-    impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, ncoarse, PARENT_LABEL)
+    impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, PARENT_LABEL)
 
     current_mesh = mesh
     current_mark = cell_marker
@@ -118,8 +115,7 @@ def refine_marked_elements(mesh, cell_marker):
                 tolerance=mesh.tolerance,
             )
             coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
-                new_dm, current_mesh._cell_numbering, ncoarse,
-                current_mesh.cell_set.size, PARENT_LABEL,
+                coarse_dm, new_dm, current_mesh._cell_numbering, PARENT_LABEL
             )
             if ref < num_refinements - 1:
                 # A cell asking for n refinements stays marked until n rounds
@@ -131,6 +127,7 @@ def refine_marked_elements(mesh, cell_marker):
                 current_mark.dat.data_wo[refined] = \
                     cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
     finally:
+        # Ensure the temporary label is removed even if adaptation fails
         coarse_dm.removeLabel(PARENT_LABEL)
 
     final_mesh = current_mesh

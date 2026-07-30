@@ -9,7 +9,7 @@ from firedrake.embedding import get_embedding_dg_element
 from finat.element_factory import create_element
 from .utils import get_level
 
-__all__ = ("TransferManager", "AdaptiveTransferManager")
+__all__ = ("TransferManager",)
 
 
 class Op(IntEnum):
@@ -384,9 +384,7 @@ class TransferManager(object):
 
 
 def AdaptiveTransferManager(*args, **kwargs):
-    """
-    TransferManager for adaptively refined mesh hierarchies
-    """
+    """Deprecated alias for `TransferManager`."""
     warnings.warn(
         "The ``AdaptiveTransferManager`` class is deprecated and will be removed in a future release. "
         "Please use the ``TransferManager`` class instead.", FutureWarning

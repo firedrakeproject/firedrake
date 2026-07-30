@@ -257,6 +257,37 @@ def test_adapt_after_uniform_netgen_refinement():
     _assert_adapt_after_uniform_refinement(MeshHierarchy(mesh))
 
 
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("degree", [1, 2])
+def test_adapt_preserves_mesh_metadata(degree):
+    """Adaptive refinement carries the Netgen geometry and flags, and the mesh
+    construction parameters, over to the refined mesh, so that the refined
+    mesh can itself be refined again."""
+    from netgen.geom2d import CSG2d, Circle
+    geo = CSG2d()
+    geo.Add(Circle(center=(0, 0), radius=1.0, bc="circle"))
+    ngmesh = geo.GenerateMesh(maxh=0.75)
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
+    mesh = Mesh(ngmesh, netgen_flags={"degree": degree},
+                distribution_parameters=dparams)
+
+    markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1)
+    refined = mesh.refine_marked_elements(markers)
+
+    assert refined.netgen_mesh is not None
+    assert refined.netgen_flags == mesh.netgen_flags
+    assert refined._distribution_parameters == mesh._distribution_parameters
+    assert refined.tolerance == mesh.tolerance
+    assert refined.coordinates.function_space().ufl_element().degree() == degree
+
+    markers = Function(FunctionSpace(refined, "DG", 0)).assign(1)
+    twice_refined = refined.refine_marked_elements(markers)
+    assert twice_refined.netgen_flags == mesh.netgen_flags
+    assert twice_refined._distribution_parameters == mesh._distribution_parameters
+    assert twice_refined.coordinates.function_space().ufl_element().degree() == degree
+
+
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
@@ -478,3 +509,15 @@ def test_mg_patch(mh, backend):
     assert pc.getType() == "mg"
     assert pc.getMGLevels() == len(mh)
     assert errornorm(u_ex, u) <= 1e-8
+
+
+def test_deprecated_adaptive_aliases():
+    """The deprecated aliases warn, and forward their arguments."""
+    mesh = UnitSquareMesh(2, 2)
+    with pytest.warns(FutureWarning):
+        mh = AdaptiveMeshHierarchy(mesh, nested=False)
+    assert mh[-1] is mesh
+    assert not mh.nested
+
+    with pytest.warns(FutureWarning):
+        assert isinstance(AdaptiveTransferManager(), TransferManager)
