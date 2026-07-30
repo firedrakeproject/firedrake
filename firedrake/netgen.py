@@ -143,36 +143,25 @@ def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
     coarse_mesh : MeshGeometry
         The coarse mesh, carrying the Netgen geometry to curve against.
     fine_mesh : MeshGeometry
-        A straight-edged refinement of ``coarse_mesh``.
+        A straight-edged refinement of ``coarse_mesh``. Its Netgen attributes
+        are set here, as they are required to curve it.
     order : int
         The polynomial order of the curved coordinate field.
 
     Returns
     -------
     MeshGeometry
-        A new mesh, topologically equivalent to ``fine_mesh``, with
-        coordinates curved to ``order`` against ``coarse_mesh``'s geometry.
+        A mesh sharing ``fine_mesh``'s topology, with coordinates curved to
+        ``order`` against ``coarse_mesh``'s geometry.
 
     """
-    # The netgen mesh follows the plex's local numbering, so build both from
-    # the same clone, leaving fine_mesh's own plex untouched.
-    dm_clone = fine_mesh.topology_dm.clone()
-    fresh_ngmesh = createNetgenMesh(dm_clone, coarse_mesh.netgen_mesh)
-    straight_mesh = firedrake.Mesh(
-        dm_clone,
-        dim=fine_mesh.geometric_dimension,
-        reorder=False,
-        distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
-        comm=fine_mesh.comm,
-        tolerance=fine_mesh.tolerance,
-    )
-    straight_mesh.netgen_mesh = fresh_ngmesh
-    straight_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    fine_mesh.netgen_mesh = createNetgenMesh(fine_mesh.topology_dm, coarse_mesh.netgen_mesh)
+    fine_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
     cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
-    curved_coordinates = straight_mesh.curve_field(order=order, cg_field=cg_field)
+    curved_coordinates = fine_mesh.curve_field(order=order, cg_field=cg_field)
     curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
-    curved_mesh.netgen_mesh = fresh_ngmesh
-    curved_mesh.netgen_flags = straight_mesh.netgen_flags
+    curved_mesh.netgen_mesh = fine_mesh.netgen_mesh
+    curved_mesh.netgen_flags = fine_mesh.netgen_flags
     return curved_mesh
 
 
