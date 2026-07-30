@@ -461,6 +461,12 @@ def _expression_sum(expr, ctx):
     return p.Sum(tuple(expression(c, ctx) for c in expr.children))
 
 
+@_expression.register(gem.FactorisationAtom)
+def _expression_factorisation_atom(expr, ctx):
+    expression_, = expr.children
+    return expression(expression_, ctx)
+
+
 @_expression.register(gem.Division)
 def _expression_division(expr, ctx):
     return p.Quotient(*(expression(c, ctx) for c in expr.children))
