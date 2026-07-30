@@ -136,7 +136,6 @@ from pyop3.index_tree import (
     ScalarMap,
     Slice,
     SliceComponent,
-    Subset,
     SubsetSliceComponent,
     TabulatedMapComponent,
 )
@@ -150,7 +149,6 @@ __all__ += [
     "ScalarMap",
     "Slice",
     "SliceComponent",
-    "Subset",
     "SubsetSliceComponent",
     "TabulatedMapComponent",
 ]

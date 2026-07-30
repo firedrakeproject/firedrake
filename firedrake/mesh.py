@@ -595,7 +595,7 @@ class AbstractMeshTopology(abc.ABC):
                 indices = op3.ArrayBuffer(self._dim_indices_renum(dim), ordered=True)
                 subset_axes = op3.Axis({dim: op3.Scalar(indices.size)}, self.name)
                 subset_array = op3.Dat(subset_axes, buffer=indices)
-                subset = op3.Subset("mylabel", subset_array, label=dim)
+                subset = op3.SubsetSliceComponent("mylabel", subset_array, label=dim)
                 subsets.append(subset)
         else:
             raise NotImplementedError("TODO")
@@ -704,7 +704,7 @@ class AbstractMeshTopology(abc.ABC):
         plex_indices_is = self._entity_indices_is("plex", name)
         subset_indices = dmcommon.section_offsets(numbering_sec, plex_indices_is, sort=True)
         subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
-        subset = op3.Slice(self.name, [op3.Subset(label, subset_dat)], label=name)
+        subset = op3.Slice(self.name, [op3.SubsetSliceComponent(label, subset_dat)], label=name)
         return self.points[subset]
 
     @cached_property
@@ -1379,7 +1379,7 @@ class AbstractMeshTopology(abc.ABC):
             iterset_axis = iterset.as_axis()
             subset_dat = op3.Dat.from_array(localized_indices.indices, prefix="subset")
             subset = op3.Slice(
-                iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)]
+                iterset_axis.label, [op3.SubsetSliceComponent(iterset_axis.component.label, subset_dat)]
             )
             iterset = iterset[subset]
 

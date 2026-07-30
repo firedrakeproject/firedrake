@@ -227,7 +227,7 @@ def transform_packed_cell_closure_dat(
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
             perm_slice = op3.Slice(
                 nodal_axis.label,
-                [op3.Subset(None, perm_dat)],
+                [op3.SubsetSliceComponent(None, perm_dat)],
             )
             packed_dat = packed_dat[perm_slice]
 
@@ -466,7 +466,7 @@ def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tu
     dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
     dof_perm_slice = op3.Slice(
         nodal_axis.label,
-        [op3.Subset(None, dof_perm_dat)],
+        [op3.SubsetSliceComponent(None, dof_perm_dat)],
     )
     return (*[slice(None)]*depth, dof_perm_slice)
 

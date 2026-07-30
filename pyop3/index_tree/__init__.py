@@ -1,3 +1,4 @@
+from .apply import index_axes  # noqa: F401
 from .tree import (  # noqa: F401
     AffineSliceComponent,
     CalledMap,
@@ -10,9 +11,7 @@ from .tree import (  # noqa: F401
     ScalarMap,
     Slice,
     SliceComponent,
-    Subset,
     SubsetSliceComponent,
     TabulatedMapComponent,
-    index_axes,
     LoopContextSensitive,
 )

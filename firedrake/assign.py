@@ -404,7 +404,7 @@ def _(none: None) -> types.EllipsisType:
 
 
 @parse_subset.register
-def _(subset: op3.Subset) -> op3.Slice:
+def _(subset: op3.SubsetSliceComponent) -> op3.Slice:
     return op3.Slice("nodes", [subset])
 
 
@@ -412,5 +412,5 @@ def _(subset: op3.Subset) -> op3.Slice:
 @parse_subset.register(tuple)
 def _(subset: list | tuple) -> op3.Slice:
     subset_dat = op3.Dat.from_sequence(subset, dtype=IntType)
-    subset = op3.Subset(None, subset_dat)
+    subset = op3.SubsetSliceComponent(None, subset_dat)
     return parse_subset(subset)

@@ -13,10 +13,6 @@ class SizeMismatchException(Pyop3Exception):
     """Exception raised when the size of an array does not match what is expected."""
 
 
-class InvalidIndexTargetException(Pyop3Exception):
-    """Exception raised when we try to match index information to a mismatching axis tree."""
-
-
 class ValueMismatchException(Pyop3Exception):
     pass
 
@@ -77,6 +73,11 @@ class UnspecialisedCalledMapException(Pyop3Exception):
     an `IndexForest`.
 
     """
+
+
+class InvalidIndexTargetException(Pyop3Exception):
+    """Exception raised when we try to match index information to a mismatching axis tree."""
+
 
 # }}}
 

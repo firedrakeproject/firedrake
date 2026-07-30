@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import itertools
 import numbers
+import types
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
 from typing import Any
@@ -19,11 +20,13 @@ from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.expr.tensor.dat import Dat
 from pyop3.index_tree.tree import (
+    AffineSliceComponent,
     Index,
     IndexTree,
     LoopIndex,
     ScalarIndex,
     Slice,
+    SliceComponent,
     SubsetSliceComponent,
 )
 from pyop3.utils import (
@@ -596,3 +599,62 @@ def as_context_free_index_tree(index_tree: IndexTree, loop_context) -> IndexTree
     loop_context_, index_forest = utils.just_one(index_forests.items())
     assert loop_context_ == loop_context
     return utils.just_one(index_forest)
+
+
+@functools.singledispatch
+def _parse_slice_components(components):
+    raise TypeError
+
+
+@_parse_slice_components.register
+def _(components: tuple | list) -> tuple[SliceComponent]:
+    return tuple(map(_parse_slice_component, components))
+
+
+@_parse_slice_components.register
+def _(component: SliceComponent, /) -> tuple[SliceComponent]:
+    return (component,)
+
+
+@_parse_slice_components.register
+def _(components: Mapping) -> tuple[SliceComponent]:
+    new_components = []
+    for label, slice_info in components.items():
+        if isinstance(slice_info, slice):
+            new_component = AffineSliceComponent.from_slice(label, slice_info)
+        elif isinstance(slice_info, np.ndarray):
+            new_component = SubsetSliceComponent(label, slice_info)
+        else:
+            raise NotImplementedError
+        new_components.append(new_component)
+    return tuple(new_components)
+
+
+@_parse_slice_components.register
+def _(
+    label: str | numbers.Number | types.NoneType | utils.Atom,
+    /,
+) -> tuple[AffineSliceComponent]:
+    return (_parse_slice_component(label),)
+
+
+@functools.singledispatch
+def _parse_slice_component(obj: Any, /) -> SliceComponent:
+    raise TypeError
+
+
+@_parse_slice_component.register
+def _(component: SliceComponent, /) -> SliceComponent:
+    return component
+
+
+@_parse_slice_component.register
+def _(component: utils.Atom, /) -> AffineSliceComponent:
+    return AffineSliceComponent(component.item)
+
+
+@_parse_slice_component.register
+def _(label: str | numbers.Number | types.NoneType, /) -> AffineSliceComponent:
+    return AffineSliceComponent(label)
+
+

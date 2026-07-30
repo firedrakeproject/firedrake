@@ -238,6 +238,10 @@ class Mat(Tensor):
         row_axes, column_axes = axis_trees
         return self.record_new(row_axes=row_axes, column_axes=column_axes)
 
+    def with_axes(self, row_axes, column_axes) -> Self:
+        """Return a view of the current mat with new axes."""
+        return self.with_axis_trees([row_axes, column_axes])
+
     def null_like(self, **kwargs) -> Mat:
         return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
 

@@ -687,8 +687,6 @@ class Dat(Tensor):
 
         return self.record_new(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
 
-    # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
-    # is this ever used?
     def with_axes(self, axes) -> Dat:
         """Return a view of the current `Dat` with new axes.
 
@@ -703,7 +701,7 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.record_new(axes=axes)
+        return self.with_axis_trees([axes])
 
     def null_like(self, **kwargs) -> Dat:
         return self.null(self.axes, dtype=self.dtype, **kwargs)
