@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import collections
 import functools
 from typing import Any
 
 from immutabledict import immutabledict as idict
 
 import pyop3.obj
-from pyop3 import utils
 
 from .identity import IdentityVisitor
 

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Hashable
 from functools import cached_property
-from typing import Hashable
 
 from mpi4py import MPI
-
-import pyop3.mpi
 
 
 class Object(abc.ABC):

@@ -5,9 +5,9 @@ import functools
 import itertools
 import numbers
 import typing
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import partial
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -18,26 +18,43 @@ import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
 import pyop3.index_tree
+import pyop3.visitors
 from pyop3 import utils
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+    AbstractNonUnitAxisTree,
+    Axis,
+    AxisTree,
+    IndexedAxisTree,
+    MissingVariableException,
+    _UnitAxisTree,
+    matching_axis_tree,
+    merge_axis_trees,
+)
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, NullBuffer, PetscMatBuffer
 from pyop3.cache import memory_cache
-from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
-from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
-from pyop3.expr.tensor import Scalar
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ConcreteBuffer, NullBuffer
-from pyop3.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from pyop3.collections import OrderedSet, OrderedFrozenSet
+from pyop3.collections import OrderedFrozenSet, OrderedSet
+from pyop3.dtypes import IntType
+from pyop3.expr.base import ExpressionT, conditional, loopified_shape
+from pyop3.expr.tensor import Dat, Mat, Scalar
+from pyop3.expr.tensor.base import (
+    OutOfPlaceCallableTensorTransform,
+    ReshapeTensorTransform,
+)
+from pyop3.index_tree.tree import (
+    AffineSliceComponent,
+    IndexTree,
+    LoopIndex,
+    LoopIndexIdT,
+    Slice,
+)
+from pyop3.insn.base import ArrayAccessType, loop_
+
 # TODO: just namespace these
 from pyop3.labeled_tree import is_subpath
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractNonUnitAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
-from pyop3.dtypes import IntType
-
-from pyop3.insn.base import ArrayAccessType, loop_
-from pyop3.expr.base import ExpressionT, conditional, loopified_shape
-from pyop3.expr.tensor import Dat, Mat
+from pyop3.node import NodeCollector, NodeTransformer, NodeVisitor, postorder
 
 from .evaluate_arraywise import evaluate_arraywise
-
-import pyop3.visitors
 
 if typing.TYPE_CHECKING:
     from pyop3.axis_tree import AxisLabelT

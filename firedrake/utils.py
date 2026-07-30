@@ -7,7 +7,7 @@ from typing import Callable, Self, Hashable
 from decorator import decorator
 from petsc4py import PETSc
 
-from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict
+from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
 from pyop3.dtypes import ScalarType, as_cstr
 from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
@@ -27,7 +27,6 @@ from pyop3.utils import (  # noqa: F401
     strict_int,
     invert,
     split_by,
-    as_tuple,
     is_sorted,
     unique_name as op3_unique_name,
 )

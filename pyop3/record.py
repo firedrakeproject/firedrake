@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import collections
 import dataclasses
-from collections.abc import Callable, Mapping
 from typing import Any
-
-from mpi4py import MPI
 
 import pyop3.cache
 import pyop3.obj

@@ -1,32 +1,34 @@
 from __future__ import annotations
 
 import collections
-import functools
-import itertools
-import numbers
 import typing
-from typing import Any
-
-from immutabledict import immutabledict as idict
 
 import numpy as np
+from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.sf
-from pyop3.cache import memory_cache
-from pyop3.collections import OrderedSet
-from pyop3 import expr as op3_expr, utils
-from pyop3.dtypes import IntType
-from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
-from pyop3.expr.base import NaN, get_loop_tree, loopified_shape
-from pyop3.insn import exscan, loop_
+from pyop3 import utils
 from pyop3.axis_tree import (
     Axis,
     AxisTree,
-    AxisForest,
     merge_axis_trees,
 )
-from pyop3.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
+from pyop3.axis_tree.tree import (  # TODO: move this to visitors?
+    full_shape,
+    replace_exprs,
+)
+from pyop3.cache import memory_cache
+from pyop3.dtypes import IntType
+from pyop3.expr import (
+    AxisVar,
+    Dat,
+    ExpressionT,
+    LinearDatBufferExpression,
+    LoopIndexVar,
+)
+from pyop3.expr.base import NaN, get_loop_tree
+from pyop3.insn import exscan, loop_
 
 from .size import compute_axis_tree_component_size
 

@@ -9,25 +9,22 @@ import itertools
 import numbers
 import operator
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
+from collections.abc import Hashable, Iterable, Mapping
 from typing import Any
 
-import cachetools
 import loopy.tools
 import numpy as np
 import pytools
 from immutabledict import immutabledict as idict
-from mpi4py import MPI
-
 
 import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
-from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
-from pyop3.collections import unique, as_tuple
+from pyop3.collections import StrictlyUniqueDict, unique
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
-from pyop3.mpi import collective
+from pyop3.exceptions import (
+    UnhashableObjectException,
+)
 
 ndarray_types = (np.ndarray,)
 try: 
@@ -133,7 +130,7 @@ def single_valued(iterable):
 def is_single_valued(iterable):
     try:
         single_valued(iterable)
-    except RuntimeError as e:
+    except RuntimeError:
         return False
     else:
         return True

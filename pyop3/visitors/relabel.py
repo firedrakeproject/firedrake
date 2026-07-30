@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import functools
-import numbers
-import types
-import typing
 from collections.abc import Hashable, Mapping
-from functools import cached_property
 
 from immutabledict import immutabledict as idict
 
@@ -15,13 +11,11 @@ import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
 import pyop3.obj
+
 # import pyop3.visitors.identity
 from pyop3 import utils
 
 from .identity import IdentityVisitor
-
-if typing.TYPE_CHECKING:
-    from pyop3.types import LabelT
 
 
 class Relabeler(IdentityVisitor):

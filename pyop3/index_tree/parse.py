@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import collections
-import itertools
 import functools
+import itertools
 import numbers
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
@@ -13,14 +12,23 @@ from immutabledict import immutabledict as idict
 import pyop3.exceptions
 import pyop3.index_tree.tree
 from pyop3 import utils
+from pyop3.axis_tree import AxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType
-from pyop3.expr.tensor.dat import Dat
-from pyop3.axis_tree import AxisTree
-from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
-from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued
+from pyop3.expr.tensor.dat import Dat
+from pyop3.index_tree.tree import (
+    Index,
+    IndexTree,
+    LoopIndex,
+    ScalarIndex,
+    Slice,
+    SubsetSliceComponent,
+)
+from pyop3.utils import (
+    expand_collection_of_iterables,
+)
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -452,9 +460,9 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
         # If the axis is found in 'target_paths' then this means that it has
         # been addressed by the index tree and hence a slice isn't needed.
         # We simply follow the path of the tree that is addressed and recurse.
-        axis_component_label = utils.single_valued((
+        axis_component_label = utils.single_valued(
             target_path[axis.label] for target_path in matching_target_paths
-        ))
+        )
         axis_path_ = axis_path | {axis.label: axis_component_label}
         if axes.node_map[axis_path_]:
             return _complete_index_tree_with_slices(axes=axes, target_paths=matching_target_paths, axis_path=axis_path_)

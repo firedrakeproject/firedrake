@@ -1,30 +1,24 @@
 from __future__ import annotations
 
 import abc
-import bisect
 import collections
-import copy
 import dataclasses
-import enum
 import functools
 import itertools
 import numbers
 import operator
-import sys
-import threading
-from types import GeneratorType
 import typing
-from collections import defaultdict
-from collections.abc import Iterable, Sized, Sequence
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from functools import cached_property
-from itertools import chain
-from types import NoneType
-from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
+from types import GeneratorType, NoneType
+from typing import (
+    Any,
+    Self,
+)
 
-import cachetools
 import numpy as np
-from mpi4py import MPI
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.cache
@@ -32,14 +26,13 @@ import pyop3.constants
 import pyop3.exceptions
 import pyop3.labeled_tree
 import pyop3.record
-from pyop3.cache import cached_on, memory_cache, cached_method
-from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
+from pyop3 import utils
+from pyop3.cache import cached_method, memory_cache
+from pyop3.collections import OrderedFrozenSet, OrderedSet, StrictlyUniqueDict
 from pyop3.constants import DECIDE
+from pyop3.device import on_host
 from pyop3.dtypes import IntType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
-from pyop3.mpi import collective, temp_internal_comm
-from pyop3 import utils
 from pyop3.labeled_tree import (
     LabeledNodeComponent,
     LabeledTree,
@@ -50,29 +43,22 @@ from pyop3.labeled_tree import (
     as_path,
     is_subpath,
     parent_path,
-    postvisit,
-    previsit,
+)
+from pyop3.mpi import collective, temp_internal_comm
+from pyop3.sf import (
+    AbstractStarForest,
+    StarForest,
+    single_star_sf,
 )
 from pyop3.utils import (
-    has_unique_entries,
-    debug_assert,
     deprecated,
-    invert,
+    has_unique_entries,
     just_one,
     merge_dicts,
-    pairwise,
     single_valued,
-    steps as steps_func,
-    strict_int,
-    strictly_all,
 )
 
-from ._tree_cy import apply_constraints
-from pyop3.device import on_host
-
-
 if typing.TYPE_CHECKING:
-    from pyop3.expr import LinearDatBufferExpression
     from pyop3.types import *
 
 
@@ -188,7 +174,7 @@ class LoopIterable(abc.ABC):
     """
 
     @abc.abstractmethod
-    def __getitem__(self, indices) -> Union[LoopIterable, ContextSensitiveLoopIterable]:
+    def __getitem__(self, indices) -> LoopIterable | ContextSensitiveLoopIterable:
         raise NotImplementedError
 
     # not iterable in the Python sense
@@ -232,7 +218,7 @@ class AxisComponentRegion(pyop3.obj.Object):
         return visitor(self.size)
 
     def __init__(self, size, label=None) -> None:
-        from pyop3 import as_linear_buffer_expression, Tensor
+        from pyop3 import Tensor
 
         if isinstance(label, str):
             label = frozenset({label})
@@ -395,8 +381,7 @@ class AxisComponent(LabeledNodeComponent):
         sf=None,
         size: Any = None,
     ) -> None:
-        from pyop3 import Scalar, evaluate
-        from pyop3.expr import ScalarBufferExpression
+        from pyop3 import evaluate
 
         regions = _parse_regions(regions)
         if sf is not None:
@@ -950,8 +935,8 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
 
     @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
-        from pyop3.index_tree.parse import as_index_forests
         from pyop3.index_tree import index_axes
+        from pyop3.index_tree.parse import as_index_forests
 
         if utils.is_ellipsis_type(indices):
             return self
@@ -1057,6 +1042,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
     def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
+
         from .visitors import compute_axis_tree_component_size
 
         size = compute_axis_tree_component_size(self, path, component_label)
@@ -1151,8 +1137,13 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
 
         return self[self._region_slice(region_labels)]
 
-    def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":
-        from pyop3.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
+    def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> IndexTree:
+        from pyop3.index_tree import (
+            AffineSliceComponent,
+            IndexTree,
+            RegionSliceComponent,
+            Slice,
+        )
 
         region_labels = set(region_labels)
 
@@ -1438,7 +1429,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None | None = None,
+        node_map: Mapping[PathT, Node] | None = None,
         *,
         comm: MPI.Comm | None = None,
     ) -> None:
@@ -1533,7 +1524,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
     # TODO: rename to local_section
     def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
-        from pyop3 import Dat, loop
+        from pyop3 import Dat
         from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
@@ -1891,7 +1882,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
-        from pyop3 import Dat, loop
+        from pyop3 import Dat
         from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
@@ -2328,7 +2319,7 @@ class AxisForest(AbstractAxisTreeLike):
 
     @cached_property
     def unindexed(self) -> AbstractAxisTreeLike | None:
-        return type(self)((t.unindexed for t in self.trees))
+        return type(self)(t.unindexed for t in self.trees)
 
     @property
     def owned(self) -> AxisForest:
@@ -2347,7 +2338,7 @@ class AxisForest(AbstractAxisTreeLike):
         return self.record_new(_trees=new_trees)
 
     def with_region_labels(self, labels, **kwargs) -> AxisForest:
-        return type(self)((tree.with_region_labels(labels, **kwargs) for tree in self.trees))
+        return type(self)(tree.with_region_labels(labels, **kwargs) for tree in self.trees)
 
     @cached_property
     def region_sets(self) -> tuple[frozenset[str], ...]:
@@ -2376,9 +2367,9 @@ class AxisForest(AbstractAxisTreeLike):
         if min_block_shape_size == 0:
             return ()
         else:
-            return utils.single_valued((
+            return utils.single_valued(
                 tree.block_shape[-min_block_shape_size:] for tree in self.trees
-            ))
+            )
 
     @property
     def is_linear(self) -> bool:
@@ -2448,33 +2439,33 @@ class AxisForest(AbstractAxisTreeLike):
                 return AxisForest(indexed_trees_)
 
     def materialize(self) -> AxisForest:
-        return type(self)((tree.materialize() for tree in self.trees))
+        return type(self)(tree.materialize() for tree in self.trees)
 
     def template_vec(self, block_shape):
         return self.trees[0].template_vec(block_shape)
 
     def localize(self) -> AxisForest:
-        return type(self)((tree.localize() for tree in self.trees))
+        return type(self)(tree.localize() for tree in self.trees)
 
     def regionless(self) -> AxisForest:
-        return type(self)((tree.regionless() for tree in self.trees))
+        return type(self)(tree.regionless() for tree in self.trees)
 
     def prune(self) -> AxisForest:
-        return type(self)((tree.prune() for tree in self.trees))
+        return type(self)(tree.prune() for tree in self.trees)
 
     def blocked(self, block_shape):
         return type(self)(map(operator.methodcaller("blocked", block_shape), self.trees))
 
     def restrict_nest(self, index):
-        return type(self)((tree.restrict_nest(index) for tree in self.trees))
+        return type(self)(tree.restrict_nest(index) for tree in self.trees)
 
     @property
     def nest_indices(self):
-        return utils.single_valued((tree.nest_indices for tree in self.trees))
+        return utils.single_valued(tree.nest_indices for tree in self.trees)
 
     @property
     def nest_labels(self):
-        return utils.single_valued((tree.nest_indices for tree in self.trees))
+        return utils.single_valued(tree.nest_indices for tree in self.trees)
 
     @property
     def size(self):
@@ -2482,25 +2473,25 @@ class AxisForest(AbstractAxisTreeLike):
 
     @property
     def sf(self) -> AbstractStarForest:
-        return utils.single_valued((tree.sf for tree in self.trees))
+        return utils.single_valued(tree.sf for tree in self.trees)
 
     @property
     def local_size(self) -> int:
-        return utils.single_valued((tree.local_size for tree in self.trees))
+        return utils.single_valued(tree.local_size for tree in self.trees)
 
     @property
     def local_max_size(self) -> int:
         try:
-            return utils.single_valued((tree.local_max_size for tree in self.trees))
+            return utils.single_valued(tree.local_max_size for tree in self.trees)
         except:
             breakpoint()
 
     @property
     def global_size(self) -> int:
-        return utils.single_valued((tree.global_size for tree in self.trees))
+        return utils.single_valued(tree.global_size for tree in self.trees)
 
     def with_context(self, context):
-        return type(self)((tree.with_context(context) for tree in self.trees))
+        return type(self)(tree.with_context(context) for tree in self.trees)
 
     @cached_property
     def global_numbering(self) -> Dat:
@@ -2508,7 +2499,7 @@ class AxisForest(AbstractAxisTreeLike):
 
         buffers = [t.global_numbering.buffer for t in self.trees]
         utils.debug_assert(lambda: utils.is_single_valued(
-            (b.data_ro_with_halos for b in buffers)
+            b.data_ro_with_halos for b in buffers
         ))
         return Dat(self, buffer=buffers[0])
 
@@ -2688,7 +2679,7 @@ def subst_layouts(
     loop_vars=frozenset(),
 ):
     from pyop3 import NaN
-    from pyop3.expr.visitors import replace_terminals, collect_loop_index_vars
+    from pyop3.expr.visitors import collect_loop_index_vars, replace_terminals
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
@@ -2943,8 +2934,7 @@ def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _Unit
         for candidate_ in candidate.trees:
             if axis_tree_is_valid_subset(candidate_, target):
                 return candidate_
-        else:
-            raise AssertionError
+        raise AssertionError
     else:
         assert axis_tree_is_valid_subset(candidate, target)
         return candidate

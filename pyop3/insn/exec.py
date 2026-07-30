@@ -6,31 +6,28 @@ import dataclasses
 import functools
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Hashable, Mapping
 from functools import cached_property
-from typing import Any, Callable, Hashable
+from typing import Any
 
 import loopy as lp
 import loopy.tools
 import numpy as np
+import petsctools
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
-
-import petsctools
 
 import pyop3.buffer
 import pyop3.cache
 import pyop3.collections
 import pyop3.compile
 import pyop3.config
+import pyop3.debug
 import pyop3.expr
 import pyop3.insn.base
 from pyop3 import utils
-from pyop3.cache import cached_method, memory_cache, disk_only_cache
-from pyop3.constants import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
-
-
-import pyop3.debug
+from pyop3.cache import cached_method, memory_cache
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -174,11 +171,11 @@ class InstructionExecutionContext:
 
     def preprocess(self) -> Instruction:
         import pyop3.visitors
+
         from .visitors import (
-            expand_implicit_pack_unpack,
+            concretize_layouts,
             expand_loop_contexts,
             expand_transforms,
-            concretize_layouts,
             insert_literals,
         )
 

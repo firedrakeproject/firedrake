@@ -4,6 +4,7 @@ import pyop3.buffer
 import pyop3.collections
 import pyop3.record
 import pyop3.utils
+
 from .base import NamedTerminalExpression
 
 

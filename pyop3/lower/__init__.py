@@ -1,1 +1,6 @@
-from .loopy import LOOPY_LANG_VERSION, LOOPY_TARGET, SolveCallable, INVCallable  # noqa: F401
+from .loopy import (  # noqa: F401
+    LOOPY_LANG_VERSION,
+    LOOPY_TARGET,
+    INVCallable,
+    SolveCallable,
+)

@@ -5,7 +5,6 @@ import contextlib
 import functools
 import itertools
 import numbers
-import types
 
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
@@ -18,7 +17,6 @@ import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
 from pyop3 import utils
-
 
 # TODO: account for non-affine accesses in arrays and selectively apply this
 INDIRECTION_PENALTY_FACTOR = 5
@@ -245,9 +243,9 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     @process.register
     def _(self, op: pyop3.expr.BinaryOperator, index, /, *, compress: bool) -> tuple:
         if not self._collecting:
-            return utils.merge_dicts((
+            return utils.merge_dicts(
                 self(x, compress=compress) for x in op.operands
-            ))
+            )
 
         operand_candidatess = tuple(
             self(o, compress=compress) for o in op.operands
@@ -259,7 +257,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
 
             # If there is at most one non-zero operand cost then there is no point
             # in compressing the expression.
-            if sum((cost > 0 for cost in cost_per_operand)) <= 1:
+            if sum(cost > 0 for cost in cost_per_operand) <= 1:
                 compress = False
 
             # NOTE: This isn't quite correct. For example consider the expression
@@ -350,14 +348,14 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     ) -> idict:
         assert not self._collecting
 
-        return utils.merge_dicts((
+        return utils.merge_dicts(
             self(l, **kwargs)
             for l in dat_expr.layouts.values()
-        ))
+        )
 
     @process.register
     def _(self, tern: pyop3.expr.TernaryOperator, index, /, **kwargs) -> idict:
-        return utils.merge_dicts((self(x, **kwargs) for x in tern.operands))
+        return utils.merge_dicts(self(x, **kwargs) for x in tern.operands)
 
     @process.register(pyop3.expr.AxisVar)
     @process.register(pyop3.expr.LoopIndexVar)

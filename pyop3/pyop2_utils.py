@@ -34,10 +34,10 @@
 """Common utility classes/functions."""
 
 
-import sys
-import numpy as np
-from decorator import decorator
 import argparse
+import sys
+
+import numpy as np
 
 
 def as_tuple(item, type=None, length=None, allow_none=False):

@@ -3,20 +3,21 @@ from __future__ import annotations
 import functools
 import itertools
 import numbers
+from collections.abc import Hashable
 from types import NoneType
-from typing import Any, Hashable
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
 from pyop3 import utils
-from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
-from pyop3.node import Visitor, LabeledTreeVisitor, postorder
+from pyop3.collections import OrderedFrozenSet
 from pyop3.labeled_tree import parent_path
+from pyop3.node import LabeledTreeVisitor, Visitor, postorder
 
 from .layout import compute_layouts  # noqa: F401
-from .size import compute_axis_tree_size, compute_axis_tree_component_size  # noqa: F401
+from .size import compute_axis_tree_component_size, compute_axis_tree_size  # noqa: F401
 
 
 # used?

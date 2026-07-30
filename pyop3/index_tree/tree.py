@@ -2,53 +2,48 @@ from __future__ import annotations
 
 import abc
 import collections
-from collections.abc import Iterable
 import dataclasses
 import enum
-import itertools
 import functools
-import math
+import itertools
 import numbers
 import types
 import typing
-import sys
-from collections import defaultdict
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from functools import cached_property
-from itertools import chain
-from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Optional
+from typing import Any
 
 import numpy as np
-from mpi4py import MPI
 import pymbolic as pym
-from pyop3.collections import StrictlyUniqueDict, StrictlyUniqueDefaultDict, UniqueList
-from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-import pytools
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
 
 import pyop3.record
-from pyop3.constants import DECIDE
+from pyop3 import utils
 from pyop3.axis_tree import (
     Axis,
     AxisComponent,
     AxisComponentRegion,
-    AxisTree,
     AxisForest,
+    AxisTree,
     LoopIterable,
 )
 from pyop3.axis_tree.tree import (
+    GHOST_REGION_LABEL,
+    OWNED_REGION_LABEL,
     UNIT_AXIS_TREE,
-    complete_axis_targets,
     AbstractNonUnitAxisTree,
     AxisTarget,
     ContextSensitiveLoopIterable,
     IndexedAxisTree,
     UnitIndexedAxisTree,
-    OWNED_REGION_LABEL,
-    GHOST_REGION_LABEL,
+    complete_axis_targets,
     match_target,
 )
+from pyop3.collections import StrictlyUniqueDefaultDict, StrictlyUniqueDict, UniqueList
+from pyop3.constants import DECIDE
 from pyop3.dtypes import IntType
-from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.labeled_tree import (
     LabeledNodeComponent,
     LabeledTree,
@@ -57,17 +52,13 @@ from pyop3.labeled_tree import (
     accumulate_path,
     filter_path,
 )
+from pyop3.sf import NullStarForest, StarForest
 from pyop3.utils import (
     Labeled,
-    as_tuple,
     expand_collection_of_iterables,
-    single_valued,
     just_one,
     merge_dicts,
-    strictly_all,
 )
-from pyop3 import utils
-
 
 bsearch = pym.var("mybsearch")
 
@@ -88,7 +79,7 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None | None = None,
+        node_map: Mapping[PathT, Node] | None = None,
         *,
         comm: MPI.Comm | None = None,
     ) -> None:
@@ -368,8 +359,6 @@ class UnitIndex(AxisIndependentIndex):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
-        from pyop3.expr import LoopIndexVar
-        from pyop3.expr.visitors import replace_terminals
 
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
@@ -1271,9 +1260,12 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 @_index_axes_per_index.register
 def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
     from pyop3.expr import AxisVar
-    from pyop3.expr.visitors import replace_terminals, collect_axis_vars
-    from pyop3.expr import CompositeDat
-    from pyop3.expr.visitors import get_shape, get_loop_axes, materialize_composite_dat
+    from pyop3.expr.visitors import (
+        collect_axis_vars,
+        get_loop_axes,
+        get_shape,
+        replace_terminals,
+    )
 
 
     # If we are just taking a component from a multi-component array,
@@ -1444,8 +1436,7 @@ def _(called_map: CalledMap, *args, **kwargs):
 @_index_axes_per_index.register
 def _(map_: UnitCalledMap, /, *args, **kwargs):
     import pyop3
-    from pyop3.expr import LoopIndexVar, AxisVar
-    from pyop3.expr.visitors import replace_terminals
+    from pyop3.expr import AxisVar
 
     assert map_.is_context_free
 
@@ -1485,9 +1476,8 @@ def _(map_: UnitCalledMap, /, *args, **kwargs):
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
-    from pyop3 import Dat
-    from pyop3.expr.visitors import replace_terminals
     from pyop3.expr.buffer import LinearDatBufferExpression
+    from pyop3.expr.visitors import replace_terminals
 
     components = []
     replace_map = merge_dicts(
@@ -2118,7 +2108,8 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
     """
     from pyop3.expr import conditional
-    from pyop3.expr.visitors import replace_terminals as expr_replace, min_
+    from pyop3.expr.visitors import min_
+    from pyop3.expr.visitors import replace_terminals as expr_replace
 
     if affine_component.is_full_slice:
         indexed_regions = []

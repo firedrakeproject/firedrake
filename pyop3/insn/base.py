@@ -1,39 +1,36 @@
 from __future__ import annotations
 
 import abc
-import collections
-from collections.abc import Hashable, Mapping, Iterable
 import dataclasses
 import enum
-import functools
-import itertools
-import numbers
-from os import stat
 import textwrap
 import typing
+from collections.abc import Hashable, Iterable, Mapping
 from functools import cached_property
-from typing import Any, ClassVar, Tuple
+from typing import Any, ClassVar
 
-from immutabledict import immutabledict as idict
 import loopy as lp
 import loopy.tools
 import numpy as np
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import pyop3.compile
 import pyop3.expr
 import pyop3.record
 from pyop3 import utils
-from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
-from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
-from pyop3.constants import Intent, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
-from pyop3.node import Node, Terminal, Operator
 from pyop3.axis_tree import AxisTree
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
-from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
-from pyop3.dtypes import dtype_limits
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+)
+from pyop3.cache import (
+    cached_method,
+    with_self_heavy_cache,
+)
+from pyop3.collections import OrderedFrozenSet
+from pyop3.constants import MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, Intent
 from pyop3.exceptions import Pyop3Exception
+from pyop3.expr import BufferExpression, Tensor
+from pyop3.node import Node, Operator, Terminal
 
 if typing.TYPE_CHECKING:
     from .exec import InstructionExecutionContext
@@ -155,7 +152,7 @@ class Loop(NonTerminalInstruction):
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
     ) -> None:
-        statements = utils.as_tuple(statements)
+        statements = pyop3.collections.as_tuple(statements)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
 
@@ -269,7 +266,7 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 class ArgumentSpec:
     intent: Intent
     dtype: np.dtype
-    space: Tuple[int]  # TODO: definitely am not using this...
+    space: tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -351,7 +348,7 @@ class Function(pyop3.obj.Object):
         preambles=(),
         **kwargs,
     ) -> Function:
-        from pyop3 import LOOPY_TARGET, LOOPY_LANG_VERSION
+        from pyop3 import LOOPY_LANG_VERSION, LOOPY_TARGET
 
         loopy_insn = lp.CInstruction(
             (),
@@ -655,16 +652,16 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
                     for assignee, expression in zip(assignee_strs, expression_strs, strict=True)
                 ))
             else:
-                return "\n".join((
+                return "\n".join(
                     f"{assignee} {operator} {utils.just_one(expression_strs)}"
                     for assignee in assignee_strs
-                ))
+                )
         else:
             if len(expression_strs) > 1:
-                return "\n".join((
+                return "\n".join(
                     f"{utils.just_one(assignee_strs)} {operator} {expr}"
                     for expr in expression_strs
-                ))
+                )
             else:
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
 

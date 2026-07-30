@@ -1,49 +1,49 @@
 from __future__ import annotations
 
-import abc
-import collections
 import functools
 import itertools
 import numbers
-from collections.abc import Iterable, Mapping
-from os import access
-from typing import Any, Hashable
+from collections.abc import Hashable
+from typing import Any
 
 import numpy as np
-from petsc4py import PETSc
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
 
-from pyop3.cache import memory_cache
-import pyop3.compile
 import pyop3.axis_tree
+import pyop3.compile
 import pyop3.expr
 import pyop3.expr.visitors
-from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
-from pyop3.expr.tensor import mat
+import pyop3.insn
+from pyop3 import utils
+from pyop3.axis_tree import AxisForest
+from pyop3.buffer import (
+    ArrayBuffer,
+    ConcreteBuffer,
+    PetscMatBuffer,
+)
+from pyop3.constants import INC, READ, RW, WRITE
+from pyop3.expr import (
+    Dat,
+    LinearDatBufferExpression,
+    Mat,
+    MatPetscMatBufferExpression,
+    Scalar,
+    Tensor,
+)
+from pyop3.expr.buffer import MatArrayBufferExpression
 from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
-from pyop3 import utils
-
-from pyop3.constants import INC, READ, RW, WRITE
-from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
-from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
-from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
-from pyop3.axis_tree import AxisTree, AxisForest
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer
-
-from pyop3.index_tree.tree import LoopIndex
 from pyop3.index_tree.parse import _as_context_free_indices
-import pyop3.insn
 from pyop3.insn.base import (
-    AssignmentType,
     ArrayAccessType,
+    AssignmentType,
     enlist,
+    filter_null,
     maybe_enlist,
     non_null,
-    filter_null,
 )
-from pyop3.collections import OrderedFrozenSet
+from pyop3.node import NodeTransformer, NodeVisitor, postorder
 
 
 class InstructionTransformer(NodeTransformer):
@@ -263,7 +263,7 @@ def expand_transforms(obj: Any, /) -> pyop3.insn.InstructionList:
 
 @expand_transforms.register(pyop3.insn.InstructionList)
 def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.InstructionList:
-    return maybe_enlist((expand_transforms(insn) for insn in insn_list))
+    return maybe_enlist(expand_transforms(insn) for insn in insn_list)
 
 
 @expand_transforms.register(pyop3.insn.Loop)

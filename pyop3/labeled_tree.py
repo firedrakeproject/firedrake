@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 import abc
-import collections
 import functools
-import itertools
-import operator
 import types
-import typing
-from collections import defaultdict
-from collections.abc import Hashable, Iterable, Sequence, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
 from itertools import chain
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
@@ -22,7 +17,6 @@ from pyop3.constants import DECIDE
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
     Labeled,
-    UniqueNameGenerator,
 )
 
 
@@ -614,7 +608,7 @@ def as_component_label(component):
 def previsit(
     tree,
     fn,
-    current_node: Optional[Node] = None,
+    current_node: Node | None = None,
     prev=None,
 ) -> Any:
     if tree.is_empty:

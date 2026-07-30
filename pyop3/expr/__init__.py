@@ -1,10 +1,53 @@
 from .base import (  # noqa: F401
-        Expression, TerminalExpression, AxisVar, LoopIndexVar, NaN, ExpressionT, Pow, Abs,
-                   Add, Sub, Neg, Conditional, Modulo, Mul, Div, FloorDiv, Or, LessThanOrEqual, LessThan, GreaterThan, GreaterThanOrEqual, Comparison, UnaryOperator, BinaryOperator, Operator, TernaryOperator, conditional, NaN, NameVar
+        Abs,
+        Add,
+        AxisVar,
+        BinaryOperator,
+        Comparison,
+        Conditional,
+        Div,
+        Expression,
+        ExpressionT,
+        FloorDiv,
+        GreaterThan,
+        GreaterThanOrEqual,
+        LessThan,
+        LessThanOrEqual,
+        LoopIndexVar,
+        Modulo,
+        Mul,
+        NameVar,
+        NaN,
+        Neg,
+        Operator,
+        Or,
+        Pow,
+        Sub,
+        TerminalExpression,
+        TernaryOperator,
+        UnaryOperator,
+        conditional,
 )
-from .buffer import BufferExpression, as_linear_buffer_expression, LinearDatBufferExpression, LinearBufferExpression, NonlinearDatBufferExpression, MatBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, ScalarBufferExpression, DatBufferExpression  # noqa: F401
+from .buffer import (  # noqa: F401
+        BufferExpression,
+        DatBufferExpression,
+        LinearBufferExpression,
+        LinearDatBufferExpression,
+        MatArrayBufferExpression,
+        MatBufferExpression,
+        MatPetscMatBufferExpression,
+        NonlinearDatBufferExpression,
+        ScalarBufferExpression,
+        as_linear_buffer_expression,
+)
 from .opaque import OpaqueTerminal  # noqa: F401
 from .tensor import (  #noqa: F401
-        Scalar, Tensor, AggregateMat, AggregateDat,
-        Dat, Mat, CompositeDat, ReshapeTensorTransform
+        AggregateDat,
+        AggregateMat,
+        CompositeDat,
+        Dat,
+        Mat,
+        ReshapeTensorTransform,
+        Scalar,
+        Tensor,
 )

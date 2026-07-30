@@ -5,14 +5,13 @@ import collections
 import functools
 import itertools
 from collections.abc import Hashable
-from functools import cached_property
 from typing import Any, Union
 
 from immutabledict import immutabledict as idict
 
 import pyop3.obj
-from pyop3 import collections as op3_collections, utils
-from pyop3.cache import memory_cache
+from pyop3 import collections as op3_collections
+from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 
 

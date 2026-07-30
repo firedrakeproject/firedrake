@@ -36,36 +36,34 @@
 """PyOP2 MPI communicator."""
 
 
-from collections.abc import Iterable
-from typing import Any, Callable
-from petsc4py import PETSc
-from mpi4py import MPI  # noqa
-from itertools import count
-from typing import Any
-from functools import wraps
 import atexit
 import gc
 import glob
 import os
 import tempfile
 import weakref
+from collections.abc import Callable, Iterable
+from functools import wraps
+from itertools import count
+from typing import Any
 
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
+from petsc4py import PETSc
 
 import pyop3.config
 import pyop3.constants
 from pyop3 import utils
 from pyop3.exceptions import CompilationException
-from pyop3.log import debug, LOGGER, DEBUG
-
+from pyop3.log import DEBUG, LOGGER, debug
 
 __all__ = (
-    "COMM_WORLD",
     "COMM_SELF",
+    "COMM_WORLD",
     "MPI",
-    "is_pyop2_comm",
-    "incref",
     "decref",
+    "incref",
+    "is_pyop2_comm",
     "temp_internal_comm"
 )
 

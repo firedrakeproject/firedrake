@@ -1,7 +1,6 @@
 import collections
 import itertools
-from collections.abc import Mapping
-from typing import Hashable
+from collections.abc import Hashable
 
 
 class Renamer:

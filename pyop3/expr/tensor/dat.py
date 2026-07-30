@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import abc
 import collections
 import contextlib
 import math
 import numbers
 import typing
+from collections.abc import Sequence
 from functools import cached_property
 from types import GeneratorType
-from typing import Any, ClassVar, Literal, Sequence
+from typing import ClassVar, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -20,29 +20,31 @@ import pyop3.axis_tree
 import pyop3.device
 import pyop3.record
 from pyop3 import utils
-from ..base import LoopIndexVar
-from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
-from pyop3.mpi import collective
 from pyop3.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
-    collect_unindexed_axis_trees,
     as_axis_tree_type,
+    collect_unindexed_axis_trees,
 )
-from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, AxisForest, ContextSensitiveAxisTree
-from pyop3.index_tree import LoopIndex, ScalarIndex
-from pyop3.expr.base import Terminal
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
-from pyop3.dtypes import DTypeT, ScalarType, IntType
+from pyop3.axis_tree.tree import (
+    AbstractNonUnitAxisTree,
+)
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
+from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.log import warning
+from pyop3.expr.base import Terminal
+from pyop3.index_tree import ScalarIndex
+from pyop3.mpi import collective
 from pyop3.utils import (
     deprecated,
-    just_one,
-    strictly_all,
 )
 
+from .base import (
+    ReshapeTensorTransform,
+    Tensor,
+    TensorTransform,
+)
 
 if typing.TYPE_CHECKING:
     import pyop3.insn

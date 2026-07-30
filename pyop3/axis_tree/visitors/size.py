@@ -6,13 +6,12 @@ import typing
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.axis_tree import UNIT_AXIS_TREE, AbstractNonUnitAxisTree, AxisTree
 from pyop3.buffer import ArrayBuffer
 from pyop3.cache import cached_on
 from pyop3.dtypes import IntType
-from pyop3.expr import Dat, AxisVar, LoopIndexVar, ScalarBufferExpression
+from pyop3.expr import AxisVar, Dat, LoopIndexVar, ScalarBufferExpression
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
-from pyop3.insn import Loop
-from pyop3.axis_tree import AbstractNonUnitAxisTree, AxisTree, UNIT_AXIS_TREE
 from pyop3.labeled_tree import as_path
 
 if typing.TYPE_CHECKING:
@@ -91,11 +90,11 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         if axis.label in subtree_size_axes.node_labels:
             # current axis is used - need to do a loop
             component_size_axes = AxisTree.from_iterable(
-                (
+                
                     ax
                     for ax in subtree_size_axes.nodes
                     if ax.label != axis.label
-                )
+                
             )
             if component_size_axes.is_empty:
                 component_size_axes = UNIT_AXIS_TREE

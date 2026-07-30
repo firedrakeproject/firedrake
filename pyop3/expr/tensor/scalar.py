@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import numbers
 from typing import ClassVar
 
@@ -9,11 +8,13 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 import pyop3.record
-from pyop3 import dtypes, exceptions as exc, utils
+from pyop3 import dtypes, utils
+from pyop3 import exceptions as exc
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE
-from .base import Tensor
-from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
+
+from .base import Tensor
 
 
 @pyop3.record.record()
@@ -103,7 +104,7 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         other_eval = evaluate_arraywise(other)

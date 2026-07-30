@@ -1,24 +1,11 @@
 from __future__ import annotations
 
 import abc
-import collections
 import contextlib
-import ctypes
-import dataclasses
-import enum
 import functools
-import os
 import numbers
-import textwrap
-import warnings
-import weakref
-from collections.abc import Mapping
-from functools import cached_property
+import os
 from typing import Any
-from weakref import WeakValueDictionary
-
-from cachetools import cachedmethod
-from petsc4py import PETSc
 
 import loopy as lp
 import numpy as np
@@ -31,29 +18,36 @@ import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
-from pyop3 import utils, mpi
-from pyop3.cache import memory_and_disk_cache
+from pyop3 import mpi, utils
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+    IndexedAxisTree,
+)
+from pyop3.buffer import (
+    AbstractBuffer,
+    NullBuffer,
+    PetscMatBuffer,
+)
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
-from pyop3.expr import NonlinearDatBufferExpression
-from pyop3.expr.visitors import collect_axis_vars, replace
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.dtypes import IntType
-from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
     AbstractAssignment,
-    Exscan,
-    NullInstruction,
-    assignment_type_as_intent,
     AssignmentType,
-    NonEmptyArrayAssignment,
-    StandaloneCalledFunction,
-    Loop,
+    Exscan,
     InstructionList,
+    Loop,
+    NonEmptyArrayAssignment,
+    NullInstruction,
+    StandaloneCalledFunction,
+    assignment_type_as_intent,
 )
-# TODO: import other way around?
-from pyop3.insn.exec import parse_compiler_parameters
 
+# TODO: import other way around?
+from pyop3.lower.transform import (
+    with_attach_debugger,
+    with_likwid_markers,
+    with_petsc_event,
+)
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -310,7 +304,7 @@ class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
             assert name == self.name
 
         name_in_target = name_in_target if name_in_target else self.name
-        super(LACallable, self).__init__(self.name,
+        super().__init__(self.name,
                                          arg_id_to_dtype=arg_id_to_dtype,
                                          arg_id_to_descr=arg_id_to_descr,
                                          name_in_target=name_in_target)
@@ -450,7 +444,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
 
-        for e in utils.as_tuple(ex): # TODO: get rid of this loop
+        for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)

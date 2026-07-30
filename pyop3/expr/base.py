@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import abc
-import collections
 import functools
 import numbers
-from functools import cached_property
 from typing import NoReturn
 
 import numpy as np
-from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 import pyop3.collections
 import pyop3.record
 from pyop3 import utils
-from pyop3.node import Node, Terminal
-from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
+from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
 from pyop3.axis_tree.tree import MissingVariableException
+from pyop3.node import Node, Terminal
 
 
 class Expression(Node, abc.ABC):
@@ -152,7 +149,9 @@ class Expression(Node, abc.ABC):
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
         from pyop3 import evaluate
-        from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
+        from pyop3.expr.visitors import (
+            MissingVariableException,  # put in main namespace?
+        )
 
         try:
             a_result = evaluate(a)

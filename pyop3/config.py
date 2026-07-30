@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import collections
 import dataclasses
 import os
 import pathlib
 import tempfile
-from typing import Any, Callable, Self
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
 from pyop3.constants import _nothing
-
 
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
 

@@ -6,37 +6,34 @@
 
 import abc
 import atexit
-import cachetools
 import collections
 import contextlib
 import functools
 import gc
 import hashlib
 import os
+import pickle
 import re
 import sys
-import pickle
 import weakref
-from collections.abc import Mapping, MutableMapping
-from pathlib import Path
-from warnings import warn  # noqa F401
 from collections import defaultdict
-from itertools import count
+from collections.abc import Callable, Hashable, Mapping, MutableMapping
 from functools import wraps
+from itertools import count
+from pathlib import Path
 from tempfile import mkstemp
-from typing import Any, Callable, Hashable
+from typing import Any
+from warnings import warn  # noqa F401
 
+import cachetools
 from petsc4py import PETSc
 
 import pyop3.collections
 import pyop3.config
 from pyop3 import utils
 from pyop3.constants import _nothing
-from pyop3.log import debug, LOGGER
-from pyop3.mpi import (
-    MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
-)
-
+from pyop3.log import LOGGER
+from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
@@ -734,7 +731,7 @@ class heavy_caches:
     """
 
     def __init__(self, objs: Any) -> None:
-        objs = utils.as_tuple(objs)
+        objs = pyop3.collections.as_tuple(objs)
 
         for obj in objs:
             _alive_heavy_caches.add(obj)

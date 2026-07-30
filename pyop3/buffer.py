@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import abc
-import collections
 import contextlib
 import dataclasses
 import functools
 import numbers
-import weakref
-from collections.abc import Mapping
-from functools import cached_property
-from typing import Any, ClassVar, Hashable
+from collections.abc import Hashable, Mapping
+from typing import Any, ClassVar
 
 import numpy as np
 from mpi4py import MPI
@@ -23,17 +20,14 @@ import pyop3.sf
 from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
-from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop3.sf import NullStarForest, StarForest, local_sf
-from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
-from pyop3.device import (
-    Device,
-    get_current_device,
-    on_host
+from pyop3.device import Device, get_current_device, on_host
+from pyop3.dtypes import DTypeT, IntType, ScalarType
+from pyop3.sf import NullStarForest, StarForest
+from pyop3.utils import (
+    readonly,
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
-
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -554,7 +548,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: It would be good to be able to get data_ro but without updating the
     # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
     @_not_in_flight
-    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+    def get_array(self, intent: Literal[ro, rw, wo] = "ro"):
         match intent:
             case "ro":
                 if not self._roots_valid:
@@ -889,7 +883,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @contextlib.contextmanager
     def as_vec(
         self,
-        mode: Literal["ro", "rw", "wo"],
+        mode: Literal[ro, rw, wo],
         block_shape: Iterable[int] | int = (),
     ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
@@ -968,8 +962,8 @@ class PetscMatNestBufferSpec(PetscMatBufferSpec):
 @pyop3.record.record()
 class FullPetscMatBufferSpec(pyop3.obj.Object):
     mat_type: str
-    row_spec: PetscMatAxisSpec | "AbstractAxisTree"
-    column_spec: PetscMatAxisSpec | "AbstractAxisTree"
+    row_spec: PetscMatAxisSpec | AbstractAxisTree
+    column_spec: PetscMatAxisSpec | AbstractAxisTree
     _comm: MPI.Comm
 
     @property
@@ -1293,12 +1287,12 @@ class DensePythonMatContext:
 
     """
 
-    def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
+    def __init__(self, /, mode: Literal[row, column], buffer: ArrayBuffer) -> None:
         self.mode = mode
         self.buffer = buffer
 
     @classmethod
-    def empty(cls, mode: Literal["row", "column"], sf: pyop3.sf.StarForest) -> Self:
+    def empty(cls, mode: Literal[row, column], sf: pyop3.sf.StarForest) -> Self:
         if mode == "row":
             shape = (1, sf.size)
         else:

@@ -1,13 +1,11 @@
 import collections
-
-import numpy as np
-from mpi4py import MPI
-from petsc4py import PETSc
-
 import ctypes
 
 import loopy as lp
 import numpy
+import numpy as np
+from mpi4py import MPI
+from petsc4py import PETSc
 
 IntType = numpy.dtype(PETSc.IntType)
 RealType = numpy.dtype(PETSc.RealType)

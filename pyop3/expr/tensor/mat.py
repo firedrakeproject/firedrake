@@ -1,44 +1,42 @@
 from __future__ import annotations
 
-import abc
-import collections
 import itertools
 import numbers
 import typing
 from functools import cached_property
-from itertools import product
 from typing import Any, ClassVar
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop3 import buffer
 
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
 from pyop3 import utils
-from pyop3.cache import cached_method
-from .base import Tensor, ReshapeTensorTransform, TensorTransform
-from .dat import Dat
 from pyop3.axis_tree import (
     AbstractNonUnitAxisTree,
-    AxisForest,
-    AxisTree,
     Axis,
-    ContextSensitiveAxisTree,
+    AxisTree,
+    as_axis_tree,
     as_axis_tree_type,
 )
-from pyop3.axis_tree import as_axis_tree, as_axis_forest
-from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
-from pyop3.dtypes import ScalarType
-from pyop3.utils import (
-    just_one,
-    single_valued,
-    strictly_all,
-    unique,
+from pyop3.buffer import (
+    AbstractBuffer,
+    FullPetscMatBufferSpec,
+    MatBufferSpec,
+    NonNestedPetscMatBufferSpec,
+    NullBuffer,
+    PetscMatAxisSpec,
+    PetscMatBuffer,
+    PetscMatBufferSpec,
+    PetscMatNestBufferSpec,
 )
+from pyop3.cache import cached_method
+from pyop3.dtypes import ScalarType
+
+from .base import ReshapeTensorTransform, Tensor, TensorTransform
 
 if typing.TYPE_CHECKING:
     from pyop3.types import *
@@ -124,7 +122,7 @@ class Mat(Tensor):
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
 import numbers
 import typing
 from functools import cached_property
@@ -14,16 +13,15 @@ from petsc4py import PETSc
 import pyop3.obj
 import pyop3.record
 from pyop3 import utils
-from pyop3.dtypes import get_mpi_dtype, IntType
-
+from pyop3.dtypes import IntType, get_mpi_dtype
 
 if typing.TYPE_CHECKING:
     from pyop3.axis_tree import AxisComponentRegionSizeT
 
 
 from ._sf_cy import (  # noqa: F401
-    filter_petsc_sf,
     create_petsc_section_sf,
+    filter_petsc_sf,
     renumber_petsc_sf,
 )
 

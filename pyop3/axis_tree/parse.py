@@ -6,7 +6,18 @@ import numbers
 from typing import Any
 
 from pyop3 import utils
-from .tree import AbstractNonUnitAxisTree, AxisForest, AxisTree, Axis, _UnitAxisTree, ContextSensitiveAxisTree, IndexedAxisTree, AxisComponent, UnitIndexedAxisTree
+
+from .tree import (
+    AbstractNonUnitAxisTree,
+    Axis,
+    AxisComponent,
+    AxisForest,
+    AxisTree,
+    ContextSensitiveAxisTree,
+    IndexedAxisTree,
+    UnitIndexedAxisTree,
+    _UnitAxisTree,
+)
 
 
 @functools.singledispatch
@@ -98,7 +109,7 @@ def _(component: AxisComponent) -> Axis:
 
 @functools.singledispatch
 def as_axis_component(arg: Any) -> AxisComponent:
-    from pyop3 import Scalar, Dat  # cyclic import
+    from pyop3 import Dat, Scalar  # cyclic import
 
     if isinstance(arg, Dat | Scalar):
         return AxisComponent(arg)

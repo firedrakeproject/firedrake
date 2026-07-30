@@ -2,25 +2,23 @@ from __future__ import annotations
 
 import abc
 import itertools
-import numbers
 import typing
+from collections.abc import Callable, Hashable
 from functools import cached_property
-from typing import Any, ClassVar, Callable, Hashable, Literal
+from typing import ClassVar, Literal
 
 import numpy as np
-from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.cache
-from pyop3.cache import cached_method
-from pyop3.expr.base import ExpressionT
 import pyop3.record
-from pyop3 import utils
 from pyop3.axis_tree import ContextAware
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
-from pyop3.expr import TerminalExpression
+from pyop3.cache import cached_method
 from pyop3.exceptions import InvalidIndexCountException
+from pyop3.expr import TerminalExpression
+from pyop3.expr.base import ExpressionT
 
 if typing.TYPE_CHECKING:
     import pyop3.insn

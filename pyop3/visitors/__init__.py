@@ -19,16 +19,15 @@ import pyop3.constants
 import pyop3.node
 import pyop3.obj
 import pyop3.sf
+import pyop3.visitors.base
+import pyop3.visitors.identity
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 from pyop3.labeled_tree import MultiComponentLabeledNode
-
-import pyop3.visitors.base
-
-from pyop3.visitors.comm import get_comm, common_comm, single_comm # noqa: F401
-import pyop3.visitors.identity
-from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
+from pyop3.visitors.comm import common_comm, get_comm, single_comm  # noqa: F401
 from pyop3.visitors.compress_indirections import materialize_indirections  # noqa: F401
+from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
+
 from .replace import replace
 
 if typing.TYPE_CHECKING:
