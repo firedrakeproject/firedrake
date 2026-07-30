@@ -12,7 +12,6 @@ from petsc4py import PETSc
 import pyop3.axis_tree
 import pyop3.collections
 import pyop3.expr
-import pyop3.expr.visitors
 import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
@@ -61,6 +60,8 @@ def _select_candidate_indirections_compress(insn):
     )
 
 def _select_candidate_indirections_compress_serial(insn):
+    import pyop3
+
     candidates = _collect_candidate_indirections(insn, compress=True)
     candidates = _trim_candidates(candidates)
 

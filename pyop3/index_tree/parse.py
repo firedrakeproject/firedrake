@@ -586,7 +586,7 @@ def _(
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = idict({input_path: (output_spec,)})
-            restricted_map = called_map.map.record_new(_connectivity=restricted_connectivity)(cf_index)
+            restricted_map = called_map.map.record_new(connectivity=restricted_connectivity)(cf_index)
             cf_maps.append(restricted_map)
     return tuple(cf_maps)
 

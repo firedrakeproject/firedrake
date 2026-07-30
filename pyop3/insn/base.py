@@ -898,11 +898,6 @@ def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:
     return loop_expr(compiler_parameters=compiler_parameters) if eager else loop_expr
 
 
-# TODO: better to pass eager kwarg
-def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
-    loop_(index, statements)(compiler_parameters=compiler_parameters)
-
-
 def fix_intents(tunit, accesses):
     """
 

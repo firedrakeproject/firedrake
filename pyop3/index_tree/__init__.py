@@ -14,4 +14,5 @@ from .tree import (  # noqa: F401
     SubsetSliceComponent,
     TabulatedMapComponent,
     index_axes,
+    LoopContextSensitive,
 )

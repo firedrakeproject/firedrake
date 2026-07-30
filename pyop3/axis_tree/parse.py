@@ -13,24 +13,24 @@ from .tree import (
     AxisComponent,
     AxisForest,
     AxisTree,
-    ContextSensitiveAxisTree,
     IndexedAxisTree,
     UnitIndexedAxisTree,
     _UnitAxisTree,
 )
+from .context_sensitive import LoopContextSensitiveAxisTreeLike
 
 
 @functools.singledispatch
-def as_axis_tree_type(arg: Any) -> AxisTreeT:
+def as_axis_tree_type(arg: Any):
     return as_axis_tree_type(as_axis_tree(arg))
 
 
 @as_axis_tree_type.register(AbstractNonUnitAxisTree)
 @as_axis_tree_type.register(_UnitAxisTree)
 @as_axis_tree_type.register(UnitIndexedAxisTree)
-@as_axis_tree_type.register(ContextSensitiveAxisTree)
+@as_axis_tree_type.register(LoopContextSensitiveAxisTreeLike)
 @as_axis_tree_type.register(AxisForest)
-def _(axis_tree, /) -> AxisTreeT:
+def _(axis_tree, /):
     return axis_tree
 
 
@@ -40,7 +40,7 @@ def as_axis_forest(arg: Any) -> AxisForest:
     return as_axis_forest(axis_tree)
 
 
-@as_axis_forest.register(ContextSensitiveAxisTree)
+@as_axis_forest.register(LoopContextSensitiveAxisTreeLike)
 def _(arg):
     raise TypeError
 
@@ -69,13 +69,13 @@ def as_axis_tree(arg: Any) -> AxisTree | AxisForest:
 
 
 @as_axis_tree.register
-def _(axes_per_context: collections.abc.Mapping) -> ContextSensitiveAxisTree:
-    return ContextSensitiveAxisTree(axes_per_context)
+def _(axes_per_context: collections.abc.Mapping) -> LoopContextSensitiveAxisTreeLike:
+    return LoopContextSensitiveAxisTreeLike(axes_per_context)
 
 
 @as_axis_tree.register(AxisTree)
 @as_axis_tree.register(_UnitAxisTree)
-@as_axis_tree.register(ContextSensitiveAxisTree)
+@as_axis_tree.register(LoopContextSensitiveAxisTreeLike)
 @as_axis_tree.register(AxisForest)
 def _(axes: AxisTree) -> AxisTree:
     return axes
@@ -128,7 +128,7 @@ def _(arg: numbers.Integral) -> AxisComponent:
 
 
 @functools.singledispatch
-def collect_unindexed_axis_trees(tree: AxisTreeT, /) -> tuple[AxisTree, ...]:
+def collect_unindexed_axis_trees(tree, /) -> tuple[AxisTree, ...]:
     raise TypeError
 
 
@@ -152,8 +152,8 @@ def _(axis_forest: AxisForest, /) -> tuple[AxisTree, ...]:
     ))
 
 
-@collect_unindexed_axis_trees.register(ContextSensitiveAxisTree)
-def _(cs_axes: ContextSensitiveAxisTree, /) -> tuple[AxisTree, ...]:
+@collect_unindexed_axis_trees.register(LoopContextSensitiveAxisTreeLike)
+def _(cs_axes: LoopContextSensitiveAxisTreeLike, /) -> tuple[AxisTree, ...]:
     return utils.unique(sum(
         (collect_unindexed_axis_trees(tree) for tree in cs_axes.context_map.values()),
         start=(),

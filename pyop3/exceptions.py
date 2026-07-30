@@ -40,6 +40,10 @@ class NonUnitIterableException(Pyop3Exception):
 class ExpressionUnchangedException(Pyop3Exception):
     pass
 
+
+class MissingVariableException(Pyop3Exception):
+    """Exception raised when information about an axis variable is missing."""
+
 # }}}
 
 # {{{ axis trees
@@ -58,6 +62,21 @@ class NonUnitAxisException(Pyop3Exception):
 
 class InvalidMapTargetException(Pyop3Exception):
     pass
+
+
+class LoopContextSensitiveException(Pyop3Exception):
+    """Exception raised when an index is sensitive to the loop index."""
+
+
+class UnspecialisedCalledMapException(Pyop3Exception):
+    """Exception raised when an unspecialised map is used in place of a specialised one.
+
+    This is important for cases like closure(cell) where the result can be either
+    a set of points, or sets of cells, edges, and vertices. We say that it is 'unspecialised'
+    because it cannot be put into an `IndexTree` and instead should yield two trees as
+    an `IndexForest`.
+
+    """
 
 # }}}
 
@@ -91,3 +110,18 @@ class CommMismatchException(Pyop3Exception):
 
 
 # }}}
+
+
+# to organise/check:
+class ExpectedLinearAxisTreeException(Pyop3Exception):
+    ...
+
+
+class ContextMismatchException(Pyop3Exception):
+    pass
+
+
+class InvalidExpressionException(Pyop3Exception):
+    pass
+
+

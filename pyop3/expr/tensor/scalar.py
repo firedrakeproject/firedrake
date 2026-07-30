@@ -129,7 +129,8 @@ class Scalar(Tensor):
     def getitem(self, *, strict=False):
         return self
 
-    def with_context(self, *args, **kwargs):
+    def with_axis_trees(self, axis_trees):
+        assert len(axis_trees) == 0, "scalars don't have axis trees"
         return self
 
     @property

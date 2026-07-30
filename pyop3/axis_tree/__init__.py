@@ -6,7 +6,7 @@ from .parse import (  # noqa: F401
 )
 from .tree import (  # noqa: F401
     UNIT_AXIS_TREE,
-    AbstractAxisTreeLike,
+    LoopContextFreeAxisTreeLike,
     AbstractNonUnitAxisTree,
     AbstractUnindexedAxisTree,
     Axis,
@@ -15,13 +15,7 @@ from .tree import (  # noqa: F401
     AxisForest,
     AxisTarget,
     AxisTree,
-    ContextAware,
-    ContextFree,
-    ContextMismatchException,
-    ContextSensitive,
-    ContextSensitiveAxisTree,
     IndexedAxisTree,
-    LoopIterable,
     UnitIndexedAxisTree,
     _UnitAxisTree,
     merge_axis_trees,

@@ -9,10 +9,10 @@ import numpy as np
 from mpi4py import MPI
 
 import pyop3.collections
+import pyop3.exceptions
 import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
-from pyop3.axis_tree.tree import MissingVariableException
 from pyop3.node import Node, Terminal
 
 
@@ -149,18 +149,15 @@ class Expression(Node, abc.ABC):
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
         from pyop3 import evaluate
-        from pyop3.expr.visitors import (
-            MissingVariableException,  # put in main namespace?
-        )
 
         try:
             a_result = evaluate(a)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             a_result = None
 
         try:
             b_result = evaluate(b)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             b_result = None
 
         if a_result or b_result:
@@ -543,7 +540,7 @@ def conditional(predicate, if_true, if_false):
 
     try:
         predicate = evaluate(predicate)
-    except MissingVariableException:
+    except pyop3.exceptions.MissingVariableException:
         return Conditional(predicate, if_true, if_false)
     else:
         assert isinstance(predicate, bool)

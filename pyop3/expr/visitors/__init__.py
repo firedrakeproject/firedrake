@@ -26,7 +26,6 @@ from pyop3.axis_tree.tree import (
     Axis,
     AxisTree,
     IndexedAxisTree,
-    MissingVariableException,
     _UnitAxisTree,
     matching_axis_tree,
     merge_axis_trees,
@@ -100,7 +99,7 @@ def _(var: pyop3.expr.NameVar, /, *, name_vars: Mapping, **kwargs) -> Any:
     try:
         return name_vars[var.name]
     except KeyError:
-        raise MissingVariableException(f"'{var.name}' not found in 'name_vars'")
+        raise pyop3.exceptions.MissingVariableException(f"'{var.name}' not found in 'name_vars'")
 
 
 @_evaluate.register(pyop3.expr.AxisVar)
@@ -108,7 +107,7 @@ def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> A
     try:
         return axis_vars[axis_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
+        raise pyop3.exceptions.MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
 
 
 @_evaluate.register(pyop3.expr.LoopIndexVar)
@@ -116,7 +115,7 @@ def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, *
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
+        raise pyop3.exceptions.MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
 
 
 @_evaluate.register

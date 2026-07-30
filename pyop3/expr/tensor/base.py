@@ -13,7 +13,6 @@ from petsc4py import PETSc
 
 import pyop3.cache
 import pyop3.record
-from pyop3.axis_tree import ContextAware
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.cache import cached_method
 from pyop3.exceptions import InvalidIndexCountException
@@ -25,7 +24,7 @@ if typing.TYPE_CHECKING:
     import pyop3.insn.exec
 
 
-class Tensor(ContextAware, TerminalExpression, abc.ABC):
+class Tensor(TerminalExpression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -64,6 +63,10 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
 
     @abc.abstractmethod
     def getitem(self, *indices, strict=False):
+        pass
+
+    @abc.abstractmethod
+    def with_axis_trees(self, trees):
         pass
 
     def assemble(self) -> None:
@@ -232,6 +235,16 @@ class Tensor(ContextAware, TerminalExpression, abc.ABC):
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
         raise NotImplementedError
+
+    def with_context(self, context) -> Self:
+        new_axis_trees = []
+        for axis_tree in self.axis_trees:
+            if isinstance(axis_tree, pyop3.index_tree.LoopContextSensitive):
+                cf_axis_tree = axis_tree.with_context(context)
+            else:
+                cf_axis_tree = axis_tree
+            new_axis_trees.append(cf_axis_tree)
+        return self.with_axis_trees(new_axis_trees)
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong

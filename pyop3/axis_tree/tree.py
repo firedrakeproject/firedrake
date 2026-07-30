@@ -68,136 +68,84 @@ myreprs = set()
 seen = set()
 
 
-
 OWNED_REGION_LABEL = "owned"
 GHOST_REGION_LABEL = "ghost"
 
 
+class LoopContextAwareAxisTreeLike(pyop3.obj.Object):
+    """Base class for things that look like axis trees or forests."""
 
-
-class ExpectedLinearAxisTreeException(Pyop3Exception):
-    ...
-
-
-class ContextMismatchException(Pyop3Exception):
-    pass
-
-
-class MissingVariableException(Pyop3Exception):
-    """Exception raised when information about an axis variable is missing."""
-
-
-class InvalidExpressionException(Pyop3Exception):
-    pass
-
-
-
-
-class ContextAware(abc.ABC):
+    @property
     @abc.abstractmethod
-    def with_context(self, context):
+    def __getitem__(self, indices):
         pass
 
-
-class ContextSensitive(ContextAware, abc.ABC):
-    #     """Container of `IndexTree`s distinguished by outer loop information.
-    #
-    #     This class is required because multi-component outer loops can lead to
-    #     ambiguity in the shape of the resulting `IndexTree`. Consider the loop:
-    #
-    #     .. code:: python
-    #
-    #         loop(p := mesh.points, kernel(dat0[closure(p)]))
-    #
-    #     In this case, assuming ``mesh`` to be at least 1-dimensional, ``p`` will
-    #     loop over multiple components (cells, edges, vertices, etc) and each
-    #     component will have a differently sized temporary. This is because
-    #     vertices map to themselves whereas, for example, edges map to themselves
-    #     *and* the incident vertices.
-    #
-    #     A `SplitIndexTree` is therefore useful as it allows the description of
-    #     an `IndexTree` *per possible configuration of relevant loop indices*.
-    #
-    #     """
-    #
-
-    @cached_property
-    def loop_indices(self):
-        # all branches must have the same loop indices
-        return utils.single_valued(c.keys() for c in self.context_map.keys())
-
-    def with_context(self, context, *, strict=False):
-        if not strict:
-            context = self.filter_context(context)
-
-        try:
-            return self.context_map[context]
-        except KeyError:
-            raise ContextMismatchException
-
-    def filter_context(self, context):
-        return idict({
-            loop_index: path
-            for loop_index, path in context.items()
-            if loop_index in self.loop_indices
-        })
-
-    def _shared_attr(self, attr: str):
-        return single_valued(getattr(a, attr) for a in self.context_map.values())
-
-# this is basically just syntactic sugar, might not be needed
-# avoids the need for
-# if isinstance(obj, ContextSensitive):
-#     obj = obj.with_context(...)
-class ContextFree(ContextAware, abc.ABC):
-    def with_context(self, context):
-        return self
-
-    def filter_context(self, context):
-        return idict()
-
-    @property
-    def context_map(self):
-        return idict({idict(): self})
-
-
-class LoopIterable(abc.ABC):
-    """Class representing something that can be looped over.
-
-    In order for an object to be loop-able over it needs to have shape
-    (``axes``) and an index expression per leaf of the shape. The simplest
-    case is `AxisTree` since the index expression is just identity. This
-    contrasts with something like an `IndexedLoopIterable` or `CalledMap`.
-    For the former the index expression for ``axes[::2]`` would be ``2*i``
-    and for the latter ``map(p)`` would be something like ``map[i, j]``.
-
-    """
-
-    @abc.abstractmethod
-    def __getitem__(self, indices) -> LoopIterable | ContextSensitiveLoopIterable:
-        raise NotImplementedError
-
-    # not iterable in the Python sense
+    # Prevent defining __getitem__ making the class implicitly iterable
     __iter__ = None
 
-    # should be .iter() (and support eager=True)
-    # @abc.abstractmethod
-    # def index(self) -> LoopIndex:
-    #     pass
 
+class LoopContextFreeAxisTreeLike(LoopContextAwareAxisTreeLike, pyop3.labeled_tree.AbstractLabeledTreeLike):
+    """Base class for axis trees and forests that are independent of loop context."""
 
-class ContextFreeLoopIterable(LoopIterable, ContextFree, abc.ABC):
-    pass
-
-
-class ContextSensitiveLoopIterable(LoopIterable, ContextSensitive, abc.ABC):
     @property
-    def alloc_size(self):
-        return max(ax.alloc_size for ax in self.context_map.values())
+    @abc.abstractmethod
+    def trees(self) -> tuple[AbstractAxisTree, ...]:
+        pass
 
+    @property
+    @abc.abstractmethod
+    def unindexed(self) -> LoopContextFreeAxisTreeLike | None:
+        pass
 
-class UnrecognisedAxisException(ValueError):
-    pass
+    @property
+    @abc.abstractmethod
+    def owned(self) -> Self:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def unconstrained(self) -> Self:
+        pass
+
+    @abc.abstractmethod
+    def with_region_labels(self, *args, **kwargs) -> Self:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def region_sets(self) -> tuple[frozenset[str], ...]:
+         pass
+
+    @cached_property
+    def free(self) -> Self:
+        return self.with_region_labels({"owned", "unconstrained"}, allow_missing=True)
+
+    @abc.abstractmethod
+    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray:
+        """Indices of the buffer entries corresponding to this axis tree."""
+
+    @abc.abstractmethod
+    def buffer_size(self, *, include_ghosts: bool) -> int:
+        """The number of entries that a buffer built on this axis tree would have.
+
+        Since an axis tree may contain degenerate entries (entries that map to the
+        same offsets), this size may be less than the size of the tree itself.
+
+        """
+
+    @property
+    @abc.abstractmethod
+    def block_shape(self) -> tuple[int, ...]:
+        pass
+
+    @property
+    def block_size(self) -> int:
+        return np.prod(self.block_shape, dtype=int)
+
+    @property
+    @abc.abstractmethod
+    def sf(self) -> StarForest:
+        pass
 
 
 @pyop3.record.frozenrecord()
@@ -426,11 +374,6 @@ class AxisComponent(LabeledNodeComponent):
         else:
             return region_str
 
-    @cached_property
-    def regionless(self) -> AxisComponent:
-        assert False, "old code"
-        return self.record_new(regions=(AxisComponentRegion(self.local_size),), sf=None)
-
     @property
     def rank_equal(self) -> bool:
         """Return whether or not this axis component has constant size between ranks."""
@@ -533,15 +476,12 @@ class AxisComponent(LabeledNodeComponent):
 
 
 @pyop3.record.frozenrecord()
-class Axis(LoopIterable, MultiComponentLabeledNode):
+class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
 
     # {{{ instance attrs
 
     components: tuple[AxisComponent, ...]
     label: AxisLabelT
-
-    def collect_buffers(self, visitor):
-        return OrderedFrozenSet().union(*(map(visitor, self.components)))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
@@ -551,6 +491,9 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet().union(*(map(visitor, self.components)))
 
     def __init__(
         self,
@@ -573,15 +516,72 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
 
     # }}}
 
+    # {{{ LoopContextFreeAxisTreeLike interface impls
+
+    @cached_method()
+    def as_tree(self) -> AxisTree:
+        """Convert the axis to a tree that contains it."""
+        return AxisTree(self)
+
     def __getitem__(self, indices):
-        # NOTE: This *must* return an axis tree because that is where we attach
-        # index expression information. Just returning as_axis_tree(self).root
-        # here will break things.
-        # Actually this is not the case for "identity" slices since index_exprs
-        # and labels are unchanged (AxisTree vs IndexedAxisTree)
-        # TODO: return a flat axis in these cases
-        # TODO: Introduce IndexedAxis as an object to get around things here. It is really clunky to have to extract .root occasionally.
-        return self._tree[indices]
+        # TODO: It would be nice to have an IndexedAxis type returned here
+        # instead of an IndexedAxisTree.
+        return self.as_tree()[indices]
+
+    def iter(self, **kwargs):
+        return self.as_tree().iter(**kwargs)
+
+    @property
+    def is_linear(self):
+        return self.as_tree().is_linear
+
+    @property
+    def trees(self):
+        return (self.as_tree(),)
+
+    @property
+    def unindexed(self):
+        return self.as_tree()
+
+    @cached_property
+    def owned(self) -> Axis:
+        return self.as_tree().owned.root
+
+    @cached_property
+    def unconstrained(self) -> Axis:
+        return self.as_tree().unconstrained.root
+
+    @cached_property
+    def region_sets(self) -> Axis:
+        return self.as_tree().region_sets
+
+    @cached_property
+    def with_region_labels(self, *args, **kwargs) -> Axis:
+        return self.as_tree().with_region_labels(*args, **kwargs)
+
+    @cached_property
+    def sf(self) -> Axis:
+        return self.as_tree().sf
+
+    @property
+    def size(self):
+        return self.as_tree().size
+
+    @property
+    def local_size(self):
+        return self.as_tree().local_size
+
+    @property
+    def block_shape(self) -> tuple[int, ...]:
+        return ()
+
+    def buffer_size(self, **kwargs) -> int:
+        return self.as_tree().buffer_size(**kwargs)
+
+    def buffer_slice(self, **kwargs):
+        return self.as_tree().buffer_slice(**kwargs)
+
+    # }}}
 
     def __call__(self, *args):
         from .parse import as_axis_tree
@@ -606,10 +606,6 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
         else:
             return self.record_new(components=tuple(c for c in self.components if c.label == component_label))
 
-    @cached_property
-    def regionless(self) -> Axis:
-        return self.record_new(components=tuple(c.regionless for c in self.components))
-
     @property
     def component_labels(self):
         return tuple(c.label for c in self.components)
@@ -626,52 +622,19 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
         return self.components[self.component_index(component_label)]
 
     @property
-    def size(self):
-        return self._tree.size
-
-    @property
-    def local_size(self):
-        return self._tree.local_size
-
-    @property
     def count(self):
         """Return the total number of entries in the axis across all axis parts.
         Will fail if axis parts do not have integer counts.
         """
+        assert False, "used?"
         # hacky but right (no inner shape)
         return self.size
-
-    @cached_property
-    def count_per_component(self):
-        return idict({c.label: c.count for c in self.components})
-
-    @cached_property
-    def owned(self):
-        return self._tree.owned.root
-
-    def iter(self, **kwargs) -> LoopIndex | GeneratorType[IteratorIndexT]:
-        return self._tree.iter(**kwargs)
 
     @deprecated("as_tree")
     @property
     def axes(self):
+        assert False, "used?"
         return self.as_tree()
-
-    def as_tree(self) -> AxisTree:
-        """Convert the axis to a tree that contains it.
-
-        Returns
-        -------
-        Axis Tree
-            TODO
-
-        Notes
-        -----
-        The result of this function is cached because `AxisTree`s are immutable
-        and we want to cache expensive computations on them.
-
-        """
-        return self._tree
 
     @cached_method()
     def localize(self):
@@ -680,10 +643,6 @@ class Axis(LoopIterable, MultiComponentLabeledNode):
     @cached_method()
     def regionless(self):
         return self.record_new(components=tuple(c.regionless() for c in self.components))
-
-    @cached_property
-    def _tree(self):
-        return AxisTree(self)
 
     @staticmethod
     def _parse_components(components):
@@ -748,82 +707,7 @@ def _getitem_cache_key(indices, *, strict=False) -> Hashable:
     return (indices, strict)
 
 
-class AbstractAxisTreeLike(pyop3.labeled_tree.AbstractLabeledTreeLike):
-    """Base class for things that look like axis trees or forests."""
-
-    # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def trees(self) -> tuple[AbstractAxisTree, ...]:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def unindexed(self) -> AbstractAxisTreeLike | None:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def owned(self) -> Self:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def unconstrained(self) -> Self:
-        pass
-
-    @abc.abstractmethod
-    def with_region_labels(self, *args, **kwargs) -> Self:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def region_sets(self) -> tuple[frozenset[str], ...]:
-         pass
-
-    @abc.abstractmethod
-    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray:
-        """Indices of the buffer entries corresponding to this axis tree."""
-
-    @abc.abstractmethod
-    def buffer_size(self, *, include_ghosts: bool) -> int:
-        """The number of entries that a buffer built on this axis tree would have.
-
-        Since an axis tree may contain degenerate entries (entries that map to the
-        same offsets), this size may be less than the size of the tree itself.
-
-        """
-
-    @property
-    @abc.abstractmethod
-    def block_shape(self) -> tuple[int, ...]:
-        pass
-
-    # TODO: This is actually a property of a LabeledTree, we should have LabeledTreeLike
-    # for axis forests
-    @property
-    @abc.abstractmethod
-    def is_linear(self) -> bool:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def sf(self) -> StarForest:
-        pass
-
-    # }}}
-
-    @cached_property
-    def free(self) -> Self:
-        return self.with_region_labels({"owned", "unconstrained"}, allow_missing=True)
-
-    @property
-    def block_size(self) -> int:
-        return np.prod(self.block_shape, dtype=int)
-
-
-class AbstractAxisTree(AbstractAxisTreeLike):
+class AbstractAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for non-forest axis tree types."""
 
     # {{{ interface impls
@@ -839,6 +723,11 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     """Base class for 'unit' (1-sized) axis trees."""
 
     # {{{ interface impls
+
+    def __getitem__(self, indices) -> Self:
+        if indices is not Ellipsis:
+            raise ValueError
+        return self
 
     @property
     def owned(self):
@@ -871,7 +760,7 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     node_map = idict({idict(): None})
 
 
-class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIterable):
+class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     """Base class for non-unit axis trees."""
 
     # {{{ abstract methods
@@ -1282,7 +1171,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
         return vec
 
 
-class AbstractUnindexedAxisTree(AbstractAxisTreeLike):
+class AbstractUnindexedAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for axis trees that are not indexed."""
 
     @property
@@ -1290,7 +1179,7 @@ class AbstractUnindexedAxisTree(AbstractAxisTreeLike):
         return self
 
 
-class AbstractIndexedAxisTree(AbstractAxisTreeLike):
+class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for axis trees that are indexed."""
 
     @cached_property
@@ -1314,11 +1203,11 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet()
 
+    # }}}
+
     @property
     def comm(self):
         return MPI.COMM_SELF
-
-    # }}}
 
     # {{{ interface impls
 
@@ -2269,7 +2158,7 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
 
 
 @pyop3.record.frozenrecord()
-class AxisForest(AbstractAxisTreeLike):
+class AxisForest(LoopContextFreeAxisTreeLike):
     """A collection of equivalent axis trees.
 
     Axis forests are useful to describe circumstances where there are multiple
@@ -2287,7 +2176,7 @@ class AxisForest(AbstractAxisTreeLike):
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self._trees)))
 
-    def __new__(cls, *args, **kwargs) -> AbstractAxisTreeLike:
+    def __new__(cls, *args, **kwargs) -> LoopContextFreeAxisTreeLike:
         if args:
             trees = utils.just_one(args)
             assert not kwargs
@@ -2313,12 +2202,12 @@ class AxisForest(AbstractAxisTreeLike):
 
     # }}}
 
-    # {{{ interface impls (AbstractAxisTreeLike)
+    # {{{ interface impls (LoopContextFreeAxisTreeLike)
 
     trees = pyop3.record.attr("_trees")
 
     @cached_property
-    def unindexed(self) -> AbstractAxisTreeLike | None:
+    def unindexed(self) -> LoopContextFreeAxisTreeLike | None:
         return type(self)(t.unindexed for t in self.trees)
 
     @property
@@ -2386,6 +2275,8 @@ class AxisForest(AbstractAxisTreeLike):
 
     @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False):
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
+
         if utils.is_ellipsis_type(indices):
             return self
 
@@ -2401,7 +2292,7 @@ class AxisForest(AbstractAxisTreeLike):
             raise RuntimeError("Cannot find any indexable candidates")
 
         if utils.strictly_all(
-            isinstance(indexed_tree, ContextSensitiveAxisTree) for indexed_tree in indexed_trees
+            isinstance(indexed_tree, LoopContextSensitiveAxisTreeLike) for indexed_tree in indexed_trees
         ):
             cs_trees = indexed_trees
             # We currently assume that if things are context sensitive then
@@ -2423,7 +2314,7 @@ class AxisForest(AbstractAxisTreeLike):
                     context_map2[loop_context] = utils.just_one(trees)
                 else:
                     context_map2[loop_context] = AxisForest(trees)
-            return ContextSensitiveAxisTree(context_map2)
+            return LoopContextSensitiveAxisTreeLike(context_map2)
 
         else:
             indexed_trees_ = []
@@ -2502,70 +2393,6 @@ class AxisForest(AbstractAxisTreeLike):
             b.data_ro_with_halos for b in buffers
         ))
         return Dat(self, buffer=buffers[0])
-
-
-@pyop3.record.frozenrecord()
-class ContextSensitiveAxisTree(pyop3.obj.Object, ContextSensitiveLoopIterable):
-
-    # {{{ instance attrs
-
-    trees: idict  # context to tree
-
-    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        trees_key = {}
-        for path, tree in self.trees.items():
-            trees_key[visitor.relabel_axis_tree_path(path)] = visitor(tree)
-        trees_key = idict(trees_key)
-        return (type(self), trees_key)
-
-    def __init__(self, trees: Mapping):
-        trees=idict(trees)
-        object.__setattr__(self, "trees", trees)
-
-    # }}}
-
-    @property
-    def context_map(self):  # old alias
-        return self.trees
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.context_map!r})"
-
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{context}\n{tree}" for context, tree in self.context_map.items()
-        )
-
-    def __getitem__(self, indices) -> ContextSensitiveAxisTree:
-        raise NotImplementedError
-        # TODO think harder about composing context maps
-        # answer is something like:
-        # new_context_map = {}
-        # for context, axes in self.context_map.items():
-        #     for context_, axes_ in index_axes(axes, indices).items():
-        #         new_context_map[context | context_] = axes_
-        # return ContextSensitiveAxisTree(new_context_map)
-
-    def index(self) -> LoopIndex:
-        from pyop3.index_tree import LoopIndex
-
-        return LoopIndex(self)
-
-    @cached_property
-    def datamap(self):
-        return merge_dicts(axes.datamap for axes in self.context_map.values())
-
-    @cached_property
-    def sf(self):
-        return single_valued([ax.sf for ax in self.context_map.values()])
-
-    @cached_property
-    def unindexed(self):
-        return single_valued([ax.unindexed for ax in self.context_map.values()])
-
-    @cached_property
-    def context_free(self):
-        return just_one(self.context_map.values())
 
 
 def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> AxisTree:
@@ -2922,11 +2749,6 @@ def trim_axis_targets(targets, to_trim):
         ]
         for path, axis_targetss in targets.items()
     })
-
-
-# ContextFreeSingleAxisTreeT = ???
-# ContextFreeAxisTreeT = ContextFreeSingleAxisTreeT | AxisForest
-# AxisTreeT = ContextFreeAxisTreeT | ContextSensitiveAxisTree
 
 
 def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:

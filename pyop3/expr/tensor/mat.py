@@ -234,13 +234,9 @@ class Mat(Tensor):
         indexed_column_axes = self.column_axes.getitem(column_index, strict=strict)
         return self.record_new(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
 
-    def with_context(self, context):
-        cf_row_axes = self.row_axes.with_context(context)
-        cf_column_axes = self.column_axes.with_context(context)
-        return self.record_new(row_axes=cf_row_axes, column_axes=cf_column_axes)
-
-    def with_axes(self, row_axes, col_axes):
-        return self.record_new(row_axes=row_axes, column_axes=col_axes)
+    def with_axis_trees(self, axis_trees):
+        row_axes, column_axes = axis_trees
+        return self.record_new(row_axes=row_axes, column_axes=column_axes)
 
     def null_like(self, **kwargs) -> Mat:
         return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
@@ -446,6 +442,7 @@ class AggregateMat(pyop3.obj.Object):
         return self.submats
 
     def with_context(self, context):
+        assert False, "redo me"
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)

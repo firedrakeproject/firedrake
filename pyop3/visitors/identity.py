@@ -7,6 +7,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
 import pyop3.expr
+import pyop3.insn
 import pyop3.node
 from pyop3 import utils
 

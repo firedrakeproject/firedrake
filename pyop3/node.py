@@ -208,6 +208,7 @@ class LabeledTreeVisitor(Visitor):
     """
 
     def __init__(self):
+        assert False, "used?"
         # FIXME: component.size is unique to each axis object, but the cache
         # keys used aren't. This means that we hit cache erroneously sometimes.
         super().__init__(visited_cache=op3_collections.AlwaysEmptyDict())

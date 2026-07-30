@@ -346,9 +346,9 @@ class Dat(Tensor):
         buffer = self.buffer.duplicate(copy=copy, constant=constant)
         return self.record_new(name=name, buffer=buffer)
 
-    # TODO: dont do this here
-    def with_context(self, context):
-        return self.record_new(axes=self.axes.with_context(context))
+    def with_axis_trees(self, axis_trees):
+        axes = utils.just_one(axis_trees)
+        return self.record_new(axes=axes)
 
     @property
     def context_free(self):

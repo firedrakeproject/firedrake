@@ -20,21 +20,17 @@ from mpi4py import MPI
 
 import pyop3.record
 from pyop3 import utils
-from pyop3.axis_tree import (
+from pyop3.axis_tree.tree import (
     Axis,
     AxisComponent,
     AxisComponentRegion,
     AxisForest,
     AxisTree,
-    LoopIterable,
-)
-from pyop3.axis_tree.tree import (
     GHOST_REGION_LABEL,
     OWNED_REGION_LABEL,
     UNIT_AXIS_TREE,
     AbstractNonUnitAxisTree,
     AxisTarget,
-    ContextSensitiveLoopIterable,
     IndexedAxisTree,
     UnitIndexedAxisTree,
     complete_axis_targets,
@@ -658,13 +654,11 @@ class Slice(Index):
 
 class AbstractMap(pyop3.obj.Object):
 
-    # {{{ abstract methods
+    __abstract_record_attrs = ("connectivity",)
 
     @abc.abstractmethod
     def __call__(self, index):
          pass
-
-    # }}}
 
 
 @pyop3.record.frozenrecord()
@@ -729,7 +723,7 @@ class Map(AbstractMap):
 
     # {{{ instance attrs
 
-    _connectivity: idict
+    connectivity: idict
     name: str  # should delete this
 
     # a class var
@@ -741,74 +735,15 @@ class Map(AbstractMap):
             # lazy unique name
             name = f"_Map_{self.counter}"
             self.counter += 1
-        object.__setattr__(self, "_connectivity", utils.freeze(connectivity))
+        object.__setattr__(self, "connectivity", utils.freeze(connectivity))
         object.__setattr__(self, "name", name)
 
     # }}}
 
     # {{{ interface impls
 
-    connectivity = pyop3.record.attr("_connectivity")
-
     def __call__(self, index, /) -> CalledMap:
-        # If the input index is context-free then we should return something context-free
-        # TODO: Should be encoded in some mixin type
-        # if isinstance(index, ContextFreeIndex):
-        # if isinstance(index, (ContextFreeIndex, ContextFreeCalledMap)):
-        if False:
-            return ContextFreeCalledMap(self, index)
-
-            # equiv_domainss = tuple(frozenset(mappings.keys()) for mappings in self.connectivity)
-            #
-            # map_targets = []
-            # empty = True
-            # for equiv_call_index_targets in index.leaf_target_paths:
-            #
-            #     domain_index = None
-            #     for call_index_target in equiv_call_index_targets:
-            #         for i, equiv_domains in enumerate(equiv_domainss):
-            #             if call_index_target in equiv_domains:
-            #                 assert domain_index in {None, i}
-            #                 domain_index = i
-            #
-            #     if domain_index is None:
-            #         continue
-            #
-            #     empty = False
-            #
-            #     equiv_mappings = self.connectivity[domain_index]
-            #     ntargets = single_valued(len(mcs) for mcs in equiv_mappings.values())
-            #
-            #     for itarget in range(ntargets):
-            #         equiv_map_targets = []
-            #         for call_index_target in equiv_call_index_targets:
-            #             if call_index_target not in equiv_domainss[domain_index]:
-            #                 continue
-            #
-            #             orig_component = equiv_mappings[call_index_target][itarget]
-            #
-            #             # We need to be careful with the slice here because the source
-            #             # label needs to match the generated axis later on.
-            #             orig_array = orig_component.array
-            #             leaf_axis, leaf_component_label = orig_array.axes.leaf
-            #             myslice = Slice(leaf_axis.label, [AffineSliceComponent(leaf_component_label, label=leaf_component_label)], label=self.name)
-            #             newarray = orig_component.array[index, myslice]
-            #
-            #             indexed_component = orig_component.copy(array=newarray)
-            #             equiv_map_targets.append(indexed_component)
-            #         equiv_map_targets = tuple(equiv_map_targets)
-            #         map_targets.append(equiv_map_targets)
-            #
-            # if empty:
-            #     import warnings
-            #     warnings.warn(
-            #         "Provided index is not recognised by the map, so the "
-            #         "resulting axes will be empty."
-            #     )
-            #
-            # return ContextFreeCalledMap(self, index, map_targets)
-        else:
-            return CalledMap(self, index)
+        return CalledMap(self, index)
 
     # }}}
 
@@ -824,12 +759,13 @@ class ScalarMap(AbstractMap):
 
     """
 
+    connectivity: idict
     _name: str
 
     def __init__(self, connectivity, name):
         connectivity = utils.freeze(connectivity)
 
-        object.__setattr__(self, "_connectivity", connectivity)
+        object.__setattr__(self, "connectivity", connectivity)
         object.__setattr__(self, "_name", name)
 
     def __record_post_init(self) -> None:
@@ -845,7 +781,6 @@ class ScalarMap(AbstractMap):
 
     # {{{ interface impls
 
-    connectivity = pyop3.record.attr("_connectivity")
     name = pyop3.record.attr("_name")
 
     def __call__(self, index, /) -> UnitCalledMap:
@@ -854,23 +789,8 @@ class ScalarMap(AbstractMap):
     # }}}
 
 
-class ContextSensitiveException(Pyop3Exception):
-    """Exception raised when an index is sensitive to the loop index."""
-
-
-class UnspecialisedCalledMapException(Pyop3Exception):
-    """Exception raised when an unspecialised map is used in place of a specialised one.
-
-    This is important for cases like closure(cell) where the result can be either
-    a set of points, or sets of cells, edges, and vertices. We say that it is 'unspecialised'
-    because it cannot be put into an `IndexTree` and instead should yield two trees as
-    an `IndexForest`.
-
-    """
-
-
 # TODO: I think these parent types are no longer used/useful
-class AbstractCalledMap(AxisIndependentIndex, Labeled, LoopIterable):
+class AbstractCalledMap(AxisIndependentIndex, Labeled):
 
     # {{{ abstract methods
 
@@ -883,58 +803,6 @@ class AbstractCalledMap(AxisIndependentIndex, Labeled, LoopIterable):
     @abc.abstractmethod
     def index(self) -> LoopIndex | AbstractCalledMap:
          pass
-
-    # }}}
-
-    # {{{ interface impls
-
-    def __getitem__(self, indices):
-        raise NotImplementedError("TODO")
-        # figure out the current loop context, just a single loop index
-        # from_index = self.from_index
-        # while isinstance(from_index, CalledMap):
-        #     from_index = from_index.from_index
-        # existing_loop_contexts = tuple(
-        #     freeze({from_index.id: path}) for path in from_index.paths
-        # )
-        #
-        # index_forest = {}
-        # for existing_context in existing_loop_contexts:
-        #     axes = self.with_context(existing_context)
-        #     index_forest.update(
-        #         as_index_forest(indices, axes=axes, loop_context=existing_context)
-        #     )
-        #
-        # array_per_context = {}
-        # for loop_context, index_tree in index_forest.items():
-        #     indexed_axes = index_axes(index_tree, loop_context, self.axes)
-        #
-        #     (
-        #         target_paths,
-        #         index_exprs,
-        #         layout_exprs,
-        #     ) = _compose_bits(
-        #         self.axes,
-        #         self.target_paths,
-        #         self.index_exprs,
-        #         None,
-        #         indexed_axes,
-        #         indexed_axes.target_paths,
-        #         indexed_axes.index_exprs,
-        #         indexed_axes.layout_exprs,
-        #     )
-        #
-        #     array_per_context[loop_context] = Dat(
-        #         indexed_axes,
-        #         data=self.array,
-        #         layouts=self.layouts,
-        #         target_paths=target_paths,
-        #         index_exprs=index_exprs,
-        #         name=self.name,
-        #         max_value=self.max_value,
-        #     )
-        # return ContextSensitiveMultiArray(array_per_context)
-
 
     # }}}
 
@@ -1097,10 +965,6 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
 
 
-class ContextSensitiveCalledMap(ContextSensitiveLoopIterable):
-    pass
-
-
 class InvalidIndexException(Pyop3Exception):
     pass
 
@@ -1187,7 +1051,7 @@ def _index_axes_per_index(index: Index, /, *args, **kwargs) -> tuple[AxisTree, t
 
     Case 1: loop indices
 
-    Assume we have ``axis[p]`` with ``p`` a `ContextFreeLoopIndex`.
+    Assume we have ``axis[p]`` with ``p`` a linear loop index.
     If p came from other_axis[::2].iter(), then it has *2* possible
     target paths and expressions: over the indexed or unindexed trees.
     Therefore when we index axis with p we must account for this, hence all
@@ -2265,3 +2129,51 @@ def _collect_leaf_target_paths_per_leaf(axes, leaf_path):
     leaf_targets = _collect_leaf_targets_per_leaf(axes, leaf_path, None, UniqueList())
     for leaf_target in leaf_targets:
         yield merge_dicts(t.path for t in leaf_target)
+
+
+class LoopContextSensitive:
+    """Class that looks different depending on the loop index branch."""
+    #     """Container of `IndexTree`s distinguished by outer loop information.
+    #
+    #     This class is required because multi-component outer loops can lead to
+    #     ambiguity in the shape of the resulting `IndexTree`. Consider the loop:
+    #
+    #     .. code:: python
+    #
+    #         loop(p := mesh.points, kernel(dat0[closure(p)]))
+    #
+    #     In this case, assuming ``mesh`` to be at least 1-dimensional, ``p`` will
+    #     loop over multiple components (cells, edges, vertices, etc) and each
+    #     component will have a differently sized temporary. This is because
+    #     vertices map to themselves whereas, for example, edges map to themselves
+    #     *and* the incident vertices.
+    #
+    #     A `SplitIndexTree` is therefore useful as it allows the description of
+    #     an `IndexTree` *per possible configuration of relevant loop indices*.
+    #
+    #     """
+    #
+
+    @cached_property
+    def loop_indices(self):
+        # all branches must have the same loop indices
+        return utils.single_valued(c.keys() for c in self.context_map)
+
+    def with_context(self, context, *, strict=False):
+        if not strict:
+            context = self.filter_context(context)
+
+        try:
+            return self.context_map[context]
+        except KeyError:
+            raise ContextMismatchException
+
+    def filter_context(self, context):
+        return idict({
+            loop_index: path
+            for loop_index, path in context.items()
+            if loop_index in self.loop_indices
+        })
+
+    def _shared_attr(self, attr: str):
+        return single_valued(getattr(a, attr) for a in self.context_map.values())

@@ -26,6 +26,7 @@ class BufferCollector(LabeledTreeVisitor):
     EMPTY = OrderedFrozenSet()
 
     def __init__(self, expr_collector: ExprBufferCollector | None = None, *, shallow: bool = False) -> None:
+        assert False, "old code"
         self._lazy_expr_collector = expr_collector
         self.shallow = shallow
         super().__init__()
