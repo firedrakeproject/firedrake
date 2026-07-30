@@ -124,7 +124,6 @@ class LoopyContext(object):
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
         self.index_parents = {}  # iname -> parent inames bounding a jagged index
-        self.index_lengths = {}  # iname -> (parent iname, row lengths)
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
         self.target = target
@@ -259,8 +258,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
 
     # Create domains
-    domains = create_domains(
-        ctx.index_extent.items(), ctx.index_parents, ctx.index_lengths)
+    domains = create_domains(ctx.index_extent.items(), ctx.index_parents)
 
     # Create loopy kernel
     knl = lp.make_kernel(
@@ -279,29 +277,23 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     return knl, event_name
 
 
-def create_domains(indices, index_parents=None, index_lengths=None):
-    """Create ISL domains from rectangular and parent-bounded indices."""
+def create_domains(indices, index_parents=None):
+    """ Create ISL domains from indices
+
+    :arg indices: iterable of (index_name, extent) pairs
+    :arg index_parents: optional mapping from index_name to a tuple of parent
+        index names; the domain of a jagged index is parametrized by its
+        parents, with upper bound extent minus the sum of the parents.
+    :returns: A list of ISL sets representing the iteration domain of the indices."""
+
     domains = []
     for idx, extent in indices:
-        if index_lengths and idx in index_lengths:
-            parent, lengths = index_lengths[idx]
-            inames = isl.make_zero_and_vars([idx], [parent])
-            domain = None
-            for parent_value, length in enumerate(lengths):
-                piece = (inames[0].le_set(inames[idx])
-                         & inames[idx].lt_set(inames[0] + length)
-                         & inames[parent].eq_set(
-                             inames[0] + parent_value))
-                domain = piece if domain is None else domain.union(piece)
-            domains.append(domain)
-            continue
         parents = index_parents.get(idx, ()) if index_parents else ()
         inames = isl.make_zero_and_vars([idx], parents)
         bound = inames[0] + extent
         for parent in parents:
             bound = bound - inames[parent]
-        domains.append(inames[0].le_set(inames[idx])
-                       & inames[idx].lt_set(bound))
+        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(bound))))
 
     if not domains:
         domains = [isl.BasicSet("[] -> {[]}")]
@@ -339,11 +331,6 @@ def statement_for(tree, ctx):
         # remains correct: jagged expressions are zero-padded.
         ctx.index_parents[idx] = tuple(ctx.active_indices[parent].name
                                        for parent in tree.index.parents)
-    elif isinstance(tree.index, gem.RaggedIndex):
-        parent, = tree.index.parents
-        if parent in ctx.active_indices:
-            ctx.index_lengths[idx] = (
-                ctx.active_indices[parent].name, tree.index.lengths)
     with active_indices({tree.index: p.Variable(idx)}, ctx) as ctx_active:
         return statement(tree.children[0], ctx_active)
 
@@ -443,12 +430,6 @@ def _expression(expr, ctx):
 @_expression.register(gem.Failure)
 def _expression_failure(expr, ctx):
     raise expr.exception
-
-
-@_expression.register(gem.FactorisationAtom)
-def _expression_factorisation_atom(expr, ctx):
-    expression_, = expr.children
-    return expression(expression_, ctx)
 
 
 @_expression.register(gem.Product)
