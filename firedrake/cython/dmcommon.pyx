@@ -1186,7 +1186,6 @@ def entity_orientations(mesh, np.ndarray cell_closure):
     See :meth:`~.AbstractMeshTopology.entity_orientations` for details on the
     returned array.
 
-    See :func:`~.get_cell_nodes` for the usage of the returned array.
     """
     cdef:
         PETSc.DM dm
@@ -3033,44 +3032,6 @@ def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientati
         CHKERR(PetscFree(new_values))
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
-    """Build an array of global numbers for local dofs
-
-    :arg lsec: Section describing local dof layout and numbers.
-    :arg gsec: Section describing global dof layout and numbers."""
-    cdef:
-        PetscInt c, cc, p, pStart, pEnd, dof, cdof, loff, goff
-        np.ndarray val
-        const PetscInt *dof_array = NULL
-
-    val = np.empty(lsec.getStorageSize(), dtype=IntType)
-    pStart, pEnd = lsec.getChart()
-    for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
-        CHKERR(PetscSectionGetConstraintDof(lsec.sec, p, &cdof))
-        if dof > 0:
-            CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
-            CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
-            goff = cabs(goff)
-            if cdof > 0:
-                CHKERR(PetscSectionGetConstraintIndices(lsec.sec, p, &dof_array))
-                for c in range(dof):
-                    val[loff + c] = -2
-                for c in range(cdof):
-                    val[loff + dof_array[c]] = -1
-                cc = 0
-                for c in range(dof):
-                    if val[loff + c] < -1:
-                        val[loff + c] = goff + cc
-                        cc += 1
-            else:
-                for c in range(dof):
-                    val[loff + c] = goff + c
-    return val
-
-
 cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
@@ -3844,41 +3805,6 @@ def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     filtered_is = is_.duplicate()
     PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
     return filtered_is
-
-
-# TODO: also do for ragged maps
-# TODO: the naming conventions here do not make it clear that we are 'localising'
-# the indices when we call getOffset
-# def renumber_map_fixed(
-#     # src_pts: np.ndarray[IntType, ndim=1],  should be cnp.ndarray...
-#     # map_data: np.ndarray[IntType, ndim=2],
-#     src_pts,
-#     map_data,
-#     src_numbering: PETSc.Section,
-#     dest_numbering: PETSc.Section,
-# ) -> np.ndarray[IntType]:
-#     """
-#     """
-#     cdef:
-#         PetscInt num_src_pts_c, num_dest_pts_c, i_c, j_c, src_pt_c, src_pt_renum_c, dest_pt_c, dest_pt_renum_c
-#
-#     num_src_pts_c, num_dest_pts_c = map_data.shape
-#     assert src_pts.shape == (num_src_pts_c,)
-#
-#     map_data_renum = np.empty_like(map_data)
-#     for i_c in range(num_src_pts_c):
-#         src_pt_c = src_pts[i_c]
-#         PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
-#         for j_c in range(num_dest_pts_c):
-#             dest_pt_c = map_data[i_c, j_c]
-#             if dest_pt_c == -1:
-#                 map_data_renum[src_pt_renum_c, j_c] = -1
-#             elif dest_numbering.getDof(dest_pt_c) == 1:
-#                 PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
-#                 map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
-#             else:
-#                 map_data_renum[src_pt_renum_c, j_c] = -1
-#     return utils.readonly(map_data_renum)
 
 
 # TODO: petsc4py
