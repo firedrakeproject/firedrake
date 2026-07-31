@@ -6,6 +6,8 @@ from firedrake import *
 @pytest.fixture(params=[(2, "occ"), (2, "spline"), (2, "csg"), (3, "occ"), (3, "csg")],
                 ids=lambda val: "-".join(map(str, val)))
 def ngmesh(request):
+    if COMM_WORLD.rank != 0:
+        return None
     dim, geo_type = request.param
     maxh = 0.75
     if dim == 2:
@@ -67,14 +69,21 @@ def test_netgen_mg(ngmesh, netgen_degree):
         assert not coords_space.finat_element.is_dg()
 
     errors = []
+    if COMM_WORLD.rank == 0:
+        labels = [
+            i + 1 for i, name in enumerate(
+                ngmesh.GetRegionNames(codim=1)
+            ) if name == "surface"
+        ]
+    else:
+        labels = None
+    labels = COMM_WORLD.bcast(labels, root=0)
     for mesh in mh[1:]:
         V = FunctionSpace(mesh, "CG", 3)
         u = TrialFunction(V)
         v = TestFunction(V)
 
         a = inner(grad(u), grad(v)) * dx
-        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["surface"]]
-
         x = SpatialCoordinate(mesh)
         uexact = 1-dot(x, x)
         bcs = DirichletBC(V, 0, labels)

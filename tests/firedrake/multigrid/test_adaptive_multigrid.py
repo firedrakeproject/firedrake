@@ -55,7 +55,6 @@ def coarse_mesh(request):
         raise NotImplementedError(f"Unrecognized mesher {mesher}")
 
 
-@pytest.fixture
 def mh(coarse_mesh):
     return corner_adaptive_hierarchy(coarse_mesh, nlevels=2)
 
@@ -275,15 +274,15 @@ def test_adapt_preserves_mesh_metadata(degree):
     markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1)
     refined = mesh.refine_marked_elements(markers)
 
-    assert refined.netgen_mesh is not None
-    assert refined.netgen_flags == mesh.netgen_flags
+    assert refined._geometry_source is not None
+    assert refined._geometry_source.options == mesh._geometry_source.options
     assert refined._distribution_parameters == mesh._distribution_parameters
     assert refined.tolerance == mesh.tolerance
     assert refined.coordinates.function_space().ufl_element().degree() == degree
 
     markers = Function(FunctionSpace(refined, "DG", 0)).assign(1)
     twice_refined = refined.refine_marked_elements(markers)
-    assert twice_refined.netgen_flags == mesh.netgen_flags
+    assert twice_refined._geometry_source.options == mesh._geometry_source.options
     assert twice_refined._distribution_parameters == mesh._distribution_parameters
     assert twice_refined.coordinates.function_space().ufl_element().degree() == degree
 
@@ -292,7 +291,7 @@ def test_adapt_preserves_mesh_metadata(degree):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     """A hierarchy built by uniform refinement can be adaptively refined."""
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
+    netgen_flags = {} if coarse_mesh._geometry_source is not None else None
     mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
     _assert_adapt_after_uniform_refinement(mh)
 
