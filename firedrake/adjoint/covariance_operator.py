@@ -3,6 +3,7 @@ from enum import Enum
 from functools import cached_property
 from typing import Iterable
 from textwrap import dedent
+import math
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
@@ -420,7 +421,7 @@ class WhiteNoiseGenerator:
 
 # Auto-regressive function parameters
 
-def lengthscale_m(Lar: float, m: int):
+def lengthscale_m(Lar: float, m: int, dim: int):
     """Daley-equivalent lengthscale of m-th order autoregressive function.
 
     Parameters
@@ -429,16 +430,18 @@ def lengthscale_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     L : float
         Lengthscale parameter for autoregressive function.
     """
-    return Lar/sqrt(2*m - 3)
+    return Lar/sqrt(2*m - dim - 2)
 
 
-def lambda_m(Lar: float, m: int):
+def lambda_m(Lar: float, m: int, dim: int):
     """Normalisation factor for autoregressive function.
 
     Parameters
@@ -447,19 +450,30 @@ def lambda_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     lambda : float
         Normalisation coefficient for autoregressive correlation operator.
     """
-    L = lengthscale_m(Lar, m)
-    num = (2**(2*m - 1))*factorial(m - 1)**2
-    den = factorial(2*m - 2)
-    return L*num/den
+    L = lengthscale_m(Lar, m, dim)
+    if dim == 1:
+        num = (2**(2*m - 1))*factorial(m - 1)**2
+        den = factorial(2*m - 2)
+        return (num/den)*L
+    elif dim == 2:
+        return 4*math.pi*(m - 1)*(L**2)
+    elif dim == 3:
+        num = (2**(2*m - 1))*math.pi*(factorial(m - 2)**2)*(m - 1)
+        den = factorial(2*m - 4)
+        return (num/den)*(L**3)
+    else:
+        raise NotImplementedError(f"Not implemented for {dim=} yet")
 
 
-def kappa_m(Lar: float, m: int):
+def kappa_m(Lar: float, m: int, dim: int):
     """Diffusion coefficient for autoregressive function.
 
     Parameters
@@ -468,13 +482,15 @@ def kappa_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     kappa : float
         Diffusion coefficient for autoregressive covariance operator.
     """
-    return lengthscale_m(Lar, m)**2
+    return lengthscale_m(Lar, m, dim)**2
 
 
 class CovarianceOperatorBase:
@@ -827,8 +843,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
             if isinstance(form, self.DiffusionForm):
-                self.kappa = Constant(kappa_m(L, m))
-                self.lambda_m = Constant(lambda_m(L, m))
+                dim = V.mesh().ufl_cell().topological_dimension
+                self.kappa = Constant(kappa_m(L, m, dim))
+                self.lambda_m = Constant(lambda_m(L, m, dim))
                 self._weight = Constant(sigma*sqrt(self.lambda_m))
                 K = diffusion_form(u, v, self.kappa, formulation=form)
             else:
@@ -984,7 +1001,8 @@ def diffusion_form(u, v, kappa: Constant | Function,
         n = FacetNormal(mesh)
         h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
-        alpha_h = Constant(4.0)/h_avg
+        k = v.function_space().ufl_element().degree()
+        alpha_h = Constant(5 * (k+1)**2)/h_avg
         return (
             inner(u, v)*dx + kappa*(
                 inner(grad(u), grad(v))*dx
