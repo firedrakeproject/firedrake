@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 import finat
+from functools import partial
 from os.path import abspath, dirname, join
 
 
@@ -374,3 +375,181 @@ def test_submesh_assign_function_redistributed_subdomain(family, degree):
     g = Function(V).interpolate(expr)
     g.assign(f_sub, allow_missing_dofs=True)
     assert np.allclose(norm(g - f), 0)
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_assign_cell_subset_redistributed():
+    # A cell subset of the parent mesh assigned from a redistributed submesh
+    # that does not share the parent's parallel distribution.
+    sentinel = -1.0
+    mesh = UnitSquareMesh(6, 6)
+    x, y = SpatialCoordinate(mesh)
+    marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x < 0.5, 1, 0))
+    mesh.mark_entities(marker, 7)
+
+    V = FunctionSpace(mesh, "CG", 2)
+    source = Function(V).interpolate(sin(3 * x))
+    submesh = Submesh(mesh, subdomain_id=7, redistribute=True)
+    x_sub, _ = SpatialCoordinate(submesh)
+    f_sub = Function(FunctionSpace(submesh, "CG", 2)).interpolate(sin(3 * x_sub))
+    composed = Function(V).assign(sentinel)
+    composed.assign(f_sub, subset=mesh.cell_subset(7), allow_missing_dofs=True)
+    written = composed.dat.data_ro != sentinel
+    assert np.allclose(composed.dat.data_ro[written], source.dat.data_ro[written])
+    assert mesh.comm.allreduce(int(written[:V.dof_dset.size].sum())) == 91
+
+
+@pytest.mark.parametrize("family,degree", [("CG", 3), ("RT", 2)])
+@pytest.mark.parametrize("redistribute", [False, True])
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_assign_composed_restrictions(family, degree, redistribute):
+    # Compose all three restrictions of the node layout at once, each of them
+    # applying to one side of the assignment only: the source is the whole of
+    # an element on the whole of the parent mesh, while the target restricts
+    # the mesh to a proper subdomain (optionally redistributing it), the
+    # boundary, and the element to the facets of the reference cell.
+    sentinel = -12345.0
+    mesh = UnitSquareMesh(6, 6)
+    x, y = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    mesh.mark_entities(Function(DG0).interpolate(conditional(x < 0.5, 1, 0)), 111)
+    submesh = Submesh(mesh, subdomain_id=111, redistribute=redistribute)
+
+    elem = finat.ufl.FiniteElement(family, mesh.ufl_cell(), degree)
+    V = FunctionSpace(mesh, elem)
+    V_sub = RestrictedFunctionSpace(
+        FunctionSpace(submesh, finat.ufl.RestrictedElement(elem, restriction_domain="facet")),
+        boundary_set={1},
+    )
+
+    f = Function(V)
+    f.dat.data_wo[:] = 1.0 + np.arange(f.dat.data_ro.size)
+
+    f_sub = Function(V_sub).assign(f)
+    g = Function(V).assign(sentinel)
+    g.assign(f_sub, allow_missing_dofs=True)
+
+    covered = g.dat.data_ro != sentinel
+    assert mesh.comm.allreduce(int(covered.sum())) > 0
+    assert np.allclose(g.dat.data_ro[covered], f.dat.data_ro[covered])
+
+
+@pytest.mark.parametrize("cell,family,degree", [
+    ("triangle", "CG", 3),
+    ("triangle", "RT", 2),
+    ("quadrilateral", "Q", 3),
+])
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_assign_restricted_element_same_mesh(cell, family, degree):
+    # An element and its restriction lay their nodes out differently on the
+    # very same mesh; the two are related by their Sections alone.
+    sentinel = -12345.0
+    mesh = UnitSquareMesh(6, 6, quadrilateral=(cell == "quadrilateral"))
+    elem = finat.ufl.FiniteElement(family, mesh.ufl_cell(), degree)
+    V = FunctionSpace(mesh, elem)
+    V_facet = FunctionSpace(mesh, finat.ufl.RestrictedElement(elem, restriction_domain="facet"))
+
+    x, y = SpatialCoordinate(mesh)
+    expr = sin(3 * x) + 2 * cos(5 * y)
+    if V.value_shape:
+        expr = as_vector([sin(3 * x), cos(5 * y)])
+    f = Function(V).interpolate(expr)
+
+    # -- the restriction keeps the facet nodes of the full element. Compare
+    # against interpolation, which numbers the nodes of the restricted space
+    # without reference to the parent, so that a permutation of the nodes
+    # within an entity cannot go unnoticed.
+    f_facet = Function(V_facet).assign(f)
+    assert np.allclose(f_facet.dat.data_ro, Function(V_facet).interpolate(expr).dat.data_ro)
+
+    # -- and back: the full element has interior nodes with no counterpart
+    with pytest.raises(ValueError):
+        Function(V).assign(f_facet)
+    g = Function(V).assign(sentinel)
+    g.assign(f_facet, allow_missing_dofs=True)
+
+    covered = g.dat.data_ro != sentinel
+    assert mesh.comm.allreduce(int(covered[:V.dof_dset.size].sum())) == V_facet.dim()
+    assert np.allclose(g.dat.data_ro[covered], f.dat.data_ro[covered])
+
+
+@pytest.mark.parametrize("shape", ["vector", "symmetric"])
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_assign_restricted_element_blocked(shape):
+    # A vector or tensor element holds a block of the nodes of a single
+    # sub-element, and UFL pushes the restriction inside the block.
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    elem = finat.ufl.FiniteElement("CG", mesh.ufl_cell(), 3)
+    restricted = finat.ufl.RestrictedElement(elem, restriction_domain="facet")
+    if shape == "vector":
+        block, expr = finat.ufl.VectorElement, as_vector([sin(3 * x), cos(5 * y)])
+    else:
+        block = partial(finat.ufl.TensorElement, symmetry=True)
+        expr = as_tensor([[sin(3 * x), cos(5 * y)], [cos(5 * y), x - y]])
+
+    V_facet = FunctionSpace(mesh, block(restricted))
+    f = Function(FunctionSpace(mesh, block(elem))).interpolate(expr)
+    assert np.allclose(Function(V_facet).assign(f).dat.data_ro,
+                       Function(V_facet).interpolate(expr).dat.data_ro)
+
+
+@pytest.mark.parallel(nprocs=1)
+def test_assign_incompatible_elements():
+    mesh = UnitSquareMesh(2, 2)
+    elem = finat.ufl.FiniteElement("CG", mesh.ufl_cell(), 3)
+
+    def facet_space(mesh, element):
+        return FunctionSpace(mesh, finat.ufl.RestrictedElement(element, restriction_domain="facet"))
+
+    f = Function(FunctionSpace(mesh, "CG", 1))
+    with pytest.raises(ValueError):
+        f.assign(Function(FunctionSpace(mesh, "RT", 1)))
+    # CG1 carries the nodes CG2 puts on the vertices, and drops the rest, but
+    # they are not the nodes of a common element, so this is not an assignment.
+    with pytest.raises(ValueError):
+        f.assign(Function(FunctionSpace(mesh, "CG", 2)))
+
+    # Restricting to the facets of an interval leaves one node per vertex
+    # whatever the degree, so there the node counts alone cannot tell the two
+    # elements apart and only the element they restrict does.
+    interval = UnitIntervalMesh(4)
+    cells = [finat.ufl.FiniteElement("CG", interval.ufl_cell(), d) for d in (2, 3)]
+    with pytest.raises(ValueError):
+        Function(facet_space(interval, cells[1])).assign(Function(facet_space(interval, cells[0])))
+
+    # Blocks of different shape hold different numbers of nodes.
+    vector = Function(FunctionSpace(mesh, finat.ufl.VectorElement(elem, dim=2)))
+    for other in (finat.ufl.VectorElement(elem, dim=3), finat.ufl.TensorElement(elem), elem):
+        with pytest.raises(ValueError):
+            vector.assign(Function(FunctionSpace(mesh, other)))
+
+    # A base mesh point of an extruded mesh carries a whole column of
+    # entities, of which the restriction drops only some.
+    extruded = ExtrudedMesh(UnitSquareMesh(2, 2, quadrilateral=True), 2)
+    q = finat.ufl.FiniteElement("Q", extruded.ufl_cell(), 3)
+    with pytest.raises(NotImplementedError):
+        Function(facet_space(extruded, q)).assign(Function(FunctionSpace(extruded, q)))
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_assign_multiple_source_spaces():
+    # An interior and a facet restriction of one element are each compatible
+    # with the parent but not with one another, so each term of the sum is
+    # related to the assignee by its own section SF and moved into its
+    # layout before the two are added.
+    mesh = UnitSquareMesh(6, 6)
+    elem = finat.ufl.FiniteElement("CG", mesh.ufl_cell(), 3)
+    V = FunctionSpace(mesh, elem)
+    V_interior = FunctionSpace(mesh, finat.ufl.RestrictedElement(elem, restriction_domain="interior"))
+    V_facet = FunctionSpace(mesh, finat.ufl.RestrictedElement(elem, restriction_domain="facet"))
+
+    x, y = SpatialCoordinate(mesh)
+    expr = sin(3 * x) + 2 * cos(5 * y)
+    f = Function(V).interpolate(expr)
+    f_interior = Function(V_interior).assign(f)
+    f_facet = Function(V_facet).assign(f)
+
+    g = Function(V)
+    g.assign(f_interior + f_facet)
+    assert np.allclose(g.dat.data_ro, f.dat.data_ro)
