@@ -5219,19 +5219,28 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         tolerance=mesh.tolerance,
     )
     if point_sf is None:
-        # Tag the relabeled mesh with the original distribution parameters
+        # Tag the submesh with the original distribution parameters
         submesh._distribution_parameters = mesh._distribution_parameters
-        return submesh
 
-    if mesh.coordinates.ufl_element() == submesh.coordinates.ufl_element():
-        return submesh
-    # The parent coordinates are not carried by the plex (e.g. the parent is
-    # curved or periodic), so they must be transferred onto the submesh.
-    V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
-    coordinates = function.Function(V).assign(mesh.coordinates)
-    submesh = Mesh(coordinates, name=name)
-    submesh.submesh_parent = mesh
-    submesh.tolerance = mesh.tolerance
+    # A mesh with several cell types carries no coordinate Function, so its
+    # coordinates are always the ones the plex holds.
+    if len(mesh.topology.dm_cell_types) == 1:
+        # A submesh of lower dimension has a different cell than its parent, so
+        # the two coordinate elements are compared on the parent's cell.
+        plex_element = submesh.coordinates.ufl_element().reconstruct(cell=mesh.ufl_cell())
+        if mesh.coordinates.ufl_element() != plex_element:
+            # The parent coordinates are not carried by the plex (e.g. the parent
+            # is curved or periodic), so they must be transferred onto the submesh.
+            if submesh.ufl_cell() != mesh.ufl_cell():
+                raise NotImplementedError(
+                    "Can only transfer the coordinates of a curved or periodic mesh "
+                    "onto a submesh of the same dimension"
+                )
+            V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
+            coordinates = function.Function(V).assign(mesh.coordinates)
+            submesh = Mesh(coordinates, name=name)
+            submesh.submesh_parent = mesh
+            submesh.tolerance = mesh.tolerance
     return submesh
 
 
