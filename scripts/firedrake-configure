@@ -838,11 +838,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "cmake",
             "fftw",
             "hwloc",
-            "hdf5-mpi",
             "metis",
             "openblas",
             "openmpi",
-            "pnetcdf",
             "scalapack",
             "suitesparse",
             "zlib",
@@ -850,17 +848,17 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         extra_petsc_configure_options=[
             # External packages
             "--with-fftw-dir=/opt/homebrew",
-            "--with-hdf5-dir=/opt/homebrew",
             "--with-hwloc-dir=/opt/homebrew",
             "--with-metis-dir=/opt/homebrew",
-            "--with-pnetcdf-dir=/opt/homebrew",
             "--with-scalapack-dir=/opt/homebrew",
             "--with-suitesparse-dir=/opt/homebrew",
             "--with-zlib-dir=/opt/homebrew",
             "--download-bison",
+            "--download-hdf5",
             "--download-hypre",
             "--download-mumps",
             "--download-netcdf",
+            "--download-pnetcdf",
             "--download-ptscotch",
             "--download-superlu_dist",
 
@@ -871,7 +869,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         coptflags=["-O3", "-march=native", "-mtune=native"],
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3"],
-        extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
+        extra_env_vars={
+            "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
+            "CC": "mpicc",
+        },
     ),
 
     (OS.MACOS_ARM64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
@@ -891,11 +892,9 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "cmake",
             "fftw",
             "hwloc",
-            "hdf5-mpi",
             "metis",
             "openblas",
             "openmpi",
-            "pnetcdf",
             "scalapack",
             "suitesparse",
             "zlib",
@@ -905,16 +904,16 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
 
             # External packages
             "--with-fftw-dir=/opt/homebrew",
-            "--with-hdf5-dir=/opt/homebrew",
             "--with-hwloc-dir=/opt/homebrew",
             "--with-metis-dir=/opt/homebrew",
-            "--with-pnetcdf-dir=/opt/homebrew",
             "--with-scalapack-dir=/opt/homebrew",
             "--with-suitesparse-dir=/opt/homebrew",
             "--with-zlib-dir=/opt/homebrew",
             "--download-bison",
+            "--download-hdf5",
             "--download-mumps",
             "--download-netcdf",
+            "--download-pnetcdf",
             "--download-ptscotch",
             "--download-superlu_dist",
 
@@ -925,7 +924,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         coptflags=["-O3", "-march=native", "-mtune=native"],
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3"],
-        extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
+        extra_env_vars={
+            "HDF5_DIR": "$PETSC_DIR/$PETSC_ARCH",
+            "CC": "mpicc",
+        },
     ),
 
     # Sane default configurations for unknown platforms

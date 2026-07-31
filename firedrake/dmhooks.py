@@ -457,12 +457,12 @@ def _refine_adaptive(dm):
     Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
     mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
     """
-    from firedrake.mg.adaptive_hierarchy import AdaptiveMeshHierarchy
+    from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
     # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the AdaptiveMeshHierarchy.
+    # adapted input DM remains a level in the mesh hierarchy.
     # Increase the reference count so the coarse DM survives.
     dm.incRef()
 
@@ -473,11 +473,9 @@ def _refine_adaptive(dm):
     mesh = current_solution.function_space().mesh()
     hierarchy, level = get_level(mesh)
     if hierarchy is None:
-        hierarchy = AdaptiveMeshHierarchy(mesh)
+        hierarchy = MeshHierarchy(mesh)
         level = 0
 
-    if not isinstance(hierarchy, AdaptiveMeshHierarchy):
-        raise RuntimeError("Adaptive SNES refinement requires an AdaptiveMeshHierarchy")
     if level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:

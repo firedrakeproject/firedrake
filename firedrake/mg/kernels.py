@@ -353,12 +353,8 @@ def restrict_kernel(Vf, Vc):
 def inject_kernel(Vf, Vc):
     if Vc.finat_element.is_dg():
         hierarchy, level = utils.get_level(Vc.mesh())
-        if Vf.extruded:
-            assert Vc.extruded
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
-        key = (("inject", level_ratio)
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
+        key = (("inject", ncandidate)
                + (Vf.block_size,)
                + entity_dofs_key(Vc.finat_element.complex.get_topology())
                + entity_dofs_key(Vf.finat_element.complex.get_topology())
@@ -370,7 +366,6 @@ def inject_kernel(Vf, Vc):
         try:
             return cache[key]
         except KeyError:
-            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
             return cache.setdefault(key, ((dg_injection_kernel(Vf, Vc, ncandidate), False, False), True))
     else:
         expression = ufl.Coefficient(Vf)
@@ -409,6 +404,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self._coefficient(f, "macro_coords")
 
     def _coefficient(self, coefficient, name):
+        """Register a coefficient as a macro-cell kernel argument and return its GEM expression."""
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)

@@ -83,6 +83,28 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
 
+        # Under adaptive refinement, coarse cells have varying numbers of
+        # fine descendants, so coarse_to_fine (and hence coarse_to_fine_nodes)
+        # is right-padded with -1 up to the busiest coarse cell's count.
+        # op2.Map cannot hold negative indices, and every *owned* coarse
+        # node needs at least one real candidate to inject from; but padding
+        # slots on rows that do have candidates can safely be filled with a
+        # duplicate of one of that row's real entries; the injection kernel
+        # below only ever reads (op2.READ) through this map and picks the
+        # candidate matching the coarse node's physical location, so a
+        # repeated valid entry is just redundantly (harmlessly) considered.
+        valid = coarse_to_fine_nodes >= 0
+        if not valid.all():
+            nonempty = valid.any(axis=1)
+            if not nonempty[:Vc.node_set.size].all():
+                raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
+            replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
+                                      dtype=coarse_to_fine_nodes.dtype)
+            rows = numpy.nonzero(nonempty)[0]
+            replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
+            coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
+                                               replacement[:, None])
+
         src_axis = Vc.nodal_axes.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
         node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
@@ -124,9 +146,14 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cells.owned
-        arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((Vc.mesh().num_cells(), arity), -1, dtype=IntType)
-        values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.local_size, arity)
+        fine_per_cell = Vf.finat_element.space_dimension()
+        arity = fine_per_cell * ncell
+        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
+        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
+        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
+        valid = owned_coarse_to_fine >= 0
+        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
+        values = values.reshape(iterset.size, arity)
 
         coarse_to_fine_nodes[:iterset.local_size, :] = values
 
