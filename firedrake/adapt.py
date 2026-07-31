@@ -7,7 +7,7 @@ from firedrake.cython import mgimpl as impl
 from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
-from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.mesh import Mesh, Submesh, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
 
@@ -66,7 +66,33 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
     target_mesh._tolerance = source_mesh.tolerance
 
 
-def refine_marked_elements(mesh, cell_marker):
+def _redistribute_adaptive_refined_mesh(coarse_mesh, refined_mesh, redistribute=True):
+    """Redistribute an adaptively refined mesh if it has empty ranks.
+
+    Parameters
+    ----------
+    coarse_mesh : firedrake.mesh.MeshGeometry
+        The mesh that was refined.
+    refined_mesh : firedrake.mesh.MeshGeometry
+        The result of refining ``coarse_mesh``.
+    redistribute : bool
+        If ``True``, redistribute ``refined_mesh`` when it has empty ranks.
+
+    Returns
+    -------
+    firedrake.mesh.MeshGeometry
+        ``refined_mesh``, or a redistributed `~firedrake.mesh.Submesh` of it.
+
+    """
+    _copy_adaptive_refinement_metadata(coarse_mesh, refined_mesh)
+    if not (redistribute and refined_mesh.has_empty_rank):
+        return refined_mesh
+    redist_mesh = Submesh(refined_mesh, redistribute=True, name=refined_mesh.name)
+    _copy_adaptive_refinement_metadata(refined_mesh, redist_mesh)
+    return redist_mesh
+
+
+def refine_marked_elements(mesh, cell_marker, redistribute=True):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
@@ -81,6 +107,9 @@ def refine_marked_elements(mesh, cell_marker):
     cell_marker
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times.
+    redistribute
+        If ``True``, redistribute the refined mesh when the coarse mesh
+        has empty ranks.
 
     Returns
     -------
@@ -137,7 +166,12 @@ def refine_marked_elements(mesh, cell_marker):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
 
+    # _redistribute_adaptive_refined_mesh copies the construction metadata
+    # across, and may hand back a different mesh, so record the provenance on
+    # whichever mesh comes out of it.
+    final_mesh = _redistribute_adaptive_refined_mesh(
+        mesh, final_mesh, redistribute=redistribute
+    )
     final_mesh.adaptive_parent = mesh
     final_mesh.adaptive_fine_to_coarse_points = fine_to_coarse_points
-    _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh

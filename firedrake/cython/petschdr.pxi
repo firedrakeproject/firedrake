@@ -131,6 +131,7 @@ cdef extern from "petscvec.h" nogil:
 
 cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetOffset(PETSc.PetscSection, PetscInt, PetscInt*)
+    PetscErrorCode PetscSectionSetOffset(PETSc.PetscSection, PetscInt, PetscInt)
     PetscErrorCode PetscSectionGetDof(PETSc.PetscSection, PetscInt, PetscInt*)
     PetscErrorCode PetscSectionSetDof(PETSc.PetscSection, PetscInt, PetscInt)
     PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection, PetscInt, PetscInt, PetscInt)
