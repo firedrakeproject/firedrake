@@ -45,7 +45,6 @@ from petsctools import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
-import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
