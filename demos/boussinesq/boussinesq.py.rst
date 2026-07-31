@@ -83,9 +83,6 @@ to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution
 
     ngmesh = ngocc.OCCGeometry(shape, dim=2).GenerateMesh(maxh=0.1)
 
-    left_id = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "left"]
-    right_id = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "right"]
-
     mesh = Mesh(ngmesh)
     x, y = SpatialCoordinate(mesh)
 
@@ -133,8 +130,8 @@ The nonlinear form for the problem is::
      - inner(div(u), q) * dx                            # Incompressibility constraint
      + inner(dot(u, grad(T)), w) * dx                   # Temperature advection term
      + inner(grad(T), grad(w)) * dx                     # Temperature diffusion term
-     - inner(g_left, w) * ds(tuple(left_id))            # Weakly imposed Neumann BC terms
-     - inner(g_right, w) * ds(tuple(right_id))          # Weakly imposed Neumann BC terms
+     - inner(g_left, w) * ds("left")                    # Weakly imposed Neumann BC terms
+     - inner(g_right, w) * ds("right")                  # Weakly imposed Neumann BC terms
      + inner(T - T0, s) * dx                            # Integral constraint on T
      )
 

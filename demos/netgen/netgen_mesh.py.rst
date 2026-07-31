@@ -89,7 +89,7 @@ Example: Poisson Problem
 -------------------------
 Let's now have a look at some features that can be useful when solving a variational problem using a Netgen mesh.
 We will consider as example the Poisson problem with constant source data and homogeneous boundary conditions on the boundary of the PacMan.
-The only method new to the reader should be the ``GetRegionNames`` which allows to find the IDs of the boundary we have labeled in Netgen. As usual we begin defining the ``FunctionSpace`` that will be used in our discretisation, defining trial and test functions and the source data::
+As usual we begin defining the ``FunctionSpace`` that will be used in our discretisation, defining trial and test functions and the source data::
 
    V = FunctionSpace(msh, "CG", 1)
    u = TrialFunction(V)
@@ -110,10 +110,9 @@ In code this becomes: ::
    a = inner(grad(u), grad(v))*dx
    L = inner(f, v) * dx
 
-Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a ``DirichletBC`` object and we use the ``GetRegionNames`` method from the Netgen mesh in order to map the label we have given when describing the geometry to the PETSc ``DMPLEX`` IDs. In particular if we look for the IDs of boundary element labeled either "line" or "curve" we would get::
+Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a ``DirichletBC`` object with the same string labels from the Netgen mesh. Here we specify homogenous boundary conditions on boundary elements labeled as ``"line"`` or ``"curve"``::
 
-   labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name in ["line", "curve"]]
-   bc = DirichletBC(V, 0, labels)
+   bc = DirichletBC(V, 0, ["line", "curve"])
    print(labels)
 
 We then proceed to solve the problem::
