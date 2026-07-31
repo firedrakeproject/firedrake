@@ -373,7 +373,7 @@ def local_facet_number(mesh, facet_type):
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension)
+    cell_numbering = mesh._plex_to_entity_numbering_sec(stratum=mesh.dimension)
 
     fStart, _ = plex.getHeightStratum(1)
 
@@ -381,13 +381,13 @@ def local_facet_number(mesh, facet_type):
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 1
         facets = mesh._entity_indices("plex", "exterior_facet")
-        facet_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension-1)
+        facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 2
         facets = mesh._entity_indices("plex", "interior_facet")
-        facet_numbering = mesh._plex_to_entity_numbering_sec(mesh.dimension-1)
+        facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]

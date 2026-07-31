@@ -335,7 +335,7 @@ class MeshLoopIndex(op3.LoopIndex):
         iterset: op3.IndexedAxisTree,
         mesh: MeshGeometry,
         integral_type: str,
-        plex_indices_is: PETSc.IS,
+        plex_indices_is: PETSc.IS | None,
     ) -> dict:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
@@ -348,6 +348,7 @@ class MeshLoopIndex(op3.LoopIndex):
 
     @property
     def plex_indices(self) -> np.ndarray:
+        assert self.plex_indices_is is not None, "not valid"
         return readonly(self.plex_indices_is.indices)
 
 
@@ -879,8 +880,8 @@ class AbstractMeshTopology(abc.ABC):
                     # Periodic extruded meshes have no horizontal exterior facets
                     indices = (
                         indices
-                        .difference(self._entity_indices_is("exterior_facet_top"))
-                        .difference(self._entity_indices_is("exterior_facet_bottom"))
+                        .difference(self._entity_indices_is("plex", "exterior_facet_top"))
+                        .difference(self._entity_indices_is("plex", "exterior_facet_bottom"))
                     )
                 return indices
 

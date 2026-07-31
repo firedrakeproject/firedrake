@@ -368,7 +368,7 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.ScalarBufferExpression:
     if axis_trees:
         import pyop3
-        pyop3.extras.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
+        pyop3.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
     return pyop3.expr.ScalarBufferExpression(scalar.buffer)
 
 

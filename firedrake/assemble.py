@@ -32,7 +32,7 @@ from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDu
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_mesh_topologies
+from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -1950,7 +1950,12 @@ class ParloopBuilder:
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
-            return subdomain_data
+            return MeshLoopIndex(
+                subdomain_data,
+                self._mesh,
+                self._integral_type,
+                None,
+            )
         else:
             return self._topology.iter(
                 self._integral_type,
@@ -1977,17 +1982,17 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack(dat, self._iterset, V)
+            return pack(dat, index, V)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack(mat, self._iterset, *Vs)
+            return pack(mat, index, *Vs)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
         coords = next(self._active_coordinates)
-        return pack(coords, self._iterset)
+        return pack(coords, index)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
@@ -2003,7 +2008,7 @@ class ParloopBuilder:
         ):
             assert coeff != self._tensor
             coeff = coeff.copy(deepcopy=True)
-        return pack(coeff, self._iterset)
+        return pack(coeff, index)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -2013,12 +2018,12 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
         func = next(self._active_cell_orientations)
-        return pack(func, self._iterset)
+        return pack(func, index)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
         func = next(self._active_cell_sizes)
-        return pack(func, self._iterset)
+        return pack(func, index)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
