@@ -454,6 +454,7 @@ and identify the two end caps by a translation of :math:`2\pi` along ``Z``::
    msh = Mesh(ngmsh)
    VTKFile("output/Tokamak.pvd").write(msh)
 
+
 .. warning::
 
    The mesh must contain at least a handful of cells along each periodic direction. If a single cell spans a
@@ -500,6 +501,7 @@ Poisson example above) and manufacture the right-hand side :math:`f = u_{\text{e
    solve(a == L, sol, bcs=bc)
    VTKFile("output/TokamakSolution.pvd").write(sol)
 
+
    error = sqrt(assemble(inner(sol - uex, sol - uex) * dx))
    PETSc.Sys.Print(f"L2 error: {error:.2e}")
 
@@ -507,3 +509,4 @@ The recovered solution is continuous across the identified ends: opening ``outpu
 ParaView, the field wraps seamlessly from the top cap back to the bottom, exactly as a toroidal mode should.
 Had the ends *not* been identified, the same computation would leave an artificial jump at the seam and the
 manufactured solution would not be recovered.
+
