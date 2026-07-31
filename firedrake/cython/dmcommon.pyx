@@ -2108,6 +2108,144 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     return coords
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def set_cell_coordinates(PETSc.DM dm,
+                         np.ndarray[PetscScalar, ndim=3, mode="c"] values):
+    """Set coordinate closures from cellwise values.
+
+    Parameters
+    ----------
+    dm : PETSc.DMPlex
+        The DMPlex whose coordinate vector is populated.
+    values : numpy.ndarray
+        Array of shape ``(num_cells, num_nodes, coordinate_dim)`` in
+        the coordinate ``PetscFE`` closure ordering.
+    """
+    cdef:
+        PETSc.Section section = dm.getCoordinateSection()
+        PETSc.Vec coordinates = dm.getCoordinatesLocal()
+        PetscInt cStart, cEnd, c
+        PetscInt closure_size
+        PetscScalar *closure = NULL
+        PetscInt expected_closure_size = values.shape[1] * values.shape[2]
+
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    if values.shape[0] != cEnd - cStart:
+        raise ValueError(
+            f"Expected coordinate data for {cEnd - cStart} cells, "
+            f"got {values.shape[0]}"
+        )
+    if cStart < cEnd:
+        CHKERR(DMPlexVecGetClosure(
+            dm.dm,
+            section.sec,
+            coordinates.vec,
+            cStart,
+            &closure_size,
+            &closure,
+        ))
+        CHKERR(DMPlexVecRestoreClosure(
+            dm.dm,
+            section.sec,
+            coordinates.vec,
+            cStart,
+            &closure_size,
+            &closure,
+        ))
+        if closure_size != expected_closure_size:
+            raise ValueError(
+                f"Coordinate closure has size {closure_size}, "
+                f"expected {expected_closure_size}"
+            )
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexVecSetClosure(
+            dm.dm,
+            section.sec,
+            coordinates.vec,
+            c,
+            &values[c - cStart, 0, 0],
+            PETSC_INSERT_VALUES,
+        ))
+    dm.setCoordinatesLocal(coordinates)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def reordered_coords_high_order(PETSc.DM dm,
+                                 PETSc.Section firedrake_section,
+                                 shape):
+    """Return high-order DMPlex coordinates in a Firedrake layout.
+
+    The DMPlex coordinate discretization and Firedrake coordinate element
+    must assign the same number and ordering of nodes to each topological
+    entity.
+
+    Parameters
+    ----------
+    dm : PETSc.DMPlex
+        The DMPlex containing high-order coordinates.
+    firedrake_section : PETSc.Section
+        Scalar section of the matching Firedrake coordinate space.
+    shape : tuple
+        Output shape ``(num_coordinate_nodes, coordinate_dim)``.
+    """
+    cdef:
+        PETSc.Section coordinate_section = dm.getCoordinateSection()
+        PETSc.Vec coordinate_vector = dm.getCoordinatesLocal()
+        const PetscScalar *dm_coordinates
+        PetscInt pStart, pEnd, qStart, qEnd, p
+        PetscInt firedrake_dof, coordinate_dof
+        PetscInt firedrake_offset, coordinate_offset
+        PetscInt i, j, gdim = shape[1], total_dof = 0
+        np.ndarray coords = np.empty(shape, dtype=ScalarType)
+
+    pStart, pEnd = firedrake_section.getChart()
+    qStart, qEnd = coordinate_section.getChart()
+    if (pStart, pEnd) != (qStart, qEnd):
+        raise ValueError(
+            "DMPlex and Firedrake coordinate sections have different charts: "
+            f"{(qStart, qEnd)} != {(pStart, pEnd)}"
+        )
+
+    CHKERR(VecGetArrayRead(coordinate_vector.vec, &dm_coordinates))
+    try:
+        for p in range(pStart, pEnd):
+            CHKERR(PetscSectionGetDof(
+                firedrake_section.sec, p, &firedrake_dof
+            ))
+            CHKERR(PetscSectionGetDof(
+                coordinate_section.sec, p, &coordinate_dof
+            ))
+            if coordinate_dof != gdim * firedrake_dof:
+                raise ValueError(
+                    f"Coordinate sections disagree at DMPlex point {p}: "
+                    f"{coordinate_dof} != {gdim} * {firedrake_dof}"
+                )
+            if firedrake_dof == 0:
+                continue
+            CHKERR(PetscSectionGetOffset(
+                firedrake_section.sec, p, &firedrake_offset
+            ))
+            CHKERR(PetscSectionGetOffset(
+                coordinate_section.sec, p, &coordinate_offset
+            ))
+            for i in range(firedrake_dof):
+                for j in range(gdim):
+                    coords[firedrake_offset + i, j] = \
+                        dm_coordinates[coordinate_offset + gdim * i + j]
+            total_dof += firedrake_dof
+    finally:
+        CHKERR(VecRestoreArrayRead(coordinate_vector.vec, &dm_coordinates))
+
+    if total_dof != shape[0]:
+        raise ValueError(
+            f"Coordinate section contains {total_dof} nodes, "
+            f"expected {shape[0]}"
+        )
+    return coords
+
+
 def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
     """Return the DM DG coordinates expanded to the full closure size.
 

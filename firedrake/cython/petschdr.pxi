@@ -25,6 +25,8 @@ cdef extern from "petsc.h":
     ctypedef enum PetscErrorCode:
         PETSC_SUCCESS
         PETSC_ERR_LIB
+    ctypedef enum PetscInsertMode "InsertMode":
+        PETSC_INSERT_VALUES "INSERT_VALUES"
 
 cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscMalloc1(PetscInt,void*)
@@ -82,6 +84,9 @@ cdef extern from "petscdmplex.h" nogil:
 
     PetscErrorCode DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
     PetscErrorCode DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)
+    PetscErrorCode DMPlexVecGetClosure(PETSc.PetscDM,PETSc.PetscSection,PETSc.PetscVec,PetscInt,PetscInt*,PetscScalar**)
+    PetscErrorCode DMPlexVecRestoreClosure(PETSc.PetscDM,PETSc.PetscSection,PETSc.PetscVec,PetscInt,PetscInt*,PetscScalar**)
+    PetscErrorCode DMPlexVecSetClosure(PETSc.PetscDM,PETSc.PetscSection,PETSc.PetscVec,PetscInt,PetscScalar[],PetscInsertMode)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
