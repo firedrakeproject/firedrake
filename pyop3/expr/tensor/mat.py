@@ -446,7 +446,6 @@ class AggregateMat(pyop3.obj.Object):
         return self.submats
 
     def with_context(self, context):
-        assert False, "redo me"
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)

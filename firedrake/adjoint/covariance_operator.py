@@ -229,6 +229,7 @@ class Pyop3NoiseBackend(NoiseBackendBase):
                 ("b", "double", op3.INC),
                 ("coords", "double", op3.READ),
             ],
+            preambles=[("20_preamble", preamble)],
         )
 
     def sample(self, *, rng=None,

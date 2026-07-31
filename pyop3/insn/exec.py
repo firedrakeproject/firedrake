@@ -346,13 +346,17 @@ class InstructionExecutionContext:
         names_to_skip = set()
         for arg in self.root_insn.global_arguments:
             if arg.name in names_to_skip:
-                pass
-            elif arg.name in name_to_buffer_map:
-                # duplicate!
-                del name_to_buffer_map[arg.name]
-                names_to_skip.add(arg.name)
+                continue
+
+            arg_buffers = self._extract_buffers(arg)
+            if arg.name in name_to_buffer_map:
+                if name_to_buffer_map[arg.name] != arg_buffers:
+                    # found a duplicate arg name but with different buffers,
+                    # replacement by name isn't valid
+                    del name_to_buffer_map[arg.name]
+                    names_to_skip.add(arg.name)
             else:
-                name_to_buffer_map[arg.name] = self._extract_buffers(arg)
+                name_to_buffer_map[arg.name] = arg_buffers
         return name_to_buffer_map
 
     @cached_property
@@ -519,7 +523,7 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "exterior_facet" in str(self):
+        # if "bottom_integral" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 

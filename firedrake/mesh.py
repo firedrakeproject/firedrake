@@ -1609,10 +1609,11 @@ class AbstractMeshTopology(abc.ABC):
             arity = 2
 
         periodic_mask = None
-        if name == "exterior_facet_top":
-            periodic_mask = "top"
-        elif name == "exterior_facet_bottom":
-            periodic_mask = "bottom"
+        if self.periodic:
+            if name == "exterior_facet_top":
+                periodic_mask = "top"
+            elif name == "exterior_facet_bottom":
+                periodic_mask = "bottom"
 
         from_axes = self._entity_axes(name)
 
