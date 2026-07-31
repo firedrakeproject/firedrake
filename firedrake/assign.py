@@ -9,6 +9,7 @@ from pyop2 import op2
 import pytools
 import finat.ufl
 from ufl.algorithms import extract_coefficients
+from ufl.cell import TensorProductCell
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
@@ -19,13 +20,13 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.halo import _get_mtype
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType, split_by
+from firedrake.utils import IntType, ScalarType, split_by
 
 from mpi4py import MPI
 
 
 def _submesh_point_sf(target_mesh, source_mesh):
-    """Find the point SF relating two meshes with different distributions.
+    """Find the point SF relating a submesh to its parent.
 
     Parameters
     ----------
@@ -39,16 +40,26 @@ def _submesh_point_sf(target_mesh, source_mesh):
     tuple
         The `PETSc.SF` mapping the points of the parent mesh (roots) to the
         points of the submesh (leaves), and whether ``target_mesh`` is the
-        submesh. Both are `None` if the two meshes share their distribution,
-        in which case they are related by entity maps instead.
+        submesh. Both are `None` if neither mesh is a submesh of the other.
+        When the two share their distribution, the SF is the local subpoint
+        map rather than one of the meshes' own ``submesh_point_sf``.
 
     """
+    from firedrake.mesh import _make_submesh_point_sf
+
     if target_mesh.submesh_parent is source_mesh:
-        return target_mesh.submesh_point_sf, True
+        submesh, target_is_submesh = target_mesh, True
     elif source_mesh.submesh_parent is target_mesh:
-        return source_mesh.submesh_point_sf, False
+        submesh, target_is_submesh = source_mesh, False
     else:
         return None, None
+    point_sf = submesh.submesh_point_sf
+    if point_sf is None:
+        # The two share their distribution, so their points are related
+        # locally by the subpoint IS.
+        point_sf = _make_submesh_point_sf(submesh.submesh_parent.topology_dm,
+                                          submesh.topology_dm)
+    return point_sf, target_is_submesh
 
 
 def _make_section_sf(point_sf, root_V, leaf_V):
@@ -88,6 +99,227 @@ def _make_section_sf(point_sf, root_V, leaf_V):
         # A submesh only covers part of its parent, so not every root node
         # is reduced into.
         return cache.setdefault(key, (section_sf, section_sf.computeDegree() > 0))
+
+
+def _identity_point_sf(mesh):
+    """Create the `PETSc.SF` mapping the points of a mesh onto themselves.
+
+    Two function spaces on the same mesh are related by their `PETSc.Section`
+    alone, which the section SF machinery expresses as the identity on points.
+
+    Parameters
+    ----------
+    mesh : firedrake.mesh.AbstractMeshTopology
+        The mesh.
+
+    Returns
+    -------
+    PETSc.SF
+        SF whose roots and leaves are both the points of ``mesh``.
+
+    """
+    plex = mesh.topology_dm
+    pStart, pEnd = plex.getChart()
+    remote = np.empty((pEnd - pStart, 2), dtype=IntType)
+    remote[:, 0] = plex.comm.rank
+    remote[:, 1] = np.arange(pEnd - pStart, dtype=IntType)
+    point_sf = PETSc.SF().create(comm=plex.comm)
+    point_sf.setGraph(pEnd - pStart, None, remote)
+    return point_sf
+
+
+def _entity_dof_counts(element):
+    """Count the nodes an element places on each entity of the reference cell.
+
+    Parameters
+    ----------
+    element : finat.ufl.finiteelementbase.FiniteElementBase
+        The UFL element.
+
+    Returns
+    -------
+    dict
+        The number of nodes on each ``(dimension, entity)`` of the reference cell.
+
+    """
+    from firedrake.functionspacedata import create_element
+
+    entity_dofs = create_element(element).entity_dofs()
+    return {(dim, entity): len(dofs)
+            for dim, entities in entity_dofs.items()
+            for entity, dofs in entities.items()}
+
+
+def _unrestricted(element):
+    """Strip the topological restrictions off an element.
+
+    Parameters
+    ----------
+    element : finat.ufl.finiteelementbase.FiniteElementBase
+        The UFL element.
+
+    Returns
+    -------
+    finat.ufl.finiteelementbase.FiniteElementBase
+        The element whose nodes ``element`` selects from.
+
+    """
+    while isinstance(element, finat.ufl.RestrictedElement):
+        element = element.sub_element()
+    return element
+
+
+def _compatible_elements(target, source):
+    """Whether functions in two elements share a node layout.
+
+    Two elements are compatible if they restrict a common element, and place
+    the same number of nodes on every entity of the reference cell up to the
+    entities one of them drops. Their nodes are then the same functionals
+    entity by entity, so the `PETSc.Section` of either function space
+    describes both and data moves between them without reference to the cell
+    node maps.
+
+    Parameters
+    ----------
+    target : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned to.
+    source : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned from.
+
+    Returns
+    -------
+    bool
+        Whether the two elements share a node layout.
+
+    """
+    if target == source:
+        return True
+    blocked_types = (finat.ufl.VectorElement, finat.ufl.TensorElement)
+    if isinstance(target, blocked_types) or isinstance(source, blocked_types):
+        return (type(target) is type(source)
+                and target.num_sub_elements == source.num_sub_elements
+                and target.reference_value_shape == source.reference_value_shape
+                and _compatible_elements(target.sub_elements[0], source.sub_elements[0]))
+    # Equal node counts on an entity do not by themselves make two nodes the
+    # same functional, so the elements must restrict a common element.
+    if _unrestricted(target) != _unrestricted(source):
+        return False
+    if isinstance(target.cell, TensorProductCell):
+        # A base mesh point of an extruded mesh carries the nodes of a whole
+        # column of entities, of which a restriction may drop only some, and
+        # the Section counts the nodes on a point without saying which.
+        raise NotImplementedError(
+            "Assigning between an element and its restriction is not "
+            "implemented on extruded meshes"
+        )
+    target_counts = _entity_dof_counts(target)
+    source_counts = _entity_dof_counts(source)
+    if target_counts.keys() != source_counts.keys():
+        return False
+    # An entity either carries the same nodes in both elements, or is
+    # dropped by one of them; a partial overlap has no entity-wise
+    # correspondence and so cannot be expressed by the two Sections.
+    return all(nt == source_counts[entity] or nt == 0 or source_counts[entity] == 0
+               for entity, nt in target_counts.items())
+
+
+def _node_subset(V, cell_subset):
+    """Find the nodes of the cells of a subset.
+
+    A node on the boundary of the subset belongs to cells outside it too, and
+    is included: the subset selects the cells whose nodes are assigned, not
+    the nodes that no other cell shares.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        Function space whose nodes are selected.
+    cell_subset : pyop2.types.set.Subset
+        Subset of the cells of the mesh of ``V``.
+
+    Returns
+    -------
+    pyop2.types.set.Subset
+        The nodes of ``V`` on the cells of ``cell_subset``.
+
+    """
+    if V.extruded:
+        raise NotImplementedError(
+            "Assigning over a subset of the cells is not implemented on "
+            "extruded meshes"
+        )
+    node_map = V.cell_node_map()
+    if node_map is None:
+        raise ValueError(f"Function space ({V}) has no nodes on the cells")
+    # A node is on the subset for every rank that shares it as soon as it is on
+    # the subset for one of them, which the cells known to a single rank do not
+    # say: a rank owning the node need not own, or even halo, a cell of the
+    # subset that carries it.
+    marker = op2.Dat(V.node_set, dtype=IntType)
+    marker.data_wo_with_halos[np.unique(node_map.values_with_halo[cell_subset.indices])] = 1
+    marker.local_to_global_begin(op2.MAX)
+    marker.local_to_global_end(op2.MAX)
+    marker.global_to_local_begin(op2.READ)
+    marker.global_to_local_end(op2.READ)
+    nodes, = np.nonzero(marker.data_ro_with_halos)
+    return op2.Subset(V.node_set, nodes)
+
+
+def _target_is_leaf(target, source):
+    """Whether the target element's nodes are the subset of the two.
+
+    Data travels root to leaf by broadcast, which requires every leaf node to
+    have a counterpart, and leaf to root by reduction, which does not. The
+    target can therefore be the leaf unless it carries nodes on an entity
+    that the source drops, and taking it to be the leaf whenever possible
+    keeps the halo of the assignee up to date.
+
+    Parameters
+    ----------
+    target : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned to.
+    source : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned from.
+
+    Returns
+    -------
+    bool
+        Whether every node of ``target`` has a counterpart in ``source``.
+
+    """
+    target_counts = _entity_dof_counts(target)
+    source_counts = _entity_dof_counts(source)
+    return not any(source_counts[e] == 0 < target_counts[e] for e in target_counts)
+
+
+def _relate_to_target(target_mesh, target_element, source_V):
+    """Find the section SF relating a source function space to the assignee.
+
+    Parameters
+    ----------
+    target_mesh : AbstractMeshTopology
+        Mesh of the function being assigned to.
+    target_element : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned to.
+    source_V : firedrake.functionspaceimpl.WithGeometry
+        Function space of the function being assigned from.
+
+    Returns
+    -------
+    tuple
+        The `PETSc.SF` relating the points of ``target_mesh`` to those of
+        ``source_V``'s mesh, and whether the assignee is the leaf.
+
+    """
+    source_mesh = source_V.mesh().topology
+    if target_mesh is source_mesh:
+        return _identity_point_sf(target_mesh), _target_is_leaf(target_element, source_V.ufl_element())
+    point_sf, target_is_leaf = _submesh_point_sf(target_mesh, source_mesh)
+    if point_sf is None:
+        raise NotImplementedError(
+            "Can only assign between a redistributed mesh and its parent"
+        )
+    return point_sf, target_is_leaf
 
 
 def _isconstant(expr):
@@ -226,9 +458,9 @@ class Assigner:
         source_meshes = set()
         for coeff in extract_coefficients(expression):
             if isinstance(coeff, (Function, Cofunction)) and coeff.ufl_element().family() != "Real":
-                if coeff.ufl_element() != assignee.ufl_element():
-                    raise ValueError("All functions in the expression must have the same "
-                                     "element as the assignee")
+                if not _compatible_elements(assignee.ufl_element(), coeff.ufl_element()):
+                    raise ValueError("All functions in the expression must have an "
+                                     "element compatible with that of the assignee")
                 source_meshes.add(extract_unique_domain(coeff, expand_mesh_sequence=False))
         if len(source_meshes) == 0:
             pass
@@ -303,14 +535,21 @@ class Assigner:
             target_V = lhs_func.function_space()
             # Validate / Process subset.
             if subset is not None:
-                if subset is target_V.node_set:
-                    # The whole set.
+                cell_set = target_V.mesh().cell_set
+                superset = getattr(subset, "superset", None)
+                if subset is target_V.node_set or subset is cell_set:
+                    # The whole set, as `cell_subset("everywhere")` gives.
                     subset = None
-                elif subset.superset is target_V.node_set:
+                elif superset is target_V.node_set:
                     # op2.Subset of target_V.node_set
                     pass
+                elif superset is cell_set:
+                    # op2.Subset of the cells, e.g. mesh.cell_subset(id)
+                    subset = _node_subset(target_V, subset)
                 else:
-                    raise ValueError(f"subset ({subset}) not a subset of target_V.node_set ({target_V.node_set})")
+                    raise ValueError(f"subset ({subset}) is neither a subset of "
+                                     f"target_V.node_set ({target_V.node_set}) nor "
+                                     f"of the cells of its mesh ({cell_set})")
             source_meshes = set(extract_unique_domain(f) for f in funcs)
             if len(source_meshes) == 0:
                 # Assign constants only.
@@ -318,8 +557,12 @@ class Assigner:
             elif len(source_meshes) == 1:
                 source_mesh, = source_meshes
                 if target_mesh is source_mesh:
-                    # Assign (co)functions from one mesh to the same mesh.
-                    single_mesh_assign = True
+                    # Assign (co)functions from one mesh to the same mesh. Two
+                    # distinct spaces on it lay their nodes out differently,
+                    # even when they share an element, so those are related by
+                    # their sections like spaces on different meshes are.
+                    single_mesh_assign = all(f.function_space() == lhs_func.function_space()
+                                             for f in funcs)
                 else:
                     # Assign (co)functions between a submesh and the parent or between two submeshes.
                     single_mesh_assign = False
@@ -335,30 +578,12 @@ class Assigner:
         if assign_to_halos:
             indices = operator.attrgetter("indices")
             data_ro = operator.attrgetter("data_ro_with_halos")
-            values = operator.attrgetter("values_with_halo")
         else:
             indices = operator.attrgetter("owned_indices")
             data_ro = operator.attrgetter("data_ro")
-            values = operator.attrgetter("values")
         subset_indices = Ellipsis if subset is None else indices(subset)
 
-        def source_indices(f):
-            target_space = lhs_func.function_space()
-            target_map = target_space.cell_node_map()
-            source_map = f.function_space().cell_node_map()
-            if source_map is target_map:
-                # Source and target spaces have the same DoF ordering.
-                return subset_indices
-            else:
-                # Permute source indices into the target ordering.
-                size = target_space.dof_dset.total_size
-                perm = np.empty((size,), dtype=source_map.values.dtype)
-                np.put(perm, values(target_map), values(source_map))
-                if not assign_to_halos:
-                    perm = perm[:target_space.dof_dset.size]
-                return perm[subset_indices]
-
-        func_data = np.array([data_ro(f.dat)[source_indices(f)] for f in funcs])
+        func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
         rvalue = self._compute_rvalue(func_data)
         self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
         if assign_to_halos:
@@ -366,66 +591,168 @@ class Assigner:
 
     def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
         target_mesh = extract_unique_domain(lhs_func).topology
-        source_V, = set(f.function_space() for f in funcs)
+        source_spaces = set(f.function_space() for f in funcs)
+        if len(source_spaces) > 1:
+            # Every function is compatible with the assignee (checked at
+            # construction time) but not necessarily with one another, so
+            # each is related to the assignee by its own section SF and
+            # mapped into its layout before they are combined.
+            self._assign_multi_space(lhs_func, subset, funcs, allow_missing_dofs)
+            return
+        source_V, = source_spaces
         source_mesh = source_V.mesh().topology
-        if target_mesh.submesh_shares_distribution(source_mesh):
+        # Spaces on meshes that share their distribution are related by their
+        # entity maps, unless their elements lay the nodes out differently, in
+        # which case only their Sections relate them.
+        same_element = source_V.ufl_element() == lhs_func.ufl_element()
+        if target_mesh is not source_mesh and same_element and target_mesh.submesh_shares_distribution(source_mesh):
             self._assign_submesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
             return
-        point_sf, target_is_submesh = _submesh_point_sf(target_mesh, source_mesh)
-        if point_sf is None:
-            raise NotImplementedError(
-                "Can only assign between a redistributed mesh and its parent"
-            )
-        self._assign_redistributed(lhs_func, subset, funcs, point_sf,
-                                   target_is_submesh, allow_missing_dofs)
+        point_sf, target_is_leaf = _relate_to_target(target_mesh, lhs_func.ufl_element(), source_V)
+        self._assign_via_sections(lhs_func, subset, funcs, point_sf,
+                                  target_is_leaf, allow_missing_dofs)
 
-    def _assign_redistributed(self, lhs_func, subset, funcs, point_sf,
-                              target_is_submesh, allow_missing_dofs):
-        """Assign between (co)functions on a redistributed submesh and its parent.
+    def _assign_via_sections(self, lhs_func, subset, funcs, point_sf,
+                             target_is_leaf, allow_missing_dofs):
+        """Assign between (co)functions whose nodes are related by a section SF.
 
-        The nodes of the two spaces correspond one to one. The expression is
-        evaluated in the source layout. One communication then moves the
-        result into the target layout.
+        The nodes the two spaces have in common correspond one to one. The
+        expression is evaluated in the source layout. One communication then
+        moves the result into the target layout.
+
+        ``target_is_leaf`` says which of the two carries the subset of the
+        nodes. Data travels from root to leaf by broadcast, and from leaf to
+        root by reduction. Only a reduction can miss nodes.
         """
         target_V = lhs_func.function_space()
         source_V, = set(f.function_space() for f in funcs)
-        if target_is_submesh:
+        func_data = np.array([f.dat.data_ro_with_halos for f in funcs])
+        source_data = self._compute_rvalue(func_data)
+        target_data, covered, assign_to_halos = self._transfer_via_section(
+            lhs_func, source_V, source_data, point_sf, target_is_leaf)
+        indices = self._covered_indices(target_V, subset, covered, assign_to_halos, allow_missing_dofs)
+        self._assign_single_dat(lhs_func.dat, indices, target_data[indices], assign_to_halos)
+        lhs_func.dat.halo_valid = assign_to_halos
+
+    def _assign_multi_space(self, lhs_func, subset, funcs, allow_missing_dofs):
+        """Assign an expression combining functions from more than one
+        function space, each compatible with the assignee's element but not
+        necessarily with one another's.
+
+        Every function is moved, unweighted, into the assignee's node
+        layout by its own section SF; the weighted combination then happens
+        in that common layout exactly as it would on a single mesh.
+        """
+        target_mesh = extract_unique_domain(lhs_func).topology
+        target_V = lhs_func.function_space()
+        rows = []
+        covered = None
+        assign_to_halos = True
+        for f in funcs:
+            source_V = f.function_space()
+            point_sf, target_is_leaf = _relate_to_target(target_mesh, lhs_func.ufl_element(), source_V)
+            data, cov, halo_ok = self._transfer_via_section(
+                lhs_func, source_V, f.dat.data_ro_with_halos, point_sf, target_is_leaf)
+            rows.append(data)
+            covered = cov if covered is None else (covered | cov)
+            assign_to_halos = assign_to_halos and halo_ok
+        target_data = self._compute_rvalue(np.array(rows))
+        indices = self._covered_indices(target_V, subset, covered, assign_to_halos, allow_missing_dofs)
+        self._assign_single_dat(lhs_func.dat, indices, target_data[indices], assign_to_halos)
+        lhs_func.dat.halo_valid = assign_to_halos
+
+    def _transfer_via_section(self, lhs_func, source_V, source_data, point_sf, target_is_leaf):
+        """Move data from a source layout into the assignee's, via a section SF.
+
+        Parameters
+        ----------
+        lhs_func : firedrake.function.Function or firedrake.cofunction.Cofunction
+            The function being assigned to; only its type and function space
+            are used.
+        source_V : firedrake.functionspaceimpl.WithGeometry
+            Function space ``source_data`` is laid out in.
+        source_data : numpy.ndarray
+            Data in ``source_V``'s with-halo layout, already combined if it
+            comes from more than one function.
+        point_sf : PETSc.SF
+            SF relating the assignee's mesh to ``source_V``'s, as returned by
+            `_relate_to_target`.
+        target_is_leaf : bool
+            Whether the assignee carries the subset of the nodes.
+
+        Returns
+        -------
+        tuple
+            The data moved into the assignee's with-halo layout, the boolean
+            array of which of those nodes received data, and whether the
+            halo of the result can be trusted.
+
+        """
+        target_V = lhs_func.function_space()
+        if target_is_leaf:
             root_V, leaf_V = source_V, target_V
         else:
             root_V, leaf_V = target_V, source_V
         section_sf, covered_roots = _make_section_sf(point_sf, root_V, leaf_V)
 
-        source_buffer = Function(source_V)
-        target_buffer = Function(target_V)
-        func_data = np.array([f.dat.data_ro_with_halos for f in funcs])
-        source_buffer.dat.data_wo_with_halos[...] = self._compute_rvalue(func_data)
+        source_buffer = type(lhs_func)(source_V)
+        target_buffer = type(lhs_func)(target_V)
+        source_buffer.dat.data_wo_with_halos[...] = source_data
         mtype, _ = _get_mtype(source_buffer.dat)
-        source_data = source_buffer.dat.data_ro_with_halos
-        target_data = target_buffer.dat.data_wo_with_halos
-        if target_is_submesh:
-            section_sf.bcastBegin(mtype, source_data, target_data, MPI.REPLACE)
-            section_sf.bcastEnd(mtype, source_data, target_data, MPI.REPLACE)
+        source_buffer_data = source_buffer.dat.data_ro_with_halos
+        target_buffer_data = target_buffer.dat.data_wo_with_halos
+        if target_is_leaf:
+            section_sf.bcastBegin(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
+            section_sf.bcastEnd(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
             # Every node of a submesh, including its halo, has a counterpart
             # in the parent.
-            indices = Ellipsis if subset is None else subset.indices
-            assign_to_halos = True
+            covered = np.ones(target_buffer_data.shape[0], dtype=bool)
+            halos_valid = True
         else:
-            section_sf.reduceBegin(mtype, source_data, target_data, MPI.REPLACE)
-            section_sf.reduceEnd(mtype, source_data, target_data, MPI.REPLACE)
-            # Only the owned parent nodes that the submesh covers have been
+            section_sf.reduceBegin(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
+            section_sf.reduceEnd(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
+            # Only the owned parent nodes that the source covers have been
             # reduced into; the parent halo never is.
-            owned = covered_roots[:target_V.dof_dset.size]
-            comm = target_V.mesh().comm
-            if not comm.allreduce(owned.all(), op=MPI.LAND) and not allow_missing_dofs:
-                raise ValueError("Found assignee nodes with no matching assigner "
-                                 "nodes: run with `allow_missing_dofs=True`")
-            indices, = np.nonzero(owned)
-            if subset is not None:
-                indices = np.intersect1d(indices, subset.owned_indices)
-            target_data = target_buffer.dat.data_ro
-            assign_to_halos = False
-        self._assign_single_dat(lhs_func.dat, indices, target_data[indices], assign_to_halos)
-        lhs_func.dat.halo_valid = assign_to_halos
+            covered = np.zeros(target_buffer_data.shape[0], dtype=bool)
+            covered[:target_V.dof_dset.size] = covered_roots[:target_V.dof_dset.size]
+            halos_valid = False
+        return target_buffer.dat.data_ro_with_halos, covered, halos_valid
+
+    def _covered_indices(self, target_V, subset, covered, assign_to_halos, allow_missing_dofs):
+        """Find the indices of the assignee's nodes that received data.
+
+        Parameters
+        ----------
+        target_V : firedrake.functionspaceimpl.WithGeometry
+            Function space of the function being assigned to.
+        subset : pyop2.types.set.Subset or None
+            Subset of the assignee's node set to restrict the assignment to.
+        covered : numpy.ndarray
+            Boolean array, in the assignee's with-halo layout, of which
+            nodes received data.
+        assign_to_halos : bool
+            Whether ``covered`` (and the halo of the assignee) can be trusted.
+        allow_missing_dofs : bool
+            Permit assignee nodes with no matching data, subject to
+            ``subset``, rather than raising.
+
+        Returns
+        -------
+        numpy.ndarray or Ellipsis
+            The indices, in the assignee's with-halo layout, to assign to.
+
+        """
+        if assign_to_halos:
+            return Ellipsis if subset is None else subset.indices
+        owned = covered[:target_V.dof_dset.size]
+        comm = target_V.mesh().comm
+        if not comm.allreduce(bool(owned.all()), op=MPI.LAND) and not allow_missing_dofs:
+            raise ValueError("Found assignee nodes with no matching assigner "
+                             "nodes: run with `allow_missing_dofs=True`")
+        indices, = np.nonzero(owned)
+        if subset is not None:
+            indices = np.intersect1d(indices, subset.owned_indices)
+        return indices
 
     def _assign_submesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
         target_mesh = extract_unique_domain(lhs_func)
