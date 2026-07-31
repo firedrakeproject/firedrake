@@ -1,4 +1,6 @@
 Netgen integration in Firedrake
+===============================
+
 This tutorial was contributed by `Umberto Zerbinati <mailto:umberto.zerbinati@oriel.ox.ac.uk>`__ and `Patrick E. Farrell <mailto:patrick.farrell@maths.ox.ac.uk>`__. This tutorial is based on the documentation for Netgen in the `NGSolve Docs <https://docu.ngsolve.org/latest/>`__.
 
 The purpose of this demo is to summarise how to construct and use a Netgen mesh in Firedrake.
