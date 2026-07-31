@@ -5215,19 +5215,17 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         tolerance=mesh.tolerance,
     )
     if point_sf is None:
-        # Tag the relabeled mesh with the original distribution parameters
+        # Tag the submesh with the original distribution parameters
         submesh._distribution_parameters = mesh._distribution_parameters
-        return submesh
 
-    if mesh.coordinates.ufl_element() == submesh.coordinates.ufl_element():
-        return submesh
-    # The parent coordinates are not carried by the plex (e.g. the parent is
-    # curved or periodic), so they must be transferred onto the submesh.
-    V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
-    coordinates = function.Function(V).assign(mesh.coordinates)
-    submesh = Mesh(coordinates, name=name)
-    submesh.submesh_parent = mesh
-    submesh.tolerance = mesh.tolerance
+    if mesh.coordinates.ufl_element() != submesh.coordinates.ufl_element():
+        # The parent coordinates are not carried by the plex (e.g. the parent is
+        # curved or periodic), so they must be transferred onto the submesh.
+        V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
+        coordinates = function.Function(V).assign(mesh.coordinates)
+        submesh = Mesh(coordinates, name=name)
+        submesh.submesh_parent = mesh
+        submesh.tolerance = mesh.tolerance
     return submesh
 
 
