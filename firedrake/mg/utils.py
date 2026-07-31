@@ -96,7 +96,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         valid = coarse_to_fine_nodes >= 0
         if not valid.all():
             nonempty = valid.any(axis=1)
-            if not nonempty[:Vc.node_set.size].all():
+            if not nonempty[:Vc.axes.buffer_size(include_ghosts=False)].all():
                 raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
             replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                       dtype=coarse_to_fine_nodes.dtype)

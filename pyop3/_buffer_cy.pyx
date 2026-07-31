@@ -41,3 +41,24 @@ def _set_non_nested_petsc_mat_diagonal(petscmat: cpetsc.Mat_py, value: cpetsc.Pe
         CHKERR(cpetsc.MatSetValuesBlockedLocal(petscmat.mat, 1, &i_c, 1, &i_c, block_values_c, cpetsc.INSERT_VALUES))
 
     CHKERR(cpetsc.PetscFree(block_values_c))
+
+
+cdef extern from "petsc/private/matimpl.h":
+    struct _p_Mat:
+        cpetsc.InsertMode insertmode
+
+
+# TODO: This should really be added to the PETSc and petsc4py APIs
+def petscmat_get_insert_mode(petscmat: cpetsc.Mat_py) -> PETSc.InsertMode:
+    if petscmat.type == "nest":
+        raise TypeError("Insert mode for a MATNEST is ambiguous")
+
+    cdef _p_Mat *A = <_p_Mat *>(petscmat.mat)
+    if A.insertmode == cpetsc.NOT_SET_VALUES:
+        return PETSc.InsertMode.NOT_SET_VALUES
+    elif A.insertmode == cpetsc.INSERT_VALUES:
+        return PETSc.InsertMode.INSERT_VALUES
+    elif A.insertmode == cpetsc.ADD_VALUES:
+        return PETSc.InsertMode.ADD_VALUES
+    else:
+        raise ValueError("Insert mode not recognised")

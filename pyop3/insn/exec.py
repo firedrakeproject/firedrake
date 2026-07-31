@@ -523,7 +523,7 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "bottom_integral" in str(self):
+        # if "form" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
@@ -817,26 +817,20 @@ class CompiledCodeExecutor:
         if intent == READ:
             begin_insns.append(lambda: buffer.assemble_begin(final=True))
             end_insns.append(lambda: buffer.assemble_end(final=True))
-        elif intent == WRITE:
-            if buffer._current_insert_mode == PETSc.InsertMode.ADD_VALUES:
-                begin_insns.append(lambda: buffer.assemble_begin(final=False))
-                end_insns.append(lambda: buffer.assemble_end(final=False))
-            finalizers.append(
-                lambda: setattr(buffer, "_current_insert_mode", PETSc.InsertMode.INSERT_VALUES)
-            )
         else:
-            assert intent == INC
-            if buffer._current_insert_mode == PETSc.InsertMode.INSERT_VALUES:
-                begin_insns.append(lambda: buffer.assemble_begin(final=False))
-                end_insns.append(lambda: buffer.assemble_end(final=False))
-            finalizers.append(
-                lambda: setattr(buffer, "_current_insert_mode", PETSc.InsertMode.ADD_VALUES)
-            )
+            if intent == WRITE:
+                insert_mode = PETSc.InsertMode.INSERT_VALUES
+            else:
+                assert intent == INC
+                insert_mode = PETSc.InsertMode.ADD_VALUES
+            begin_insns.append(lambda: buffer.maybe_flush_assemble_begin(insert_mode))
+            end_insns.append(lambda: buffer.maybe_flush_assemble_end(insert_mode))
 
+        # NOTE: The PETSc Mat may actually take care of this for us
         if intent != READ:
             finalizers.append(lambda: buffer.inc_state())
 
-        # We need all communication to happen before we begin computing, but if
+        # TODO: We need all communication to happen before we begin computing, but if
         # we have multiple matrices we can at least overlap their communication.
         return begin_insns+end_insns, (), (), finalizers
 

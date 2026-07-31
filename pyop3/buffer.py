@@ -27,7 +27,7 @@ from pyop3.utils import (
     readonly,
 )
 
-from ._buffer_cy import set_petsc_mat_diagonal
+from ._buffer_cy import set_petsc_mat_diagonal, petscmat_get_insert_mode
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -1043,9 +1043,6 @@ class PetscMatBuffer(ConcreteBuffer):
         self._comm=comm
 
     def __record_post_init(self) -> None:
-        # state tracking
-        self._current_insert_mode: pyop3.types.MatInsertMode | None  = None
-
         # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
         # destroyed too early and subsequently some non-data attributes end up crashing.
         # The Right Thing is just to not destroy them - we have a GC after all.
@@ -1160,9 +1157,7 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             mat_spec = None
         name = f"{self.name}_{row_index}_{column_index}"
-        retval = self.record_new(mat=mat, mat_spec=mat_spec, _name=name, _constant=self.constant)
-        retval._current_insert_mode
-        return retval
+        return self.record_new(mat=mat, mat_spec=mat_spec, _name=name, _constant=self.constant)
 
     @property
     def handle(self) -> Any:
@@ -1178,14 +1173,46 @@ class PetscMatBuffer(ConcreteBuffer):
 
     # {{{ state tracking
 
+    def maybe_flush_assemble(self, insert_mode: PETSc.InsertMode) -> None:
+        self.maybe_flush_assemble_begin(insert_mode)
+        self.maybe_flush_assemble_end(insert_mode)
+
+    def maybe_flush_assemble_begin(self, insert_mode: PETSc.InsertMode) -> None:
+        self._maybe_flush_assemble(self.mat, insert_mode, "begin")
+
+    def maybe_flush_assemble_end(self, insert_mode: PETSc.InsertMode) -> None:
+        self._maybe_flush_assemble(self.mat, insert_mode, "end")
+
+    def _maybe_flush_assemble(
+        self,
+        mat: PETSc.Mat,
+        insert_mode: PETSc.InsertMode,
+        mode: Literal["begin", "end"],
+    ) -> None:
+        if mat.type == PETSc.Mat.Type.NEST:
+            for i, j in np.ndindex(mat.getNestSize()):
+                submat = mat.getNestSubMatrix(i, j)
+                self._maybe_flush_assemble(submat, insert_mode, mode)
+        else:
+            self._maybe_flush_assemble_monolithic(mat, insert_mode, mode)
+
+    def _maybe_flush_assemble_monolithic(
+        self,
+        mat: PETSc.Mat,
+        insert_mode: PETSc.InsertMode,
+        mode: Literal["begin", "end"],
+    ) -> None:
+        current_insert_mode = petscmat_get_insert_mode(mat)
+        valid_modes = {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}
+        if current_insert_mode not in valid_modes:
+            if mode == "begin":
+                self.assemble_begin(final=False)
+            else:
+                self.assemble_end(final=False)
+
     def assemble(self, *, final: bool = True) -> None:
         self.assemble_begin(final=final)
         self.assemble_end(final=final)
-        if final:
-            assembly_type = PETSc.Mat.AssemblyType.FINAL
-        else:
-            assembly_type = PETSc.Mat.AssemblyType.FLUSH
-        self.mat.assemble(assembly_type)
 
     def assemble_begin(self, *, final: bool = True) -> None:
         if final:
@@ -1202,7 +1229,6 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             assembly_type = PETSc.Mat.AssemblyType.FLUSH
         self.mat.assemblyEnd(assembly_type)
-        self._current_insert_mode = None
 
     @property
     def state(self) -> int:

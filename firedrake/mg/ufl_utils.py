@@ -559,7 +559,6 @@ class Injection:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
-        print(y.array_r)
 
     def multTranspose(self, mat, x, y):
         # PETSc's MatRestrict() cannot distinguish an injection matrix from

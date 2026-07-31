@@ -1619,6 +1619,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _apply_bc(self, tensor, bc, u=None):
         assert u is None
         mat = tensor.M
+
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
@@ -1649,15 +1650,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # For MATIS we handle boundary conditions by masking out
                 # rows and columns after the fact because we can't change
                 # lgmaps on the fly.
-                mat.buffer.mat.assemble()
+                mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
                 mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes*space.block_size, self.weight)
             else:
-                # for some reason I need to do this first, is this still the case?
-                # kinda, changing accessor - if we used INC instead? it's allowed because
-                # we're setting something we know to be zero
-                # TODO: with proper state tracking this can go
-                mat.assemble()
-
                 # NOTE: This is only OK in parallel with mixed spaces because we
                 # apply the BC to local submat, where DoF interleaving is not
                 # applicable.
@@ -1676,6 +1671,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
 
+                mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
                 myspace = space if V.index is None else space[V.index]
                 with local_submat(mat.buffer.mat, myspace, myspace) as submat:
                     submat.setValuesLocalRCV(
@@ -1693,8 +1689,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, s in enumerate(space):
                 if i != V.index and _is_real_space(s):
                     self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, V.index, component, bc.node_set)
-
-            mat.buffer._current_insert_mode = PETSc.InsertMode.INSERT_VALUES
 
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
