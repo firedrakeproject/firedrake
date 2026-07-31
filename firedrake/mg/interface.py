@@ -68,10 +68,13 @@ def prolong(coarse, fine):
     meshes = hierarchy._meshes
     for j in range(repeat):
         next_level += 1
-        if j == repeat - 1 and not needs_quadrature:
+        fine_mesh = meshes[next_level]
+        transfer_mesh = utils.transfer_mesh(fine_mesh)
+        last = j == repeat - 1
+        if last and not needs_quadrature and transfer_mesh is fine_mesh:
             fine = finest
         else:
-            fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
+            fine = Function(Vf.reconstruct(mesh=transfer_mesh))
         Vf = fine.function_space()
         Vc = coarse.function_space()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
@@ -110,8 +113,13 @@ def prolong(coarse, fine):
 
         if needs_quadrature:
             # Transfer to the actual target space
-            new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
+            new_fine = (finest if last and transfer_mesh is fine_mesh
+                        else Function(Vfinest.reconstruct(mesh=transfer_mesh)))
             fine = new_fine.interpolate(fine)
+        if transfer_mesh is not fine_mesh:
+            # Move onto the redistributed mesh
+            target = finest if last else Function(Vfinest.reconstruct(mesh=fine_mesh))
+            fine = target.assign(fine)
         coarse = fine
     return fine
 
@@ -149,9 +157,17 @@ def restrict(fine_dual, coarse_dual):
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        transfer_mesh = utils.transfer_mesh(fine_mesh)
+        if transfer_mesh is not fine_mesh:
+            # Move off the redistributed mesh, so that we can restrict
+            Vf_transfer = fine_dual.function_space().reconstruct(mesh=transfer_mesh)
+            fine_dual = Function(Vf_transfer).assign(fine_dual)
         if needs_quadrature:
             # Transfer to the quadrature source space
-            fine_dual = Function(Vq.reconstruct(mesh=meshes[next_level])).interpolate(fine_dual)
+            fine_dual = Function(
+                Vq.reconstruct(mesh=fine_dual.function_space().mesh())
+            ).interpolate(fine_dual)
 
         next_level -= 1
         if j == repeat - 1:
@@ -242,6 +258,12 @@ def inject(fine, coarse):
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
+        fine_mesh = meshes[next_level]
+        transfer_mesh = utils.transfer_mesh(fine_mesh)
+        if transfer_mesh is not fine_mesh:
+            # Move off the redistributed mesh, so that we can inject
+            Vf_transfer = fine.function_space().reconstruct(mesh=transfer_mesh)
+            fine = Function(Vf_transfer).assign(fine)
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
