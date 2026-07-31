@@ -694,8 +694,8 @@ class Assigner:
             root_V, leaf_V = target_V, source_V
         section_sf, covered_roots = _make_section_sf(point_sf, root_V, leaf_V)
 
-        source_buffer = type(lhs_func)(source_V)
-        target_buffer = type(lhs_func)(target_V)
+        source_buffer = Function(source_V)
+        target_buffer = Function(target_V)
         source_buffer.dat.data_wo_with_halos[...] = source_data
         mtype, _ = _get_mtype(source_buffer.dat)
         source_buffer_data = source_buffer.dat.data_ro_with_halos
