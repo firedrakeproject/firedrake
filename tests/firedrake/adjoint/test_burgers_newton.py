@@ -264,6 +264,8 @@ def test_checkpointing_validity(solve_type, checkpointing, basics):
     tape.progress_bar = ProgressBar
     if checkpointing == "Revolve":
         tape.enable_checkpointing(Revolve(steps, steps//3))
+    elif checkpointing == "SingleMemory":
+        tape.enable_checkpointing(SingleMemoryStorageSchedule())
     elif checkpointing == "Mixed":
         enable_disk_checkpointing()
         tape.enable_checkpointing(MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK))
