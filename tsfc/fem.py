@@ -268,19 +268,28 @@ class CoordinateMapping(PhysicalGeometry):
         return rts @ jac.T
 
     def physical_normals(self):
+        domain = extract_unique_domain(self.mt.terminal)
+        gdim = domain.geometric_dimension
+        tdim = domain.topological_dimension
         cell = self.interface.fiat_cell
-        sd = cell.get_spatial_dimension()
-        num_faces = len(cell.get_topology()[sd-1])
-        if isinstance(cell, UFCSimplex) and sd == 2:
+        num_faces = len(cell.get_topology()[tdim-1])
+        if isinstance(cell, UFCSimplex) and tdim == 1:
             pts = self.physical_tangents()
-            return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(num_faces)])
-        elif isinstance(cell, UFCSimplex) and sd == 3:
-            t = ufl.classes.CellEdgeVectors(extract_unique_domain(self.mt.terminal))
-            edges = cell.get_connectivity()[(sd-1, 1)]
+            return gem.ListTensor([[pts[0, j] for j in range(gdim)] for i in range(num_faces)])
+        elif isinstance(cell, UFCSimplex) and tdim == 2 and gdim == 2:
+            pts = self.physical_tangents()
+            return gem.ListTensor([[pts[i, 1], -pts[i, 0]] for i in range(num_faces)])
+        elif isinstance(cell, UFCSimplex) and gdim == 3:
+            t = ufl.classes.CellEdgeVectors(domain)
             normalize = lambda x: x / ufl.sqrt(ufl.dot(x, x))
-            expr = ufl.as_tensor([-2.0*normalize(ufl.cross(t[edges[i][0], :], t[edges[i][1], :]))
-                                  for i in range(num_faces)])
-            return self.translate_point_expression(expr)
+            if tdim == 2:
+                R = ufl.cross(t[0, :], t[1, :])
+                exprs = [normalize(ufl.cross(t[i, :], R)) for i in range(num_faces)]
+            else:
+                edges = cell.get_connectivity()[(tdim-1, 1)]
+                exprs = [-2.0*normalize(ufl.cross(t[edges[i][0], :], t[edges[i][1], :]))
+                         for i in range(num_faces)]
+            return self.translate_point_expression(ufl.as_tensor(exprs))
         else:
             raise NotImplementedError("Can't do physical normals on that cell yet")
 
