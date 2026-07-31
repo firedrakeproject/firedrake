@@ -250,7 +250,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
-                             solver_options=None,
+                             solver_parameters=None,
                              form_compiler_parameters=None):
         """Return the Riesz representation of this :class:`Cofunction`.
 
@@ -266,7 +266,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             callable.
         bcs: DirichletBC or list of DirichletBC
             Boundary conditions to apply to the Riesz map.
-        solver_options: dict
+        solver_parameters: dict
             A dictionary of PETSc options to be passed to the solver.
         form_compiler_parameters: dict
             A dictionary of form compiler parameters to be passed to the
@@ -281,7 +281,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if not callable(riesz_map):
             riesz_map = RieszMap(
                 self.function_space(), riesz_map, bcs=bcs,
-                solver_parameters=solver_options,
+                solver_parameters=solver_parameters,
                 form_compiler_parameters=form_compiler_parameters
             )
 
