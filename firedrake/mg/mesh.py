@@ -10,9 +10,9 @@ import firedrake
 from functools import cached_property
 
 from firedrake import utils
+from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
-import firedrake.cython.dmcommon as dmcommon
-from .utils import set_level
+from .utils import set_level, set_dm_refine_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -57,6 +57,8 @@ class HierarchyBase(object):
         Dict of numpy arrays for each level that was refined from the level
         below it, mapping each DMPlex point to the coarse DMPlex point that it
         was refined from, or to -1.
+    redistribute :
+        Redistribute adaptively refined meshes that have empty ranks?
 
     Notes
     -----
@@ -66,7 +68,7 @@ class HierarchyBase(object):
     """
     def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
                  refinements_per_level=1, nested=False,
-                 fine_to_coarse_points=None):
+                 fine_to_coarse_points=None, redistribute=True):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
@@ -83,6 +85,7 @@ class HierarchyBase(object):
                 fine_to_coarse_cells[Fraction(i+1, refinements_per_level)] = f2c
         self.coarse_to_fine_cells = coarse_to_fine_cells
         self.fine_to_coarse_cells = fine_to_coarse_cells
+        self.redistribute = redistribute
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -144,8 +147,9 @@ class HierarchyBase(object):
             fine_to_coarse_points = mesh.adaptive_fine_to_coarse_points
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
             if fine_to_coarse_points is not None:
+                fine_mesh = utils.transfer_mesh(mesh)
                 coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
-                    self[-1], mesh, fine_to_coarse_points)
+                    self[-1], fine_mesh, fine_to_coarse_points)
             elif self.nested:
                 raise ValueError("Expecting a mesh adaptively refined from the finest "
                                  "level of this hierarchy, or explicit cell maps")
@@ -154,7 +158,7 @@ class HierarchyBase(object):
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
-        mesh.topology_dm.setRefineLevel(level)
+        set_dm_refine_level(mesh, level)
         self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
         self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
@@ -200,7 +204,8 @@ class HierarchyBase(object):
 
         markers = firedrake.Function(M)
         markers.dat.data_wo[eta.dat.data_ro > theta * eta_max] = 1
-        return self.add_mesh(mesh.refine_marked_elements(markers))
+        return self.add_mesh(
+            mesh.refine_marked_elements(markers, redistribute=self.redistribute))
 
 
 def MeshHierarchy(mesh, refinement_levels=0,
@@ -208,7 +213,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
                   netgen_flags=False,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh, nested=True):
+                  mesh_builder=firedrake.Mesh, nested=True,
+                  redistribute=True):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -233,6 +239,11 @@ def MeshHierarchy(mesh, refinement_levels=0,
         for details.  If ``None``, use the same distribution
         parameters as were used to distribute the coarse mesh,
         otherwise, these options override the default.
+    redistribute : bool
+        If ``True``, redistribute refined meshes when this is needed to
+        avoid empty ranks.  Transfer operators use an internal
+        parent-owned mesh before moving data to or from the redistributed
+        mesh.
     reorder : bool
         optional flag indicating whether to reorder the
         refined meshes.
@@ -279,23 +290,35 @@ def MeshHierarchy(mesh, refinement_levels=0,
     else:
         before = after = lambda dm, i: None
 
-    # Refine an unoverlapped plex at each level. Keeping every dm here
-    # unoverlapped means overlap only ever needs to be added once, by
-    # mesh_builder below.
+    parameters = {}
+    if distribution_parameters is not None:
+        parameters.update(distribution_parameters)
+    else:
+        parameters.update(mesh._distribution_parameters)
+    parameters["partition"] = False
+
+    # Refine an unoverlapped plex at each level, and redistribute the
+    # refined mesh whenever refining alone would leave empty ranks. Keeping
+    # the refined plex unoverlapped means that overlap only ever needs to be
+    # added once, by mesh_builder below.
     cdm = mesh.topology_dm
     if refinement_levels > 0:
         cdm = make_unoverlapped_dm(cdm)
-        cdm.setRefinementUniform(True)
-    dms = [cdm]
+    meshes = [mesh]
+    coarse_to_fine_cells = []
+    fine_to_coarse_cells = [None]
     for i in range(refinement_levels*refinements_per_level):
+        coarse_lgmap = impl.create_lgmap(cdm)
+        cdm.setRefinementUniform(True)
         if i % refinements_per_level == 0:
             before(cdm, i)
         cdm.setSaveTransform()
         rdm = cdm.refine()
+        fine_to_coarse_points = impl.transform_source_points(rdm)
         if i % refinements_per_level == 0:
             after(rdm, i)
         if is_netgen:
-            ngmeshes.append(_snap_to_netgen(rdm, mesh.netgen_mesh))
+            ngmesh = _snap_to_netgen(rdm, mesh.netgen_mesh)
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
@@ -306,24 +329,9 @@ def MeshHierarchy(mesh, refinement_levels=0,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-        dms.append(rdm)
-        cdm = rdm
-
-    # mesh_builder adds overlap to each DMPlex in place, so first read off
-    # how the unoverlapped DMPlexes number and refine their points.
-    lgmaps = [impl.create_lgmap(dm) for dm in dms]
-    points = [impl.transform_source_points(dm) for dm in dms[1:]]
-
-    # Build a mesh for each level, adding overlap here.
-    parameters = {}
-    if distribution_parameters is not None:
-        parameters.update(distribution_parameters)
-    else:
-        parameters.update(mesh._distribution_parameters)
-    parameters["partition"] = False
-
-    meshes = [mesh]
-    for rdm in dms[1:]:
+        # Build the cell maps before redistribution. Transfer operators use
+        # this parent-owned mesh when the public fine mesh is redistributed.
+        fine_lgmap = impl.create_lgmap(rdm)
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -331,27 +339,36 @@ def MeshHierarchy(mesh, refinement_levels=0,
             reorder=reorder,
             comm=mesh.comm,
         )
-        meshes.append(fmesh)
-
-    if is_netgen:
-        for i in range(1, len(meshes)):
-            meshes[i].netgen_mesh = ngmeshes[i]
-            meshes[i].netgen_flags = netgen_flags
-            level, remainder = divmod(i, refinements_per_level)
+        if is_netgen:
+            fmesh.netgen_mesh = ngmesh
+            fmesh.netgen_flags = netgen_flags
+            level, remainder = divmod(i + 1, refinements_per_level)
             if remainder == 0:
-                meshes[i] = _curve_netgen_mesh(meshes[i], degree[level], cg_field=cg_field)
+                fmesh = _curve_netgen_mesh(fmesh, degree[level], cg_field=cg_field)
+        points = impl.overlapped_fine_to_coarse_points(
+            meshes[-1], fmesh, fine_to_coarse_points,
+            coarse_lgmap, fine_lgmap,
+        )
+        c2f, f2c = impl.coarse_to_fine_cells(meshes[-1], fmesh, points)
+        coarse_to_fine_cells.append(c2f)
+        fine_to_coarse_cells.append(f2c)
+
+        if redistribute and fmesh.has_empty_rank:
+            fmesh = firedrake.Submesh(fmesh, redistribute=True)
+        cdm = make_unoverlapped_dm(fmesh.topology_dm)
+        meshes.append(fmesh)
 
     for i, m in enumerate(meshes):
         # Firedrake counts multigrid levels, PETSc counts refinements
-        m.topology_dm.setRefineLevel(i)
+        set_dm_refine_level(m, i)
 
-    fine_to_coarse_points = {
-        Fraction(i+1, refinements_per_level): impl.overlapped_fine_to_coarse_points(
-            meshes[i], meshes[i+1], points[i], lgmaps[i], lgmaps[i+1])
-        for i in range(len(points))
-    }
-    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
-                         nested=nested, fine_to_coarse_points=fine_to_coarse_points)
+    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
+                                for i, c2f in enumerate(coarse_to_fine_cells))
+    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
+                                for i, f2c in enumerate(fine_to_coarse_cells))
+    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                         refinements_per_level, nested=nested,
+                         redistribute=redistribute)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
