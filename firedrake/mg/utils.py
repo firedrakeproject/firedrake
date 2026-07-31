@@ -397,17 +397,6 @@ def transfer_mesh(mesh):
     A redistributed mesh has no cell maps relating it to the coarse mesh, so
     transfers go through the mesh it was redistributed from, and the values
     are then assigned across the two.
-
-    Parameters
-    ----------
-    mesh : firedrake.mesh.MeshGeometry
-        A mesh in a `HierarchyBase`.
-
-    Returns
-    -------
-    firedrake.mesh.MeshGeometry
-        ``mesh`` itself, or the mesh it was redistributed from.
-
     """
     return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
 
@@ -417,18 +406,6 @@ def _redistribution_ancestors(topology):
 
     The transfer operators work on the mesh a redistributed mesh came from,
     so both must carry the same multigrid level.
-
-    Parameters
-    ----------
-    topology : firedrake.mesh.AbstractMeshTopology
-        The topology to start from.
-
-    Yields
-    ------
-    firedrake.mesh.AbstractMeshTopology
-        ``topology``, then each mesh topology it was redistributed from, in
-        order.
-
     """
     yield topology
     while topology.submesh_point_sf is not None:
@@ -437,38 +414,13 @@ def _redistribution_ancestors(topology):
 
 
 def set_dm_refine_level(mesh, level):
-    """Set the refinement level of a mesh and of the meshes it was redistributed from.
-
-    Parameters
-    ----------
-    mesh : firedrake.mesh.MeshGeometry
-        The mesh to set the refinement level of.
-    level : int
-        The refinement level to set.
-
-    """
+    """Set the refinement level of a mesh and of the meshes it was redistributed from."""
     for topology in _redistribution_ancestors(mesh.topology):
         topology.topology_dm.setRefineLevel(level)
 
 
 def set_level(obj, hierarchy, level):
-    """Attach hierarchy and level info to an object.
-
-    Parameters
-    ----------
-    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        The object to attach the hierarchy and level info to.
-    hierarchy : HierarchyBase
-        The hierarchy ``obj`` belongs to.
-    level : Fraction
-        The level of ``obj`` in ``hierarchy``.
-
-    Returns
-    -------
-    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        ``obj``, unchanged.
-
-    """
+    """Attach hierarchy and level info to an object."""
     for topology in _redistribution_ancestors(obj.topological):
         setattr(topology, "__level_info__", (hierarchy, level))
     return obj

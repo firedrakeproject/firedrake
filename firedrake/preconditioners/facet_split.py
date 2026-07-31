@@ -243,9 +243,31 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
+    from firedrake.function import Function
+
     if V.cell_node_map() is W.cell_node_map():
         return numpy.arange(V.dof_dset.layout_vec.getSizes()[0], dtype=PETSc.IntType)
+    if V.extruded:
+        return _get_restriction_indices_extruded(V, W)
 
+    # The restriction of an element keeps the nodes of the entities it does not
+    # drop, so numbering the nodes of V and assigning them into W leaves each
+    # node of W holding the number of the node of V it was taken from.
+    numbering = Function(V)
+    numbering.dat.data_wo_with_halos.flat[...] = numpy.arange(V.dof_count)
+    indices = numpy.concatenate([numpy.reshape(Function(Wsub).assign(numbering).dat.data_ro, -1)
+                                 for Wsub in W])
+    return indices.astype(PETSc.IntType)
+
+
+def _get_restriction_indices_extruded(V, W):
+    """Return the list of dofs in the space V such that W = V[indices].
+
+    A base mesh point of an extruded mesh carries the nodes of a whole column
+    of entities, of which the restriction drops only some, so the two spaces
+    are not related by their `PETSc.Section` and the nodes are matched through
+    the cell node maps instead.
+    """
     vdat = V.make_dat(val=numpy.arange(V.dof_count, dtype=PETSc.IntType))
     wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
     wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)

@@ -70,23 +70,7 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
 
 
 def _redistribute_adaptive_refined_mesh(coarse_mesh, refined_mesh, redistribute=True):
-    """Redistribute an adaptively refined mesh if it has empty ranks.
-
-    Parameters
-    ----------
-    coarse_mesh : firedrake.mesh.MeshGeometry
-        The mesh that was refined.
-    refined_mesh : firedrake.mesh.MeshGeometry
-        The result of refining ``coarse_mesh``.
-    redistribute : bool
-        If ``True``, redistribute ``refined_mesh`` when it has empty ranks.
-
-    Returns
-    -------
-    firedrake.mesh.MeshGeometry
-        ``refined_mesh``, or a redistributed `~firedrake.mesh.Submesh` of it.
-
-    """
+    """Redistribute an adaptively refined mesh if it has empty ranks."""
     _copy_adaptive_refinement_metadata(coarse_mesh, refined_mesh)
     if not (redistribute and refined_mesh.has_empty_rank):
         return refined_mesh

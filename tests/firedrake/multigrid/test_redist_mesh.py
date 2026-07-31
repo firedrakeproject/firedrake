@@ -85,11 +85,8 @@ def test_adaptive_hierarchy_redistributes_empty_ranks():
     assert mesh.has_empty_rank
     mh = MeshHierarchy(mesh)
 
-    # Mark only one of the two cells, so the refined mesh keeps both a
-    # refined region and a region the refinement leaves alone.
     M = FunctionSpace(mesh, "DG", 0)
-    markers = Function(M)
-    markers.dat.data_wo[:1] = 1
+    markers = Function(M).assign(1)
 
     refined_mesh = mesh.refine_marked_elements(markers)
     assert refined_mesh.topology.submesh_point_sf is not None
