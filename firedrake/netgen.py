@@ -15,7 +15,7 @@ import firedrake
 try:
     import netgen.meshing as ngm
     from netgen.meshing import MeshingParameters
-    from ngsPETSc import MeshMapping
+    from ngsPETSc import MeshMapping, createNetgenMesh
 except ImportError:
     pass
 
@@ -127,6 +127,42 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
         )
 
     return permutation
+
+
+def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
+    """Transfer high-order coordinates from a Netgen geometry to a refined mesh.
+
+    ``fine_mesh`` is a straight-edged (order 1) refinement of ``coarse_mesh``.
+    This rebuilds its Netgen mesh from ``coarse_mesh``'s geometry and curves
+    it to the requested ``order``, so that the curved fine mesh follows the
+    same underlying CAD geometry as the coarse one, rather than just
+    interpolating the coarse mesh's straight-edged coordinates.
+
+    Parameters
+    ----------
+    coarse_mesh : MeshGeometry
+        The coarse mesh, carrying the Netgen geometry to curve against.
+    fine_mesh : MeshGeometry
+        A straight-edged refinement of ``coarse_mesh``. Its Netgen attributes
+        are set here, as they are required to curve it.
+    order : int
+        The polynomial order of the curved coordinate field.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh sharing ``fine_mesh``'s topology, with coordinates curved to
+        ``order`` against ``coarse_mesh``'s geometry.
+
+    """
+    fine_mesh.netgen_mesh = createNetgenMesh(fine_mesh.topology_dm, coarse_mesh.netgen_mesh)
+    fine_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
+    cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
+    curved_coordinates = fine_mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
+    curved_mesh.netgen_mesh = fine_mesh.netgen_mesh
+    curved_mesh.netgen_flags = fine_mesh.netgen_flags
+    return curved_mesh
 
 
 def splitToQuads(plex, dim, comm):

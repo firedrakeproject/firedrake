@@ -1,6 +1,7 @@
 import firedrake
 import ufl
 import finat.ufl
+import warnings
 import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
@@ -8,7 +9,7 @@ from firedrake.embedding import get_embedding_dg_element
 from finat.element_factory import create_element
 from .utils import get_level
 
-__all__ = ("TransferManager", )
+__all__ = ("TransferManager",)
 
 
 class Op(IntEnum):
@@ -380,3 +381,12 @@ class TransferManager(object):
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+
+
+def AdaptiveTransferManager(*args, **kwargs):
+    """Deprecated alias for `TransferManager`."""
+    warnings.warn(
+        "The ``AdaptiveTransferManager`` class is deprecated and will be removed in a future release. "
+        "Please use the ``TransferManager`` class instead.", FutureWarning
+    )
+    return TransferManager(*args, **kwargs)
