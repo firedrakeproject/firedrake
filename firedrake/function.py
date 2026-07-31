@@ -28,10 +28,10 @@ from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from firedrake.exceptions import PointNotInDomainError, TopologyVersionMismatchError
+from firedrake.exceptions import PointNotInDomainError, TopologyVersionMismatchError, FunctionMigrationError
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator', 'TopologyVersionMismatchError']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -277,15 +277,15 @@ class Function(ufl.Coefficient, FunctionMixin):
         # LRU cache for expressions assembled onto this function
         self._expression_cache = cachetools.LRUCache(maxsize=50)
 
-        self._mesh_topo = self._function_space.topological.mesh()  # the MeshTopology object
-        self._mesh_geom = self._function_space.mesh()  # the MeshGeometry object
+        self._mesh_topology = self._function_space.topological.mesh()  # the MeshTopology object
+        self._mesh_geometry = self._function_space.mesh()  # the MeshGeometry object
 
         # Register the mesh topology version at the time the Function was created
-        self._mesh_topology_version = self._mesh_topo._topology_version
+        self.self._mesh_topology_version = self._mesh_topology._topology_version
 
         # Register the Function if it's defined on a VOM
-        if isinstance(self._mesh_topo, VertexOnlyMeshTopology):
-            self._mesh_topo._live_functions[next(self._mesh_topo._function_counter)] = self
+        if isinstance(self._mesh_topology, VertexOnlyMeshTopology):
+            self._mesh_topology._live_functions[next(self._mesh_topology._function_counter)] = self
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -317,19 +317,19 @@ class Function(ufl.Coefficient, FunctionMixin):
     def _match_mesh_topology_version(self):
         # Skip checking oordinate functions as they get rebuilt when the VOM gets rebuilt
         # Note that `coordinates` is a property of any MeshGeometry object while `reference_coordinates` is only a property of the VOM
-        if hasattr(self._mesh_geom, "coordinates") and self is self._mesh_geom.coordinates:
+        if hasattr(self._mesh_geometry, "coordinates") and self is self._mesh_geometry.coordinates:
             return
-        if hasattr(self._mesh_geom, "reference_coordinates") and self is self._mesh_geom.reference_coordinates:
+        if hasattr(self._mesh_geometry, "reference_coordinates") and self is self._mesh_geometry.reference_coordinates:
             return
 
-        current_mesh_version = self._mesh_topo._topology_version
+        current_mesh_version = self._mesh_topology._topology_version
 
-        if current_mesh_version != self._mesh_topology_version:
+        if current_mesh_version != self.self._mesh_topology_version:
             self._rebuild_function(current_mesh_version)
 
     def _rebuild_function(self, current_version):
         # Check if the mesh on which the function is defined is a VertexOnlyMesh
-        if not isinstance(self._mesh_topo, VertexOnlyMeshTopology):
+        if not isinstance(self._mesh_topology, VertexOnlyMeshTopology):
             raise TopologyVersionMismatchError(
                 "The mesh topology has changed since this Function was created, \
                 and migration is currently only supported for Functions defined on VertexOnlyMeshes. \
@@ -337,26 +337,27 @@ class Function(ufl.Coefficient, FunctionMixin):
             )
 
         # Get the latest one-step SF point mapping (indexed by current mesh version)
-        latest_topology_step_sf = self._mesh_topo._topology_step_sfs.get(current_version, None)
+        latest_topology_step_sf = self._mesh_topology._topology_step_sfs.get(current_version, None)
         if latest_topology_step_sf is None:
-            raise RuntimeError(
-                f"Failed to migrate the Function data as the SF to version {current_version} could not be found."
+            raise FunctionMigrationError(
+                "Failed to migrate Function data because the topology mapping "
+                f"to version {current_version} could not be found."
             )
 
         # Migrate the Function data using the SF mapping
         # First get the SF mapping from current mesh to the mesh at the time the Function was created
         # Then check if we need to chain multiple one-step SFs (this happens when the Function was created on a VOM topology
         # that's more than one version behind).
-        if current_version - self._mesh_topology_version > 1:
+        if current_version - self.self._mesh_topology_version > 1:
             # Compose multiple one-step SFs
             chained_sf = latest_topology_step_sf  # starts from latest V -> V-1
             # Iterate backwards through the intermediate versions
-            for v in range(current_version-1, self._mesh_topology_version, -1):
-                step_sf = self._mesh_topo._topology_step_sfs.get(v, None)  # maps V-1 -> V-2
+            for v in range(current_version-1, self.self._mesh_topology_version, -1):
+                step_sf = self._mesh_topology._topology_step_sfs.get(v, None)  # maps V-1 -> V-2
                 if step_sf is None:
-                    raise RuntimeError(
-                        f"Failed to migrate the Function across multiple topology changes: \
-                        the intermediate topology mapping from version {v-1} to {v} could not be found."
+                    raise FunctionMigrationError(
+                        f"Failed to migrate Function data across multiple topology changes: \
+                        the topology mapping from version {v-1} to version {v} could not be found."
                     )
                 chained_sf = step_sf.compose(chained_sf)  # V -> V-2
 
@@ -376,7 +377,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._expression_cache.clear()
 
         # Update the mesh topology version stored on the function
-        self._mesh_topology_version = current_version
+        self.self._mesh_topology_version = current_version
 
     def __dir__(self):
         current = super(Function, self).__dir__()
@@ -948,15 +949,22 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     return getattr(dll, c_name)
 
 
-def migrate_dg0_dat(old_cfunc, FS_topo, step_sf):
-    """Migrate a DG0 CoordinatelessFunction across a topology change via the step SF.
-    Returns a new CoordinatelessFunction on the refreshed topological FunctionSpace."""
+def migrate_dg0_dat(
+    old_cfunc: CoordinatelessFunction,
+    topological_function_space: functionspaceimpl.FunctionSpace,
+    step_sf: PETSc.SF
+) -> CoordinatelessFunction:
+    """Migrate a DG0 CoordinatelessFunction across a topology change via the one-step SF."""
     from pyop2.mpi import MPI
 
-    dim = FS_topo.value_size
+    dim = topological_function_space.value_size
     old_vals = old_cfunc.dat.data_ro.copy().reshape((-1, dim))
+    old_space = old_cfunc.function_space()
 
-    new_data = CoordinatelessFunction(FS_topo, val=None, dtype=old_cfunc.dat.dtype, name=old_cfunc.name())
+    assert old_space.cell_node_list.shape[1] == 1, \
+        "This Function migration method requires a DG0 Function with exactly one node per cell."
+
+    new_cfunc = CoordinatelessFunction(topological_function_space, val=None, dtype=old_cfunc.dat.dtype, name=old_cfunc.name())
 
     nroots, ilocal, remote = step_sf.getGraph()
     nleaves = remote.shape[0] if ilocal is None else ilocal.shape[0]
@@ -969,6 +977,6 @@ def migrate_dg0_dat(old_cfunc, FS_topo, step_sf):
         step_sf.bcastEnd(unit, root, leaf, MPI.REPLACE)
         new_vals[:, c] = leaf
 
-    cnl = FS_topo.cell_node_list
-    new_data.dat.data_with_halos.reshape((-1, dim))[cnl[:, 0], :] = new_vals
-    return new_data
+    cnl = topological_function_space.cell_node_list
+    new_cfunc.dat.data_with_halos.reshape((-1, dim))[cnl[:, 0], :] = new_vals
+    return new_cfunc

@@ -643,7 +643,6 @@ class FunctionSpace:
         return not self.__eq__(other)
 
     def __hash__(self):
-        # Given that dof_dset is now re-created when the FS mutates, we remove it from the hash
         return hash((self.mesh(), self.ufl_element()))
 
     @cached_property
@@ -999,10 +998,16 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     @cached_property_until(lambda self: self._mesh._topology_version)
     def dof_dset(self):
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self._shared_data.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name,
-                                    apply_local_global_filter=self._shared_data.extruded)
+        r"""A :class:`pyop2.types.set.Set` representing the function space degrees of freedom."""
+        return self.make_dof_dset()
+
+    def make_dof_dset(self):
+        return op2.DataSet(
+            self._shared_data.node_set,
+            self.shape or 1,
+            name=f"{self.name}_nodes_dset",
+            apply_local_global_filter=self._shared_data.extruded
+        )
 
     def set_shared_data(self):
         sdata = self._shared_data

@@ -1,36 +1,51 @@
 import numpy as np
+from numpy.typing import ArrayLike
 from firedrake.utils import IntType
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
+from firedrake.function import migrate_dg0_dat
 import firedrake.cython.dmcommon as dmcommon
 from pyop2.mpi import MPI
 
 
 class VertexOnlyMeshMutator:
     """Mutate a VertexOnlyMesh in place as particles move through its parent mesh."""
-    def __init__(self, vom):
+    def __init__(self, vom: MeshGeometry) -> None:
         self.vom = vom
         self.parent_mesh = self.vom._parent_mesh
+
+        if not isinstance(self.vom, VertexOnlyMeshTopology):
+            raise TypeError(
+            "The VertexOnlyMeshMutator requires a mesh with a VertexOnlyMeshTopology."
+        )
 
         if self.parent_mesh.extruded:
             raise NotImplementedError(
                 "The VertexOnlyMeshMutator does not yet support VertexOnlyMeshes immersed in an extruded parent mesh."
             )
 
-    def commit_reference_state(self, new_parent_cells, new_refcoords):
-        """Commit updated parent-cell and reference-coordinate data to the VertexOnlyMesh.
+    def commit_reference_state(self, new_parent_cells: np.ndarray, new_refcoords: np.ndarray) -> None:
+        """Commit updated parent-cell and reference-coordinate data.
 
-        Updates the parent cell ownership and reference coordinates under the assumption that ``new_parent_cells``
-        and ``new_refcoords`` are geometrically consistent - that is, the ``new_refcoords`` correctly represent
-        each point's reference coordinates in its new parent cell.
+        Parameters
+        ----------
+        new_parent_cells : numpy.ndarray
+            Parent-cell numbers for locally owned VOM points. The expected
+            shape is ``(n_owned,)`` or ``(n_owned, 1)``. Values must be in
+            the current VOM ordering.
+        new_refcoords : numpy.ndarray
+            Reference coordinates for locally owned VOM points. The expected
+            shape is ``(n_owned, parent_tdim)``. Values must be in the current
+            VOM ordering.
 
-        Args:
-            new_parent_cells: array-like of shape ``(n_owned, 1)`` or ``(n_owned) containing the new parent-cell number
-                for each locally owned VOM point, in current VOM ordering.
-            new_refcoords: Array-like of shape ``(n_owned, parent_tdim)``
-                containing the updated reference coordinates for each locally
-                owned VOM point, in current VOM ordering.
+        Notes
+        -----
+        The parent-cell numbers and reference coordinates must be
+        geometrically consistent: each row of ``new_refcoords`` must locate
+        the corresponding point in the cell specified by
+        ``new_parent_cells``.
 
-        Notes:
-            Swarm fields are stored in DMSwarm ordering, but both arguments are expected to be in VOM ordering.
+        DMSwarm fields use DMSwarm ordering, whereas the inputs to this
+        method use the current VOM ordering.
         """
         swarm = self.vom.topology_dm
         topology = self.vom.topology
@@ -81,24 +96,31 @@ class VertexOnlyMeshMutator:
         ref_coords_func = self.vom.reference_coordinates
         ref_coords_func.dat.data[:] = new_refcoords
 
-    def rebuild_vom(self, absorbed_vom_indices=None):
-        """Rebuild the VertexOnlyMesh using the state already stored on the VOM.
+    def rebuild_vom(self, absorbed_vom_indices: ArrayLike | None = None) -> None:
+        """Rebuild the vertex-only mesh (VOM) from its currently stored state.
 
-        The VOM is expected to hold the desired state (coordinates, reference
-        coordinates, and parent-cell numbers) before this method is called.
+        The VOM must contain the desired coordinates, reference coordinates,
+        and parent-cell numbers before this method is called. The rebuild
+        removes selected particles, redistributes the remaining particles,
+        and refreshes topology-dependent data.
 
-        This method then removes absorbed particles, compacts and migrates the DMSwarm,
-        and refreshes the VOM's topology, numbering, particle ids, coordinate Functions, and
-        topology-dependent caches.
+        Parameters
+        ----------
+        absorbed_vom_indices : array_like, optional
+            One-dimensional array containing the local VOM indices of
+            particles to remove. Indices are interpreted in the current
+            local VOM ordering. By default, no particles are removed.
 
-        Args:
-            absorbed_vom_indices: Optional local VOM indices of particles to remove,
-                in current VOM ordering. Raises ``EmptyVOMError`` if no particles
-                remain globally.
+        Notes
+        -----
+        This is a collective operation over the parent mesh communicator.
+        Every rank must call it, although each rank may provide different
+        local particle indices.
+
+        The method modifies the VOM, and its underlying DMSwarm, in place. 
+        It rebuilds the topology numbering, particle IDs, coordinate fields, 
+        and topology-dependent caches, and increments the topology version.
         """
-        from firedrake.mesh import VertexOnlyMeshTopology
-        from firedrake.function import migrate_dg0_dat
-
         comm = self.parent_mesh.comm
         swarm = self.vom.topology_dm
         topology = self.vom.topology
@@ -150,10 +172,25 @@ class VertexOnlyMeshMutator:
         # new owning ranks and removes sent copies, and the VOM is asserted to have no ghost particles.
 
         # Remove particles from the VOM
-        absorbed = np.array([] if absorbed_vom_indices is None else absorbed_vom_indices, dtype=int)
+        absorbed = (
+            np.empty(0, dtype=IntType)
+            if absorbed_vom_indices is None
+            else np.asarray(absorbed_vom_indices, dtype=IntType)
+        )
+
+        is_one_dim_local = absorbed.ndim == 1
+        is_one_dim_global = comm.allreduce(
+            is_one_dim_local,
+            op=MPI.LAND,
+        )
+
+        if not is_one_dim_global:
+            raise ValueError(
+                "`absorbed_vom_indices` must be a one-dimensional array on every rank."
+            )
 
         # Rank-local check: are all indices of particles to be removed valid?
-        in_range_local = np.all((absorbed >= 0) & (absorbed < n_local)) if len(absorbed) else True
+        in_range_local = np.all((absorbed >= 0) & (absorbed < n_local)) if absorbed.size else True
 
         # Collective agreement: does the above check hold on every rank?
         in_range_global = comm.allreduce(in_range_local, op=MPI.LAND)
