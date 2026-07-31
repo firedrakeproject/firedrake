@@ -658,7 +658,7 @@ def select_entity(p, dm=None, exclude=None):
         return dm.getLabelValue(exclude, p) == -1
 
 
-class PlaneSmoother(object):
+class PlaneSmoother:
     @staticmethod
     def coords(dm, p, coordinates):
         coordinatesV = coordinates.function_space()
@@ -759,9 +759,10 @@ class PlaneSmoother(object):
                 axis = int(sweep_split[0])
             except ValueError:
                 try:
-                    axis = context.appctx[sweep_split[0]]
+                    axis = context.get_python_option(prefix, sweep_split[0])
                 except KeyError:
-                    raise KeyError("PlaneSmoother axis key %s not provided" % sweep_split[0])
+                    breakpoint()
+                    raise KeyError(f"PlaneSmoother axis key {sweep_split[0]} not provided")
 
             dir = {'+': +1, '-': -1}[sweep_split[1]]
             # Either use equispaced bins for relaxation or get from appctx
@@ -770,10 +771,11 @@ class PlaneSmoother(object):
                 entities = self.sort_entities(dm, axis, dir, ndiv=ndiv)
             except ValueError:
                 try:
-                    divisions = context.appctx[sweep_split[2]]
+                    divisions = context.get_python_option(prefix, sweep_split[2])
                     entities = self.sort_entities(dm, axis, dir, divisions=divisions)
                 except KeyError:
-                    raise KeyError("PlaneSmoother division key %s not provided" % sweep_split[2:])
+                    breakpoint()
+                    raise KeyError(f"PlaneSmoother division key {sweep_split[2:]} not provided")
 
             for patch in entities:
                 if not patch:
