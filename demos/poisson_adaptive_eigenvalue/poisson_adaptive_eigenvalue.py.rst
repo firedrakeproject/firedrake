@@ -70,7 +70,7 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
       eigenfunction.rename("Eigenfunction")
       return (bounds["lb"], bounds["ub"], eigenfunction)
 
-These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator. ::
+These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. ::
 
   def estimate_error(mesh, uh, lam):
       W = FunctionSpace(mesh, "DG", 0)
