@@ -102,7 +102,11 @@ def prolong(coarse, fine):
         for d in [coarse, coarse_coords]:
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine.node_set, *kernel_args)
+        # An adaptive refinement leaves most of the mesh alone, and the nodes
+        # it preserves are copied rather than evaluated.
+        node_subset = utils.transfer_node_subset(Vc, Vf)
+        op2.par_loop(kernel, node_subset, *kernel_args)
+        utils.prolong_preserved_nodes(coarse, fine)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -184,7 +188,11 @@ def restrict(fine_dual, coarse_dual):
         for d in [coarse_coords]:
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine_dual.node_set, *kernel_args)
+        # Restriction transposes prolongation, so it skips the same fine nodes
+        # and hands the coarse nodes they pair with their values whole.
+        node_subset = utils.transfer_node_subset(Vc, Vf)
+        op2.par_loop(kernel, node_subset, *kernel_args)
+        utils.restrict_preserved_nodes(fine_dual, coarse_dual)
         fine_dual = coarse_dual
     return coarse_dual
 

@@ -163,6 +163,14 @@ runs:
         firedrake-clean
         pip list
 
+    - name: "DROP BEFORE MERGE: install FIAT from firedrakeproject/fiat#267"
+      shell: bash
+      run: |
+        . venv/bin/activate
+        pip install --verbose --no-build-isolation --no-deps --force-reinstall \
+          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/restricted-entity-permutations
+        pip list | grep -i fiat
+
     - name: Run firedrake-check
       shell: bash
       run: |
