@@ -134,7 +134,7 @@ class LoopyContext(object):
     def fetch_multiindex(self, multiindex):
         indices = []
         for index in multiindex:
-            if isinstance(index, gem.ListIndex):
+            if hasattr(gem, "ListIndex") and isinstance(index, gem.ListIndex):
                 if tuple(index.index_array) not in self.index_arrays:
                     name = f"perm_{len(self.index_arrays)}"
                     self.temporaries.append(lp.TemporaryVariable(
