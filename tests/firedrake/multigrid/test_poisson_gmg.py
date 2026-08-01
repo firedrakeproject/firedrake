@@ -158,20 +158,15 @@ def test_preconditioner_coarsening(solver_type):
     L = inner(alpha * f, v)*dx
 
     uh = function.Function(V)
-    # If we are providing Jp we need to also specify a python preconditioner
-    # This is to force a separate _SNESContext for the preconditioner
-    parameters = {
-        "mat_type": "matfree",
+    parameters = solver_parameters(solver_type)
+    parameters.update({
         "snes_type": "ksponly",
         "ksp_convergence_test": "skip",
         "ksp_type": "richardson",
         "ksp_max_it": 1,
         "ksp_richardson_scale": float(beta),  # undo the rescaling
-        "pc_type": "python",
-        "pc_python_type": "firedrake.AssembledPC",
-        "assembled": solver_parameters(solver_type),
-        "assembled_pc_use_amat": False
-    }
+        "pc_use_amat": False,
+    })
     solve(a == L, uh, bcs=bcs, J=a, Jp=Jp, solver_parameters=parameters)
 
     assert norm(assemble(exact - uh)) < 4e-6

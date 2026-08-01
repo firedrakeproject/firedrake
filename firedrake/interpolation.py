@@ -941,8 +941,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
@@ -1683,11 +1684,13 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
             blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        isrows, iscols = (V.dof_dset.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,

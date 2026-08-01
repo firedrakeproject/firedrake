@@ -54,6 +54,18 @@ extra_args=${@:3}
 job_timeout=${FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT:-1800s}
 kill_after=${FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER:-60s}
 
+# Callback to kill child processes if Ctrl-C hit
+pids=()
+cleanup() {
+    for pid in "${pids[@]}"; do
+        if ps -p "$pid" > /dev/null; then
+            kill -INT "$pid"  # Send SIGINT to the sub-process
+            wait "$pid"
+        fi
+    done
+}
+trap cleanup SIGINT
+
 timeout_exec=""
 if command -v timeout >/dev/null 2>&1; then
     timeout_exec="timeout"
@@ -68,7 +80,8 @@ if [ $num_procs = 1 ]; then
     # OpenMPI at MPI_Finalize
     pytest_exec="python3 -m pytest"
 else
-    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
+    # Set '--bind-to none' so we don't end up pinning MPI jobs to the same cores
+    pytest_exec="mpiexec -n ${num_procs} --bind-to none python3 -m pytest"
 fi
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
@@ -79,23 +92,27 @@ fi
 
 log_file_prefix="pytest_nprocs${num_procs}_job"
 
-# Print the command
-set -x
-
 # This incantation:
 # * Runs pytest under GNU parallel using the right number of jobs
 # * Applies an outer timeout to the whole pytest/mpiexec process tree, if available
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
 if command -v parallel >/dev/null 2>&1; then
+    # Print the command
+    set -x
     parallel --line-buffer --tag \
         "${pytest_cmd} 2>&1 | tee ${log_file_prefix}{#}.log; \
         echo \${PIPESTATUS[0]} > job{#}.errcode" \
-        ::: $(seq ${num_jobs})
+        ::: $(seq ${num_jobs}) &
+    set +x
+    pid=$!
+    pids+=($pid)
+    wait ${pid} || true
 else
     # Fallback when GNU parallel is not available: use bash job control.
     # We keep per-job logs and errcodes to match the GNU parallel behavior.
-    pids=()
+    # Print the commands
+    set -x
     for i in $(seq ${num_jobs}); do
         (
             eval "${pytest_cmd/\{#\}/$i}" 2>&1 | tee ${log_file_prefix}${i}.log
@@ -103,16 +120,20 @@ else
         ) &
         pids+=($!)
     done
+    set +x
     for pid in "${pids[@]}"; do
         wait ${pid} || true
     done
 fi
 
-set +x
-
 pass=true
 for i in $(seq 1 ${num_jobs}); do
-    error_code=$(cat job${i}.errcode)
+    # If we terminated early then this file doesn't exist
+    if [ -f "job${i}.errcode" ]; then
+        error_code=$(cat job${i}.errcode)
+    else
+        error_code=1
+    fi
     # pytest uses exit code 5 if no tests were found, which we also treat that as a success
     # (see https://docs.pytest.org/en/7.1.x/reference/exit-codes.html)
     if [ ${error_code} = "0" ] || [ ${error_code} = "5" ]; then
@@ -124,7 +145,7 @@ for i in $(seq 1 ${num_jobs}); do
 done
 
 echo Cleaning up
-rm job*.errcode
+rm -f job*.errcode
 echo Done
 
 if $pass; then

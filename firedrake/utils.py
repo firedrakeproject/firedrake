@@ -1,6 +1,8 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+import functools
+from typing import Callable, Self, Hashable
 from decorator import decorator
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
@@ -78,7 +80,7 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
         this system or None
 
     """
-    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse", "HIP": "aijhipsparse"}
     dev_type = get_device_type()
     if dev_type is None:
         if warn:
@@ -264,3 +266,38 @@ def check_netgen_installed() -> None:
             "are installed and available to Firedrake (see "
             "https://www.firedrakeproject.org/install.html#netgen)."
         )
+
+
+def cached_property_until(key: Callable[[Self], Hashable]):
+    """Decorator for a property that is cached until some value changes.
+
+    For example, the ``expensive_property`` below will be cached until
+    ``self.value`` changes, and will be recomputed with the new ``self.value``
+    and cached when accessed again.
+
+    .. code-block:: python
+
+        class MyClass:
+
+            def __init__(self, value):
+                self.value = value
+
+            @cached_property_until(lambda self: self.value)
+            def expensive_property(self):
+                # Some expensive computation that depends on self.value
+                ...
+    """
+    def decorator(func):
+        @property
+        @functools.wraps(func)
+        def wrapper(self):
+            cache_attribute = f"_{func.__name__}_cache"
+            current_value = key(self)
+            cached_value = getattr(self, cache_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                result = func(self)
+                setattr(self, cache_attribute, (current_value, result))
+                return result
+            return cached_value[1]
+        return wrapper
+    return decorator
