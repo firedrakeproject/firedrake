@@ -186,6 +186,15 @@ We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \la
 
    Convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}`. Note that the adaptive scheme achieves the optimal convergence rate of :math:`O(N^{-1})`, whereas uniform refinement is limited to the suboptimal rate of :math:`O(N^{-2/3})`.
 
+To visualize how the adaptive algorithm resolves the singularity, the sequence of images below shows the mesh (at refinement level 15), zooming into the re-entrant corner at 10x, 100x, and 1000x magnification.
+
+.. image:: mesh_zoom_10x.png
+   :width: 32%
+.. image:: mesh_zoom_100x.png
+   :width: 32%
+.. image:: mesh_zoom_1000x.png
+   :width: 32%
+
 .. rubric:: References
 
 .. bibliography:: demo_references.bib
