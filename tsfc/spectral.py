@@ -3,7 +3,7 @@ from functools import partial
 import itertools
 from itertools import chain, zip_longest
 
-from gem.gem import Conditional, Delta, Indexed, Sum, index_sum, one
+from gem.gem import Conditional, Delta, Indexed, IndexSum, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
@@ -59,7 +59,7 @@ def _delta_inside(node, self):
 
 
 def _factorisation_candidates(
-        expression, argument_indices,
+        expression, argument_indices, quadrature_indices,
         delta_inside) -> tuple[FactorisationCandidates, ...]:
     """Build alternative pre-expansion grouping plans.
 
@@ -69,6 +69,8 @@ def _factorisation_candidates(
         Multilinear integrand to factorize.
     argument_indices : set of Index
         Free argument indices.
+    quadrature_indices : tuple of Index
+        Indices contracted by quadrature.
     delta_inside : callable
         Memoized predicate detecting delta nodes.
 
@@ -87,7 +89,7 @@ def _factorisation_candidates(
         assert len(option_sums) == len(options)
         for position, groups in enumerate(options):
             classifier = partial(
-                classify, argument_indices,
+                classify, argument_indices, quadrature_indices,
                 delta_inside=delta_inside, groups=groups)
             monomial_sum, = collect_monomials([term], classifier)
             option_sums[position] = MonomialSum.sum(
@@ -312,7 +314,8 @@ def flatten(var_reps, index_cache):
         argument_indices = set(free_indices)
         for variable, expression in zip(variables, expressions):
             candidate_groups = _factorisation_candidates(
-                expression, argument_indices, delta_inside)
+                expression, argument_indices, quadrature_indices,
+                delta_inside)
             monomial_sum = _select_factorisation_plan(
                 variable, candidate_groups, quadrature_indices,
                 index_replacer)
@@ -339,16 +342,19 @@ def flatten(var_reps, index_cache):
         yield (variable, expression)
 
 
-finalise_options = dict(replace_delta=True)
+finalise_options = dict(replace_delta=True, remove_componenttensors=False)
 
 
-def classify(argument_indices, expression, delta_inside, groups=frozenset()):
+def classify(argument_indices, quadrature_indices, expression, delta_inside,
+             groups=frozenset()):
     """Classify one expression for multilinear factorization.
 
     Parameters
     ----------
     argument_indices : set of Index
         Free argument indices.
+    quadrature_indices : tuple of Index
+        Indices contracted by quadrature.
     expression : Node
         Expression to classify.
     delta_inside : callable
@@ -367,6 +373,9 @@ def classify(argument_indices, expression, delta_inside, groups=frozenset()):
     if n == 0:
         return OTHER
     elif n == 1:
+        if isinstance(expression, IndexSum) and set(
+                expression.multiindex).isdisjoint(quadrature_indices):
+            return ATOMIC
         if isinstance(expression, Conditional):
             return ATOMIC
         if isinstance(expression, (Delta, Indexed)) \
