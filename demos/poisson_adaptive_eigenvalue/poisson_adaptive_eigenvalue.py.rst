@@ -27,9 +27,9 @@ We then define the L-shaped domain using Netgen's Open CASCADE technology (OCC) 
 We create a function to solve the eigenvalue problem for both continuous (CG) and nonconforming Crouzeix-Raviart (CR) :cite:`Crouzeix:1973` elements. By the Rayleigh-Ritz principle :cite:`Boffi:2010,Gander:2012`, the CG solution provides an upper bound :math:`\lambda_{\text{ub}}`. The CR solution gives a discrete eigenvalue :math:`\lambda_{\text{CR}}`, which can be postprocessed to yield a guaranteed lower bound:
 
 .. math::
-    \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 \lambda_{\text{CR}} \int_\Omega h^2 |u_{\text{CR}}|^2 \, \text{d}x}
+    \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 h_{\max}^2 \lambda_{\text{CR}}}
 
-where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. To ensure the lower bound converges optimally on adaptively refined meshes (where the global maximum mesh size does not vanish), we employ a localized version of the consistency bound (as developed in the frameworks of :cite:`CarstensenGedicke:2014,Hu:2014`), which replaces the global mesh size with the element-wise local mesh size :math:`h`. We will use the difference between these guaranteed upper and lower bounds to terminate the adaptive iteration. ::
+where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` to demonstrate optimal convergence. ::
 
   def solve_poisson(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
@@ -61,18 +61,15 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
 
           if space == "CR":
               lambda_CR = eigensolver.eigenvalue(0).real
-              uh_CR = eigensolver.eigenfunction(0)[0]
-              h = CellDiameter(mesh)
-              # Localized consistency bound to prevent stall on adaptive meshes
-              h_norm_sq = assemble(h**2 * uh_CR**2 * dx)
               kappa_CR = 0.1893
-              bounds["lb"] = lambda_CR / (1 + kappa_CR**2 * lambda_CR * h_norm_sq)
+              bounds["lb"] = lambda_CR / (1 + kappa_CR**2 * h_max**2 * lambda_CR)
+              bounds["CR"] = lambda_CR
           if space == "CG":
               bounds["ub"] = eigensolver.eigenvalue(0).real
               eigenfunction = eigensolver.eigenfunction(0)[0]
 
       eigenfunction.rename("Eigenfunction")
-      return (bounds["lb"], bounds["ub"], eigenfunction)
+      return (bounds["lb"], bounds["ub"], bounds["CR"], eigenfunction)
 
 These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. ::
 
@@ -122,15 +119,16 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
   err = 1
 
   for i in range(max_iterations):
-      lam_lb, lam_ub, uh = solve_poisson(mesh)
+      lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh)
       err = lam_ub - lam_lb
-      error_estimators.append(err)
+      gap = lam_ub - lam_CR
+      error_estimators.append(gap)
       dofs.append(uh.function_space().dim())
-      print(f"Level {i}: Upper bound {lam_ub:.5f}, Lower bound {lam_lb:.5f}, Gap {err:.5e}")
+      print(f"Level {i}: Upper bound {lam_ub:.5f}, Lower bound {lam_lb:.5f}, Bound gap {err:.5e}, Galerkin gap {gap:.5e}")
 
       VTKFile(f"l_eigenfunction_{i}.pvd").write(uh)
 
-      if err < 1e-2:
+      if err < 2e-3 or dofs[-1] > 1000000:
           break
 
       eta, _ = estimate_error(mesh, uh, lam_ub)
@@ -147,16 +145,17 @@ To demonstrate that adaptivity is necessary to achieve the optimal convergence r
       return mesh.refine_marked_elements(markers)
 
   for i in range(max_iterations):
-      lam_lb, lam_ub, uh = solve_poisson(mesh_uniform)
+      lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh_uniform)
       err = lam_ub - lam_lb
-      uniform_error_estimators.append(err)
+      gap = lam_ub - lam_CR
+      uniform_error_estimators.append(gap)
       uniform_dofs.append(uh.function_space().dim())
-      if err < 1e-2:
+      if err < 2e-3 or uniform_dofs[-1] > 1000000:
           break
       eta, _ = estimate_error(mesh_uniform, uh, lam_ub)
       mesh_uniform = adapt_uniform(mesh_uniform, eta)
 
-We can plot the convergence of the error bound :math:`\lambda_{\text{ub}} - \lambda_{\text{lb}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate, whereas uniform refinement is suboptimal due to the singularity. ::
+We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate. For uniform refinement, the error is initially dominated by the smooth part of the solution (yielding a pre-asymptotic :math:`O(N^{-1})` rate), but as the mesh is refined, the singularity inevitably dominates and limits the asymptotic convergence to the suboptimal rate of :math:`O(N^{-2/3})`. ::
 
   try:
       import matplotlib.pyplot as plt
@@ -165,10 +164,12 @@ We can plot the convergence of the error bound :math:`\lambda_{\text{ub}} - \lam
       plt.grid()
       plt.loglog(dofs, error_estimators, '-ok', label=r"Adaptive refinement ($\theta = 0.5$)")
       plt.loglog(uniform_dofs, uniform_error_estimators, '-or', label=r"Uniform refinement ($\theta = 0$)")
-      scaling = 1.5 * error_estimators[0] / dofs[0]**-1
+      scaling = error_estimators[0] / dofs[0]**-1
       plt.loglog(dofs, np.array(dofs)**(-1.0) * scaling, '--', label="Optimal convergence $N^{-1}$")
+      scaling_uniform = uniform_error_estimators[-1] / uniform_dofs[-1]**(-2.0/3.0)
+      plt.loglog(uniform_dofs, np.array(uniform_dofs)**(-2.0/3.0) * scaling_uniform, ':r', label=r"Suboptimal convergence $N^{-2/3}$")
       plt.xlabel("Number of degrees of freedom $N$")
-      plt.ylabel(r"Error bound $\lambda_{\text{ub}} - \lambda_{\text{lb}}$")
+      plt.ylabel(r"Galerkin gap $\lambda_{\text{ub}} - \lambda_{\text{CR}}$")
       plt.legend()
       plt.savefig("adaptive_eigenvalue_convergence.png")
   except ImportError:
@@ -178,7 +179,7 @@ We can plot the convergence of the error bound :math:`\lambda_{\text{ub}} - \lam
    :align: center
    :figwidth: 80%
 
-   Convergence of the guaranteed error bound. Note that the adaptive scheme achieves the optimal convergence rate of :math:`O(N^{-1})`.
+   Convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}`. Note that the adaptive scheme achieves the optimal convergence rate of :math:`O(N^{-1})`, whereas uniform refinement is limited to the suboptimal rate of :math:`O(N^{-2/3})`.
 
 .. rubric:: References
 
