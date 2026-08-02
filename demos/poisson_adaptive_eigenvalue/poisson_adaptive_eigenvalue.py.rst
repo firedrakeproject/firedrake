@@ -71,7 +71,7 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
       eigenfunction.rename("Eigenfunction")
       return (bounds["lb"], bounds["ub"], bounds["CR"], eigenfunction)
 
-These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. ::
+These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace. ::
 
   def estimate_error(mesh, uh, lam):
       W = FunctionSpace(mesh, "DG", 0)
@@ -96,7 +96,7 @@ These bounds do not describe where the mesh should be refined so as to reduce th
           error_est = sqrt(eta_.dot(eta_))
       return (eta, error_est)
 
-We define a function to adapt the mesh by refining elements with large error indicators, using the maximum marking strategy with :math:`\theta = 0.5`: ::
+We define a function to adapt the mesh by refining elements with large error indicators, using the maximum Dörfler-like marking strategy with :math:`\theta = 0.5`: ::
 
   def adapt(mesh, eta):
       W = FunctionSpace(mesh, "DG", 0)
