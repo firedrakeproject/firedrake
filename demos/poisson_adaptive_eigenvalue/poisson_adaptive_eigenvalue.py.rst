@@ -27,9 +27,9 @@ We then define the L-shaped domain using Netgen's Open CASCADE technology (OCC) 
 We create a function to solve the eigenvalue problem for both continuous (CG) and nonconforming Crouzeix-Raviart (CR) :cite:`Crouzeix:1973` elements. By the Rayleigh-Ritz principle :cite:`Boffi:2010,Gander:2012`, the CG solution provides an upper bound :math:`\lambda_{\text{ub}}`. The CR solution gives a discrete eigenvalue :math:`\lambda_{\text{CR}}`, which can be postprocessed to yield a guaranteed lower bound:
 
 .. math::
-    \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 h_{\max}^2 \lambda_{\text{CR}}}
+    \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 \lambda_{\text{CR}} \int_\Omega h^2 |u_{\text{CR}}|^2 \, \text{d}x}
 
-where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the difference between these guaranteed upper and lower bounds to terminate the adaptive iteration. ::
+where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. To ensure the lower bound converges optimally on adaptively refined meshes (where the global maximum mesh size does not vanish), we employ a localized version of the consistency bound (as developed in the frameworks of :cite:`CarstensenGedicke:2014,Hu:2014`), which replaces the global mesh size with the element-wise local mesh size :math:`h`. We will use the difference between these guaranteed upper and lower bounds to terminate the adaptive iteration. ::
 
   def solve_poisson(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
@@ -61,8 +61,12 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
 
           if space == "CR":
               lambda_CR = eigensolver.eigenvalue(0).real
+              uh_CR = eigensolver.eigenfunction(0)[0]
+              h = CellDiameter(mesh)
+              # Localized consistency bound to prevent stall on adaptive meshes
+              h_norm_sq = assemble(h**2 * uh_CR**2 * dx)
               kappa_CR = 0.1893
-              bounds["lb"] = lambda_CR / (1 + kappa_CR**2 * h_max**2 * lambda_CR)
+              bounds["lb"] = lambda_CR / (1 + kappa_CR**2 * lambda_CR * h_norm_sq)
           if space == "CG":
               bounds["ub"] = eigensolver.eigenvalue(0).real
               eigenfunction = eigensolver.eigenfunction(0)[0]
@@ -132,14 +136,35 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
       eta, _ = estimate_error(mesh, uh, lam_ub)
       mesh = adapt(mesh, eta)
 
-We can plot the convergence of the error bound :math:`\lambda_{\text{ub}} - \lambda_{\text{lb}}` against the number of degrees of freedom. With adaptivity, we expect the optimal :math:`O(N^{-1})` convergence rate. ::
+To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). ::
+
+  mesh_uniform = Mesh(ngmesh)
+  uniform_error_estimators = []
+  uniform_dofs = []
+
+  def adapt_uniform(mesh, eta):
+      markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1.0)
+      return mesh.refine_marked_elements(markers)
+
+  for i in range(max_iterations):
+      lam_lb, lam_ub, uh = solve_poisson(mesh_uniform)
+      err = lam_ub - lam_lb
+      uniform_error_estimators.append(err)
+      uniform_dofs.append(uh.function_space().dim())
+      if err < 1e-2:
+          break
+      eta, _ = estimate_error(mesh_uniform, uh, lam_ub)
+      mesh_uniform = adapt_uniform(mesh_uniform, eta)
+
+We can plot the convergence of the error bound :math:`\lambda_{\text{ub}} - \lambda_{\text{lb}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate, whereas uniform refinement is suboptimal due to the singularity. ::
 
   try:
       import matplotlib.pyplot as plt
       import numpy as np
 
       plt.grid()
-      plt.loglog(dofs, error_estimators, '-ok', label="Guaranteed error bound")
+      plt.loglog(dofs, error_estimators, '-ok', label=r"Adaptive refinement ($\theta = 0.5$)")
+      plt.loglog(uniform_dofs, uniform_error_estimators, '-or', label=r"Uniform refinement ($\theta = 0$)")
       scaling = 1.5 * error_estimators[0] / dofs[0]**-1
       plt.loglog(dofs, np.array(dofs)**(-1.0) * scaling, '--', label="Optimal convergence $N^{-1}$")
       plt.xlabel("Number of degrees of freedom $N$")
