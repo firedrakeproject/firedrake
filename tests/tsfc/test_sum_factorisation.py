@@ -257,6 +257,115 @@ def test_shared_map_is_tabulated_in_one_loop(cell, degree, expanded):
     assert selected <= count_loops(form)
 
 
+def simplex_mass(cell, family, degree, scheme='collapsed'):
+    m = Mesh(VectorElement('CG', cell, 1))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(u, v) * dx(scheme=scheme)
+
+
+def simplex_laplacian(cell, family, degree, scheme='collapsed'):
+    m = Mesh(VectorElement('CG', cell, 1))
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return inner(grad(u), grad(v)) * dx(scheme=scheme)
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4)])
+def test_simplex_mass_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_mass(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4.4)])
+def test_simplex_laplacian_action(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(action(simplex_laplacian(cell, family, degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+def test_simplex_laplacian_action_compact_codegen(family):
+    form = action(simplex_laplacian(triangle, family, 3))
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    assert len(temporaries) < 100
+
+
+def test_bernstein_laplacian_action_compact_literals():
+    degree = 5
+    form = action(simplex_laplacian(tetrahedron, "Bernstein", degree))
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    literals = [numpy.asarray(temporary.initializer)
+                for temporary in temporaries.values()
+                if temporary.initializer is not None]
+    lattice_size = (degree + 1) ** 3
+    assert max(literal.size for literal in literals) <= lattice_size
+    assert sum(literal.size for literal in literals) < 10 * lattice_size
+
+
+def test_bernstein_laplacian_bilinear_compact_codegen():
+    import islpy as isl
+    import loopy as lp
+
+    degree = 10
+    collapsed = simplex_laplacian(
+        tetrahedron, "Bernstein", degree, scheme="collapsed")
+    canonical = simplex_laplacian(
+        tetrahedron, "Bernstein", degree, scheme="canonical")
+    collapsed_kernel, = compile_form(
+        collapsed, parameters=dict(mode="spectral"))
+    canonical_kernel, = compile_form(
+        canonical, parameters=dict(mode="spectral"))
+
+    # At this degree the lower asymptotic complexity of sum factorisation
+    # outweighs its setup cost.
+    assert collapsed_kernel.flop_count < canonical_kernel.flop_count
+
+    entrypoint = collapsed_kernel.ast.default_entrypoint
+    assert len(entrypoint.instructions) < 250
+    assert len(entrypoint.temporary_variables) < 250
+    code = lp.generate_code_v2(collapsed_kernel.ast).device_code()
+    assert sum(line.lstrip().startswith("for (")
+               for line in code.splitlines()) < 150
+
+    # A tetrahedral lattice has a loop whose bound depends on two parents.
+    assert max(domain.dim(isl.dim_type.param)
+               for domain in entrypoint.domains) >= 2
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
+def test_simplex_mass_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_mass(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
+def test_simplex_laplacian_bilinear(cell, family, order):
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [count_flops(simplex_laplacian(cell, family, degree))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
 if __name__ == "__main__":
     import os
     import sys
