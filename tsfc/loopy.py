@@ -123,6 +123,7 @@ class LoopyContext(object):
         self.indices = {}  # indices for declarations and referencing values, from ImperoC
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
+        self.index_parents = {}  # iname -> parent inames bounding a jagged index
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
         self.target = target
@@ -257,7 +258,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
 
     # Create domains
-    domains = create_domains(ctx.index_extent.items())
+    domains = create_domains(ctx.index_extent.items(), ctx.index_parents)
 
     # Create loopy kernel
     knl = lp.make_kernel(
@@ -276,16 +277,23 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     return knl, event_name
 
 
-def create_domains(indices):
+def create_domains(indices, index_parents=None):
     """ Create ISL domains from indices
 
     :arg indices: iterable of (index_name, extent) pairs
+    :arg index_parents: optional mapping from index_name to a tuple of parent
+        index names; the domain of a jagged index is parametrized by its
+        parents, with upper bound extent minus the sum of the parents.
     :returns: A list of ISL sets representing the iteration domain of the indices."""
 
     domains = []
     for idx, extent in indices:
-        inames = isl.make_zero_and_vars([idx])
-        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(inames[0] + extent))))
+        parents = index_parents.get(idx, ()) if index_parents else ()
+        inames = isl.make_zero_and_vars([idx], parents)
+        bound = inames[0] + extent
+        for parent in parents:
+            bound = bound - inames[parent]
+        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(bound))))
 
     if not domains:
         domains = [isl.BasicSet("[] -> {[]}")]
@@ -316,6 +324,13 @@ def statement_for(tree, ctx):
     assert extent
     idx = ctx.name_gen(ctx.index_names[tree.index])
     ctx.index_extent[idx] = extent
+    if isinstance(tree.index, gem.JaggedIndex) and \
+            all(parent in ctx.active_indices for parent in tree.index.parents):
+        # Tighten the loop bound of a jagged index nested inside its parents.
+        # If a parent loop is not in scope, the rectangular bound `extent`
+        # remains correct: jagged expressions are zero-padded.
+        ctx.index_parents[idx] = tuple(ctx.active_indices[parent].name
+                                       for parent in tree.index.parents)
     with active_indices({tree.index: p.Variable(idx)}, ctx) as ctx_active:
         return statement(tree.children[0], ctx_active)
 
