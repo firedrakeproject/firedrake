@@ -7,7 +7,7 @@ We consider the Dirichlet eigenvalue problem for the Poisson equation on an L-sh
    -\Delta u &= \lambda u \quad \text{in } \Omega, \\
            u &= 0         \quad \text{on } \partial \Omega.
 
-Since the domain has a re-entrant corner, the eigenfunctions exhibit a singularity. Thus, uniform mesh refinement leads to suboptimal convergence. We demonstrate an adaptive strategy driven by a residual-based a posteriori error estimator. To establish rigorous bounds on the true eigenvalue :math:`\lambda`, we use conforming elements (CG) for an upper bound, and nonconforming elements (CR) with Carstensen-Gedicke postprocessing :cite:`CarstensenGedicke:2014` for a guaranteed lower bound.
+Since the domain has a re-entrant corner, the eigenfunctions exhibit a singularity. Thus, uniform mesh refinement leads to suboptimal convergence. We demonstrate an adaptive strategy driven by a residual-based a posteriori error estimator. To establish rigorous bounds on the true eigenvalue :math:`\lambda`, we use conforming elements (CG) for an upper bound :cite:`Boffi:2010`, and nonconforming elements (CR) with Carstensen-Gedicke postprocessing :cite:`CarstensenGedicke:2014` for a guaranteed lower bound.
 
 We start by importing the necessary libraries: ::
 
