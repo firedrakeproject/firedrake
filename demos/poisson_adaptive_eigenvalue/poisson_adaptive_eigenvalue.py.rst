@@ -29,7 +29,7 @@ We create a function to solve the eigenvalue problem for both continuous (CG) an
 .. math::
     \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 h_{\max}^2 \lambda_{\text{CR}}}
 
-where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. We will use the difference between these guaranteed upper and lower bounds to terminate the adaptive iteration. ::
+where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the difference between these guaranteed upper and lower bounds to terminate the adaptive iteration. ::
 
   def solve_poisson(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
