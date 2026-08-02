@@ -29,7 +29,7 @@ We create a function to solve the eigenvalue problem for both continuous (CG) an
 .. math::
     \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 h_{\max}^2 \lambda_{\text{CR}}}
 
-where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` to demonstrate optimal convergence. ::
+where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{CG}} - \lambda_{\text{CR}}` to demonstrate optimal convergence. ::
 
   def solve_poisson(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
@@ -128,32 +128,35 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
 
       VTKFile(f"l_eigenfunction_{i}.pvd").write(uh)
 
-      if err < 2e-3 or dofs[-1] > 1000000:
+      if err < 1e-2 or dofs[-1] > 1000000:
           break
 
       eta, _ = estimate_error(mesh, uh, lam_ub)
       mesh = adapt(mesh, eta)
 
-To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). ::
+To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). We make this optional by guarding it behind the Boolean ``run_uniform``. ::
 
-  mesh_uniform = Mesh(ngmesh)
-  uniform_error_estimators = []
-  uniform_dofs = []
+  run_uniform = True
 
-  def adapt_uniform(mesh, eta):
-      markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1.0)
-      return mesh.refine_marked_elements(markers)
+  if run_uniform:
+      mesh_uniform = Mesh(ngmesh)
+      uniform_error_estimators = []
+      uniform_dofs = []
 
-  for i in range(max_iterations):
-      lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh_uniform)
-      err = lam_ub - lam_lb
-      gap = lam_ub - lam_CR
-      uniform_error_estimators.append(gap)
-      uniform_dofs.append(uh.function_space().dim())
-      if err < 2e-3 or uniform_dofs[-1] > 1000000:
-          break
-      eta, _ = estimate_error(mesh_uniform, uh, lam_ub)
-      mesh_uniform = adapt_uniform(mesh_uniform, eta)
+      def adapt_uniform(mesh, eta):
+          markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1.0)
+          return mesh.refine_marked_elements(markers)
+
+      for i in range(max_iterations):
+          lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh_uniform)
+          err = lam_ub - lam_lb
+          gap = lam_ub - lam_CR
+          uniform_error_estimators.append(gap)
+          uniform_dofs.append(uh.function_space().dim())
+          if err < 5e-3 or uniform_dofs[-1] > 1000000:
+              break
+          eta, _ = estimate_error(mesh_uniform, uh, lam_ub)
+          mesh_uniform = adapt_uniform(mesh_uniform, eta)
 
 We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate. For uniform refinement, the error is initially dominated by the smooth part of the solution (yielding a pre-asymptotic :math:`O(N^{-1})` rate), but as the mesh is refined, the singularity inevitably dominates and limits the asymptotic convergence to the suboptimal rate of :math:`O(N^{-2/3})`. ::
 
@@ -163,11 +166,13 @@ We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \la
 
       plt.grid()
       plt.loglog(dofs, error_estimators, '-ok', label=r"Adaptive refinement ($\theta = 0.5$)")
-      plt.loglog(uniform_dofs, uniform_error_estimators, '-or', label=r"Uniform refinement ($\theta = 0$)")
       scaling = error_estimators[0] / dofs[0]**-1
       plt.loglog(dofs, np.array(dofs)**(-1.0) * scaling, '--', label="Optimal convergence $N^{-1}$")
-      scaling_uniform = uniform_error_estimators[-1] / uniform_dofs[-1]**(-2.0/3.0)
-      plt.loglog(uniform_dofs, np.array(uniform_dofs)**(-2.0/3.0) * scaling_uniform, ':r', label=r"Suboptimal convergence $N^{-2/3}$")
+
+      if run_uniform:
+          plt.loglog(uniform_dofs, uniform_error_estimators, '-or', label=r"Uniform refinement ($\theta = 0$)")
+          scaling_uniform = uniform_error_estimators[-1] / uniform_dofs[-1]**(-2.0/3.0)
+          plt.loglog(uniform_dofs, np.array(uniform_dofs)**(-2.0/3.0) * scaling_uniform, ':r', label=r"Suboptimal convergence $N^{-2/3}$")
       plt.xlabel("Number of degrees of freedom $N$")
       plt.ylabel(r"Galerkin gap $\lambda_{\text{ub}} - \lambda_{\text{CR}}$")
       plt.legend()
