@@ -1,9 +1,10 @@
 import numpy
 import pytest
 
+import tsfc.spectral
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad)
+                 quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -166,6 +167,45 @@ def test_vector_laplace_action(cell, order):
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
+
+
+def test_shared_physically_mapped_tabulation(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check that a mapped tabulation is shared by both argument axes.
+
+    Parameters
+    ----------
+    monkeypatch
+        Pytest fixture used to disable the sharing pass for comparison.
+    """
+    mesh = Mesh(VectorElement("CG", triangle, 1))
+    element = FiniteElement("Johnson-Mercier", triangle, 1)
+    space = FunctionSpace(mesh, element)
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    form = (inner(u, v) + inner(div(u), div(v))) * dx
+
+    optimized, = compile_form(form, parameters={"mode": "spectral"})
+    monkeypatch.setattr(
+        tsfc.spectral, "hoist_linear_index",
+        lambda expression, indices: expression)
+    baseline, = compile_form(form, parameters={"mode": "spectral"})
+
+    optimized_source = str(optimized.ast)
+    baseline_source = str(baseline.ast)
+    optimized_shapes = [
+        temporary.shape for temporary in
+        optimized.ast.default_entrypoint.temporary_variables.values()]
+    baseline_shapes = [
+        temporary.shape for temporary in
+        baseline.ast.default_entrypoint.temporary_variables.values()]
+
+    assert optimized.flop_count < baseline.flop_count
+    assert sum(not shape for shape in optimized_shapes) \
+        < sum(not shape for shape in baseline_shapes)
+    assert sum(shape == (15,) for shape in optimized_shapes) \
+        > sum(shape == (15,) for shape in baseline_shapes)
+    assert optimized_source.count(" if ") < baseline_source.count(" if ")
 
 
 if __name__ == "__main__":
