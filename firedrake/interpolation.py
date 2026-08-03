@@ -833,9 +833,7 @@ class SameMeshInterpolator(Interpolator):
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
     def __init__(self, expr: Interpolate, source_mesh, target_mesh):
-        super().__init__(expr)
-        self.source_mesh = source_mesh
-        self.target_mesh = target_mesh
+        super().__init__(expr, source_mesh, target_mesh)
 
         if self.source_mesh.input_ordering is self.target_mesh:
             # The forward interpolation is a star forest reduction
