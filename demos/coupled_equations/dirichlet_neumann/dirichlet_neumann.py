@@ -15,8 +15,8 @@ PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n2_list = [16,16,16,16,16] #[8,8,8,8,8] 
-n1_list = [2,4,8,16,32]
+n1_list = [16,16,16] #[8,8,8,8,8] 
+n2_list = [2,8,32]
 mesh1_list = []
 mesh2_list = []
 h1_array = []
@@ -36,16 +36,16 @@ for n1,n2 in zip(n1_list, n2_list):
 def build_problem(mesh1, mesh2, n2):
     p = 4
     p_inner = 2
-    w1 = Constant(100.0)/CellDiameter(mesh1)  # Nitsche penalty weight
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1 * sin(pi * y1) ** 2
-    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    u1_exact = sin(pi * y1) ** 2 * (x1 - (x1 - 1) ** 2 / 2)
+    u2_exact = x2 * sin(pi * y2) ** 2
     
     # RHS functions
-    f1 = -div(grad(u1_exact)) + u1_exact
-    f2 = -div(grad(u2_exact))
+    f1 = -div(grad(u1_exact))
+    f2 = -div(grad(u2_exact)) + u2_exact
 
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
@@ -57,41 +57,46 @@ def build_problem(mesh1, mesh2, n2):
     # Function Spaces
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
+    # Intermediate spaces
+    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
+    Q2 = FunctionSpace(mesh2, "CG", p_inner)
 
     W = V1 * V2
     # Test and trial functions
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
 
-    # Swapped
-    Q2v = VectorFunctionSpace(mesh2, "CG", p_inner)
-    Q1 = FunctionSpace(mesh1, "CG", p_inner)
-    # Poisson on mesh_2
-    A22_form = inner(grad(u2), grad(v2)) * dx2
+    # Poisson on mesh_1
+    A11_form = inner(grad(u1), grad(v1)) * dx1
+
+    # Helmholtz on mesh_2
+    A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
+                - inner(dot(grad(u2), n2), v2) * ds2 \
+                - inner(dot(grad(v2), n2), u2) * ds2 \
+                + w2 * inner(u2, v2) * ds2
     
-    # Helmholtz on mesh_1
-    A11_form = (inner(grad(u1), grad(v1)) + inner(u1, v1)) * dx1 \
-                - inner(dot(grad(u1), n1), v1) * ds1 \
-                - inner(dot(grad(v1), n1), u1) * ds1 \
-                + w1 * inner(u1, v1) * ds1  
-
-    q2v = TrialFunction(Q2v)
-    M2 = -inner(dot(q2v, n2), v2) * ds2  # Q1v -> W^*
-    B21 = interpolate(grad(u1), Q2v, allow_missing_dofs=True)  # W -> Q1v
-    A21_form = action(M2, B21)
-
-    q1 = TrialFunction(Q1)
-    M1 = -w1 * inner(q1, v1) * ds1  # Q2 -> W^*
-    B12 = interpolate(u2, Q1, allow_missing_dofs=True)  # W -> Q2
+    # A12: row v1, column u2
+    # W --B12--> Q1v --M1--> W^*
+    # inner(dot(grad(u2), n1), v1) * ds1
+    q1v = TrialFunction(Q1v)
+    M1 = -inner(dot(q1v, n1), v1) * ds1  # Q1v -> W^*
+    B12 = interpolate(grad(u2), Q1v, allow_missing_dofs=True)  # W -> Q1v
     A12_form = action(M1, B12)
 
-    M1_sym = inner(q1, dot(grad(v1), n1)) * ds1
-    A12_sym_form = action(M1_sym, B12)
-    
+    # A21: row v2, column u1.
+    # W --B21--> Q2 --M2--> W^*
+    q2 = TrialFunction(Q2)
+    M2 = -w2 * inner(q2, v2) * ds2  # Q2 -> W^*
+    B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
+    A21_form = action(M2, B21)
+
+    M2_sym = inner(q2, dot(grad(v2), n2)) * ds2
+    A21_sym_form = action(M2_sym, B21)
+
     # RHS
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-    A = A11_form + A22_form + A12_form + A21_form + A22_form + A12_sym_form
+    A = A11_form + A12_form + A21_form + A22_form + A21_sym_form
     L = b1 + b2 #+ inner(dot(grad(v2), n2), f2) * ds2
 
     # Exact solutions used for further analysis
@@ -182,7 +187,7 @@ if VERBOSE:
 
     plt.figure(figsize=(8,8))
     plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
-    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
+    #plt.loglog(h1_array, errors_1, "s-", label="Poisson")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
