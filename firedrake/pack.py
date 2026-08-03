@@ -642,20 +642,20 @@ class FuseMatrixApplyBuilder(object):
             f"{{[{all_idx}]:0 <= {all_idx} < {self.ns[0]}}}",
             f"""
                 res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
-            """, name=f"matmul{self.id}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+            """, name=f"matmul{self.id}n0", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
         else:
             # computes res = A B
             matmuls += [lp.make_function(
             f"{{[i,j,k]:0 <= i,k < {self.ns[0]} and 0 <= j < {self.ns[1]}}}",
             f"""
                 res[i,j] =  res[i,j] + a[i, k]*b[k,j]
-            """, name=f"matmul{self.id}n0", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+            """, name=f"matmul{self.id}n0", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
             # computes res = B revA
             matmuls += [lp.make_function(
             f"{{[i,j,k]:0 <= i < {self.ns[0]} and 0 <= j,k < {self.ns[1]}}}",
             f"""
                 res[i,j] =  res[i,j] + b[i, k]*a[k, j]
-            """, name=f"matmul{self.id}n1", lang_version=op3.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+            """, name=f"matmul{self.id}n1", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
 
         set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True),
                     lp.GlobalArg("res", dtype=utils.ScalarType, shape=self.ns, is_input=True)]
@@ -664,14 +664,14 @@ class FuseMatrixApplyBuilder(object):
             [f"b[{res_idx}] = res[{res_idx}]"],
             kernel_data=set_args,
             name=f"set{self.id}",
-            lang_version=op3.LOOPY_LANG_VERSION, 
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
             target=lp.CWithGNULibcTarget()
         )
         zero_knl = lp.make_function(
             all_idxs,
             [f"res[{res_idx}] = 0"],
             [lp.GlobalArg("res", shape=self.ns, dtype=int, is_input=True, is_output=True)],
-            lang_version=op3.LOOPY_LANG_VERSION, 
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
             target=lp.CWithGNULibcTarget(),
             name=f"zero{self.id}",
         )
@@ -770,7 +770,7 @@ class FuseMatrixApplyBuilder(object):
                 ],
             name=f"{name}{i}_switch_on_o_{self.id}",
             kernel_data=dim_arg + self.args + extra_args,
-            lang_version=op3.LOOPY_LANG_VERSION, 
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
             target=lp.CWithGNULibcTarget())
 
     def loop_dims(self, direction):
@@ -786,7 +786,7 @@ class FuseMatrixApplyBuilder(object):
             [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}, inames=dim}}"],
             name=f"{direction}_loop_over_dims_{self.id}",
             kernel_data=closure_arg + self.args,
-            lang_version=op3.LOOPY_LANG_VERSION, 
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
             target=lp.CWithGNULibcTarget())
     
     def overall(self, direction):
@@ -800,7 +800,7 @@ class FuseMatrixApplyBuilder(object):
             print_insn1],
         name=f"{direction}_transform_{self.id}",
         kernel_data=self.args[3:],
-        lang_version=op3.LOOPY_LANG_VERSION, 
+        lang_version=op3.lower.LOOPY_LANG_VERSION, 
         target=lp.CWithGNULibcTarget())
 
 def combine_matrices(matrices):
