@@ -960,27 +960,30 @@ def migrate_dg0_dat(
 ) -> CoordinatelessFunction:
     """Migrate a DG0 CoordinatelessFunction across a topology change via the one-step SF."""
     from pyop2.mpi import MPI
+    from firedrake.halo import _get_mtype
 
-    dim = topological_function_space.value_size
-    old_vals = old_cfunc.dat.data_ro.copy().reshape((-1, dim))
+    old_dat = old_cfunc.dat
+    dim = old_dat.cdim    
+
+    old_vals = np.ascontiguousarray(old_dat.data_ro).reshape((-1, dim))
     old_space = old_cfunc.function_space()
 
     assert old_space.cell_node_list.shape[1] == 1, \
         "This Function migration method requires a DG0 Function with exactly one node per cell."
 
-    new_cfunc = CoordinatelessFunction(topological_function_space, val=None, dtype=old_cfunc.dat.dtype, name=old_cfunc.name())
+    new_cfunc = CoordinatelessFunction(topological_function_space, val=None, dtype=old_dat.dtype, name=old_cfunc.name())
 
     nroots, ilocal, remote = step_sf.getGraph()
-    nleaves = remote.shape[0] if ilocal is None else ilocal.shape[0]
-    new_vals = np.empty((nleaves, dim), dtype=old_vals.dtype)
-    for c in range(dim):
-        root = np.ascontiguousarray(old_vals[:, c])
-        leaf = np.empty(nleaves, dtype=root.dtype)
-        unit = MPI._typedict[np.dtype(root.dtype).char]
-        step_sf.bcastBegin(unit, root, leaf, MPI.REPLACE)
-        step_sf.bcastEnd(unit, root, leaf, MPI.REPLACE)
-        new_vals[:, c] = leaf
+    nleaves = len(remote) if ilocal is None else len(ilocal)
+
+    new_vals = np.empty((nleaves, dim), dtype=old_dat.dtype)
+
+    mtype, _ = _get_mtype(old_dat)
+    step_sf.bcastBegin(mtype, old_vals, new_vals, MPI.REPLACE)
+    step_sf.bcastEnd(mtype, old_vals, new_vals, MPI.REPLACE)
 
     cnl = topological_function_space.cell_node_list
-    new_cfunc.dat.data_with_halos.reshape((-1, dim))[cnl[:, 0], :] = new_vals
+    new_data = new_cfunc.dat.data_with_halos.reshape((-1, dim))
+    new_data[cnl[:, 0], :] = new_vals
+
     return new_cfunc

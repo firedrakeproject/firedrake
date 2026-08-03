@@ -228,7 +228,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
         # -- check storage was correctly replaced (uses current FS layout)
         and new_dat is not old_dat
         and new_dat.dataset is vom_fs.dof_dset
-        and new_dat.dataset.size == vom_fs.cell_set.size  # owned nodes match VOM
+        and new_dat.dataset.size == vom.cell_set.size  # owned nodes match VOM
         and new_dat.dataset.cdim == vom_fs.block_size  # scalar components stored per node matches FS
         and f.function_space() is vom_fs
         and f._mesh_topology_version == vom.topology._topology_version
