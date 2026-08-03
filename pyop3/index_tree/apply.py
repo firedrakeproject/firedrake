@@ -16,6 +16,9 @@ import pyop3.index_tree.tree
 import pyop3.labeled_tree
 import pyop3.sf
 from pyop3 import utils
+from pyop3.axis_tree.tree import (
+    AxisComponentRegion,
+)
 from pyop3.index_tree.tree import (
     AffineSliceComponent,
     CalledMap,

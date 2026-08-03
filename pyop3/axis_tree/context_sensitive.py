@@ -1,4 +1,5 @@
 from functools import cached_property
+from collections.abc import Hashable, Mapping
 
 from immutabledict import immutabledict as idict
 
@@ -6,6 +7,7 @@ import pyop3.index_tree.tree
 import pyop3.record
 
 from .tree import LoopContextAwareAxisTreeLike
+from pyop3.index_tree.tree import LoopIndex
 
 
 @pyop3.record.frozenrecord()
@@ -43,7 +45,7 @@ class LoopContextSensitiveAxisTreeLike(
             f"{context}\n{tree}" for context, tree in self.context_map.items()
         )
 
-    def __getitem__(self, indices) -> ContextSensitiveAxisTree:
+    def __getitem__(self, indices):
         raise NotImplementedError
         # TODO think harder about composing context maps
         # answer is something like:
@@ -54,8 +56,6 @@ class LoopContextSensitiveAxisTreeLike(
         # return ContextSensitiveAxisTree(new_context_map)
 
     def index(self) -> LoopIndex:
-        from pyop3.index_tree import LoopIndex
-
         return LoopIndex(self)
 
     @cached_property
