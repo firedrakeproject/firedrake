@@ -2447,7 +2447,7 @@ values from f.)"""
 
         raise AttributeError(message)
 
-    @cached_property
+    @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     def cell_sizes(self):
         """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
 
