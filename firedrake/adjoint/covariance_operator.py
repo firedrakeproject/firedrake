@@ -3,7 +3,6 @@ from enum import Enum
 from functools import cached_property
 from typing import Iterable
 from textwrap import dedent
-from firedrake.mesh import get_iteration_spec
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
@@ -258,13 +257,12 @@ class Pyop3NoiseBackend(NoiseBackendBase):
     @cached_property
     def _loop(self) -> op3.Loop:
         mesh = self.function_space.mesh()
-        iter_info = get_iteration_spec(mesh, "cell")
         return op3.loop(
-            iter_info.loop_index,
+            c := mesh.iter("cell"),
             self.cholesky_kernel(
-                pack(self._z, iter_info),
-                pack(self._b, iter_info),
-                pack(mesh.coordinates, iter_info),
+                pack(self._z, c),
+                pack(self._b, c),
+                pack(mesh.coordinates, c),
             ),
         )
 

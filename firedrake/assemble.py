@@ -32,7 +32,7 @@ from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDu
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_iteration_spec, get_mesh_topologies
+from firedrake.mesh import get_mesh_topologies
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -375,7 +375,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            appctx=self._appctx).allocate()
             else:
                 test, trial = self._form.arguments()
-                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
                 mat = op3.Mat.from_sparsity(sparsity)
                 return Matrix(self._form, mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
@@ -1061,7 +1061,8 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         mesh = self._form.ufl_domains()[0]
-        pyop3_compiler_parameters = {"optimize": True}
+        # pyop3_compiler_parameters = {"optimize": True}
+        pyop3_compiler_parameters = {"optimize": False}  # debugging
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:
@@ -1081,17 +1082,11 @@ class ParloopFormAssembler(FormAssembler):
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
             if isinstance(self, ExplicitMatrixAssembler):
                 with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                     parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
                 parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
-
-        # FIXME: This is necessary for test_submesh_solve_simple to pass for the moment
-        # This is unsatisfying because in theory this isn't required - we can stash up the
-        # pending increments and only apply them lazily. Something is going wrong somewhere.
-        subtensor.assemble()
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
@@ -1417,6 +1412,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 if _is_real_space(test_subspace):
                     # The test space is the row space, so a Real test space means we have a single row
                     sub_mat_type_ = "rvec"
+                elif sub_mat_type == "is" and i != j:
+                    # Don't put MATIS on the off diagonal blocks (I don't know why)
+                    sub_mat_type_ = "baij"
                 else:
                     if _is_real_space(trial_subspace):
                         # The trial space is the column space, so a Real trial space means we have a single column
@@ -1524,7 +1522,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for loop_info, (test_index, trial_index) in maps_and_regions:
+        for loop_index, (test_index, trial_index) in maps_and_regions:
             # If indices are 'None' then this means all to allocate for all spaces
             if test_index is None:
                 if is_mixed(test):
@@ -1552,11 +1550,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
                 zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
             ):
-                test_map = test_space.entity_node_map(loop_info)
-                trial_map = trial_space.entity_node_map(loop_info)
                 op3.loop(
-                    loop_info.loop_index,
-                    sparsity[test_index_, trial_index_][test_map, trial_map].assign(666),
+                    loop_index,
+                    pack(sparsity[test_index_, trial_index_], test_space, trial_space, loop_index).assign(666),
                     eager=True,
                 )
 
@@ -1578,8 +1574,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    loop_info = get_iteration_spec(mesh, integral_type, subdomain_id)
-                    loops.append((loop_info, local_kernel.indices))
+                    loop_index = mesh.iter(integral_type, subdomain_id)
+                    loops.append((loop_index, local_kernel.indices))
             return tuple(loops)
 
     @staticmethod
@@ -1600,8 +1596,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
 
-                    loop_info = get_iteration_spec(mesh, integral_type)
-                    loops.append((loop_info, (i, j)))
+                    loop_index = mesh.iter(integral_type)
+                    loops.append((loop_index, (i, j)))
         return tuple(loops)
 
     @cached_property
@@ -1834,7 +1830,7 @@ class ParloopBuilder:
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        p = self._iterset.loop_index
+        p = self._iterset
         packed_args = []
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
@@ -1948,8 +1944,7 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return get_iteration_spec(
-                self._topology,
+            return self._topology.iter(
                 self._integral_type,
                 self._subdomain_id,
                 all_integer_subdomain_ids=self._all_integer_subdomain_ids,

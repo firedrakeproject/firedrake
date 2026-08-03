@@ -13,9 +13,11 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.axis_tree
 import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
+import pyop3.index_tree
 from pyop3 import utils
 from pyop3.cache import memory_cache
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
@@ -442,7 +444,7 @@ def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AbstractNonUnitAxisTree]) -> 
             break
     else:
         raise pyop3.exceptions.IncompatibleAxisTargetException("No suitable axis tree candidates found")
-    # wow, cant believe that worked...
+
     if axis_tree.is_linear:
         layout = subst_layouts[axis_tree.leaf_path]
         expr = pyop3.expr.LinearDatBufferExpression(dat.buffer, layout)
@@ -587,7 +589,9 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         costs = []
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
-            cost = loopified_shape(layout)[0].local_max_size
+            cost = loopified_shape(layout)[0].local_size
+            if not isinstance(cost, numbers.Integral):
+                raise NotImplementedError("Ragged sizes are not supported")
             costs.append(cost)
 
         candidates = {}
@@ -694,10 +698,12 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
                     op_loop_axes = get_loop_axes(op)
                     compressed_expr = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
 
-                    op_cost = op_axes.local_max_size
+                    op_cost = op_axes.local_size
                     for loop_axes in op_loop_axes.values():
                         for loop_axis in loop_axes:
-                            op_cost *= loop_axis.component.local_max_size
+                            op_cost *= loop_axis.component.local_size
+                    if not isinstance(op_cost, numbers.Integral):
+                        raise NotImplementedError("Ragged sizes are not supported")
                     candidates.append((compressed_expr, op_cost, (index,)))
 
             return tuple(candidates)
@@ -713,10 +719,12 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
         # dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
         dat_axes = utils.just_one(get_shape(expr.layout))
         dat_loop_axes = get_loop_axes(expr.layout)
-        dat_cost = dat_axes.local_max_size
+        dat_cost = dat_axes.local_size
         for loop_axes in dat_loop_axes.values():
             for loop_axis in loop_axes:
-                dat_cost *= loop_axis.component.local_max_size
+                dat_cost *= loop_axis.component.local_size
+        if not isinstance(dat_cost, numbers.Integral):
+            raise NotImplementedError("Ragged sizes are not supported")
 
         child = self._call(expr.layout, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress,selector=selector)
 
@@ -895,7 +903,7 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
         orig_axis = loop_var.axis
         new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
 
-        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
+        loop_slice = Slice(new_axis.label, pyop3.index_tree.as_slice(orig_axis.component.label))
         loop_slices.append(loop_slice)
 
     to_skip = set()
@@ -903,11 +911,11 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
         expr = composite_dat.exprs[leaf_path]
         expr = replace(expr, loop_var_replace_map)
 
-        myslices = []
-        for axis, component in leaf_path.items():
-            myslice = Slice(axis, [AffineSliceComponent(component)])
-            myslices.append(myslice)
-        iforest = IndexTree.from_iterable((*loop_slices, *myslices))
+        slices = [
+            Slice(axis, pyop3.index_tree.as_slice(component))
+            for axis, component in leaf_path.items()
+        ]
+        iforest = IndexTree.from_iterable((*loop_slices, *slices))
 
         assignee_ = assignee[iforest]
 
@@ -916,7 +924,7 @@ def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.
                 expr,
                 eager=True,
                 eager_strategy="compile",
-                compiler_parameters={"check_negatives": True},
+                compiler_parameters={"propagate_negatives": True},
             )
         else:
             to_skip.add(leaf_path)
@@ -975,7 +983,7 @@ def _(buffer_expr: pyop3.expr.BufferExpression) -> numbers.Number:
 
 
 # TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
-# NOTE: unit axis trees arent axis trees, need another type
+# TODO: What is the appropriate return type? It's not just plain axis trees
 @functools.singledispatch
 def get_shape(obj: Any, /) -> tuple[AxisTree, ...]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -991,29 +999,40 @@ def _(op: pyop3.expr.Operator, /) -> tuple[AxisTree, ...]:
     )
 
 
-@get_shape.register(pyop3.expr.AxisVar)
+@get_shape.register
 def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
     return (axis_var.axis.as_tree(),)
 
 
-@get_shape.register(pyop3.expr.Dat)
-def _(dat: pyop3.expr.Dat, /) -> tuple[AxisTree, ...]:
+@get_shape.register
+def _(dat: pyop3.expr.Dat, /) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike]:
     return (dat.axes,)
 
 
-@get_shape.register(pyop3.expr.Mat)
-def _(mat: pyop3.expr.Mat, /) -> tuple[AxisTree, ...]:
+@get_shape.register
+def _(
+    mat: pyop3.expr.Mat, /
+) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike, pyop3.axis_tree.AbstractAxisTreeLike]:
     return (mat.row_axes, mat.column_axes)
 
 
-@get_shape.register(pyop3.expr.CompositeDat)
-def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree, ...]:
+@get_shape.register
+def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree]:
     return (cdat.axis_tree,)
 
 
-@get_shape.register(pyop3.expr.LinearDatBufferExpression)
+@get_shape.register
 def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
     return get_shape(dat_expr.layout)
+
+
+@get_shape.register
+def _(dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
+    return (
+        pyop3.axis_tree.merge_axis_trees(
+            [get_shape(l)[0] for l in dat_expr.layouts.values()]
+        ),
+    )
 
 
 @get_shape.register(numbers.Number)

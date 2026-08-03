@@ -21,7 +21,7 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, get_iteration_spec
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
@@ -225,7 +225,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
             mask[facet_index, topology[tdim - 1][local_facet_index]] = True
         faces = node_map[mask].reshape(-1, tdim)
 
-        facet_indices = get_iteration_spec(mesh, f"{typ}_facet", marker).indices.indices
+        facet_indices = mesh.iter(f"{typ}_facet", marker).indices.indices
 
         return facet_indices, faces
 

@@ -4,6 +4,7 @@ import abc
 import collections
 import contextlib
 import dataclasses
+import functools
 import numbers
 import weakref
 from collections.abc import Mapping
@@ -15,6 +16,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.config
+import pyop3.device
 import pyop3.obj
 import pyop3.record
 import pyop3.sf
@@ -48,11 +50,12 @@ class BadOrderingException(Exception):
     pass
 
 
-def not_in_flight(func):
+def _not_in_flight(func):
     """Ensure that a method cannot be called when a transfer is in progress."""
 
+    @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if self._transfer_in_flight:
+        if self._finalizer is not None:
             raise DataTransferInFlightException(
                 f"Not valid to call {func.__name__} with messages in-flight, "
                 f"please call {self._finalizer.__name__} first"
@@ -60,6 +63,18 @@ def not_in_flight(func):
         return func(self, *args, **kwargs)
 
     return wrapper
+
+
+def _check_finalizer(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if self._finalizer.__qualname__ != func.__qualname__:
+            raise DataTransferInFlightException("Wrong finalizer called")
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 
 class AbstractBuffer(pyop3.obj.Pyop3Object):
 
@@ -193,13 +208,10 @@ class NullBuffer(AbstractArrayBuffer):
     # {{{ interface impls
 
     shape: ClassVar[property] = pyop3.record.attr("_shape")
-    # name: ClassVar[property] = pyop3.record.attr("_name")
+    name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
     max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
-
-    def name(self) -> str:
-        assert False, "not using buffer.name any more"
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
         if constant is None:
@@ -243,27 +255,40 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-@pyop3.record.record(repr=False)
+# NOTE: Due to the large amounts of state tracking we should disallow __record_init__
+# for this class. It's not a record.
+@pyop3.record.record(repr=False, add_record_init=False)
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
+
+    Parameters
+    ----------
+    data
+        Note that the arrays passed here should be *unique to this array*. Do
+        not use the same array between buffers as it will disrupt the state
+        tracking done by the buffer.
+
+    """
 
     # {{{ instance attrs
 
-    _lazy_data: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    _device_arrays_private: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    """
+
+    Note that this attribute is mega private to reduce the risk of correctness
+    issues in parallel and between devices. Device arrays should be accessed
+    via other methods.
+
+    """
+
     sf: StarForest
     _name: str
     _constant: bool
+
     _rank_equal: bool
     _ordered: bool
 
-    # TODO: I don't think that this should be a defaultdict, key misses are meaningful
-    _state: collections.defaultdict[Device, int]
-    _max_value: np.number | None = None
-
-    # flags for tracking parallel correctness
-    _leaves_valid: bool = True
-    _pending_reduction: Callable | None = None
-    _finalizer: Callable | None = None
+    _state: dict
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -279,8 +304,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         )
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        # we can hit buffers in multiple places...
-        # on the outside these are allowed to differ but inside they aren't
+        # Consider the expression:
+        #
+        #     dat1[i] <- dat2[map1[map2[i]]]
+        #
+        # We may end up optimising the repeated indirections to give:
+        #
+        #     dat1[i] <- dat2[map3[i]]
+        #
+        # It would be really nice to cache this and reuse the result for different
+        # objects in place of dat1 and dat2. The cache key therefore can be somewhat
+        # generic for those arguments. However, *it cannot be for the dats that make
+        # up map1 and map2*. If those change then we need to recompute map3 from
+        # scratch. The cache key here therefore distinguishes between outermost buffers
+        # and inner ones.
         if visitor.outer:
             return (
                 type(self),
@@ -296,16 +333,34 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(
         self,
-        data: np.ndarray | cp.ndarray | None, 
-        sf: StarForest | None = None, *, 
-        name: str|None=None,
-        prefix:str|None=None,
-        constant:bool=False, 
-        rank_equal: bool = False, 
-        max_value: numbers.Number | None=None, 
-        ordered:bool=False
+        data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
+        sf: StarForest | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
+        rank_equal: bool = False,
+        max_value: numbers.Number | None = None,  # remove?
+        ordered: bool = False
     ):
-        curr_dev = get_current_device()
+        if isinstance(data, Mapping):
+            assert len(data) > 0
+            if len(data) > 1:
+                raise NotImplementedError("which is up to date?")
+
+            raise NotImplementedError
+
+        if constant:
+            pyop3.device.flag_constant(data)
+
+        if type(data) != pyop3.device.DEVICE_TO_ARRAY_TYPE[get_current_device()]:
+            raise NotImplementedError(
+                "Current device does not match the array type, need to provide "
+                "data as a mapping so we know the right device"
+            )
+
+        device_arrays = {get_current_device(): data}
+        state = {get_current_device(): 0}
 
         if sf is None:
             sf = NullStarForest(data.size)
@@ -316,18 +371,34 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
+        self._device_arrays_private = device_arrays
+        self._state = state
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
-        self._lazy_data = {curr_dev: curr_dev.asarray(data, constant=self._constant)}
-        self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)]) 
 
         self.record_setup()
 
+    # TODO: just drop this, move into __init__
     def __post_init__(self) -> None:
+        # state tracking attrs
+        # TODO: I don't think that this should be a defaultdict, key misses are meaningful
+        curr_dev = get_current_device()
+        # self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
+        self._state_locks = 0
+        self._device_locks = []
+
+        # parallel semaphores
+        self._semaphore_locks = 0
+        self._leaves_valid_private = True
+        self._pending_reduction_private = None
+        self._finalizer_private: Callable | None = None
+
+        ####
+
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size
@@ -335,9 +406,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self.rank_equal:
             assert self.constant
         if self.ordered:
-            utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
-        if self.constant and isinstance(self._lazy_data[curr_dev], np.ndarray):
-            self._lazy_data[curr_dev].flags.writeable = False
+            utils.debug_assert(lambda: utils.is_sorted(self._device_arrays_private))
+        if self.constant and isinstance(self._device_arrays_private[curr_dev], np.ndarray):
+            self._device_arrays_private[curr_dev].flags.writeable = False
+
+        self._debug_is_poisoned = False
 
     # }}}
 
@@ -357,48 +430,39 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        return self.get_array().shape
-
-    @property
-    def size(self) -> int:
-        return self.get_array().size
+        return next(a.shape for a in self._device_arrays_private.values())
 
     @property
     def dtype(self) -> np.dtype:
-        return self.get_array().dtype
+        return next(a.dtype for a in self._device_arrays_private.values())
 
-    @property
-    def state(self) -> int:
-         return max(self._state.values())
-
-    def inc_state(self) -> None:
-        curr_dev = get_current_device() 
-        self._state[curr_dev] = self.state + 1
-
-    def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> ArrayBuffer:
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None, **kwargs) -> Self:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
-        curr_dev = get_current_device()
 
-        # TODO: Fix for first-assign, immediate duplicate bug
-        # This can be removed once `compile` strategy works on device
-        if curr_dev not in self._lazy_data:
-            self.sync_devices()
-
+        current_device = get_current_device()
         if copy:
-            data = {curr_dev: self._lazy_data[curr_dev].copy()}
+            data = self._current_device_array.copy()
         else:
-            data = {curr_dev: curr_dev.zeros_like(self._lazy_data[curr_dev])}
+            data = current_device.zeros_like(self._current_device_array)
         if constant is None:
             constant = self.constant
-        return self.__record_init__(_name=name, _lazy_data=data, _constant=constant)
+
+        # NOTE: be careful here that arguments aren't being dropped
+        return type(self)(
+            data=data,
+            sf=self.sf,
+            name=name,
+            constant=constant,
+            **kwargs,
+        )
 
     is_nested: ClassVar[bool] = False
 
     @property
-    def handle(self) -> np.ndarray | cp.ndarray:
-        return self.get_array()
+    def handle(self) -> pyop3.types.DeviceArrayT:
+        return self._current_device_array
 
     @property
     def comm(self) -> MPI.Comm:
@@ -445,39 +509,67 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
+    # {{{ semaphores
+
+    def _lock_semaphores(self) -> None:
+        self._semaphore_locks += 1
+
+    def _unlock_semaphores(self) -> None:
+        assert self._semaphore_locks > 0
+        self._semaphore_locks -= 1
+
+    def _semaphores_unlocked(self) -> bool:
+        return self._semaphore_locks == 0
+
     @property
-    @not_in_flight
+    def _leaves_valid(self) -> bool:
+        return self._leaves_valid_private
+
+    @_leaves_valid.setter
+    def _leaves_valid(self, value: bool, /) -> None:
+        assert self._semaphores_unlocked
+        self._leaves_valid_private = value
+
+    @property
+    def _pending_reduction(self) -> pyop3.constant.Intent | None:
+        return self._pending_reduction_private
+
+    @_pending_reduction.setter
+    def _pending_reduction(self, value: pyop3.constant.Intent | None) -> None:
+        assert self._semaphores_unlocked
+        self._pending_reduction_private = value
+
+    @property
+    def _roots_valid(self) -> bool:
+        return self._pending_reduction is None
+
+    @property
+    def _finalizer(self) -> Callable[[], None] | None:
+        return self._finalizer_private
+
+    @_finalizer.setter
+    def _finalizer(self, value: Callable[[], None] | None) -> None:
+        assert self._semaphores_unlocked
+        self._finalizer_private = value
+
+    # }}}
+
+    # {{{ data accessors
+
+    @property
     @deprecated(".data_rw")
     def data(self):
         return self.data_rw
 
     @property
-    @not_in_flight
     def data_rw(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        if not self._leaves_valid:
-            self.broadcast_roots_to_leaves()
-
-        # modifying owned values invalidates ghosts
-        self._leaves_valid = False
         return self.get_array("rw")
 
-    # TODO: It would be good to be able to get data_ro but without updating the halos
-    # The issue with the previous approach is we would only return the owned data. This
-    # way we could maybe instead...
-    # IDEA: we can use the SF to get the indices to extract...
     @property
-    @not_in_flight
     def data_ro(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        if not self._leaves_valid:
-            self.broadcast_roots_to_leaves()
         return readonly(self.get_array("ro"))
 
     @property
-    @not_in_flight
     def data_wo(self):
         """
         Have to be careful. If not setting all values (i.e. subsets) should call
@@ -486,37 +578,41 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
         can be dropped.
         """
-        # pending writes can be dropped
-        self._pending_reduction = None
-        self._leaves_valid = False
         return self.get_array("wo")
 
-    @not_in_flight
-    def assemble(self) -> None:
-        self._reduce_then_broadcast()
-
-    @property
-    def leaves_valid(self) -> bool:
-        return self._leaves_valid
-
+    # TODO: It would be good to be able to get data_ro but without updating the
+    # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
+    @_not_in_flight
     def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
-        curr_dev = get_current_device() 
+        match intent:
+            case "ro":
+                if not self._roots_valid:
+                    self.sync_roots()
+                if not self._leaves_valid:
+                    self.sync_leaves()
+            case "rw":
+                if not self._roots_valid:
+                    self.sync_roots()
+                if not self._leaves_valid:
+                    self.sync_leaves()
 
-        if not self._is_data_available_and_synced(curr_dev):
-            self.sync_devices()
+                # modifying owned values invalidates ghosts
+                self._leaves_valid = False
+            case "wo":
+                # pending writes can be dropped, note that this has implications for subset assignment
+                self._pending_reduction = None
+                self._leaves_valid = False
+
+        if self._debug_is_poisoned:
+            breakpoint()
 
         if intent in {"wo", "rw"}: 
             self.inc_state() 
 
-        return self._lazy_data[curr_dev]
+        array = self._current_device_array
+        return readonly(array) if intent == "ro" else array
 
-    @property
-    def _last_updated_device(self) -> Device:
-        return max(self._state, key=self._state.get)
-
-    # TODO: I think the halo bits should only be handled at the Dat level via the
-    # axis tree. Here we can just consider the array. Ah, but maybe we want to
-    # avoid halo exchanges
+    # TODO: this would be nice to avoid halo exchanges
     # @property
     # def _owned_data(self):
     #     if self.sf and self.sf.nleaves > 0:
@@ -524,137 +620,290 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     #     else:
     #         return self._data
 
-    @property
-    def _roots_valid(self) -> bool:
-        return self._pending_reduction is None
+    def freeze(self) -> None:
+        """Freeze the buffer, turning any modifying accesses into errors."""
+        self._lock_state()
+
+    def unfreeze(self) -> None:
+        """Unfreeze the buffer."""
+        self._unlock_state()
 
     @property
-    def _transfer_in_flight(self) -> bool:
-        return self._finalizer is not None
+    def is_frozen(self) -> bool:
+        return self._state_is_locked
 
-    @cached_property
-    def _reduction_ops(self):
-        # TODO Move this import out, requires moving location of these intents
-        from pyop3.insn import INC, WRITE
+    def _lock_state(self) -> None:
+        """
+        Note that we have two methods for fixing the state: `freeze` and
+        `_lock_state`. Both methods exist to make it clear that locking the
+        state variable is not necessarily the same as 'freezing' the buffer.
+        For example, if we want to do the following:
 
-        return {
-            WRITE: MPI.REPLACE,
-            INC: MPI.SUM,
-        }
+            buffer.reduce_leaves_to_roots_begin()
+            # modify core values in 'buffer'
+            buffer.reduce_leaves_to_roots_end()
 
-    @not_in_flight
-    @on_host
-    def reduce_leaves_to_roots(self):
-        self.reduce_leaves_to_roots_begin()
-        self.reduce_leaves_to_roots_end()
+        Then we certainly want to modify the buffer data but we also want
+        to make sure that we don't change the state value - and hence mess
+        with host/device transfers - in the interim.
 
-    @not_in_flight
-    def reduce_leaves_to_roots_begin(self):
-        curr_dev = get_current_device()
+        For 'expert' buffer access patterns like this then the state should
+        be modified manually using `inc_state`.
+
+        """
+        self._state_locks += 1
+
+    def _unlock_state(self) -> None:
+        assert self._state_locks > 0, "Buffer must be locked to unlock it"
+        self._state_locks -= 1
+
+    @property
+    def _state_is_locked(self) -> bool:
+        return self._state_locks > 0
+
+    # }}}
+
+    # {{{ parallel communication
+    def sync_roots(self) -> None:
+        """Update roots."""
+        self.sync_roots_begin()
+        self.sync_roots_end()
+
+    @_not_in_flight
+    def sync_roots_begin(self) -> None:
+        """Start updating roots."""
         if not self._roots_valid:
-            self.sf.reduce_begin(
-                self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction]
-            )
+            self._reduce_leaves_to_roots_begin(pyop3.mpi.REDUCTION_OPS[self._pending_reduction])
             self._leaves_valid = False
-        self._finalizer = self.reduce_leaves_to_roots_end
+        self._finalizer = self.sync_roots_end
+        self._lock_semaphores()
 
-    def reduce_leaves_to_roots_end(self):
-        curr_dev = get_current_device()
-        if self._finalizer is None:
-            raise BadOrderingException(
-                "Should not call _reduce_leaves_to_roots_end without first calling "
-                "_reduce_leaves_to_roots_begin"
-            )
-        if self._finalizer != self.reduce_leaves_to_roots_end:
-            raise DataTransferInFlightException("Wrong finalizer called")
-
+    @_check_finalizer
+    def sync_roots_end(self) -> None:
+        """Finish updating roots."""
+        self._unlock_semaphores()
         if not self._roots_valid:
-            self.sf.reduce_end(self._lazy_data[curr_dev], self._reduction_ops[self._pending_reduction])
+            self._reduce_leaves_to_roots_end(pyop3.mpi.REDUCTION_OPS[self._pending_reduction])
         self._pending_reduction = None
         self._finalizer = None
 
-    @not_in_flight
+    def reduce_leaves_to_roots(self, op: MPI.Op) -> None:
+        """Unconditionally update roots.
+
+        This will overwrite any existing parallel state tracking.
+
+        Parameters
+        ----------
+        op
+            The MPI reduction operation to apply when pulling leaves onto roots.
+
+        """
+        self.reduce_leaves_to_roots_begin(op)
+        self.reduce_leaves_to_roots_end(op)
+
+    @_not_in_flight
+    def reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
+        """Start unconditionally updating roots."""
+        self._reduce_leaves_to_roots_begin(op)
+        self._leaves_valid = False
+        self._finalizer = self.reduce_leaves_to_roots_end
+        self._lock_semaphores()
+
+    @_check_finalizer
+    def reduce_leaves_to_roots_end(self) -> None:
+        """Finish unconditionally updating roots."""
+        self._unlock_semaphores()
+        self._reduce_leaves_to_roots_end(op)
+        self._pending_reduction = None
+        self._finalizer = None
+
     @on_host
-    def broadcast_roots_to_leaves(self):
-        self.broadcast_roots_to_leaves_begin()
-        self.broadcast_roots_to_leaves_end()
+    def _reduce_leaves_to_roots_begin(self, op: MPI.Op) -> None:
+        """Start updating roots.
 
-    @not_in_flight
-    def broadcast_roots_to_leaves_begin(self):
-        curr_dev = get_current_device()
-        if not self._roots_valid:
-            raise RuntimeError("Cannot broadcast invalid roots")
+        This routine does not modify any parallel state-tracking variables.
 
+        """
+        self._lock_current_device()
+        self.sf.reduce_begin(self._current_device_array, op)
+
+    @on_host
+    def _reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
+        """Finish updating roots.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
+        self.sf.reduce_end(self._current_device_array, op)
+        self._unlock_current_device()
+
+    def sync_leaves(self) -> None:
+        """Update leaves."""
+        self.sync_leaves_begin()
+        self.sync_leaves_end()
+
+    @_not_in_flight
+    def sync_leaves_begin(self) -> None:
+        """Start updating leaves."""
+        assert self._roots_valid, "Must call sync_roots() beforehand"
         if not self._leaves_valid:
-            self.sf.broadcast_begin(self._lazy_data[curr_dev], MPI.REPLACE)
-        object.__setattr__(self, "_finalizer", self.broadcast_roots_to_leaves_end)
+            self._broadcast_roots_to_leaves_begin()
+        self._finalizer = self.sync_leaves_end
+        self._lock_semaphores()
 
-    def broadcast_roots_to_leaves_end(self):
-        curr_dev = get_current_device()
-        if self._finalizer is None:
-            raise BadOrderingException(
-                "Should not call _broadcast_roots_to_leaves_end without first "
-                "calling _broadcast_roots_to_leaves_begin"
-            )
-        if self._finalizer != self.broadcast_roots_to_leaves_end:
-            raise DataTransferInFlightException("Wrong finalizer called")
-
+    @_check_finalizer
+    def sync_leaves_end(self) -> None:
+        """Finish updating leaves."""
+        self._unlock_semaphores()
         if not self._leaves_valid:
-            self.sf.broadcast_end(self._lazy_data[curr_dev], MPI.REPLACE)
+            self._broadcast_roots_to_leaves_end()
         self._leaves_valid = True
         self._finalizer = None
 
-    @not_in_flight
-    def _reduce_then_broadcast(self):
-        self.reduce_then_broadcast_begin()
-        self.reduce_then_broadcast_end()
+    def broadcast_roots_to_leaves(self) -> None:
+        """Unconditionally update leaves.
 
-    @not_in_flight
-    def reduce_then_broadcast_begin(self):
-        # TODO: To make this non-blocking we can use Python's 'threading' library
-        #
-        # For example:
-        #
-        #   lock = threading.Lock()
-        #   with lock:
-        #       trigger nonblocking send/recvs
-        #
-        # For now do the dumb thing.
-        self.reduce_leaves_to_roots()
+        This will overwrite any existing parallel state tracking.
+
+        """
         self.broadcast_roots_to_leaves_begin()
-
-    def reduce_then_broadcast_end(self):
         self.broadcast_roots_to_leaves_end()
 
-    def localize(self) -> ArrayBuffer:
-        return self._localized
+    @_not_in_flight
+    def broadcast_roots_to_leaves_begin(self) -> None:
+        """Start unconditionally updating leaves."""
+        self._pending_reduction = None  # claim this, otherwise broadcasting makes no sense
+        self._broadcast_roots_to_leaves_begin()
+        self._finalizer = self.broadcast_roots_to_leaves_end
+        self._lock_semaphores()
 
-    @cached_property
-    def _localized(self) -> ArrayBuffer:
-        return self.__record_init__(sf=None)
-    
-    def sync_devices(self):
-        last_updated_device = self._last_updated_device
+    @_check_finalizer
+    def broadcast_roots_to_leaves_end(self) -> None:
+        self._unlock_semaphores()
+        self._broadcast_roots_to_leaves_end()
+        self._leaves_valid = True
+        self._finalizer = None
+
+    @on_host
+    def _broadcast_roots_to_leaves_begin(self):
+        """Start updating leaves.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
+        self._lock_current_device()
+        self.sf.broadcast_begin(self._current_device_array, MPI.REPLACE)
+
+    @on_host
+    def _broadcast_roots_to_leaves_end(self):
+        """Finish updating leaves.
+
+        This routine does not modify any parallel state-tracking variables.
+
+        """
+        self.sf.broadcast_end(self._current_device_array, MPI.REPLACE)
+        self._unlock_current_device()
+
+    def assemble(self) -> None:
+        """Update roots and leaves."""
+        self.sync_roots()
+        self.sync_leaves()
+
+    # TODO: This is a good idea, we just don't use it
+    # @not_in_flight
+    # def _reduce_then_broadcast(self):
+    #     self.reduce_then_broadcast_begin()
+    #     self.reduce_then_broadcast_end()
+    #
+    # @not_in_flight
+    # def reduce_then_broadcast_begin(self):
+    #     # TODO: To make this non-blocking we can use Python's 'threading' library
+    #     #
+    #     # For example:
+    #     #
+    #     #   lock = threading.Lock()
+    #     #   with lock:
+    #     #       trigger nonblocking send/recvs
+    #     #
+    #     # For now do the dumb thing.
+    #     self.reduce_leaves_to_roots()
+    #     self.broadcast_roots_to_leaves_begin()
+    #
+    # def reduce_then_broadcast_end(self):
+    #     self.broadcast_roots_to_leaves_end()
+
+    # }}}
+
+    # {{{ cross-device state tracking
+
+    @property
+    def state(self) -> int:
+         return max(self._state.values())
+
+    @state.setter
+    def state(self, new_state) -> None:
+        if self.is_frozen:
+            raise pyop3.exceptions.FrozenBufferException(
+                "Buffer is frozen and cannot be modified"
+            )
+        assert new_state >= self.state, "State must always be increasing"
+        self._state[get_current_device()] = new_state
+
+    def inc_state(self) -> None:
+        self.state += 1
+
+    @property
+    def _current_device_array(self) -> pyop3.types.DeviceArrayT:
         current_device = get_current_device()
+        last_updated_device = max(self._state, key=self._state.get)
 
-        self._lazy_data[current_device] = current_device.asarray(
-            self._lazy_data[last_updated_device], 
-            constant=self.constant
-        )
-        
-        self._state[current_device] = self._state[last_updated_device]
+        if current_device in self._device_arrays_private:
+            if self._state[current_device] == self.state:
+                # current entry is up-to-date, do nothing
+                pass
+            else:
+                assert not self.constant
+                new_values = current_device.asarray(
+                    self._device_arrays_private[last_updated_device]
+                )
+                self._device_arrays_private[current_device][...] = new_values
+                self._state[current_device] = self.state
 
-    def _is_data_available_and_synced(self, device: Device) -> bool:
-        is_available = device in self._lazy_data
-        is_synced = self._state[device] == max(self._state.values())
-        return is_available and is_synced
+        # First time seeing the current device - allocate and insert, don't copy
+        else:
+           new_values = current_device.asarray(
+               self._device_arrays_private[last_updated_device], 
+               constant=self.constant
+           )
+           self._device_arrays_private[current_device] = new_values
+           self._state[current_device] = self.state
+
+        return self._device_arrays_private[current_device]
+
+    def _lock_current_device(self):
+        """Raise an error if we try to change the current device."""
+        self._lock_state()
+        assert all(d == get_current_device() for d in self._device_locks)
+        self._device_locks.append(get_current_device())
+
+    def _unlock_current_device(self):
+        """Undo a device lock."""
+        assert len(self._device_locks) > 0
+        self._device_locks.pop(-1)
+        self._unlock_state()
+
+    # }}}
 
     # {{{ PETSc interop
 
     @cached_method()
+    @on_host  # for now
     def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
+        size = self.sf.num_owned
         block_size = np.prod(block_shape, dtype=int)
-        return PETSc.Vec().createWithArray(self._lazy_data, self.size, block_size, comm=self.comm)
+        return PETSc.Vec().createWithArray(
+            self._current_device_array[:size], (size, None), block_size, comm=self.comm,
+        )
 
     def vec_ro(self, /, block_shape: Iterable[int] = ()) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", block_shape)
@@ -665,6 +914,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def vec_rw(self, /, block_shape: Iterable[int]) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("rw", block_shape)
 
+    # TODO: This is very similar to what a Dat does, refactor to share functionality
     @contextlib.contextmanager
     def as_vec(
         self,
@@ -685,6 +935,33 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._leaves_valid = False
             # TODO
             # self._work_vec.stateIncrease()
+
+    # }}}
+
+    # {{{ other methods
+
+    @cached_method()
+    def localize(self) -> Self:
+        return self.__record_init__(sf=None)
+
+    # }}}
+
+    # {{{ debugging helper methods
+
+    # def _debug_poison_array(self) -> None:
+    #     """Turn the next array access into an error."""
+    #     return
+    #     if self._debug_is_poisoned:
+    #         return
+    #     self.olddata = self._device_arrays_private
+    #     self._debug_is_poisoned = True
+    #     self._device_arrays_private = {pyop3.device.HOST_DEVICE: "NOTHING"}
+    #
+    # def _debug_unpoison_array(self) -> None:
+    #     return
+    #     """Undo array poisoning."""
+    #     self._debug_is_poisoned = False
+    #     self._device_arrays_private = self.olddata
 
     # }}}
 
@@ -921,12 +1198,12 @@ class PetscMatBuffer(ConcreteBuffer):
             if mat_type == "rvec":
                 mode = "row"
                 # a row vec (horizontal) has #columns entries
-                size = column_axes.buffer_size(include_ghosts=False)
+                sf = column_axes.sf
             else:
                 mode = "column"
                 # a column vec (vertical) has #rows entries
-                size = row_axes.buffer_size(include_ghosts=False)
-            mat_context = DensePythonMatContext.empty(mode, size, comm)
+                sf = row_axes.sf
+            mat_context = DensePythonMatContext.empty(mode, sf)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
@@ -1022,74 +1299,70 @@ class DensePythonMatContext:
         self.buffer = buffer
 
     @classmethod
-    def empty(cls, mode: Literal["row", "column"], size: numbers.Integral, comm: MPI.Comm, **kwargs) -> Self:
+    def empty(cls, mode: Literal["row", "column"], sf: pyop3.sf.StarForest) -> Self:
         if mode == "row":
-            shape = (1, size)
+            shape = (1, sf.size)
         else:
             assert mode == "column"
-            shape = (size, 1)
-        # There is no halo here so we use a local SF with no leaves
-        sf = pyop3.sf.local_sf(size, comm)
-        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType, **kwargs)
+            shape = (sf.size, 1)
+        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType)
         return cls(mode, buffer)
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         # TODO: if block size > 1 then the other size will need changing
         if self.mode == "row":
-            return ((None, 1), (self.buffer.size, None))
+            return ((None, 1), (self.buffer.sf.num_owned, None))
         else:
-            return ((self.buffer.size, None), (None, 1))
+            return ((self.buffer.sf.num_owned, None), (None, 1))
+
+    # {{{ Mat context routines
+
+    def __getitem__(self, key):
+        raise NotImplementedError
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
         """Set y = self @ x."""
         if self.mode == "row":
             # Example:
-            # * 'A' (self) has global size (5, 2)
-            # * 'x' has global size (5, 2)
-            # * 'y' has global size (2, 2)
+            # * 'A' (self) has global size (m, n)
+            # * 'x' has global size (n,)
+            # * 'y' has global size (m,)
+            #
+            # Where, because this is a row matrix, we know that 'm' must be 1:
             #
             #     A     ⊗  x  ➜  y
-            # ■ ■ ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■ ■ ■   ■ ■   ■ ■
-            #             ■ ■
-            #             ■ ■
-            #             ■ ■
-            with self.buffer.vec_ro() as vec:
-                y.setValue(0, vec.dot(x))
+            # ■ ■ ■ ■ ■    ■     ■
+            #              ■
+            #              ■
+            #              ■
+            #              ■
+            y_array = y.array_w
+            with self.buffer.vec_ro() as A:
+                result = A.dot(x)
+                if self.comm.rank == 0:
+                    y_array[...] = result
         else:
             # Example:
-            # * 'A' (self) has global size (5, 3)
-            # * 'x' has global size (3, 2)
-            # * 'y' has global size (5, 2)
+            # * 'A' (self) has global size (m, n)
+            # * 'x' has global size (n,)
+            # * 'y' has global size (m,)
             #
-            #   A   ⊗  x  ➜  y
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■   ■ ■   ■ ■
-            # ■ ■ ■         ■ ■
-            # ■ ■ ■         ■ ■
+            # Where, because this is a column matrix, we know that 'n' must be 1:
             #
-            # The algorithm is:
-            #
-            #     for i in range(5):
-            #       for j in range(2):
-            #         for k in range(3):
-            #           y[i,j] += A[i,k] * x[k,j]
-            #
-            # We can always assume that 'x' is small in both dimensions so
-            # those loops are safe to do explicitly (on the outside):
-            #
-            #     for j in range(2):
-            #       for k in range(3):
-            #         y[:,j] += A[:,k] * x[k,j]
-            #
-            # Which I know how to do efficiently using numpy.
-            nj = x.block_size
-            nk = self._vec.block_size
-            for j in range(nj):
-                for k in range(nk):
-                    y.buffer_w[:, j] += self._vec.buffer_r[:, k] * x.buffer_r[k, j]
+            #   A  ⊗  x  ➜  y
+            #   ■     ■     ■
+            #   ■           ■
+            #   ■           ■
+            #   ■           ■
+            #   ■           ■
+
+            # Send the single 'x' value to all ranks
+            with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
+                xval = icomm.bcast(x.array_r)
+
+            with self.buffer.vec_ro() as A:
+                y.array_w[...] = A.array_r * xval
 
     def multTranspose(self, mat, x, y):
         raise NotImplementedError
@@ -1156,6 +1429,22 @@ class DensePythonMatContext:
         #             else:
         #                 z.array[...]
 
+    def getDiagonal(self, mat: PETSc.Mat, result: PETSc.Vec | None = None) -> PETSc.Vec:
+        if result is None:
+            with self.buffer.vec_ro() as vec:
+                result = vec.duplicate()
+
+        result.array_w[...] = self.buffer.data_ro
+        return result
+
+    def zeroEntries(self, mat: PETSc.Mat) -> None:
+        self.buffer.zero()
+
+    def duplicate(self, *, copy: bool = False) -> Self:
+        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
+
+    # }}}
+
     @property
     def data_ro(self) -> np.ndarray:
         return self.buffer.data_ro
@@ -1164,12 +1453,6 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
-
-    def zeroEntries(self, mat):
-        self.buffer.zero()
-
-    def duplicate(self, *, copy=False):
-        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
 
     @property
     def comm(self) -> MPI.Comm:

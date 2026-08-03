@@ -311,56 +311,6 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
 
 @cython.wraparound(False)
-def node_classes(mesh, nodes_per_entity):
-    """Compute the node classes for a given extruded mesh.
-
-    :arg mesh: the extruded mesh.
-    :arg nodes_per_entity: Number of nodes on, and on top of, each
-        type of topological entity on the base mesh for a single cell
-        layer.  Multiplying up by the number of layers happens in this
-        function.
-
-    :returns: A numpy array of shape (3, ) giving the set entity sizes
-        for the given nodes per entity.
-    """
-    cdef:
-        PETSc.DM dm
-        DMLabel label
-        PetscInt p, point, layers, i, j, dimension
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] stratum_bounds
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] node_classes
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
-
-    assert False, "old code"
-
-    nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
-
-    node_classes = numpy.zeros(3, dtype=IntType)
-
-    dm = mesh.topology_dm
-    dimension = dm.getDimension()
-    stratum_bounds = numpy.zeros((dimension + 1, 2), dtype=IntType)
-    for i in range(dimension + 1):
-        stratum_bounds[i, :] = dm.getDepthStratum(i)
-
-    for i, lbl in enumerate(["pyop2_core", "pyop2_owned", "pyop2_ghost"]):
-        if dm.getStratumSize(lbl, 1) < 1:
-            continue
-        indices = dm.getStratumIS(lbl, 1).indices
-        for p in range(indices.shape[0]):
-            point = indices[p]
-            layers = layer_extents[point, 1] - layer_extents[point, 0]
-            for j in range(dimension + 1):
-                if stratum_bounds[j, 0] <= point < stratum_bounds[j, 1]:
-                    node_classes[i] += nodes[j, 0]*layers + nodes[j, 1]*(layers - 1)
-                    break
-
-    return numpy.cumsum(node_classes)
-
-
-@cython.wraparound(False)
 def entity_layers(mesh, height, label=None):
     """Compute the layers for a given entity type.
 

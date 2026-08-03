@@ -28,13 +28,14 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.exceptions
 import pyop3.labeled_tree
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet, OrderedFrozenSet
 from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
-from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
+from pyop3.exceptions import Pyop3Exception
 from pyop3.sf import AbstractStarForest, NullStarForest, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
@@ -1008,6 +1009,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
                 indexed_axes = index_axes(restricted_index_tree, idict(), self)
                 indexed_axess.append(indexed_axes)
 
+            assert len(indexed_axess) > 0, "no match found at all!"
             if len(indexed_axess) > 1:
                 return AxisForest(indexed_axess)
             else:
@@ -1197,7 +1199,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
                 slice_component = RegionSliceComponent(component.label, matching_labels, label=new_label)
             else:
                 region_label_matches_all_components = False
-                slice_component = AffineSliceComponent(component.label, label=component.label)
+                slice_component = AffineSliceComponent(component.label)
             slice_components.append(slice_component)
 
         # do not change axis label if nothing changes
@@ -1210,10 +1212,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree, ContextFreeLoopIter
             # match some, generate something
             axis_label = None
 
-        # NOTE: Ultimately I don't think that this step will be necessary. When axes are reused more we can
-        # start to think about keying certain things on the axis itself, rather than its label.
-        # slice_ = Slice(axis.label, slice_components, label=axis.label)
-        slice_ = Slice(axis.label, slice_components, label=axis_label)
+        slice_ = Slice(axis.label, slice_components)
 
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_.components, strict=True):
@@ -1335,7 +1334,7 @@ class AbstractIndexedAxisTree(AbstractAxisTreeLike):
     @cached_property
     def sf(self) -> StarForest:
         petsc_sf = pyop3.sf.filter_petsc_sf(
-            self.unindexed.sf.sf, self._buffer_indices(include_ghosts=True), 0, self.local_size
+            self.unindexed.sf.sf, self._buffer_indices(include_ghosts=True), 0, self.buffer_size(include_ghosts=True)
         )
         return StarForest(petsc_sf, self.comm)
 
@@ -1663,22 +1662,24 @@ class AxisTree(MutableLabelledTreeMixin, AbstractNonUnitAxisTree, AbstractUninde
         if include_ghosts:
             return self.local_size
         else:
-            return self.owned.local_size
+            # FIXME: Very bad API now
+            # return self.owned.local_size
+            return self.free.local_size
 
     # This is a PETSc-specific attribute
     @cached_property
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        # debugging
-        self.sf
+        num_free_pts = self.buffer_size(include_ghosts=False)
+        num_pts = self.buffer_size(include_ghosts=True)
 
         with temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.free.local_size) or 0
-        numbering = np.arange(start, start + self.local_size, dtype=IntType)
+            start = icomm.exscan(num_free_pts) or 0
+        numbering = np.arange(start, start + num_pts, dtype=IntType)
 
         # set ghost+constrained entries to -1 to make sure they are overwritten
-        numbering[self.free.local_size:] = -1
+        numbering[num_free_pts:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         return Dat(self, data=numbering, constant=True)
 
@@ -2117,7 +2118,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
         if utils.is_ellipsis_type(indices):
             return self
         else:
-            raise InvalidIndexTargetException
+            raise pyop3.exceptions.InvalidIndexTargetException
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
@@ -2260,7 +2261,9 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
                     match_found = True
                     matching_target[source_path_] = candidate_targets
                     matching_target |= submatching_target
-            else:  # at a leaf
+            else:
+                # At a leaf of the source axes, check if we correctly target
+                # a leaf of the target axes
                 if target_path_ in target_axes.leaf_paths:
                     assert not match_found
                     match_found = True
@@ -2271,7 +2274,6 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
     return utils.freeze(matching_target)
 
 
-# TODO: Make a __new__ that returns the single thing if only one tree provided
 @pyop3.record.frozenrecord()
 class AxisForest(AbstractAxisTreeLike):
     """A collection of equivalent axis trees.
@@ -2402,7 +2404,7 @@ class AxisForest(AbstractAxisTreeLike):
             try:
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
-            except InvalidIndexTargetException:
+            except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
                 pass
 
         if not indexed_trees:
@@ -2582,21 +2584,29 @@ class ContextSensitiveAxisTree(pyop3.obj.Pyop3Object, ContextSensitiveLoopIterab
         return just_one(self.context_map.values())
 
 
-def merge_axis_trees(trees: Iterable[AxisTree]) -> AxisTree:
+def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> AxisTree:
     if not trees:
         raise ValueError
 
     current_tree, *remaining_trees = trees
     while remaining_trees:
         next_tree, *remaining_trees = remaining_trees
-        current_tree = merge_trees2(current_tree, next_tree)
+        current_tree = merge_trees2(current_tree, next_tree, only_unit=only_unit)
     return current_tree
 
 
 # blast, this doesn't work...
 # @cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
-def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
+def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -> AxisTree:
     """Merge two axis trees together.
+
+    Parameters
+    ----------
+
+    only_unit
+        Whether or not the second tree is allowed to introduce new axes that
+        are not 'unit' axes. This option is useful for when one is happy to
+        have extra axes that do not materially affect the output shape.
 
     If the second tree has no common axes (share a lable) with the first then it is
     appended to every leaf of the first tree. Any common axes are skipped.
@@ -2619,7 +2629,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
             # traverse tree 2 and build a per-leaf subtree as appropriate. These
             # are then all stuck together in the final step.
 
-            subtrees = _merge_trees(tree1, tree2)
+            subtrees = _merge_trees(tree1, tree2, only_unit=only_unit)
 
             merged = AxisTree(tree1.node_map)
             for leaf, subtree in subtrees:
@@ -2632,23 +2642,23 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     return merged
 
 
-def _merge_trees(tree1, tree2, *, path1=idict(), parents=idict()):
+def _merge_trees(tree1, tree2, *, only_unit: bool, path1=idict(), parents=idict()):
     axis1 = tree1.node_map[path1]
     subtrees = []
     for component1 in axis1.components:
         path1_ = path1 | {axis1.label: component1.label}
         parents_ = parents | {axis1: component1}
         if tree1.node_map[path1_]:
-            subtrees_ = _merge_trees(tree1, tree2, path1=path1_, parents=parents_)
+            subtrees_ = _merge_trees(tree1, tree2, only_unit=only_unit, path1=path1_, parents=parents_)
             subtrees.extend(subtrees_)
         else:
             # at the bottom, now visit tree2 and try to add bits
-            subtree = _build_distinct_subtree(tree2, parents_)
+            subtree = _build_distinct_subtree(tree2, parents_, only_unit=only_unit)
             subtrees.append((path1_, subtree))
     return tuple(subtrees)
 
 
-def _build_distinct_subtree(axes, parents, *, path=idict()):
+def _build_distinct_subtree(axes, parents, *, only_unit: bool, path=idict()):
     axis = axes.node_map[path]
 
     if axis in parents:
@@ -2657,18 +2667,20 @@ def _build_distinct_subtree(axes, parents, *, path=idict()):
         component = parents[axis]
         path_ = path | {axis.label: component.label}
         if axes.node_map[path_]:
-            return _build_distinct_subtree(axes, parents, path=path_)
+            return _build_distinct_subtree(axes, parents, only_unit=only_unit, path=path_)
         else:
             return AxisTree()
     else:
+        if only_unit and (len(axis.components) > 1 or axis.component.size != 1):
+            raise pyop3.exceptions.NonUnitAxisException("Expected a unit axis")
         # Axis has not yet been visited, include in the new tree
         # and traverse all subaxes
         subtree = AxisTree(axis)
         for component in axis.components:
             path_ = path | {axis.label: component.label}
             if axes.node_map[path_]:
-                subtree_ = _build_distinct_subtree(axes, parents, path=path_)
-                subtree = subtree.add_subtree(path_, subtree_)
+                subtree_ = _build_distinct_subtree(axes, parents, only_unit=only_unit, path=path_)
+                subtree = subtree.add_subtree({axis.label: component.label}, subtree_)
         return subtree
 
 

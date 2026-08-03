@@ -241,6 +241,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         subset = parse_subset(subset)
 
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.sync_roots()
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
@@ -281,7 +288,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 assembled_expr = firedrake.assemble(expr)
                 return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,

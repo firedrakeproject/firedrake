@@ -7,6 +7,8 @@ from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import ClassVar
 
+import numpy as np
+
 import pyop3.axis_tree
 import pyop3.record
 from pyop3 import utils
@@ -204,7 +206,6 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
         return get_extremum(self, "min")
 
-
     @property
     def _full_str(self) -> str:
         return f"{self.name}[{as_str(self.layout)}]"
@@ -277,7 +278,13 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
                 leaf_layouts_[path] = layout
         return idict(leaf_layouts_)
 
-    def linearize(self, path) -> LinearDatBufferExpression:
+    def linearize(self, path, *, allow_partial: bool = False) -> LinearDatBufferExpression:
+        if allow_partial:
+            path = utils.just_one(
+                lpath
+                for lpath in self.layouts.keys()
+                if lpath.keys() <= path.keys()
+            )
         return LinearDatBufferExpression(self.buffer, self.layouts[path])
 
 
@@ -407,10 +414,6 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 def as_linear_buffer_expression(obj):
     return _as_linear_buffer_expression(obj)
 
-    # can't do this as it affects assignees
-    # if expr.min_value == expr.max_value:
-    #     return expr.min_value
-
 
 @functools.singledispatch
 def _as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
@@ -445,3 +448,8 @@ def _(dat: Dat) -> LinearDatBufferExpression:
 def _(scalar: Scalar) -> ScalarBufferExpression:
     assert scalar.transform is None
     return ScalarBufferExpression(scalar.buffer)
+
+
+@_as_linear_buffer_expression.register
+def _(array: np.ndarray) -> LinearDatBufferExpression:
+    return _as_linear_buffer_expression(Dat.from_array(array))

@@ -422,6 +422,10 @@ class AggregateMat(pyop3.obj.Pyop3Object):
             visitor(self.column_axis),
         )
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return utils.single_valued(m.comm for m in self.submats.flatten())
+
     def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         # TODO: check size 1 for each axis component and # components must match # subdats
@@ -429,6 +433,8 @@ class AggregateMat(pyop3.obj.Pyop3Object):
         self.row_axis = row_axis
         self.column_axis = column_axis
         self.name = name
+
+        self.record_setup()
 
     # }}}
 

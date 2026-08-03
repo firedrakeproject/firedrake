@@ -278,17 +278,17 @@ def test_derivative_wrt_constant():
 
 def test_constant_ufl2unicode():
     mesh = UnitIntervalMesh(1)
-    a = Constant(1.0, name="a")
-    b = Constant(2.0, name="b")
+    a = Constant(1.0, name="a", count=0)
+    b = Constant(2.0, name="b", count=1)
     F = a * a * b * b * dx(mesh)
-    _ = ufl2unicode(F)
+    assert ufl2unicode(F) == "∫[rest of domain] ((C₀ C₀) C₁) C₁ 𝐝𝐱"
 
     dFda = derivative(F, u=a)
     dFdb = derivative(F, u=b)
-    _ = ufl2unicode(dFda)
-    _ = ufl2unicode(dFdb)
+    assert ufl2unicode(dFda) == "∫[rest of domain] ((v C₀ + v C₀) C₁) C₁ 𝐝𝐱"
+    assert ufl2unicode(dFdb) == "∫[rest of domain] v (C₀ C₀) C₁ + (v C₀ C₀) C₁ 𝐝𝐱"
 
     dFda_du = derivative(F, u=a, du=IntValue(1))
     dFdb_du = derivative(F, u=b, du=IntValue(1))
-    _ = ufl2unicode(dFda_du)
-    _ = ufl2unicode(dFdb_du)
+    assert ufl2unicode(dFda_du) == "∫[rest of domain] ((C₀ + C₀) C₁) C₁ 𝐝𝐱"
+    assert ufl2unicode(dFdb_du) == "∫[rest of domain] (C₀ C₀) C₁ + (C₀ C₀) C₁ 𝐝𝐱"

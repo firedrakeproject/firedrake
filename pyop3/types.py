@@ -40,4 +40,6 @@ IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
 ArrayT = np.ndarray | pyop3.arrayref.ArrayReference
 
+DeviceArrayT = np.ndarray | cp.array
+
 # }}}

@@ -51,7 +51,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the fixed layer
     height, and the current cell layer.
     """
-    from firedrake.mesh import get_iteration_spec
     from firedrake.pack import pack
 
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements[0].factor_elements
@@ -116,10 +115,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
         ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
@@ -132,10 +128,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         dd = _get_arity_axis_inames('d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
-        if layer_heights == 1:
-            domains.extend(_get_lp_domains(('l',), (2,)))
-        else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
+        domains.extend(_get_lp_domains(('l',), (2,)))
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0
@@ -236,23 +229,21 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     extr_mesh = ext_coords.function_space().mesh()
     base_mesh = extr_mesh._base_mesh
 
-    iter_spec = get_iteration_spec(extr_mesh, "cell")
-
-    iterset = iter_spec.iterset
+    loop_index = extr_mesh.iter("cell")
 
     # trick to pass the right layer through to the local kernel
     # TODO: make this a mesh attribute
     my_layer_data = numpy.empty((base_mesh.cells.owned.local_size, extr_mesh.layers-1), dtype=IntType)
     for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
         my_layer_data[base_cell, extr_cell] = extr_cell
-    my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
+    my_layer_dat = op3.Dat(extr_mesh.cells.owned.materialize(), data=my_layer_data.flatten())
 
 
     op3.loop(
-        p := iter_spec.loop_index,
+        p := loop_index,
         kernel(
-            pack(ext_coords, iter_spec),
-            pack(base_coords, iter_spec),
+            pack(ext_coords, loop_index),
+            pack(base_coords, loop_index),
             layer_height,
             my_layer_dat[p]
         ),

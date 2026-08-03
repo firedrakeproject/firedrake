@@ -25,8 +25,8 @@ def test_interior_facet_solve():
 
     solve(F == 0, sol)
 
-    assert np.allclose(sol.dat[0].data_ro.reshape((-1, 2)), [1., 0.])
-    assert np.allclose(sol.dat[1].data_ro, 0.0)
+    assert np.allclose(sol.subfunctions[0].dat.data_ro, [1., 0.])
+    assert np.allclose(sol.subfunctions[1].dat.data_ro, 0.0)
 
 
 def test_interior_facet_vfs_horiz_rhs():

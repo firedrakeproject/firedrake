@@ -18,8 +18,6 @@ from immutabledict import immutabledict as idict
 import loopy as lp
 import loopy.tools
 import numpy as np
-from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
-import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -30,6 +28,7 @@ import pyop3.visitors
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
+from pyop3.constants import Intent, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 from pyop3.node import Node, Terminal, Operator
 from pyop3.axis_tree import AxisTree
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
@@ -44,30 +43,6 @@ if typing.TYPE_CHECKING:
     from .exec import InstructionExecutionContext
 
 
-# TODO I don't think that this belongs in this file, it belongs to the function?
-# create a function.py file?
-class Intent(enum.Enum):
-    # developer note, MIN_RW and MIN_WRITE are distinct (unlike PyOP2) to avoid
-    # passing "requires_zeroed_output_arguments" around, yuck
-
-    READ = "read"
-    WRITE = "write"
-    RW = "rw"
-    INC = "inc"
-    MIN_WRITE = "min_write"
-    MIN_RW = "min_rw"
-    MAX_WRITE = "max_write"
-    MAX_RW = "max_rw"
-
-
-READ = Intent.READ
-WRITE = Intent.WRITE
-RW = Intent.RW
-INC = Intent.INC
-MIN_RW = Intent.MIN_RW
-MIN_WRITE = Intent.MIN_WRITE
-MAX_RW = Intent.MAX_RW
-MAX_WRITE = Intent.MAX_WRITE
 # TODO: This exception is not actually ever raised. We should check the
 # intents of the kernel arguments and complain if something illegal is
 # happening.
@@ -697,16 +672,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
     # }}}
 
-
-    # {{{ Dunders
-
-    # def __init__(self, assignee, expression, assignment_type, **kwargs):
-    #     arguments = (assignee, expression)
-    #     assignment_type = AssignmentType(assignment_type)
-    #
-    #     object.__setattr__(self, "assignment_type", assignment_type)
-    #     super().__init__(arguments, **kwargs)
-
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
             operator = "="
@@ -740,8 +705,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
                 ))
             else:
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
-
-    # }}}
 
     @property
     def assignee(self):
@@ -794,40 +757,32 @@ class Assignment(AbstractAssignment):
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
 
     # NOTE: Wrong type here...
-    @property
+    @cached_property
     def shape(self) -> tuple[AxisTree, ...]:
         return pyop3.expr.visitors.get_shape(self.assignee)
 
-        # assert False, "old code"
-        # from pyop3.expr.visitors import get_shape
+        # the below doesn't really work, need shapes to match exactly
+        # assignee_shapes = pyop3.expr.visitors.get_shape(self.assignee)
+        # expr_shapes = pyop3.expr.visitors.get_shape(self.expression)
         #
-        # assignee_shapes = get_shape(self.assignee)
-        # expr_shapes = get_shape(self.expression)
-        # if expr_shapes == (UNIT_AXIS_TREE,):
-        #     expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
+        # # sometimes the expression may not be matrix-valued
+        # if len(assignee_shapes) != len(expr_shapes):
+        #     assert len(assignee_shapes) == 2 and len(expr_shapes) == 1
+        #     expr_shapes = expr_shapes * 2
         #
-        # # The shape of the assignment is simply the shape of the assignee, nothing else
-        # # makes sense. For more complex things loops should be used.
-        # # FIXME: This logic is dreadful
-        # axis_trees = []
-        # for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
-        #     if isinstance(assignee_shape, AxisForest):
-        #         if isinstance(expr_shape, AxisForest):
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
-        #                 ][0]
-        #         else:
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if axis_tree_is_valid_subset(expr_shape, shape)
-        #                 ][0]  
-        #     axis_trees.append(assignee_shape)
-        # return tuple(axis_trees)
+        # # Set 'only_unit' here because we are happy for 'expr_shapes' to be
+        # # different to 'assignee_shape' up to unit axes. For example, we
+        # # want to allow the operation
+        # #
+        # #     loop(p, dat1[p].assign(dat2[f(p)])
+        # #
+        # # even though dat2[f(p)] will have an extra axis introduced by
+        # # the map. Provided f(p) only has size 1 the LHS and RHS are
+        # # still the same shape.
+        # return tuple(
+        #     pyop3.axis_tree.merge_axis_trees([assignee_shape, expr_shape], only_unit=True)
+        #     for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True)
+        # )
 
     # }}}
 
@@ -1034,7 +989,7 @@ def fix_intents(tunit, accesses):
     new_args = []
     for arg, access in zip(kernel.args, accesses, strict=True):
         assert isinstance(access, Intent)
-        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW}
-        is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}
+        is_input = access in {Intent.READ, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MAX_RW}
+        is_output = access in {Intent.WRITE, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MIN_WRITE, Intent.MAX_WRITE, Intent.MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))

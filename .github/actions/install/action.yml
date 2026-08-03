@@ -124,6 +124,9 @@ runs:
         python3 -m venv venv
         . venv/bin/activate
 
+        echo 'Cython!=3.2.6' > constraints.txt
+        export PIP_CONSTRAINT=constraints.txt
+
         : # Empty the pip cache to ensure that everything is compiled from scratch
         pip cache purge
 

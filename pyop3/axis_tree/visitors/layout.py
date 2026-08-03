@@ -232,6 +232,9 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 if i != j:
                     starts[j] = starts[j] + step_size
 
+    # if "functionspace0" in str(axis_tree) and "functionspace1" in str(axis_tree):
+    #     breakpoint()
+
     # Lastly 'freeze' the offset dats so they can no longer be modified
     for _, offset_dat in to_tabulate:
         object.__setattr__(offset_dat.buffer, "_constant", True)

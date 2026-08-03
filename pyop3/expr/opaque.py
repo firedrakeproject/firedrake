@@ -29,11 +29,17 @@ class OpaqueTerminal(NamedTerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
+
     def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None):
         name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         object.__setattr__(self, "buffer", buffer)
         object.__setattr__(self, "_name", name)
+
+        self.record_setup()
 
     # }}}
 

@@ -24,6 +24,7 @@ from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
 from pyop3 import utils
 
+from pyop3.constants import INC, READ, RW, WRITE
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
@@ -35,10 +36,6 @@ from pyop3.index_tree.tree import LoopIndex
 from pyop3.index_tree.parse import _as_context_free_indices
 import pyop3.insn
 from pyop3.insn.base import (
-    INC,
-    READ,
-    RW,
-    WRITE,
     AssignmentType,
     ArrayAccessType,
     enlist,
@@ -78,9 +75,10 @@ class LoopContextExpander(InstructionTransformer):
 
             restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context_))
 
-            # skip empty loops
-            if restricted_loop_index.iterset.size == 0:
-                continue
+            # (not always safe to do)
+            # # skip empty loops
+            # if restricted_loop_index.iterset.size == 0:
+            #     continue
 
             loop_context_acc_ = loop_context | loop_context_
             expanded_loop = type(loop)(
@@ -224,7 +222,7 @@ def expand_implicit_pack_unpack(expr: pyop3.insn.Instruction):
 
 @functools.singledispatch
 def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
-    utils.raise_visitor_type_error(arg)
+    utils.raise_missing_dispatch_handler(arg)
 
 
 @_requires_pack_unpack.register(Scalar)
@@ -512,6 +510,8 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
     # This optimisation is collective but since the array size is part of the
     # heuristic one can get differing optimisation choices on different ranks. We
     # therefore perform all the heuristics on rank 0 and broadcast the selections.
+    # TODO: if compress is False I imagine that we don't have to do a bcast here since the
+    # result should be the same.
     if insn.comm.rank == 0:
         expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
@@ -623,12 +623,15 @@ def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = F
         # identify the dat expressions to materialise using 'materialize_idxss'
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
+    # print("about to materialise", materialize_idxss)
+
     # Materialise any symbolic (composite) dats
     composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
+    # print("materialised")
     best_candidate = idict({
         key: pyop3.expr.visitors.replace(expr, replace_map)
         for key, expr in best_candidate.items()
@@ -798,6 +801,11 @@ class CompilerOptionsCollector(NodeVisitor):
     @functools.singledispatchmethod
     def process(self, obj: Any, /, *args, **kwargs) -> NoReturn:
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register
+    @postorder
+    def _(self, insn: pyop3.insn.InstructionList, /, visited) -> pyop3.compile.CompilerOptions:
+        return sum(visited["instructions"], pyop3.compile.CompilerOptions())
 
     @process.register
     def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:

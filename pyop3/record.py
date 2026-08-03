@@ -38,11 +38,13 @@ def frozenrecord(**kwargs):
     return _make_record_class(frozen=True, **kwargs)
 
 
-def _make_record_class(**kwargs):
+def _make_record_class(*, add_record_init: bool = True, **kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
-        cls.__record_init__ = _record_init
         cls.record_setup = _record_setup
+
+        if add_record_init:
+            cls.__record_init__ = _record_init
 
         def _record_method_cache(self):
             return collections.defaultdict(dict)

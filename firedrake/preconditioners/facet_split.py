@@ -269,9 +269,13 @@ for (PetscInt i=0; i<{wsize}; i++)
         [("w", PETSc.IntType, op3.WRITE), ("v", PETSc.IntType, op3.READ)],
     )
 
-    loop_info = firedrake.mesh.get_iteration_spec(V.mesh(), "cell")
-    v_packed = pack(v_func, loop_info)
-    w_packed = pack(w_func, loop_info)
-    op3.loop(loop_info.loop_index, kernel(w_packed, v_packed), eager=True)
+    op3.loop(
+        c := V.mesh().iter("cell"),
+        kernel(
+            pack(w_func, c),
+            pack(v_func, c),
+        ),
+        eager=True,
+    )
     retval = w_func.dat.data_ro
     return retval

@@ -92,6 +92,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
+        if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
+            assert function_space._labels == self.dat.axes.trees[0].root.component_labels
+
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
@@ -475,13 +478,19 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake.assign import Assigner, parse_subset
 
         subset = parse_subset(subset)
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.sync_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             self.dat.data_wo[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2'):

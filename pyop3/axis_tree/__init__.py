@@ -1,5 +1,6 @@
 from .tree import (  # noqa: F401
     Axis,
+    AbstractAxisTreeLike,
     AxisTarget,
     UnitIndexedAxisTree,
     trim_axis_targets,

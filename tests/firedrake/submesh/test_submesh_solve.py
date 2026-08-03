@@ -276,7 +276,16 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     sigma, u = split(w)
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx1 + inner(u - u_exact, v) * dx0(label_submesh_compl)
     L = inner(f, v) * dx1 + inner((u('+') + u('-')) / 2., dot(tau, nsub)) * dS0(boun_int) + inner(u_exact, dot(tau, nsub)) * ds0(boun_ext)
-    solve(a - L == 0, w, bcs=[bc])
+    solve(
+        a - L == 0,
+        w,
+        bcs=[bc],
+        solver_parameters={
+            "snes_monitor": None,
+            "ksp_monitor": None,
+            "snes_max_it": 1,
+        },
+    )
     # Change domains of integration.
     w_ = Function(W)
     sigma_, u_ = split(w_)

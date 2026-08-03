@@ -9,6 +9,8 @@ import itertools
 import functools
 import math
 import numbers
+import types
+import typing
 import sys
 from collections import defaultdict
 from functools import cached_property
@@ -115,51 +117,58 @@ class SliceComponent(LabelledNodeComponent, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         pass
 
 
 @pyop3.record.frozenrecord()
 class AffineSliceComponent(SliceComponent):
 
-    _component: Any
-    start: Any
-    stop: Any
-    step: Any
-    _label: Any
-    label_was_none: bool  # old
+    # {{{ instance attrs
 
-    # use None for the default args here since that agrees with Python slices
-    def __init__(
-        self,
-        component,
-        start: IntType | None = None,
-        stop: IntType | None = None,
-        step: IntType | None = None,
-        *,
-        label=utils.PYOP3_DECIDE,
-        label_was_none=None,
-        **kwargs
-    ):
-        label_was_none = label_was_none or label is utils.PYOP3_DECIDE
-
-        object.__setattr__(self, "_component", component)
-        object.__setattr__(self, "_label", label)
-
-        # TODO: make None here and parse with `with_size()`
-        object.__setattr__(self, "start", start if start is not None else 0)
-        object.__setattr__(self, "stop", stop)
-        # could be None here
-        object.__setattr__(self, "step", step if step is not None else 1)
-
-        # hack to force a relabelling
-        object.__setattr__(self, "label_was_none", label_was_none)
-
-    # {{{ interface impls
+    _component: ComponentLabelT
+    start: numbers.Integral
+    stop: numbers.Integral | None
+    step: numbers.Integral
+    _label: ComponentLabelT
 
     @property
     def comm(self):
         return MPI.COMM_SELF
+
+    def __init__(
+        self,
+        component: ComponentLabelT,
+        start: numbers.Integral = 0,
+        stop: numbers.Integral | None = None,
+        step: numbers.Integral = 1,
+        label: ComponentLabelT = PYOP3_DECIDE,
+    ) -> None:
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "stop", stop)
+        object.__setattr__(self, "step", step)
+        object.__setattr__(self, "_label", label)
+
+    def __post_init__(self) -> None:
+        # old API
+        assert self.start is not None
+        assert self.step is not None
+
+    # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def from_slice(cls, component: ComponentLabelT, slice_: slice) -> Self:
+        start = slice_.start if slice_.start is not None else 0
+        stop = slice_.stop
+        step = slice_.step if slice_.step is not None else 1
+        return cls(component, start, stop, step)
+
+    # }}}
+
+    # {{{ interface impls
 
     @property
     def component(self):
@@ -170,7 +179,7 @@ class AffineSliceComponent(SliceComponent):
         return self._label
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return self.start == 0 and self.stop is None and self.step == 1
 
     # }}}
@@ -219,7 +228,7 @@ class SubsetSliceComponent(SliceComponent):
         return self._component
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return False
 
     # }}}
@@ -263,12 +272,13 @@ class RegionSliceComponent(SliceComponent):
     label = pyop3.record.attr("_label")
 
     @property
-    def is_full(self) -> bool:
+    def is_full_slice(self) -> bool:
         return False
 
     # }}}
 
 
+# TODO: rename to 'Atom' (and op3.atom())
 @dataclasses.dataclass(frozen=True)
 class UnparsedSlice:
     """Placeholder object wrapping arbitrary slice types.
@@ -325,15 +335,23 @@ class TabulatedMapComponent(MapComponent):
     _target_axis: Any
     _target_component: Any
     array: Any
-    _arity: Any
+    _arity: int
     _label: Any
 
-    def __init__(self, target_axis, target_component, array, *, arity=None, label=utils.PYOP3_DECIDE):
+    def __init__(self, target_axis, target_component, array, *, label=PYOP3_DECIDE):
+        from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
-        # determine the arity from the provided array
-        if arity is None:
-            arity = just_one(array.axes.leaf_component.regions).size
+        if not isinstance(array, Dat):
+            raise NotImplementedError
+        assert array.axes.is_linear
+        match array.axes.depth:
+            case 1:
+                arity = 1
+            case 2:
+                arity = array.axes.leaf_axis.size
+            case _:
+                raise ValueError
 
         array = as_linear_buffer_expression(array)
         label = label if label is not PYOP3_DECIDE else self.unique_label()
@@ -343,6 +361,10 @@ class TabulatedMapComponent(MapComponent):
         object.__setattr__(self, "array", array)
         object.__setattr__(self, "_arity", arity)
         object.__setattr__(self, "_label", label)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
 
     target_axis = pyop3.record.attr("_target_axis")
     target_component = pyop3.record.attr("_target_component")
@@ -359,10 +381,11 @@ class TabulatedMapComponent(MapComponent):
         return self.array.datamap
 
 
+# NOTE: I don't really remember why this type needs to exist
 class AxisIndependentIndex(Index):
     @property
     @abc.abstractmethod
-    def axes(self) -> IndexedAxisTree:
+    def axes(self) -> AbstractIndexedAxisTree:
         pass
 
     @property
@@ -370,11 +393,30 @@ class AxisIndependentIndex(Index):
         return tuple(i for i, _ in enumerate(self.axes.leaf_paths))
 
 
+class UnitIndex(AxisIndependentIndex):
+    """An index with unit shape."""
+
+    # {{{ interface impls
+
+    @cached_property
+    def axes(self) -> IndexedAxisTree:
+        from pyop3.expr import LoopIndexVar
+        from pyop3.expr.visitors import replace_terminals
+
+        if not self.is_context_free:
+            raise ContextSensitiveException("Expected a context-free index")
+
+        _, targets = _index_axes_per_index(self)
+        return UnitIndexedAxisTree(unindexed=None, targets=targets)
+
+    # }}}
+
+
 LoopIndexIdT = Hashable
 
 
 @pyop3.record.frozenrecord()
-class LoopIndex(Index):
+class LoopIndex(UnitIndex):
     """
     Parameters
     ----------
@@ -405,8 +447,8 @@ class LoopIndex(Index):
     def comm(self) -> MPI.Comm:
         return pyop3.visitors.get_comm(self.iterset)
 
-    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=utils.PYOP3_DECIDE):
-        id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
+    def __init__(self, iterset: AbstractNonUnitAxisTree, *, id=PYOP3_DECIDE):
+        id = id if id is not PYOP3_DECIDE else self.unique_label()
 
         object.__setattr__(self, "iterset", iterset)
         object.__setattr__(self, "id", id)
@@ -436,20 +478,6 @@ class LoopIndex(Index):
     def is_context_free(self):
         return len(self.iterset.leaf_paths) == 1
 
-    @cached_property
-    def axes(self) -> IndexedAxisTree:
-        from pyop3.expr import LoopIndexVar
-        from pyop3.expr.visitors import replace_terminals
-
-        if not self.is_context_free:
-            raise ContextSensitiveException("Expected a context-free index")
-
-        _, targets = _index_axes_per_index(self)
-        # # need to move the target bit to the outside
-        # unpacked_targets = expand_compressed_target_paths(targets)
-
-        return UnitIndexedAxisTree(unindexed=None, targets=targets)
-
     # TODO: don't think this is useful any more, certainly a confusing name
     @property
     def leaf_target_paths(self):
@@ -477,7 +505,7 @@ class InvalidIterationSetException(Pyop3Exception):
     pass
 
 
-class ScalarIndex(Index):
+class ScalarIndex(UnitIndex):
 
     def __init__(self, axis, component, value):
         self.axis = axis
@@ -498,6 +526,72 @@ class ScalarIndex(Index):
         return ("0",)
 
 
+@functools.singledispatch
+def _parse_slice_components(components):
+    raise TypeError
+
+
+@_parse_slice_components.register
+def _(components: tuple | list) -> tuple[SliceComponent]:
+    return tuple(map(_parse_slice_component, components))
+
+
+@_parse_slice_components.register
+def _(component: SliceComponent, /) -> tuple[SliceComponent]:
+    return (component,)
+
+
+@_parse_slice_components.register
+def _(components: collections.abc.Mapping) -> tuple[SliceComponent]:
+    new_components = []
+    for label, slice_info in components.items():
+        if isinstance(slice_info, slice):
+            new_component = AffineSliceComponent.from_slice(label, slice_info)
+        elif isinstance(slice_info, np.ndarray):
+            new_component = SubsetSliceComponent(label, slice_info)
+        else:
+            raise NotImplementedError
+        new_components.append(new_component)
+    return tuple(new_components)
+
+
+@_parse_slice_components.register
+def _(
+    label: str | numbers.Number | types.NoneType | UnparsedSlice,
+    /,
+) -> tuple[AffineSliceComponent]:
+    return (_parse_slice_component(label),)
+
+
+@functools.singledispatch
+def _parse_slice_component(obj: Any, /) -> SliceComponent:
+    raise TypeError
+
+
+@_parse_slice_component.register
+def _(component: SliceComponent, /) -> SliceComponent:
+    return component
+
+
+@_parse_slice_component.register
+def _(component: UnparsedSlice, /) -> AffineSliceComponent:
+    return AffineSliceComponent(component.wrappee)
+
+
+@_parse_slice_component.register
+def _(label: str | numbers.Number | types.NoneType, /) -> AffineSliceComponent:
+    return AffineSliceComponent(label)
+
+
+if typing.TYPE_CHECKING:
+    SliceComponentsT = (
+        Sequence[SliceComponent]
+        | SliceComponent
+        | Mapping[ComponentLabelT, Any]
+        | ComponentLabelT
+    )
+
+
 @pyop3.record.frozenrecord()
 class Slice(Index):
     """
@@ -509,24 +603,71 @@ class Slice(Index):
 
     """
 
-    axis: Any
-    components: Any
-    _label: Any
+    # {{{ instance attrs
 
-    def __init__(self, axis, components, *, label=utils.PYOP3_DECIDE):
-        components = as_tuple(components)
-        if any(c.label is utils.PYOP3_DECIDE for c in components):
-            if not all(c.label is utils.PYOP3_DECIDE for c in components):
-                raise ValueError("Cannot have only some as PYOP3_DECIDE")
-            components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
+    axis: AxisLabelT
+    components: SliceComponentsT
+    _label: AxisLabelT
 
-        label = label if label is not utils.PYOP3_DECIDE else self.unique_label()
+    def __init__(
+        self,
+        axis: AxisLabelT,
+        components: SliceComponentsT,
+        *,
+        label=PYOP3_DECIDE,
+    ):
+        if label == axis:
+            raise ValueError("The axis and slice labels should not match")
+
+        components = _parse_slice_components(components)
+        # Detect a full slice and relabel accordingly
+        if (
+            label is PYOP3_DECIDE
+            and all(
+                c.is_full_slice and c.label is PYOP3_DECIDE
+                for c in components
+            )
+        ):
+            label = axis
+            components = tuple(
+                c.__record_init__(_label=c.component)
+                for c in components
+            )
+        else:
+            if label is PYOP3_DECIDE:
+                label = self.unique_label()
+            if any(c.label is PYOP3_DECIDE for c in components):
+                if not all(c.label is PYOP3_DECIDE for c in components):
+                    raise ValueError(
+                        "Either none or all slice components can be labeled "
+                        "PYOP3_DECIDE"
+                    )
+
+                if len(components) == 1:
+                    component_labels = [None]
+                else:
+                    component_labels = range(len(components))
+                components = tuple(
+                    c.__record_init__(_label=l)
+                    for c, l in zip(components, component_labels, strict=True)
+                )
 
         object.__setattr__(self, "axis", axis)
         object.__setattr__(self, "components", components)
         object.__setattr__(self, "_label", label)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert self.label is not PYOP3_DECIDE
+        assert all(c.label is not PYOP3_DECIDE for c in self.components)
+
+    # }}}
+
+    # {{{ interface impls
 
     label = pyop3.record.attr("_label")
+
+    # }}}
 
     @property
     def component_labels(self) -> tuple:
@@ -564,8 +705,19 @@ class Slice(Index):
         return merge_dicts([s.datamap for s in self.components])
 
 
+class AbstractMap(abc.ABC):
+
+    # {{{ abstract methods
+
+    @abc.abstractmethod
+    def __call__(self, index):
+         pass
+
+    # }}}
+
+
 @pyop3.record.frozenrecord()
-class Map:
+class Map(AbstractMap):
     """
 
     Parameters
@@ -624,14 +776,16 @@ class Map:
 
     """
 
-    connectivity: idict
+    # {{{ instance attrs
+
+    _connectivity: idict
     name: str  # should delete this
 
     # a class var
     counter = 0
 
     def __init__(self, connectivity, name=None) -> None:
-        object.__setattr__(self, "connectivity", utils.freeze(connectivity))
+        object.__setattr__(self, "_connectivity", utils.freeze(connectivity))
 
         # TODO delete entirely
         if name is None:
@@ -640,7 +794,13 @@ class Map:
             self.counter += 1
         object.__setattr__(self, "name", name)
 
-    def __call__(self, index):
+    # }}}
+
+    # {{{ interface impls
+
+    connectivity = pyop3.record.attr("_connectivity")
+
+    def __call__(self, index, /) -> CalledMap:
         # If the input index is context-free then we should return something context-free
         # TODO: Should be encoded in some mixin type
         # if isinstance(index, ContextFreeIndex):
@@ -700,13 +860,49 @@ class Map:
         else:
             return CalledMap(self, index)
 
-    @cached_property
-    def datamap(self):
-        data = {}
-        for bit in self.connectivity.values():
-            for map_cpt in bit:
-                data.update(map_cpt.datamap)
-        return idict(data)
+    # }}}
+
+
+@pyop3.record.frozenrecord()
+class ScalarMap(AbstractMap):
+    """An arity 1 map that does not produce an additional axis in the tree."""
+
+    _connectivity: idict
+    """map connectivity. for each input path it can produce multiple equivalent targets
+    (think points vs cells) but never more than one at a time. This differs from other
+    map types where for instance the closure of a cell yields multiple result types.
+
+    """
+
+    _name: str
+
+    def __init__(self, connectivity, name):
+        connectivity = utils.freeze(connectivity)
+
+        object.__setattr__(self, "_connectivity", connectivity)
+        object.__setattr__(self, "_name", name)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        from pyop3.expr import AxisVar
+
+        # Make sure that 'connectivity' contains the right things
+        for entries in self.connectivity.values():
+            for entry in entries:
+                assert isinstance(entry, MapComponent)
+                assert entry.arity == 1
+                # hacky way to catch if we are passing in something flat or not
+                assert isinstance(entry.array.layout, AxisVar)
+
+    # {{{ interface impls
+
+    connectivity = pyop3.record.attr("_connectivity")
+    name = pyop3.record.attr("_name")
+
+    def __call__(self, index, /) -> UnitCalledMap:
+         return UnitCalledMap(self, index)
+
+    # }}}
 
 
 class ContextSensitiveException(Pyop3Exception):
@@ -724,38 +920,24 @@ class UnspecialisedCalledMapException(Pyop3Exception):
     """
 
 
-@pyop3.record.frozenrecord()
-class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
-    map: Map
-    index: Any
-    id: Any
-    _label: Any
+# TODO: I think these parent types are no longer used/useful
+class AbstractCalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
 
-    def __init__(self, map, from_index, *, id=None, label=None):
-        id = id if id is not None else self.unique_id()
-        label = label if label is not None else self.unique_label()
+    # {{{ abstract methods
 
-        object.__setattr__(self, "map", map)
-        object.__setattr__(self, "index", from_index)
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "_label", label)
-        self.__post_init__()
+    @property
+    @abc.abstractmethod
+    def map(self) -> Map | UnitMap:
+         pass
 
-    def __post_init__(self) -> None:
-        # Each leaf of the index wrapped by this map must have at least one
-        # target that corresponds to a source for this map.
-        for equiv_target_paths in self.index.leaf_target_paths:
-            match_found = False
-            for equiv_target_path in equiv_target_paths:
-                if equiv_target_path in self.map.connectivity:
-                    match_found = True
-                    break
-            if not match_found:
-                raise pyop3.exceptions.InvalidMapTargetException(
-                    "Cannot find a suitable candidate from the targets of the map index"
-                )
+    @property
+    @abc.abstractmethod
+    def index(self) -> LoopIndex | AbstractCalledMap:
+         pass
 
-    label = pyop3.record.attr("_label")
+    # }}}
+
+    # {{{ interface impls
 
     def __getitem__(self, indices):
         raise NotImplementedError("TODO")
@@ -804,6 +986,71 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         #     )
         # return ContextSensitiveMultiArray(array_per_context)
 
+
+    # }}}
+
+    @property
+    def name(self):
+        return self.map.name
+
+    @property
+    def connectivity(self):
+        return self.map.connectivity
+
+    # NOTE: nothing about this is specific to an index/map
+    @property
+    def leaf_target_paths(self) -> tuple:
+        return collect_leaf_target_paths(self.axes)
+
+    @property
+    def is_context_free(self) -> bool:
+        return self.index.is_context_free
+
+
+@pyop3.record.frozenrecord()
+class CalledMap(AbstractCalledMap):
+
+    # {{{ instance attrs
+
+    _map: Map
+    _index: Any
+    id: Any
+    _label: Any
+
+    def __init__(self, map, from_index, *, id=None, label=None):
+        id = id if id is not None else self.unique_id()
+        label = label if label is not None else self.unique_label()
+
+        object.__setattr__(self, "_map", map)
+        object.__setattr__(self, "_index", from_index)
+        object.__setattr__(self, "id", id)
+        object.__setattr__(self, "_label", label)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        # Each leaf of the index wrapped by this map must have at least one
+        # target that corresponds to a source for this map.
+        for equiv_target_paths in self.index.leaf_target_paths:
+            match_found = False
+            for equiv_target_path in equiv_target_paths:
+                if equiv_target_path in self.map.connectivity:
+                    match_found = True
+                    break
+            if not match_found:
+                raise pyop3.exceptions.InvalidMapTargetException(
+                    "Cannot find a suitable candidate from the targets of the map index"
+                )
+
+    # }}}
+
+    # {{{ interface impls
+
+    map = pyop3.record.attr("_map")
+    index = pyop3.record.attr("_index")
+    label = pyop3.record.attr("_label")
+
+    # }}}
+
     def iter(self, *, eager=False) -> LoopIndex:
         from pyop3.index_tree.parse import as_index_forests
 
@@ -832,14 +1079,6 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                 context_map[ctx] = index_axes(index_tree, ctx)
             iterset = ContextSensitiveAxisTree(context_map)
         return LoopIndex(iterset)
-
-    @property
-    def name(self):
-        return self.map.name
-
-    @property
-    def connectivity(self):
-        return self.map.connectivity
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
@@ -884,62 +1123,34 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         targets = utils.freeze(targets)
         return IndexedAxisTree(axes_.node_map, None, targets=targets)
 
-    @property
-    def is_context_free(self) -> bool:
-        return self.index.is_context_free
 
-    # NOTE: nothing about this is specific to an index
-    @property
-    def leaf_target_paths(self) -> tuple:
-        return collect_leaf_target_paths(self.axes)
+@pyop3.record.frozenrecord()
+class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
-    @cached_property
-    def expanded(self):
-        """Return a `tuple` of maps specialised to possible inputs and outputs.
+    # {{{ instance attrs
 
-        This is necessary because the input index may match with multiple possible
-        map inputs, and the map may have multiple possible outputs for each input.
+    _map: UnitMap
+    _index: UnitMap | LoopIndex
+    _label: Any
 
-        For example, closure(cell) matches inputs of points and cells, and has output
-        cells, edges, and vertices, and separately points.
+    # FIXME: do i need label?
+    def __init__(self, map, index, label=None):
+        label = label if label is not None else self.unique_label()
 
-        """
-        restricted_maps = []
-        for index in self.call_index.expanded:
-            for input_path in index.leaf_target_paths:
-                for output_spec in self.connectivity[input_path]:
-                    restricted_connectivity = {input_path: (output_spec,)}
-                    restricted_map = Map(restricted_connectivity, self.name)(index)
-                    restricted_maps.append(restricted_map)
-        return tuple(restricted_maps)
+        object.__setattr__(self, "_map", map)
+        object.__setattr__(self, "_index", index)
+        object.__setattr__(self, "_label", label)
 
-    @property
-    def _connectivity_dict(self):
-        return idict(self.connectivity)
+    # }}}
 
-    # TODO cleanup
-    def with_context(self, context, axes=None):
-        raise NotImplementedError
-        # maybe this line isn't needed?
-        # cf_index = self.from_index.with_context(context, axes)
-        cf_index = self.index
-        leaf_target_paths = tuple(
-            idict({mcpt.target_axis: mcpt.target_component})
-            for path in cf_index.leaf_target_paths
-            for mcpt in self.map.connectivity[path]
-            # if axes is None we are *building* the axes from this map
-            if axes is None
-            or axes.is_valid_path(
-                {mcpt.target_axis: mcpt.target_component}, complete=False
-            )
-        )
-        if len(leaf_target_paths) == 0:
-            raise RuntimeError
-        return ContextFreeCalledMap(self.map, cf_index, leaf_target_paths, id=self.id)
+    # {{{ interface impls
 
-    @property
-    def name(self) -> str:
-        return self.map.name
+    map = pyop3.record.attr("_map")
+    index = pyop3.record.attr("_index")
+    label = pyop3.record.attr("_label")
+
+    # }}}
+
 
 
 class ContextSensitiveCalledMap(ContextSensitiveLoopIterable):
@@ -948,54 +1159,6 @@ class ContextSensitiveCalledMap(ContextSensitiveLoopIterable):
 
 class InvalidIndexException(Pyop3Exception):
     pass
-
-
-@functools.singledispatch
-def collect_index_target_paths(index: Index) -> tuple[tuple[idict[str, str], ...], ...]:
-    raise TypeError(f"No handler defined for {type(index).__name__}")
-
-
-@collect_index_target_paths.register(LoopIndex)
-def _(loop_index: LoopIndex) -> tuple[tuple[idict[str, str], ...], ...]:
-    return loop_index.leaf_target_paths
-    # return (
-    #     tuple(
-    #         accumulate_target_path(iterset_target)
-    #         for iterset_target in loop_index.iterset.paths_and_exprs
-    #     ),
-    # )
-
-
-@collect_index_target_paths.register(ScalarIndex)
-def _(scalar_index: ScalarIndex, /, *args, **kwargs):
-    return scalar_index.leaf_target_paths
-
-
-@collect_index_target_paths.register(Slice)
-def _(slice_: Slice) -> tuple[tuple[idict[str, str]], ...]:
-    return slice_.leaf_target_paths
-    return tuple(
-        (idict({slice_.axis: slice_component.component}),)
-        for slice_component in slice_.components
-    )
-
-
-@collect_index_target_paths.register(CalledMap)
-def _(called_map: CalledMap) -> tuple[tuple[idict[str, str]], ...]:
-    return called_map.leaf_target_paths
-    # duplicate of elsewhere
-    leaf_target_paths_ = []
-    for leaf_path in called_map.axes.leaf_paths:
-        leaf_target_paths_per_target = []
-        for leaf_targets_per_target in called_map.leaf_target_paths:
-            leaf_target_paths_per_target.append(leaf_targets_per_target[leaf_path])
-        leaf_target_paths_per_target = tuple(leaf_target_paths_per_target)
-        leaf_target_paths_.append(leaf_target_paths_per_target)
-    return tuple(leaf_target_paths_)
-    # compressed_targets = []
-    # for leaf_path in called_map.axes.leaf_paths:
-    #     compressed_targets.append(tuple(t[leaf_path][0] for t in called_map.axes.targets))
-    # return tuple(compressed_targets)
 
 
 def match_target_paths_to_axis_tree(index_tree, orig_axes):
@@ -1015,7 +1178,7 @@ def match_target_paths_to_axis_tree_rec(
 
     target_axes_by_index = {}
     leaf_target_axes = []
-    index_target_paths = collect_index_target_paths(index)
+    index_target_paths = index.leaf_target_paths
     for equivalent_index_target_paths, index_component_label in zip(index_target_paths, index.component_labels, strict=True):
         equivalent_index_target_paths = list(equivalent_index_target_paths)
 
@@ -1092,7 +1255,7 @@ def _index_axes_per_index(index: Index, /, *args, **kwargs) -> tuple[AxisTree, t
     raise TypeError(f"No handler provided for {type(index)}")
 
 
-@_index_axes_per_index.register(LoopIndex)
+@_index_axes_per_index.register
 def _(loop_index: LoopIndex, /, *args, **kwargs):
     """
     This function should return {None: [(path0, expr0), (path1, expr1)]}
@@ -1138,7 +1301,7 @@ def _(loop_index: LoopIndex, /, *args, **kwargs):
     return (UNIT_AXIS_TREE, new_targets)
 
 
-@_index_axes_per_index.register(ScalarIndex)
+@_index_axes_per_index.register
 def _(index: ScalarIndex, /, target_axes, **kwargs):
     targets = utils.freeze({
         idict(): [[
@@ -1148,7 +1311,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
     return (UNIT_AXIS_TREE, targets)
 
 
-@_index_axes_per_index.register(Slice)
+@_index_axes_per_index.register
 def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr import AxisVar
     from pyop3.expr.visitors import replace_terminals, collect_axis_vars
@@ -1188,21 +1351,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     # facet numbering. The labels are the same so identifying this is really difficult.
     #
     # We fix this here by requiring that non-full slices perform a relabelling and
-    # full slices do not. A full slice is defined to be a slice where all of the
-    # components are affine with start 0, stop None and step 1. The components must
-    # also not already have a label since that would take precedence.
-    #
-    # TODO: Just have a special type for this!
-    is_full = all(
-        isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
-        for s in slice_.components
-    )
-    # NOTE: We should be able to eagerly return here?
-
-    if is_full:
-        axis_label = slice_.axis
-    else:
-        axis_label = slice_.label
+    # full slices do not.
 
     components = []
     for slice_component in slice_.components:
@@ -1264,15 +1413,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         else:
             sf = None
 
-        if is_full:
-            component_label = slice_component.component
-        else:
-            # TODO: Ideally the default labels here would be integers if not
-            # somehow provided. Perhaps the issue stems from the fact that the label
-            # attribute is used for two things: identifying paths in the index tree
-            # and labelling the resultant axis component.
-            component_label = slice_component.label
-
         # TODO: Add handling for the other types of slices
         component_size = None
         if target_component._size is not None:
@@ -1287,10 +1427,10 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             if component_size is not None:
                 component_size = replace_terminals(component_size, seen_target_exprs)
 
-        component = AxisComponent(indexed_regions, label=component_label, sf=sf, size=component_size)
+        component = AxisComponent(indexed_regions, label=slice_component.label, sf=sf, size=component_size)
         components.append(component)
 
-    axis = Axis(components, label=axis_label)
+    axis = Axis(components, label=slice_.label)
 
     # now do target expressions
     targets = {}
@@ -1339,9 +1479,51 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     return (axes, targets)
 
 
-@_index_axes_per_index.register(CalledMap)
+@_index_axes_per_index.register
 def _(called_map: CalledMap, *args, **kwargs):
     return called_map.axes.materialize(), called_map.axes.targets
+
+
+@_index_axes_per_index.register
+def _(map_: UnitCalledMap, /, *args, **kwargs):
+    from pyop3.expr import LoopIndexVar, AxisVar
+    from pyop3.expr.visitors import replace_terminals, replace
+
+    assert map_.is_context_free
+
+    new_targets = {idict(): []}
+    assert len(map_.index.axes.targets) == 1
+    match_found = False
+    for index_targets in map_.index.axes.targets[idict()]:
+        if len(index_targets) == 0:
+            continue
+        index_target = utils.just_one(index_targets)
+
+        try:
+            map_components = map_.connectivity[idict({index_target.axis: index_target.component})]
+        except KeyError:
+            continue
+
+        if match_found:
+            raise NotImplementedError("not sure what to do about multiple matches")
+        match_found = True
+        if len(map_components) != 1:
+            raise NotImplementedError("suggests multiple equivalent outputs")
+        else:
+            map_component = utils.just_one(map_components)
+
+        # now put the index expression from the inner index into the array expression
+        axis_var = map_component.array.layout
+        assert isinstance(axis_var, AxisVar)
+        replace_map = {axis_var: index_target.expr}
+
+        myexpr = replace(map_component.array, replace_map, assert_modified=True)
+        new_targets[idict()].append([AxisTarget(map_component.target_axis, map_component.target_component, myexpr)])
+
+    assert match_found
+    new_targets = utils.freeze(new_targets)
+
+    return (UNIT_AXIS_TREE, new_targets)
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
@@ -1488,28 +1670,6 @@ def index_axes(
             targets=composed_targets,
         )
     return retval
-
-
-def collect_index_tree_target_paths(index_tree: IndexTree) -> idict:
-    return collect_index_tree_target_paths_rec(index_tree, index=index_tree.root)
-
-
-def collect_index_tree_target_paths_rec(index_tree: IndexTree, *, index: Index) -> idict[Index, Any]:
-    # target_paths = {index: collect_index_target_paths(index)}
-    # # TODO: index_tree.child?
-    # for subindex in filter(None, index_tree.node_map[index.id]):
-    #     target_paths |= collect_index_tree_target_paths_rec(index_tree, index=subindex)
-    # return idict(target_paths)
-    target_paths = {index: []}
-    index_target_paths = collect_index_target_paths(index)
-    # TODO: index_tree.child?
-    for target_path, subindex in zip(index_target_paths, index_tree.node_map[index.id], strict=True):
-        if subindex is None:
-            target_paths[index].append((target_path, None))
-        else:
-            subtarget_paths = collect_index_tree_target_paths_rec(index_tree, index=subindex)
-            target_paths[index].append((target_path, subtarget_paths))
-    return idict(target_paths)
 
 
 def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
@@ -1995,7 +2155,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     from pyop3.expr import conditional
     from pyop3.expr.visitors import replace_terminals as expr_replace, min_
 
-    if affine_component.is_full:
+    if affine_component.is_full_slice:
         indexed_regions = []
         for region in regions:
             size = expr_replace(region.size, parent_exprs)

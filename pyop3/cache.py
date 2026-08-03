@@ -28,11 +28,10 @@ from typing import Any, Callable, Hashable
 
 from petsc4py import PETSc
 
+import pyop3.collections
 import pyop3.config
 from pyop3 import utils
-from pyop3.collections import AlwaysEmptyDict
 from pyop3.constants import _nothing
-from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
@@ -531,8 +530,8 @@ def parallel_cache(
                     LOGGER.debug(
                         f"{func.__qualname__} is heavy cached but no heavy cache has been set"
                     )
-                    caches = (AlwaysEmptyDict(),)
-                    cache_type = AlwaysEmptyDict
+                    caches = (pyop3.collections.AlwaysEmptyDict(),)
+                    cache_type = pyop3.collections.AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
                     def make_instrumented_cache():
@@ -542,12 +541,17 @@ def parallel_cache(
                     comm_caches = get_comm_caches(comm)
                     if heavy:
                         if cache_id not in comm_caches:
-                            # comm_caches[cache_id] = weakref.WeakKeyDictionary()
-                            comm_caches[cache_id] = {}
+                            # This must be a weak key dictionary to ensure that it does
+                            # not explode
+                            # The keys of this dictionary are the lifetime objects
+                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+                            # but this fixes a parallel bug... somewhere...
+                            # comm_caches[cache_id] = {}
 
                         caches = []
                         cache_type = None
                         for lifetime_obj in _heavy_caches:
+                            # FIXME: This doesn't always hold, but it probably should
                             assert lifetime_obj.comm.size >= comm.size
                             if pyop3.config.spmd_strict:
                                 # cache access must be collective over lifetime objects
@@ -667,6 +671,18 @@ def memory_and_disk_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
 # via a context manager that pops the reference after use.
 _heavy_caches = pyop3.collections.OrderedSet()
 
+_alive_heavy_caches = weakref.WeakSet()
+"""The heavy caches that we have used that haven't yet been cleaned up.
+
+This attribute is useful for debugging possible memory leaks. If its size
+grows over time then references to the heavy cache objects are surviving.
+
+The recommended way to debug such issues is to use objgraph:
+
+    objgraph.get_backrefs(item_in_cache)
+
+"""
+
 
 class heavy_caches:
     """Context manager that pushes and pops lifetime objects.
@@ -680,6 +696,10 @@ class heavy_caches:
 
     def __init__(self, objs: Any) -> None:
         objs = utils.as_tuple(objs)
+
+        for obj in objs:
+            _alive_heavy_caches.add(obj)
+
         self._objs = objs
         # keep track of the objects we inserted ourselves, if they were already
         # there then we don't want to remove them!

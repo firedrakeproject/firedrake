@@ -1,12 +1,25 @@
-# File to handle op3.device context manager
-from abc import ABCMeta, abstractmethod
+import abc
 import contextlib
 import contextvars
+import functools
 import warnings
+from typing import Any
 
 import numpy as np
 
-class Device(metaclass=ABCMeta):
+from pyop3 import utils
+
+
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
+    CUPY_AVAILABLE = False
+else:
+    CUPY_AVAILABLE = True
+
+
+class Device(abc.ABC):
     """
     Device - Abstract class
     - Base for future GPU implementations
@@ -14,19 +27,17 @@ class Device(metaclass=ABCMeta):
     """
     name: str
 
-    @abstractmethod
+    @abc.abstractmethod
     def asarray(self, arr, *, constant=False):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def zeros_like(self, arr):
         pass
 
-    def __repr__(self):
-        return self.name
-        
     def __str__(self):
         return self.name
+
 
 class CPU(Device):
     """
@@ -35,27 +46,23 @@ class CPU(Device):
     """
     name = "CPU"
 
+    # NOTE: We want to make sure we don't do a copy here
     def asarray(self, arr, *, constant=False):
         """ Convert GPU/CuPy/NumPy input array to CPU-compliant NumPy array """
-        try:
-            import cupy as cp
-        except ImportError:
-            cp = None
-        
-        if cp and isinstance(arr, cp.ndarray):
+        if CUPY_AVAILABLE and isinstance(arr, cp.ndarray):
             output = cp.asnumpy(arr)
         elif isinstance(arr, np.ndarray):
-            output = np.array(arr)
+            output = arr
             if constant:
-                output.flags.writeable = False
+                output = flag_constant(output)
         else:
             raise TypeError(f"{type(arr)} not supported.")
 
         return output
 
-
     def zeros_like(self, arr):
         return np.zeros_like(arr)
+
 
 class CUDAGPU(Device):
     """ 
@@ -83,7 +90,21 @@ class CUDAGPU(Device):
     def zeros_like(self, arr):
         return self.cp.zeros_like(arr)
 
-HOST_DEVICE = CPU() 
+HOST_DEVICE = CPU()
+
+DEVICE_TO_ARRAY_TYPE = {
+    HOST_DEVICE: np.ndarray,
+}
+"""Mapping between device and array type.
+
+When new devices are created they should register themselves here.
+
+Note that this mapping is not invertible. A single array type could map to
+multiple devices.
+
+"""
+
+
 
 """ 
     Global context variable for determining device context
@@ -133,3 +154,21 @@ def on_host(func):
 
 def get_current_device():
     return _current_device.get()
+
+
+@functools.singledispatch
+def flag_constant(array: Any) -> None:
+    """Mark an array as being constant."""
+    utils.raise_missing_dispatch_handler(array)
+
+
+@flag_constant.register
+def _(array: np.ndarray) -> None:
+    array.flags.writeable = False
+
+
+if CUPY_AVAILABLE:
+    @flag_constant.register
+    def _(array: cp.ndarray) -> None:
+        # CuPy arrays don't support setting flags
+        pass

@@ -387,6 +387,7 @@ section to establish the mapping:
 
 .. code-block:: python3
 
+    coord_section = mesh.coordinates.function_space().dm.getLocalSection()
     coord_section = mesh.create_section(entity_dofs)
     plex = mesh.topology_dm
     plex_coords = plex.getCoordinateDM()

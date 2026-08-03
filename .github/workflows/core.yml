@@ -135,7 +135,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake --timeout-method signal
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         # UNDO ME
         timeout-minutes: 180
 
@@ -530,7 +530,8 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install inkscape texlive-full
+          # pandoc is required by nbsphinx to render the tutorial notebooks
+          apt-get -y install inkscape texlive-full pandoc
 
       - uses: actions/checkout@v5
         with:
@@ -579,7 +580,7 @@ jobs:
         with:
           name: github-pages
           path: firedrake-repo/docs/build/html
-          retention-days: 1
+          retention-days: 5
 
       # Some files are automatically generated when we install or build the
       # docs (e.g. AUTHORS.rst). These files are committed to the repository

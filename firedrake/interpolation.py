@@ -40,7 +40,7 @@ from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh, get_iteration_spec
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
@@ -706,24 +706,13 @@ class SameMeshInterpolator(Interpolator):
     def __init__(self, expr):
         super().__init__(expr)
         subset = self.subset
+        self._use_intermediate_buffer = False
         if subset is None:
+            # NOTE: What if subset is provided? won't things then break?
             target = self.target_mesh.unique().topology
             source = self.source_mesh.unique().topology
             if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
-                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
-                if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported.")
-                indices_active = composed_map.indices_active_with_halo
-                make_subset = not indices_active.all()
-                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
-                if make_subset:
-                    if not self.allow_missing_dofs:
-                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
-                    raise NotImplementedError
-                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
-                else:
-                    # Do not need subset as target <= source.
-                    pass
+                self._use_intermediate_buffer = True
         self.subset = subset
 
         if not isinstance(self.dual_arg, Coargument):
@@ -791,10 +780,10 @@ class SameMeshInterpolator(Interpolator):
         block_shape = (Vrow.block_shape, Vcol.block_shape)
         buffer_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
         sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes, buffer_spec=buffer_spec)
-        iter_spec = get_iteration_spec(self.target_mesh, "cell")
+        loop_index = self.target_mesh.iter("cell")
         op3.loop(
-            c := iter_spec.loop_index,
-            sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
+            c := loop_index,
+            pack(sparsity, Vrow, Vcol, loop_index).assign(666),
             eager=True,
         )
         return sparsity
@@ -802,6 +791,9 @@ class SameMeshInterpolator(Interpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
         pyop3_compiler_parameters = None,
     ):
+        if pyop3_compiler_parameters is None:
+            pyop3_compiler_parameters = {}
+
         mat_type = mat_type or "aij"
         if (
             isinstance(tensor, Cofunction)
@@ -815,6 +807,22 @@ class SameMeshInterpolator(Interpolator):
         else:
             f = tensor or self._get_tensor(mat_type)
             copyout = ()
+
+        if self.rank == 1 and self._use_intermediate_buffer:
+            assignee_buffer = f.dat.buffer
+            orig_data = assignee_buffer.data_ro.copy()
+            fmin = numpy.finfo(assignee_buffer.dtype).min
+            assignee_buffer._current_device_array[...] = fmin
+
+            def mywrite():
+                assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
+                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array, fmin))
+                # just debugging
+                assert len(unchanged_idxs) > 0
+                assignee_buffer._current_device_array[unchanged_idxs] = orig_data[unchanged_idxs]
+
+            copyout += (mywrite,)
+
 
         op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
@@ -842,7 +850,7 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            indices = tuple(self.target_space.field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
+            indices = tuple(self.ufl_interpolate.function_space().field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
             sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
             loops.extend(_build_interpolation_callables(
                 sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
@@ -856,7 +864,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data.item()
+                return f.dat.data_ro.item()
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
@@ -1068,9 +1076,25 @@ def _build_interpolation_callables(
     if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
-    # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+
+    # The parloop is always over the target mesh cells. If interpolating
+    # between submeshes then we intersect the source and target cells.
+    if (
+        source_mesh is not target_mesh
+        and source_mesh.submesh_youngest_common_ancestor(target_mesh)
+    ):
+        if subset is not None:
+            raise NotImplementedError("TODO")
+
+        loop_index = target_mesh.iter("cell", intersect_meshes=[source_mesh])
+    else:
+        if subset is not None:
+            loop_index = target_mesh.iter("cell", subdomain_id=subset)
+        else:
+            loop_index = target_mesh.iter("cell")
+
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
@@ -1080,13 +1104,7 @@ def _build_interpolation_callables(
         target_element = runtime_quadrature_element(source_mesh, target_element,
                                                     rt_var_name=rt_var_name)
 
-    if subset is not None:
-        iter_spec = get_iteration_spec(target_mesh, "cell", subdomain_id=subset)
-    else:
-        iter_spec = get_iteration_spec(target_mesh, "cell")
-
-    parameters = {}
-    parameters['scalar_type'] = ScalarType
+    parameters = {"scalar_type": ScalarType}
 
     copyin = ()
     copyout = ()
@@ -1103,7 +1121,7 @@ def _build_interpolation_callables(
 
         weight = Function(W)
         op3.loop(
-            c := iter_spec.loop_index,
+            c := loop_index,
             weight.dat[target_mesh.closure(c)].iassign(1),
             eager=True,
         )
@@ -1134,11 +1152,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, loop_index)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, loop_index)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1156,17 +1174,17 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
 
-        packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
+        packed_tensor = pack(tensor, Vrow, Vcol, loop_index)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
-        local_kernel_args.append(pack(source_mesh.cell_orientations(), iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_orientations(), loop_index))
 
     if kernel.needs_cell_sizes:
-        local_kernel_args.append(pack(source_mesh.cell_sizes, iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_sizes, loop_index))
 
     for coefficient in coefficients:
-        local_kernel_args.append(pack(coefficient, iter_spec))
+        local_kernel_args.append(pack(coefficient, loop_index))
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
@@ -1191,7 +1209,7 @@ def _build_interpolation_callables(
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
+                local_kernel_args.append(pack(target_mesh.reference_coordinates, loop_index))
 
     if any(c.dat == tensor for c in coefficients):
         output = tensor
@@ -1202,7 +1220,7 @@ def _build_interpolation_callables(
 
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
-    parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
+    parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 
@@ -1670,7 +1688,8 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for (ridx, cidx), (interp, sub_bcs) in Isub.items():
             if ridx is None:
@@ -1678,7 +1697,8 @@ class MixedInterpolator(Interpolator):
             if cidx is None:
                 cidx = 0
             blocks[ridx, cidx] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        isrows, iscols = (V.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,

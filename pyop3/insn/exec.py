@@ -25,7 +25,10 @@ import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
 from pyop3.cache import cached_method, memory_cache
-from pyop3.insn.base import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
+from pyop3.constants import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
+
+
+import pyop3.debug
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -62,8 +65,11 @@ class CompilerParameters:
 
     # {{{ other options
 
-    check_negatives: bool = False
+    propagate_negatives: bool = False
     """Whether to propagate negative values in indirections."""
+
+    mask_array_accesses: bool = False
+    """Whether to check for and skip expressions like 'dat[-1]'."""
 
     # }}}
 
@@ -333,7 +339,7 @@ class InstructionExecutionContext:
 
     @functools.singledispatchmethod
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        utils.raise_visitor_type_error(arg)
+        utils.raise_missing_dispatch_handler(arg)
 
     @_extract_buffers.register(pyop3.expr.Scalar)
     @_extract_buffers.register(pyop3.expr.Dat)
@@ -398,7 +404,11 @@ class Executable:
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __call__(self, *args: int) -> None:
+        # print("calling")
+        # print(self.code)
         self._callable(*args)
+        # print(self.code)
+        # print("done, didn't die")
 
     @cached_property
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
@@ -486,8 +496,10 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "expression" in str(self):
+        # print(self)
+        # if "form0_cell_integral" in str(self):
         #     breakpoint()
+            # pyop3.debug.maybe_breakpoint()
 
         if not kwargs:  # shortcut for the most common case
             buffers = self._default_buffers
@@ -604,6 +616,10 @@ class CompiledCodeExecutor:
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
+        # does this fix things? nope, but it changes the answer!
+        # for buffer in buffers:
+        #     buffer.assemble()
+
     def __str__(self) -> str:
         sep = "*" * 80
         str_ = []
@@ -620,11 +636,11 @@ class CompiledCodeExecutor:
 
     @functools.singledispatchmethod
     def _buffer_str(self, buffer):
-        utils.raise_visitor_type_error(arg)
+        utils.raise_missing_dispatch_handler(arg)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer.get_array())
+        return f"({buffer.size})", str(buffer._current_device_array)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -641,7 +657,7 @@ class CompiledCodeExecutor:
         return tuple(
             i
             for i, (_, intent) in enumerate(self.buffer_map.values())
-            if intent != pyop3.insn.base.READ
+            if intent != READ
         )
 
     @cached_property
@@ -650,7 +666,7 @@ class CompiledCodeExecutor:
 
     @functools.singledispatchmethod
     def _as_exec_argument(self, obj: Any) -> int:
-        utils.raise_visitor_type_error(obj)
+        utils.raise_missing_dispatch_handler(obj)
 
     @_as_exec_argument.register
     def _(self, handle: int):  # assumes an address
@@ -701,7 +717,7 @@ class CompiledCodeExecutor:
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
     def _buffer_exchanges(self, buffer, intent):
-        initializers, reductions, broadcasts = [], [], []
+        initializers, reductions, finalizers = [], [], []
 
         # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
         # (we have filter_star_forest())
@@ -711,25 +727,27 @@ class CompiledCodeExecutor:
         if intent in {READ, RW}:
             if touches_ghost_points:
                 if not buffer._roots_valid:
-                    initializers.append(buffer.reduce_leaves_to_roots_begin)
+                    initializers.append(buffer.sync_roots_begin)
                     reductions.extend([
-                        buffer.reduce_leaves_to_roots_end,
-                        buffer.broadcast_roots_to_leaves_begin,
+                        buffer.sync_roots_end,
+                        buffer.sync_leaves_begin,
                     ])
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
+                    finalizers.append(buffer.sync_leaves_end)
+                elif not buffer._leaves_valid:
+                    initializers.append(buffer.sync_leaves_begin)
+                    finalizers.append(buffer.sync_leaves_end)
                 else:
-                    initializers.append(buffer.broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
+                    pass
             else:
                 if not buffer._roots_valid:
-                    initializers.append(buffer.reduce_leaves_to_roots_begin)
-                    reductions.append(buffer.reduce_leaves_to_roots_end)
+                    initializers.append(buffer.sync_roots_begin)
+                    reductions.append(buffer.sync_roots_end)
 
         elif intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If
             # this is not the case then a manual reduction is needed.
-            buffer._leaves_valid = False
-            buffer._pending_reduction = None
+            initializers.append(lambda: setattr(buffer, "_pending_reduction", None))
+            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
 
         else:
             # reductions
@@ -761,25 +779,25 @@ class CompiledCodeExecutor:
 
                 def _init_nil():
                     # Not modifying owned values so don't want to update state via intent
-                    buffer.get_array()[buffer.sf.ileaf] = nil
+                    buffer._current_device_array[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 
             # We are modifying owned values so the leaves must now be wrong
-            buffer._leaves_valid = False
+            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
 
             # If ghost points are not modified then no future reduction is required
             if not touches_ghost_points:
-                buffer._pending_reduction = None
+                finalizers.append(lambda: setattr(buffer, "_pending_reduction", None))
             else:
-                buffer._pending_reduction = intent
+                finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
 
-        return tuple(initializers), tuple(reductions), tuple(broadcasts)
+        return tuple(initializers), tuple(reductions), tuple(finalizers)
 
 
 @functools.singledispatch
 def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
-    utils.raise_visitor_type_error(obj)
+    utils.raise_missing_dispatch_handler(obj)
 
 
 @cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)

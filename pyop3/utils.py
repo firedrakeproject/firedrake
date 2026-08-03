@@ -22,6 +22,7 @@ from mpi4py import MPI
 import pyop3.config
 import pyop3.exceptions
 from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
+from pyop3.collections import unique, as_tuple
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
@@ -166,13 +167,6 @@ class Labelled(abc.ABC):
         return unique_name(f"_label_{cls.__name__}")
 
 
-def as_tuple(item: Any) -> tuple[Any, ...]:
-    if isinstance(item, collections.abc.Iterable):
-        return tuple(item)
-    else:
-        return (item,)
-
-
 def split_at(iterable, index):
     return iterable[:index], iterable[index:]
 
@@ -205,14 +199,6 @@ def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
     for dict_ in dicts:
         merged.update(dict_)
     return immutabledict(merged)
-
-
-def unique(iterable) -> tuple[Any]:
-    unique_items = []
-    for item in iterable:
-        if item not in unique_items:
-            unique_items.append(item)
-    return tuple(unique_items)
 
 
 def has_unique_entries(iterable):
@@ -302,7 +288,6 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
     try:
         first = next(iterator)
     except StopIteration:
-        breakpoint()
         raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
     try:
@@ -625,5 +610,5 @@ def safe_equals(a, b, /) -> bool:
         return bool(a == b)
 
 
-def raise_visitor_type_error(obj):
+def raise_missing_dispatch_handler(obj: Any) -> None:
     raise TypeError(f"No handler defined for {pretty_type(obj)}")
