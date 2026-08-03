@@ -313,7 +313,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     aP = None
     mu0 = mu
     if aux_pc:
-        DG0 = FunctionSpace(mesh, "DG", 0)
+        DG0 = FunctionSpace(mesh, "DG", 0, variant="integral(6)")
         mu0 = Function(DG0).interpolate(mu)
         aP = inner(mu0*2*sym(grad(u)), grad(v))*dx(degree=2)
         aP += -inner(p, div(v))*dx + inner(div(u), q)*dx
