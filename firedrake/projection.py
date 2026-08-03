@@ -6,7 +6,8 @@ from ufl.domain import extract_unique_domain
 from typing import Optional, Union
 
 import firedrake
-from firedrake.adjoint_utils import NonlinearVariationalSolverMixin, annotate_super_project
+from firedrake.adjoint_utils import NonlinearVariationalSolverMixin
+from firedrake.adjoint_utils import annotate_project, annotate_super_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -51,6 +52,7 @@ def check_meshes(source, target):
 
 
 @PETSc.Log.EventDecorator()
+@annotate_project
 def project(
     v: ufl.core.expr.Expr,
     V: Union[firedrake.functionspaceimpl.WithGeometry, firedrake.Function],
