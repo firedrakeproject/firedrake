@@ -30,12 +30,11 @@ class VertexOnlyMeshMutator:
         ----------
         new_parent_cells : numpy.ndarray
             Parent-cell numbers for locally owned VOM points. The expected
-            shape is ``(n_owned,)`` or ``(n_owned, 1)``. Values must be in
-            the current VOM ordering.
+            shape is ``(n_owned,)``, matching the VertexOnlyMeshTopology's ``cell_parent_cell_list field``. 
+            Values are assumed to be in the current VOM ordering.
         new_refcoords : numpy.ndarray
             Reference coordinates for locally owned VOM points. The expected
-            shape is ``(n_owned, parent_tdim)``. Values must be in the current
-            VOM ordering.
+            shape is ``(n_owned, parent_tdim)``. Values are assumed to be in the current VOM ordering.
 
         Notes
         -----
@@ -53,28 +52,22 @@ class VertexOnlyMeshMutator:
         n_owned = self.vom.cell_set.size
         vom_to_swarm = self.vom.cell_closure[:n_owned, -1]  # VOM cell ID -> swarm point ID
 
-        new_parent_cells = np.asarray(new_parent_cells, dtype=int).ravel()
+        new_parent_cells = np.asarray(new_parent_cells, dtype=IntType)
+
+        assert new_parent_cells.shape == (n_owned,), "Expected the new parent cell list to be supplied as a one dimensional array"
+
         new_refcoords = np.asarray(new_refcoords, dtype=float)
 
-        # Update Firedrake parent cell numbers
-        arr = swarm.getField("parentcellnum")
-        arr[vom_to_swarm, 0] = new_parent_cells
-        swarm.restoreField("parentcellnum")
-
-        # Update DMPlex parent cell numbers
         cell_id_name = swarm.getCellDMActive().getCellID()
-        arr = swarm.getField(cell_id_name)
-        plex_ids = self.parent_mesh.topology.cell_closure[
-            new_parent_cells, -1
-        ].reshape((-1, 1))
-
-        arr[vom_to_swarm, :] = plex_ids
-        swarm.restoreField(cell_id_name)
-
-        # Update reference coordinates
-        arr = swarm.getField("refcoord")
-        arr[vom_to_swarm, :] = new_refcoords
-        swarm.restoreField("refcoord")
+        with (
+            swarm.field("parentcellnum") as parentcellnum_field,
+            swarm.field(cell_id_name) as swarm_parentcellnum_field,
+            swarm.field("refcoord") as refcoord_field,
+        ):
+            parentcellnum_field[vom_to_swarm, 0] = new_parent_cells
+            plex_ids = self.parent_mesh.topology.cell_closure[new_parent_cells, -1].reshape((-1, 1))
+            swarm_parentcellnum_field[vom_to_swarm, :] = plex_ids
+            refcoord_field[vom_to_swarm, :] = new_refcoords
 
         # Invalidate cached properties that depend on parent cell ownership
         for name in (
@@ -95,6 +88,7 @@ class VertexOnlyMeshMutator:
         # we can safely write into the reference coordinates array.
         ref_coords_func = self.vom.reference_coordinates
         ref_coords_func.dat.data[:] = new_refcoords
+
 
     def rebuild_vom(self, absorbed_vom_indices: ArrayLike | None = None) -> None:
         """Rebuild the vertex-only mesh (VOM) from its currently stored state.
@@ -133,8 +127,8 @@ class VertexOnlyMeshMutator:
 
         # Read data from the current VOM
         coords_local = self.vom.coordinates.dat.data_ro.copy()
-        reference_coords_local = self.vom.reference_coordinates.dat.data_ro.copy()
-        parent_cell_nums_local = topology.cell_parent_cell_list[:n_local].ravel().copy()
+        refcoords_local = self.vom.reference_coordinates.dat.data_ro.copy()
+        parent_cell_nums_local = topology.cell_parent_cell_list[:n_local].copy()
 
         # Hand over particles in ghost cells to the owning ranks at using the parent mesh DMPlex's pointSF
         # PointSF example:
@@ -156,7 +150,7 @@ class VertexOnlyMeshMutator:
             local_idxs_on_owning_ranks = dict(zip(ilocal, iremote[:, 1]))  # dict {leaf idx: local idx on owning rank}
 
             n_cells_local = self.parent_mesh.cell_set.size  # number of parent cells owned by this rank
-            ghost_parent_cells = parent_cell_nums_local.ravel() >= n_cells_local
+            ghost_parent_cells = parent_cell_nums_local >= n_cells_local
 
             for i in np.where(ghost_parent_cells)[0]:
                 owned_ranks_local[i] = owning_ranks[plex_parent_cell_nums_local[i]]
@@ -214,55 +208,45 @@ class VertexOnlyMeshMutator:
 
         # Now write the output arrays (filtered to include the survivor particles only) into the compacted swarm arrays
         # NOTE: The result is that the swarm's point order now becomes the current local VOM order
-        swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((n_survivors_local, gdim))
-        swarm_coords[:] = coords_local[survivors]
-        swarm.restoreField("DMSwarmPIC_coor")
-
-        cid = swarm.getCellDMActive().getCellID()  # swarm field that stores each particle's parent cell ID
-        swarm_parent_cell_nums = swarm.getField(cid).ravel()
-        swarm_parent_cell_nums[:] = new_plex_parent_cell_nums_local[survivors]
-        swarm.restoreField(cid)
-
-        field_global_index = swarm.getField("globalindex").ravel()
-        field_global_index[:] = global_idxs_local[survivors]
-        swarm.restoreField("globalindex")
-
-        field_reference_coords = swarm.getField("refcoord").reshape((n_survivors_local, parent_tdim))
-        field_reference_coords[:] = reference_coords_local[survivors]
-        swarm.restoreField("refcoord")
-
-        field_rank = swarm.getField("DMSwarm_rank").ravel()
-        field_rank[:] = owned_ranks_local[survivors]
-        swarm.restoreField("DMSwarm_rank")
-
-        field_input_rank = swarm.getField("inputrank").ravel()
-        field_input_rank[:] = input_ranks_local[survivors]
-        swarm.restoreField("inputrank")
-
-        field_input_index = swarm.getField("inputindex").ravel()
-        field_input_index[:] = input_idxs_local[survivors]
-        swarm.restoreField("inputindex")
+        cell_id_name = swarm.getCellDMActive().getCellID()
+        with (
+            swarm.field("DMSwarmPIC_coor") as coord_field,
+            swarm.field(cell_id_name) as swarm_parentcellnum_field,
+            swarm.field("globalindex") as globalindex_field,
+            swarm.field("refcoord") as refcoord_field,
+            swarm.field("DMSwarm_rank") as rank_field,
+            swarm.field("inputrank") as inputrank_field,
+            swarm.field("inputindex") as inputindex_field,
+        ):
+            coord_field[...] = coords_local[survivors]
+            swarm_parentcellnum_field[:, 0] = new_plex_parent_cell_nums_local[survivors]
+            globalindex_field[:, 0] = global_idxs_local[survivors]
+            refcoord_field[...] = refcoords_local[survivors]
+            rank_field[:, 0] = owned_ranks_local[survivors]
+            inputrank_field[:, 0] = input_ranks_local[survivors]
+            inputindex_field[:, 0] = input_idxs_local[survivors]
 
         # Redistribute particles accross ranks
         swarm.migrate(remove_sent_points=True)
 
         # Reconstruct Firedrake cell numbers from the receiving rank's updated plex data
-        swarm_plex_ids = swarm.getField(cid).ravel()
-        swarm.restoreField(cid)
+        with (
+            swarm.field(cell_id_name) as swarm_parentcellnum_field,
+            swarm.field("parentcellnum") as parentcellnum_field,
+        ):
+            swarm_plex_ids = swarm_parentcellnum_field[:, 0]
 
-        parent_cells_plex_ids = self.parent_mesh.topology.cell_closure[:, -1]
-        plex_to_parent_cells = {int(plex_id): parent_cell for parent_cell, plex_id in enumerate(parent_cells_plex_ids)}
+            parent_cells_plex_ids = self.parent_mesh.topology.cell_closure[:, -1]
+            plex_to_parent_cells = {int(plex_id): parent_cell for parent_cell, plex_id in enumerate(parent_cells_plex_ids)}
 
-        new_parent_cells = np.asarray(
-            [
-                plex_to_parent_cells.get(int(plex_id))
-                for plex_id in swarm_plex_ids
-            ],
-            dtype=IntType
-        )
-        field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
-        field_parent_cell_nums[:] = new_parent_cells
-        swarm.restoreField("parentcellnum")
+            new_parent_cells = np.asarray(
+                [
+                    plex_to_parent_cells.get(int(plex_id))
+                    for plex_id in swarm_plex_ids
+                ],
+                dtype=IntType
+            )
+            parentcellnum_field[:, 0] = new_parent_cells
 
         # Calling migrate above changed the chart so we reset the DMSwarm's pointSF
         sf = swarm.getPointSF()

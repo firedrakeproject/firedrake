@@ -281,7 +281,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._mesh_geometry = self._function_space.mesh()  # the MeshGeometry object
 
         # Register the mesh topology version at the time the Function was created
-        self.self._mesh_topology_version = self._mesh_topology._topology_version
+        self._mesh_topology_version = self._mesh_topology._topology_version
 
         # Register the Function if it's defined on a VOM
         if isinstance(self._mesh_topology, VertexOnlyMeshTopology):
