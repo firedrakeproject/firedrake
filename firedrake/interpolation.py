@@ -172,6 +172,8 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
+            if has_mixed_arguments or len(self.target_space) > 1:
+                return MixedInterpolator(self)
             raise NotImplementedError(
                 "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
             )
