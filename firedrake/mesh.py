@@ -3077,7 +3077,7 @@ values from f.)"""
         return new_coordinates
 
     @PETSc.Log.EventDecorator()
-    def _periodic_coordinates(self, permutation_tol=1e-8):
+    def _periodic_coordinates(self):
         '''Return a discontinuous coordinate field for a periodic netgen mesh.
 
         A periodic netgen mesh is converted by ngsPETSc into a DMPlex whose
@@ -3089,8 +3089,6 @@ values from f.)"""
 
         This method requires that the mesh has been constructed from a netgen
         mesh that carries periodic identifications.
-
-        :arg permutation_tol: tolerance used to match the reference element nodes.
         '''
         utils.check_netgen_installed()
         from firedrake.netgen import find_permutation
@@ -3145,7 +3143,7 @@ values from f.)"""
             e = lookup[cell_key(fd_nodes)]
             # permutation taking the netgen node order to this cell's node order
             permutation = find_permutation(
-                wrapped[e][np.newaxis], fd_nodes[np.newaxis], tol=permutation_tol
+                wrapped[e][np.newaxis], fd_nodes[np.newaxis]
             )[0]
             data[cell_nodes[i]] = unwrapped[e][permutation]
         return new_coordinates
@@ -3530,7 +3528,7 @@ def Mesh(meshfile, **kwargs):
                 )
             from firedrake.utility_meshes import _postprocess_periodic_mesh
             permutation_tol = netgen_flags.get("permutation_tol", None)
-            coordinates = mesh._periodic_coordinates(permutation_tol=permutation_tol)
+            coordinates = mesh._periodic_coordinates()
             temp = _postprocess_periodic_mesh(coordinates,
                                               mesh.comm,
                                               distribution_parameters,
@@ -3546,7 +3544,6 @@ def Mesh(meshfile, **kwargs):
             cg = netgen_flags.get("cg", None)
             coordinates = mesh.curve_field(
                 order=degree,
-                permutation_tol=permutation_tol,
                 cg_field=cg,
             )
             # Do not redistribute the mesh
