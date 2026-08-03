@@ -13,10 +13,9 @@ import numpy as np
 # Constants
 PLOT = False
 VERBOSE = True
-w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight TODO: Move below where mesh2 is defined
 
 # Variables initialised for convergence analysis
-n1_list = [2,4,8,16,32]
+n1_list = [4,4,4,4,4]#[8,8,8,8,8] #[16,16,16,16,16]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -34,8 +33,10 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-def build_problem(mesh1, mesh2):
-    p = 3
+def build_problem(mesh1, mesh2, n2):
+    p = 2
+    p_inner = 2
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
@@ -57,8 +58,8 @@ def build_problem(mesh1, mesh2):
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
     # Intermediate spaces
-    Q1v = VectorFunctionSpace(mesh1, "CG", p)
-    Q2 = FunctionSpace(mesh2, "CG", p)
+    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
+    Q2 = FunctionSpace(mesh2, "CG", p_inner)
 
     W = V1 * V2
     # Test and trial functions
@@ -71,6 +72,7 @@ def build_problem(mesh1, mesh2):
     # Helmholtz on mesh_2
     A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
                 - inner(dot(grad(u2), n2), v2) * ds2 \
+                - inner(dot(grad(v2), n2), u2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
     
     # A12: row v1, column u2
@@ -88,11 +90,14 @@ def build_problem(mesh1, mesh2):
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
     A21_form = action(M2, B21)
 
+    M2_sym = inner(q2, dot(grad(v2), n2)) * ds2
+    A21_sym_form = action(M2_sym, B21)
+
     # RHS
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-    A = A11_form + A12_form + A21_form + A22_form
-    L = b1 + b2
+    A = A11_form + A12_form + A21_form + A22_form + A21_sym_form
+    L = b1 + b2 #+ inner(dot(grad(v2), n2), f2) * ds2
 
     # Exact solutions used for further analysis
     u1_exact_func = Function(V1).interpolate(u1_exact)
@@ -117,7 +122,7 @@ def plot(filename, u_1, u_2):
 
 # Solver for the coupled problem for each defined mesh
 for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
-    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
+    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2, n2)
     u_sol = Function(W)
     
     bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
@@ -133,13 +138,15 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     u_1, u_2 = u_sol.subfunctions
 
     if PLOT:
-        plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
+        plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
     e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
     h1 = 1.0/n1
     h2 = 1.0/n2
+    #h1 = CellDiameter(mesh1)
+    #h2 = CellDiameter(mesh2)
 
     h1_array.append(h1)
     h2_array.append(h2)
@@ -180,7 +187,7 @@ if VERBOSE:
 
     plt.figure(figsize=(8,8))
     plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
-    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
+    #plt.loglog(h1_array, errors_1, "s-", label="Poisson")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
