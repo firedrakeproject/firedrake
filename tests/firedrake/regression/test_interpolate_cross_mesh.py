@@ -757,6 +757,7 @@ def test_mixed_interpolator_cross_mesh():
             res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
             assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
 
+
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [0, 1])
 def test_interpolate_mixed_expr(rank):
@@ -771,7 +772,7 @@ def test_interpolate_mixed_expr(rank):
     V = FunctionSpace(mesh1, "CG", 1)
     U = FunctionSpace(mesh2, "CG", 2)
     W = V * U
-    
+
     if rank == 1:
         result = assemble(interpolate(expr, W))
         expected1 = assemble(interpolate(expr1, V))
