@@ -34,7 +34,11 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
 To efficiently compute the smallest eigenvalue, we configure SLEPc using a solver parameters dictionary. We specify a Krylov-Schur eigensolver (``eps_type``) and a shift-and-invert spectral transformation (``st_type``) with a target of zero (``eps_target``). We also flag the generalized eigenvalue problem as Hermitian (``eps_gen_hermitian``) and request the smallest real eigenvalue (``eps_smallest_real``). ::
 
   def solve_eigenproblem(mesh):
-      h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
+      h_symbolic = CellDiameter(mesh)
+      DG0 = FunctionSpace(mesh, "DG", 0)
+      h_cell = Function(DG0).interpolate(h_symbolic)
+      with h_cell.dat.vec_ro as hvec:
+          h_max = hvec.max()[1]
       eigenfunction = None
 
       for space in ["CG", "CR"]:
@@ -71,7 +75,7 @@ To efficiently compute the smallest eigenvalue, we configure SLEPc using a solve
       eigenfunction.rename("Eigenfunction")
       return (lambda_lb, lambda_ub, lambda_CR, eigenfunction)
 
-These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace. ::
+These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace :cite:`Boffi:2014`. ::
 
   def estimate_error(mesh, uh, lam):
       W = FunctionSpace(mesh, "DG", 0)
@@ -93,7 +97,7 @@ These bounds do not describe where the mesh should be refined so as to reduce th
       eta = Function(W).interpolate(sqrt(eta_sq))
 
       with eta.dat.vec_ro as eta_:
-          error_est = sqrt(eta_.dot(eta_))
+          error_est = eta_.norm()
       return (eta, error_est)
 
 We define a function to adapt the mesh by refining elements with large error indicators, using the maximum Dörfler-like marking strategy with :math:`\theta = 0.5`: ::
@@ -113,7 +117,7 @@ We define a function to adapt the mesh by refining elements with large error ind
 
 Finally, we run the adaptive loop until the upper and lower bounds agree to within a tolerance. ::
 
-  max_iterations = 100
+  max_iterations = 20
   error_estimators = []
   dofs = []
   err = 1
