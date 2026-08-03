@@ -31,7 +31,7 @@ We create a function to solve the eigenvalue problem for both continuous (CG) an
 
 where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{CG}} - \lambda_{\text{CR}}` to demonstrate optimal convergence. ::
 
-  def solve_poisson(mesh):
+  def solve_eigenproblem(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
       bounds = {}
       eigenfunction = None
@@ -88,7 +88,7 @@ These bounds do not describe where the mesh should be refined so as to reduce th
           - inner(h('-')/2 * jump(grad(uh), n)**2, w('-')) * dS
           )
 
-      sp = {"mat_type": "matfree", "ksp_type": "richardson", "pc_type": "jacobi"}
+      sp = {"mat_type": "matfree", "ksp_type": "preonly", "pc_type": "jacobi"}
       solve(G == 0, eta_sq, solver_parameters=sp)
       eta = Function(W).interpolate(sqrt(eta_sq))
 
@@ -119,7 +119,7 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
   err = 1
 
   for i in range(max_iterations):
-      lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh)
+      lam_lb, lam_ub, lam_CR, uh = solve_eigenproblem(mesh)
       err = lam_ub - lam_lb
       gap = lam_ub - lam_CR
       error_estimators.append(gap)
@@ -148,7 +148,7 @@ To demonstrate that adaptivity is necessary to achieve the optimal convergence r
           return mesh.refine_marked_elements(markers)
 
       for i in range(max_iterations):
-          lam_lb, lam_ub, lam_CR, uh = solve_poisson(mesh_uniform)
+          lam_lb, lam_ub, lam_CR, uh = solve_eigenproblem(mesh_uniform)
           err = lam_ub - lam_lb
           gap = lam_ub - lam_CR
           uniform_error_estimators.append(gap)
