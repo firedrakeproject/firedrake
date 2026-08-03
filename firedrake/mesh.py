@@ -1246,42 +1246,42 @@ class AbstractMeshTopology(abc.ABC):
             case "cell":
                 iterset = self.cells
                 dmlabel_name = dmcommon.CELL_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "cell")
+                plex_indices_is = self._entity_indices_is("plex", "cell")
                 old_to_new_entity_numbering  = self._plex_to_entity_numbering_sec("cell")
             case "exterior_facet":
                 iterset = self.exterior_facets
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "exterior_facet")
+                plex_indices_is = self._entity_indices_is("plex", "exterior_facet")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet")
             case "interior_facet":
                 iterset = self.interior_facets
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "interior_facet")
+                plex_indices_is = self._entity_indices_is("plex", "interior_facet")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet")
             case "exterior_facet_top":
                 iterset = self.exterior_facets_top
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "exterior_facet_top")
+                plex_indices_is = self._entity_indices_is("plex", "exterior_facet_top")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_top")
             case "exterior_facet_bottom":
                 iterset = self.exterior_facets_bottom
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "exterior_facet_bottom")
+                plex_indices_is = self._entity_indices_is("plex", "exterior_facet_bottom")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_bottom")
             case "exterior_facet_vert":
                 iterset = self.exterior_facets_vert
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", name="exterior_facet_vert")
+                plex_indices_is = self._entity_indices_is("plex", name="exterior_facet_vert")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("exterior_facet_vert")
             case "interior_facet_horiz":
                 iterset = self.interior_facets_horiz
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "interior_facet_horiz")
+                plex_indices_is = self._entity_indices_is("plex", "interior_facet_horiz")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet_horiz")
             case "interior_facet_vert":
                 iterset = self.interior_facets_vert
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
-                valid_plex_indices = self._entity_indices_is("plex", "interior_facet_vert")
+                plex_indices_is = self._entity_indices_is("plex", "interior_facet_vert")
                 old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("interior_facet_vert")
             case _:
                 raise AssertionError(f"Integral type {integral_type} not recognised")
@@ -1318,15 +1318,16 @@ class AbstractMeshTopology(abc.ABC):
             for b in reversed(bb[:bb.index(common_ancestor)]):
                 intersect_indices = b._parent_to_submesh_plex_index_map[intersect_indices]
 
-            valid_plex_indices = PETSc.IS().createGeneral(
-                np.intersect1d(valid_plex_indices.indices, intersect_indices), comm=MPI.COMM_SELF
+            plex_indices_is = _make_is_general(
+                np.intersect1d(plex_indices_is.indices, intersect_indices)
             )
 
+        # Now filter by subdomain
         if subdomain_id == "everywhere":
-            plex_indices_is = self._entity_indices_is("plex", integral_type)
-
+            pass
         else:
             needs_subset = True
+            iterset_plex_indices_is = plex_indices_is
 
             if subdomain_id == "otherwise":
                 subdomain_ids = all_integer_subdomain_ids[integral_type]
@@ -1336,29 +1337,29 @@ class AbstractMeshTopology(abc.ABC):
                 complement = False
 
             # Get all points labelled with the subdomain ID
-            plex_indices_is = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+            plex_indices_is = _make_is_general(np.empty(0, dtype=IntType))
             for subdomain_id in subdomain_ids:
                 if subdomain_id == UNMARKED:
-                    plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+                    plex_indices_to_exclude = _make_is_general(np.empty(0, dtype=IntType))
                     # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
                     all_plex_subdomain_ids = self.topology_dm.getLabelIdIS(dmlabel_name).indices
                     for subdomain_id_ in all_plex_subdomain_ids:
                         plex_indices_to_exclude = plex_indices_to_exclude.union(
                             utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id_))
                         )
-                    matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
+                    matching_indices = iterset_plex_indices_is.difference(plex_indices_to_exclude)
                 else:
                     matching_indices = utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
                 plex_indices_is = plex_indices_is.union(matching_indices)
 
             # Restrict to indices that exist within the iterset (e.g. drop exterior facets
             # from an interior facet integral)
-            plex_indices_is = dmcommon.intersect_is(plex_indices_is, valid_plex_indices)
+            plex_indices_is = dmcommon.intersect_is(plex_indices_is, iterset_plex_indices_is)
 
             # If the 'subdomain_id' is 'otherwise' then we now have a list of the
             # indices that we *do not* want
             if complement:
-                plex_indices_is = valid_plex_indices.difference(plex_indices_is)
+                plex_indices_is = iterset_plex_indices_is.difference(plex_indices_is)
 
             # NOTE: Should we sort plex indices?
 

@@ -74,8 +74,8 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     coarse_to_fine = mh.coarse_to_fine_cells[0]
     fine_to_coarse = mh.fine_to_coarse_cells[1]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -92,7 +92,7 @@ def test_refine_marked_elements_is_local():
     # regardless of marking.
     nx = 8
     mesh = UnitSquareMesh(nx, nx)
-    ncoarse = mesh.cell_set.size
+    ncoarse = mesh.cells.owned.local_size
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
@@ -126,14 +126,14 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         refined_mesh = mesh.refine_marked_elements(markers)
         coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
 
-        assert coarse_to_fine.shape[0] == mesh.cell_set.size
-        assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+        assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+        assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
         for coarse_cell, fine_cells in enumerate(coarse_to_fine):
             fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
             assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
         assert np.allclose(assemble(1*dx(refined_mesh)), assemble(1*dx(mesh)))
 
-        ncells[n] = mesh.comm.allreduce(refined_mesh.cell_set.size)
+        ncells[n] = mesh.comm.allreduce(refined_mesh.cells.owned.local_size)
         max_children[n] = mesh.comm.allreduce(
             (coarse_to_fine >= 0).sum(axis=1).max(initial=0), op=MPI.MAX)
 
@@ -235,8 +235,8 @@ def _assert_adapt_after_uniform_refinement(mh):
     coarse_to_fine = mh.coarse_to_fine_cells[level - 1]
     fine_to_coarse = mh.fine_to_coarse_cells[level]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     # A rank may legitimately own zero local cells (e.g. more ranks than
     # coarse cells), leaving these arrays empty on that rank alone, so the
     # "some entry is valid" check must be collective, not per-rank.

@@ -706,15 +706,6 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr):
         super().__init__(expr)
-        subset = self.subset
-        self._use_intermediate_buffer = False
-        if subset is None:
-            # NOTE: What if subset is provided? won't things then break?
-            target = self.target_mesh.unique().topology
-            source = self.source_mesh.unique().topology
-            if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
-                self._use_intermediate_buffer = True
-        self.subset = subset
 
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
@@ -808,22 +799,6 @@ class SameMeshInterpolator(Interpolator):
         else:
             f = tensor or self._get_tensor(mat_type)
             copyout = ()
-
-        if self.rank == 1 and self._use_intermediate_buffer:
-            assignee_buffer = f.dat.buffer
-            orig_data = assignee_buffer.data_ro.copy()
-            fmin = numpy.finfo(assignee_buffer.dtype).min
-            assignee_buffer._current_device_array[...] = fmin
-
-            def mywrite():
-                assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
-                unchanged_idxs = numpy.where(numpy.isclose(assignee_buffer._current_device_array, fmin))
-                # just debugging
-                assert len(unchanged_idxs) > 0
-                assignee_buffer._current_device_array[unchanged_idxs] = orig_data[unchanged_idxs]
-
-            copyout += (mywrite,)
-
 
         op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
