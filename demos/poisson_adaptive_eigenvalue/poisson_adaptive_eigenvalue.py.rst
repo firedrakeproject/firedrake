@@ -29,11 +29,12 @@ We create a function to solve the eigenvalue problem for both continuous (CG) an
 .. math::
     \lambda_{\text{lb}} = \frac{\lambda_{\text{CR}}}{1 + \kappa_{\text{CR}}^2 h_{\max}^2 \lambda_{\text{CR}}}
 
-where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{CG}} - \lambda_{\text{CR}}` to demonstrate optimal convergence. ::
+where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{CG}} - \lambda_{\text{CR}}` to demonstrate optimal convergence.
+
+To efficiently compute the smallest eigenvalue, we configure SLEPc using a solver parameters dictionary. We specify a Krylov-Schur eigensolver (``eps_type``) and a shift-and-invert spectral transformation (``st_type``) with a target of zero (``eps_target``). We also flag the generalized eigenvalue problem as Hermitian (``eps_gen_hermitian``) and request the smallest real eigenvalue (``eps_smallest_real``). ::
 
   def solve_eigenproblem(mesh):
       h_max = Function(FunctionSpace(mesh, "DG", 0)).interpolate(CellDiameter(mesh)).dat.data_ro.max()
-      bounds = {}
       eigenfunction = None
 
       for space in ["CG", "CR"]:
@@ -62,14 +63,13 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
           if space == "CR":
               lambda_CR = eigensolver.eigenvalue(0).real
               kappa_CR = 0.1893
-              bounds["lb"] = lambda_CR / (1 + kappa_CR**2 * h_max**2 * lambda_CR)
-              bounds["CR"] = lambda_CR
+              lambda_lb = lambda_CR / (1 + kappa_CR**2 * h_max**2 * lambda_CR)
           if space == "CG":
-              bounds["ub"] = eigensolver.eigenvalue(0).real
+              lambda_ub = eigensolver.eigenvalue(0).real
               eigenfunction = eigensolver.eigenfunction(0)[0]
 
       eigenfunction.rename("Eigenfunction")
-      return (bounds["lb"], bounds["ub"], bounds["CR"], eigenfunction)
+      return (lambda_lb, lambda_ub, lambda_CR, eigenfunction)
 
 These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace. ::
 
