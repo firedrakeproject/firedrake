@@ -826,7 +826,8 @@ class CompiledCodeExecutor:
             begin_insns.append(lambda: buffer.maybe_flush_assemble_begin(insert_mode))
             end_insns.append(lambda: buffer.maybe_flush_assemble_end(insert_mode))
 
-        # NOTE: The PETSc Mat may actually take care of this for us
+        # Manually increment the state here instead of deferring to PETSc
+        # because state tracking needs to happen collectively
         if intent != READ:
             finalizers.append(lambda: buffer.inc_state())
 
