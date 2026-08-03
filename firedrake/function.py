@@ -7,7 +7,6 @@ from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
-import cachetools
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
@@ -28,7 +27,7 @@ from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from firedrake.exceptions import PointNotInDomainError, TopologyVersionMismatchError, FunctionMigrationError
+from firedrake.exceptions import PointNotInDomainError, UnsupportedFunctionMigrationError, FunctionMigrationError
 
 
 __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
@@ -274,9 +273,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        # LRU cache for expressions assembled onto this function
-        self._expression_cache = cachetools.LRUCache(maxsize=50)
-
         self._mesh_topology = self._function_space.topological.mesh()  # the MeshTopology object
         self._mesh_geometry = self._function_space.mesh()  # the MeshGeometry object
 
@@ -309,28 +305,22 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        if name == 'dat':
-            self._match_mesh_topology_version()
+        val = getattr(self._data, name)
+        return val
 
-        return getattr(self._data, name)
+    def __dir__(self):
+            current = super(Function, self).__dir__()
+            return list(dict.fromkeys(dir(self._data) + current))
 
     def _match_mesh_topology_version(self):
-        # Skip checking oordinate functions as they get rebuilt when the VOM gets rebuilt
-        # Note that `coordinates` is a property of any MeshGeometry object while `reference_coordinates` is only a property of the VOM
-        if hasattr(self._mesh_geometry, "coordinates") and self is self._mesh_geometry.coordinates:
-            return
-        if hasattr(self._mesh_geometry, "reference_coordinates") and self is self._mesh_geometry.reference_coordinates:
-            return
-
         current_mesh_version = self._mesh_topology._topology_version
 
         if current_mesh_version != self._mesh_topology_version:
             self._rebuild_function(current_mesh_version)
 
     def _rebuild_function(self, current_version):
-        # Check if the mesh on which the function is defined is a VertexOnlyMesh
         if not isinstance(self._mesh_topology, VertexOnlyMeshTopology):
-            raise TopologyVersionMismatchError(
+            raise UnsupportedFunctionMigrationError(
                 "The mesh topology has changed since this Function was created, \
                 and migration is currently only supported for Functions defined on VertexOnlyMeshes. \
                 Please re-create this Function on the updated mesh."
@@ -369,19 +359,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         FS_topo = self._function_space.topological
         self._data = migrate_dg0_dat(self._data, FS_topo, latest_topology_step_sf)
 
-        # Remove cached dats and vecs on the Function since `migrate_dg0_dat` recreated the CoordinatelessFunction
-        self.__dict__.pop("dat", None)
-        self.__dict__.pop("vec", None)
-
-        # Clear any expression caches as they need to be rebuilt
-        self._expression_cache.clear()
-
         # Update the mesh topology version stored on the function
         self._mesh_topology_version = current_version
 
-    def __dir__(self):
-        current = super(Function, self).__dir__()
-        return list(dict.fromkeys(dir(self._data) + current))
+    @property
+    def dat(self):
+        self._match_mesh_topology_version()
+        return self._data.dat
 
     @cached_property
     @FunctionMixin._ad_annotate_subfunctions

@@ -310,3 +310,7 @@ class VertexOnlyMeshMutator:
         else:
             # This should have been already set to None when the VOM was first constructed
             self.vom.reference_coordinates = None
+
+        # Mark that coordinate functions were rebuilt by synchronising their topology versions
+        self.vom.coordinates._mesh_topology_version = topology._topology_version
+        self.vom.reference_coordinates._mesh_topology_version = topology._topology_version

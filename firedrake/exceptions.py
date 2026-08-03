@@ -75,9 +75,9 @@ class PointNotInDomainError(FiredrakeException):
         return f"Domain {self.domain} does not contain point {self.point}"
 
 
-class TopologyVersionMismatchError(FiredrakeException):
-    """Raised when a Function's mesh topology attribute does not match the topology version attribute stored on the mesh object."""
-
-
 class FunctionMigrationError(FiredrakeException):
-    """Raised when Function data cannot be migrated between mesh topology versions."""
+    """Raised when automatic migration of Function data between mesh topology versions fails."""
+
+
+class UnsupportedFunctionMigrationError(FiredrakeException):
+    """Raised when automatic Function migration is not supported for the Function's mesh topology or function space."""
