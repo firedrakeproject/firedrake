@@ -1,6 +1,18 @@
 Adaptive eigenvalue problem on an L-shaped domain
 =================================================
 
+.. rst-class:: emphasis
+
+    This demo computes the lowest eigenvalue of the Dirichlet Laplacian on an L-shaped domain to within a guaranteed
+    error tolerance using adaptive mesh refinement. The error estimate in the eigenvalue is based on solving the problem
+    with two complementary discretisations: a conforming method naturally yields an upper bound, while the
+    Crouzeix-Raviart non-conforming method yields a lower bound after postprocessing proposed by Carstensen & Gedicke.
+    The demo also demonstrates that adaptive mesh refinement is strictly more efficient than uniform refinement,
+    due to the singularity of the eigenfunction at the re-entrant corner.
+
+    The demo was contributed by `Patrick Farrell
+    <mailto:patrick.farrell@maths.ox.ac.uk>`__.
+
 We consider the Dirichlet eigenvalue problem for the Poisson equation on an L-shaped domain :math:`\Omega`:
 
 .. math::
