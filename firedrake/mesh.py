@@ -2463,10 +2463,11 @@ values from f.)"""
 
         Use this if you move the mesh.
         """
-        try:
-            del self.cell_size
-        except AttributeError:
-            pass
+        warnings.warn(
+            "`clear_cell_sizes` is deprecated and will be removed in a future release. "
+            "The `cell_sizes` attribute is cleared automatically when mesh coordinates change. ",
+            FutureWarning,
+        )
 
     @property
     def tolerance(self):
