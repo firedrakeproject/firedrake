@@ -782,7 +782,7 @@ def test_interpolate_mixed_expr(rank):
         assert np.allclose(result.subfunctions[1].dat.data_ro, expected2.dat.data_ro)
     else:
         v1, v2 = TestFunctions(W)
-        form = v1 * dx(domain=mesh1) + v2 * dx(domain=mesh2)
+        form = conj(v1) * dx(domain=mesh1) + conj(v2) * dx(domain=mesh2)
         result1 = assemble(interpolate(expr, form))
         expected = assemble(expr1 * dx(domain=mesh1) + expr2 * dx(domain=mesh2))
         assert np.isclose(result1, expected)
