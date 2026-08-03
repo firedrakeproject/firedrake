@@ -449,5 +449,3 @@ def test_netgen_periodic_too_coarse():
     ngmesh = OCCGeometry(box).GenerateMesh(maxh=0.4)
     with pytest.raises(ValueError, match="degenerate"):
         Mesh(ngmesh)
-
-

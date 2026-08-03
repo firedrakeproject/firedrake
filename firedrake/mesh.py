@@ -3527,7 +3527,6 @@ def Mesh(meshfile, **kwargs):
                     "High-order curving of periodic netgen meshes is not supported yet."
                 )
             from firedrake.utility_meshes import _postprocess_periodic_mesh
-            permutation_tol = netgen_flags.get("permutation_tol", None)
             coordinates = mesh._periodic_coordinates()
             temp = _postprocess_periodic_mesh(coordinates,
                                               mesh.comm,
@@ -3540,7 +3539,6 @@ def Mesh(meshfile, **kwargs):
             temp.netgen_flags = mesh.netgen_flags
             mesh = temp
         elif degree != 1:
-            permutation_tol = netgen_flags.get("permutation_tol", None)
             cg = netgen_flags.get("cg", None)
             coordinates = mesh.curve_field(
                 order=degree,
