@@ -756,3 +756,22 @@ def test_mixed_interpolator_cross_mesh():
             assert isinstance(interp_ij, Interpolate)
             res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
             assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
+
+def test_interpolate_mixed_expr():
+    mesh1 = UnitSquareMesh(2, 2)
+    mesh2 = UnitSquareMesh(3, 3)
+    x1, y1 = SpatialCoordinate(mesh1)
+    x2, y2 = SpatialCoordinate(mesh2)
+    expr1 = x1 + y1
+    expr2 = x2 - y2
+
+    V = FunctionSpace(mesh1, "CG", 1)
+    U = FunctionSpace(mesh2, "CG", 2)
+    W = V * U
+
+    f = Function(W).interpolate(as_vector([expr1, expr2]))
+    f1 = Function(V).interpolate(expr1)
+    f2 = Function(U).interpolate(expr2)
+
+    assert np.allclose(f.subfunctions[0].dat.data_ro, f1.dat.data_ro)
+    assert np.allclose(f.subfunctions[1].dat.data_ro, f2.dat.data_ro)
