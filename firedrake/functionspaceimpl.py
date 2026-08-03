@@ -25,6 +25,9 @@ from firedrake.petsc import PETSc
 from firedrake.utils import cached_property_until
 from functools import cached_property
 
+cached_property_until_topology_changes = cached_property_until(
+    lambda self: self._mesh._topology_version
+)
 
 def check_element(element, top=True):
     """Run some checks on the provided element.
@@ -579,11 +582,11 @@ class FunctionSpace:
 
         self.set_shared_data()
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def _shared_data(self):
         return get_shared_data(self._mesh, self.ufl_element())
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def dof_dset(self):
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
@@ -649,7 +652,7 @@ class FunctionSpace:
     def _ad_parent_space(self):
         return self.parent
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
@@ -666,11 +669,11 @@ class FunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def _ises(self):
         return self.dof_dset.field_ises
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
@@ -737,7 +740,7 @@ class FunctionSpace:
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
@@ -992,11 +995,11 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.topological = self
         self.name = name or function_space.name
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def _shared_data(self):
         return get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
 
-    @cached_property_until(lambda self: self._mesh._topology_version)
+    @cached_property_until_topology_changes
     def dof_dset(self):
         r"""A :class:`pyop2.types.set.Set` representing the function space degrees of freedom."""
         return self.make_dof_dset()

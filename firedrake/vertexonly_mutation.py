@@ -69,19 +69,7 @@ class VertexOnlyMeshMutator:
             swarm_parentcellnum_field[vom_to_swarm, :] = plex_ids
             refcoord_field[vom_to_swarm, :] = new_refcoords
 
-        # Invalidate cached properties that depend on parent cell ownership
-        for name in (
-            "cell_parent_base_cell_list",
-            "cell_parent_base_cell_map",
-            "cell_parent_extrusion_height_list",
-            "cell_parent_extrusion_height_map",
-        ):
-            if name in topology.__dict__:
-                del topology.__dict__[name]
-
-        # Mutate the parent cell list
-        if "cell_parent_cell_list" in topology.__dict__:
-            topology.__dict__["cell_parent_cell_list"][:n_owned] = new_parent_cells
+        topology._parent_cell_assignment_version += 1
 
         # Write the update reference coordinates
         # NOTE: Since new_ref_coords is already in VOM ordering and assuming the VOM has not been reodered when this function is called,
@@ -273,10 +261,11 @@ class VertexOnlyMeshMutator:
         # cell_numbering and vertex_numbering are PETSc ISes - translation tables between PETSc numbering of mesh entities and that of Firedrake's
         # For each plex point, they store two integers: the dof count and an offset (which happens to be the Firedrake's number of that plex point)
         topology._cell_numbering, _ = topology.create_section(entity_dofs)
-        topology._vertex_numbering = topology._cell_numbering  # holds for VOM only
+        topology._vertex_numbering = topology._cell_numbering  # equality holds for VOM only
 
-        # Invalidate cached topology-dependent properties
-        self._invalidate_topology_properties()
+        # Increment the VOM topology version
+        new_topology_version = comm.allreduce(topology._topology_version + 1, op=MPI.MAX)
+        topology._topology_version = new_topology_version
 
         # NOTE: Every particle's DMSwarm_rank is an owner due to the handover,
         # `remove_sent_points` sends the particle to that rank and deletes the local copy
@@ -290,21 +279,16 @@ class VertexOnlyMeshMutator:
         # Build the one step SF corresponding to the current rebuild
         e_p_map = topology.cell_closure[:, -1]  # maps new VOM point number -> raw DMSwarm point
         ilocal = np.empty_like(e_p_map)  # inverts the `e_p_map`
+
         if len(e_p_map):
             cStart = e_p_map.min()
             ilocal[e_p_map - cStart] = np.arange(len(e_p_map))
 
         step_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, n_local, ilocal)
 
-        # Increment the VOM topology version
-        topology._topology_version = comm.allreduce(topology._topology_version + 1, op=MPI.MAX)
-
         # Store the one step SF under the new topology version number
         # maps VOM version k (new) -> VOM version k-1 (old) stored under key k
         topology._topology_step_sfs[topology._topology_version] = step_sf
-
-        # Clear the shared FunctionSpace caches on the VOM
-        topology._shared_data_cache.clear()
 
         # Migrate the particle ID field through the step SF
         topology._particle_ids = migrate_dg0_dat(topology._particle_ids, topology._particle_ids.function_space(), step_sf)
@@ -326,26 +310,3 @@ class VertexOnlyMeshMutator:
         else:
             # This should have been already set to None when the VOM was first constructed
             self.vom.reference_coordinates = None
-
-    def _invalidate_topology_properties(self):
-        # Delete cached properties so they get recomputed on next access using the updated swarm fields
-        topology = self.vom.topology
-        for name in (
-            "exterior_facets",
-            "interior_facets",
-            "cell_to_facets",
-            "cell_closure",
-            "cell_set",
-            "cell_parent_cell_list",
-            "cell_parent_cell_map",
-            "cell_parent_base_cell_list",
-            "cell_parent_base_cell_map",
-            "cell_parent_extrusion_height_list",
-            "cell_parent_extrusion_height_map",
-            "cell_global_index",
-            "input_ordering",
-            "input_ordering_sf",
-            "input_ordering_without_halos_sf",
-        ):
-            if name in topology.__dict__:
-                del topology.__dict__[name]

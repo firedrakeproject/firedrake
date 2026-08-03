@@ -98,6 +98,16 @@ DISTRIBUTION_PARAMETERS_NOOP = {
 """Distribution parameters for derived meshes (RelabeledMesh/Submesh)."""
 
 
+cached_property_until_topology_changes = cached_property_until(
+    lambda self: self._topology_version
+)
+cached_property_until_parent_cell_assignment_changes = cached_property_until(
+    lambda self: (
+        self._topology_version,
+        self._parent_cell_assignment_version,
+    )
+)
+
 def _generate_default_submesh_name(name):
     """Generate the default submesh name from the mesh name.
 
@@ -535,6 +545,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             Submesh parent.
 
         """
+        self._topology_version = 0
+
         utils._init()
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
@@ -597,8 +609,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
-        # A cache of shared function space data on this mesh
-        self._shared_data_cache = defaultdict(dict)
         # Cell subsets for integration over subregions
         self._subsets = {}
         # A set of weakrefs to meshes that are explicitly labelled as being
@@ -607,9 +617,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
-        self._topology_version = 0
         if self._topology_is_mutable:
             self._topology_step_sfs = {}
+
+    @cached_property_until_topology_changes
+    def _shared_data_cache(self):
+        """Shared function space data for the current topology version."""
+        return defaultdict(dict)
 
     layers = None
     """No layers on unstructured mesh"""
@@ -1807,8 +1821,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         petsctools.cite("McRae2016")
         petsctools.cite("Bercea2016")
-        # A cache of shared function space data on this mesh
-        self._shared_data_cache = defaultdict(dict)
 
         if isinstance(mesh.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
@@ -2071,6 +2083,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
 
+        # Records when the parent cell assignment changes without yet changing the topology
+        self._parent_cell_assignment_version = 0
+
         # Registry of live functions defined on the VOM
         self._live_functions = weakref.WeakValueDictionary()
         self._function_counter = itertools.count()
@@ -2139,7 +2154,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """All DM.PolytopeTypes of cells in the mesh."""
         return (PETSc.DM.PolytopeType.POINT,)
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -2180,15 +2195,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @property
     def exterior_facets(self):
         return self._facets("exterior")
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @property
     def interior_facets(self):
         return self._facets("interior")
 
-    @cached_property
+    @property
     def cell_to_facets(self):
         """Raises an AttributeError since cells in a
         `VertexOnlyMeshTopology` have no facets.
@@ -2216,12 +2231,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return self.num_vertices()
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -2230,7 +2245,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             cell_parent_cell_list = parentcellnum_field.ravel().copy()
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
@@ -2238,7 +2253,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_cell_list, "cell_parent_cell")
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_base_cell_list(self):
         """Return a list of parent mesh base cells numbers in vertex only
         mesh cell order.
@@ -2249,7 +2264,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             cell_parent_base_cell_list = parentcellbasenum_field.ravel().copy()
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_base_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
@@ -2259,7 +2274,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_base_cell_list, "cell_parent_base_cell")
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_extrusion_height_list(self):
         """Return a list of parent mesh extrusion heights in vertex only
         mesh cell order.
@@ -2270,7 +2285,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             cell_parent_extrusion_height_list = parentcellextrusionheight_field.ravel().copy()
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_parent_cell_assignment_changes
     def cell_parent_extrusion_height_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
@@ -2283,14 +2298,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def mark_entities(self, tf, label_value, label_name=None):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
         with self.topology_dm.field("globalindex") as globalindex_field:
             cell_global_index = globalindex_field.ravel().copy()
         return cell_global_index
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -2336,7 +2351,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         sf.setGraph(nroots, ilocal, input_ranks_and_idxs)
         return sf
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2353,7 +2368,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             ilocal[e_p_map - cStart] = np.arange(len(e_p_map))
         return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
 
-    @cached_property  # TODO: Recalculate if mesh moves
+    @cached_property_until_topology_changes
     def input_ordering_without_halos_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
