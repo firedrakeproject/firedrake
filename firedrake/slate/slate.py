@@ -670,8 +670,8 @@ class Block(TensorBase):
         super(Block, self).__init__()
         indices = tuple(map(as_tuple, indices))
         self.operands = (tensor,)
-        self._indices = indices
         self._blocks = dict(enumerate(indices))
+        self._indices = indices
 
     def reconstruct(self, tensor, indices=None):
         """Reconstructs this TensorBase with new operands."""

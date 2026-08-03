@@ -48,7 +48,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "global"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -163,6 +163,11 @@ class _SNESContext(object):
         User-defined function called immediately before residual assembly.
     post_function_callback
         User-defined function called immediately after residual assembly.
+    marking_callback
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -187,6 +192,7 @@ class _SNESContext(object):
                  appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
+                 marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
@@ -211,6 +217,7 @@ class _SNESContext(object):
         self._pre_function_callback = pre_function_callback
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
+        self._marking_callback = marking_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -231,6 +238,7 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
         Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
@@ -259,6 +267,12 @@ class _SNESContext(object):
                 self.F = replace(self.F, {self._x: zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
+        self._assemble_objective = lambda *args, **kwargs: args
+        if self.E:
+            self._assemble_objective = get_assembler(self.E,
+                                                     form_compiler_parameters=self.fcp,
+                                                     ).assemble
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -289,6 +303,7 @@ class _SNESContext(object):
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
+            "marking_callback": self._marking_callback,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -340,6 +355,12 @@ class _SNESContext(object):
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
+
+    def set_objective(self, snes):
+        if self._problem.E:
+            snes.setObjective(self.form_objective)
+        else:
+            snes.setObjective(None)
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -427,8 +448,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
@@ -443,6 +466,27 @@ class _SNESContext(object):
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
         return self._splits.setdefault(fields, splits)
+
+    @staticmethod
+    def form_objective(snes, X):
+        r"""Form the objective for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X: the current guess (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
+
+        # Apply DirichletBC on the solution
+        if not ctx._problem.restrict:
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._x)
+
+        return ctx._assemble_objective()
 
     @staticmethod
     def form_function(snes, X, F):
@@ -524,7 +568,10 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         A = ctx._jac.petscmat
-        P = A if ctx.Jp is None else ctx._pjac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
         return A, P
 
     @staticmethod
