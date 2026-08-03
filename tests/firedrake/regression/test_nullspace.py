@@ -294,7 +294,8 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
     n = 64
-    mesh = UnitSquareMesh(n, n)
+    # Force a deterministic parallel distribution
+    mesh = UnitSquareMesh(n, n, distribution_parameters={"partitioner_type": "simple"})
     V = VectorFunctionSpace(mesh, "CG", 2)
     P = FunctionSpace(mesh, "CG", 1)
     W = V*P
@@ -313,7 +314,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     aP = None
     mu0 = mu
     if aux_pc:
-        DG0 = FunctionSpace(mesh, "DG", 0, variant="integral(6)")
+        DG0 = FunctionSpace(mesh, "DG", 0)
         mu0 = Function(DG0).interpolate(mu)
         aP = inner(mu0*2*sym(grad(u)), grad(v))*dx(degree=2)
         aP += -inner(p, div(v))*dx + inner(div(u), q)*dx
@@ -389,5 +390,4 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
     # currently ~22 (25 on 2 cores) vs. >45-ish for with/without near nullspace
-    # CI sometimes hits around 27, so we comfortably exceed this
-    assert ksp_inner.getIterationNumber() < 32
+    assert ksp_inner.getIterationNumber() < 24
