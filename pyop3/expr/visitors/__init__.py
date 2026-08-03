@@ -5,9 +5,9 @@ import functools
 import itertools
 import numbers
 import typing
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import partial
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -18,22 +18,40 @@ import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
 import pyop3.index_tree
+import pyop3.visitors
 from pyop3 import utils
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+    AbstractNonUnitAxisTree,
+    Axis,
+    AxisTree,
+    IndexedAxisTree,
+    _UnitAxisTree,
+    matching_axis_tree,
+    merge_axis_trees,
+)
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, NullBuffer, PetscMatBuffer
 from pyop3.cache import memory_cache
-from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
-from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
-from pyop3.expr.tensor import Scalar
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ConcreteBuffer, NullBuffer
-from pyop3.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from pyop3.collections import OrderedSet, OrderedFrozenSet
+from pyop3.collections import OrderedFrozenSet, OrderedSet
+from pyop3.dtypes import IntType
+from pyop3.expr.base import ExpressionT, conditional, loopified_shape
+from pyop3.expr.tensor import Dat, Mat, Scalar
+from pyop3.expr.tensor.base import (
+    OutOfPlaceCallableTensorTransform,
+    ReshapeTensorTransform,
+)
+from pyop3.index_tree.tree import (
+    AffineSliceComponent,
+    IndexTree,
+    LoopIndex,
+    LoopIndexIdT,
+    Slice,
+)
+from pyop3.insn.base import ArrayAccessType, loop_
+
 # TODO: just namespace these
 from pyop3.labeled_tree import is_subpath
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractNonUnitAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
-from pyop3.dtypes import IntType
-
-from pyop3.insn.base import ArrayAccessType, loop_
-from pyop3.expr.base import ExpressionT, conditional, loopified_shape
-from pyop3.expr.tensor import Dat, Mat
+from pyop3.node import NodeCollector, NodeTransformer, NodeVisitor, postorder
 
 from .evaluate_arraywise import evaluate_arraywise
 
@@ -56,12 +74,12 @@ class ExpressionVisitor(NodeVisitor):
 
 
 # TODO: use overloadedexpressionevaluator
-def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
+def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None, name_vars=idict()) -> Any:
     if axis_vars is None:
         axis_vars = {}
     if loop_indices is None:
         loop_indices = {}
-    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices)
+    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices, name_vars=name_vars)
 
 
 @functools.singledispatch
@@ -76,12 +94,20 @@ def _(num, /, **kwargs) -> Any:
     return num
 
 
+@_evaluate.register
+def _(var: pyop3.expr.NameVar, /, *, name_vars: Mapping, **kwargs) -> Any:
+    try:
+        return name_vars[var.name]
+    except KeyError:
+        raise pyop3.exceptions.MissingVariableException(f"'{var.name}' not found in 'name_vars'")
+
+
 @_evaluate.register(pyop3.expr.AxisVar)
 def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
+        raise pyop3.exceptions.MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
 
 
 @_evaluate.register(pyop3.expr.LoopIndexVar)
@@ -89,7 +115,7 @@ def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, *
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
+        raise pyop3.exceptions.MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
 
 
 @_evaluate.register
@@ -302,7 +328,7 @@ def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
 @_replace_terminals.register(pyop3.expr.LinearDatBufferExpression)
 def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map) -> pyop3.expr.LinearDatBufferExpression:
     new_layout = _replace_terminals(expr.layout, replace_map)
-    return expr.__record_init__(layout=new_layout)
+    return expr.record_new(layout=new_layout)
 
 
 @_replace_terminals.register(pyop3.expr.BinaryOperator)
@@ -318,87 +344,6 @@ def _(cond: pyop3.expr.Conditional, /, replace_map) -> pyop3.expr.Conditional:
 @_replace_terminals.register
 def _(neg: pyop3.expr.Neg, /, replace_map) -> pyop3.expr.Neg:
     return type(neg)(_replace_terminals(neg.a, replace_map))
-
-
-def replace(obj: ExpressionT, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
-    new = _replace(obj, replace_map)
-    if assert_modified:
-        # TODO: could be another exception type
-        assert new != obj
-    return new
-
-
-@functools.singledispatch
-def _replace(obj: Any, /, replace_map) -> ExpressionT:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@_replace.register(pyop3.expr.AxisVar)
-@_replace.register(pyop3.expr.LoopIndexVar)
-def _(var: Any, /, replace_map) -> ExpressionT:
-    return replace_map.get(var, var)
-
-
-@_replace.register(pyop3.expr.NaN)
-@_replace.register(numbers.Number)
-def _(num: numbers.Number, /, replace_map) -> numbers.Number:
-    return num
-
-
-# I don't like doing this.
-@_replace.register(pyop3.expr.Dat)
-def _(dat: pyop3.expr.Dat, /, replace_map):
-    return _replace(dat.concretize(), replace_map)
-
-
-@_replace.register(pyop3.expr.ScalarBufferExpression)
-def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    return replace_map.get(expr, expr)
-
-
-@_replace.register(pyop3.expr.LinearDatBufferExpression)
-def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    try:
-        return replace_map[expr]
-    except KeyError:
-        pass
-
-    # reuse if untouched
-    updated_layout = _replace(expr.layout, replace_map)
-    if updated_layout == expr.layout:
-        return expr
-    else:
-        return expr.__record_init__(layout=updated_layout)
-
-
-@_replace.register(pyop3.expr.CompositeDat)
-def _(dat: pyop3.expr.CompositeDat, /, replace_map):
-    # TODO: Can have a flag that determines the replacement order (pre/post)
-    try:
-        return replace_map[dat]
-    except KeyError:
-        pass
-
-    raise AssertionError("Not sure about this here...")
-    replaced_layout = _replace(dat.layout, replace_map)
-    return dat.reconstruct(layout=replaced_layout)
-
-
-@_replace.register(pyop3.expr.Operator)
-def _(op: pyop3.expr.Operator, /, replace_map) -> pyop3.expr.Operator:
-    try:
-        return replace_map[op]
-    except KeyError:
-        pass
-
-    # reuse if untouched
-    updated_operands = tuple(_replace(operand, replace_map=replace_map) for operand in op.operands)
-    if updated_operands == op.operands:
-        return op
-    else:
-        return type(op)(*updated_operands)
 
 
 @functools.singledispatch
@@ -423,7 +368,7 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.ScalarBufferExpression:
     if axis_trees:
         import pyop3
-        pyop3.extras.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
+        pyop3.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
     return pyop3.expr.ScalarBufferExpression(scalar.buffer)
 
 
@@ -517,7 +462,7 @@ def _(dat_expr: pyop3.expr.NonlinearDatBufferExpression, /, axis_trees: Iterable
         for path, layout in dat_expr.layouts.items()
         if path in axis_tree.leaf_paths
     })
-    return dat_expr.__record_init__(layouts=pruned_layouts)
+    return dat_expr.record_new(layouts=pruned_layouts)
 
 
 @concretize_layouts.register(pyop3.expr.MatArrayBufferExpression)
@@ -535,222 +480,7 @@ def _(mat_expr: pyop3.expr.MatArrayBufferExpression, /, axis_trees: Iterable[Axi
         })
         pruned_layoutss.append(pruned_layouts)
     row_layouts, column_layouts = pruned_layoutss
-    return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
-
-
-class TensorCandidateIndirectionsCollector(ExpressionVisitor):
-
-    def preprocess_node(self, node) -> tuple[Any, ...]:
-        return node, self.index
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, *args, **kwargs) -> bool:
-        return super().process(obj)
-
-    @process.register
-    def _(self, op: pyop3.expr.Operator, index, /, **kwargs) -> idict:
-        return utils.merge_dicts((self._call(operand, **kwargs) for operand in op.operands))
-
-
-    @process.register(numbers.Number)
-    @process.register(pyop3.expr.AxisVar)
-    @process.register(pyop3.expr.LoopIndexVar)
-    @process.register(pyop3.expr.OpaqueTerminal)
-    @process.register(pyop3.expr.Scalar)
-    @process.register(pyop3.expr.ScalarBufferExpression)
-    @process.register(pyop3.expr.NaN)
-    def _(self, var: Any, index, /, **kwargs) -> idict:
-        return idict()
-
-
-    @process.register(pyop3.expr.LinearDatBufferExpression)
-    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, index, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], selector, **kwargs) -> idict:
-        axis_tree = utils.just_one(axis_trees)
-        selector_ = selector[index] if selector is not None else None
-        return idict({
-            index: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, selector=selector_, **kwargs)
-        })
-
-
-    @process.register(pyop3.expr.NonlinearDatBufferExpression)
-    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, index, /, *, axis_trees, selector, **kwargs) -> idict:
-        axis_tree = utils.just_one(axis_trees)
-
-        candidates = {}
-        for i, (path, layout) in enumerate(dat_expr.layouts.items()):
-            selector_ = selector[index, i] if selector is not None else None
-            candidates[index, i] = collect_candidate_indirections(
-                layout, axis_tree.linearize(path), selector=selector_, **kwargs
-            )
-        return idict(candidates)
-
-    @process.register(pyop3.expr.MatPetscMatBufferExpression)
-    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
-        costs = []
-        layouts = [mat_expr.row_layout, mat_expr.column_layout]
-        for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
-            cost = loopified_shape(layout)[0].local_size
-            if not isinstance(cost, numbers.Integral):
-                raise NotImplementedError("Ragged sizes are not supported")
-            costs.append(cost)
-
-        candidates = {}
-        if selector is not None:
-            candidates[index, 0] = mat_expr.row_layout
-            candidates[index, 1] = mat_expr.column_layout
-        else:
-            candidates[index, 0] =  ((mat_expr.row_layout, costs[0], 0),)
-            candidates[index, 1] =  ((mat_expr.column_layout, costs[1], 0),)
-        return idict(candidates)
-
-
-    # Should be very similar to NonlinearDat case
-    # NOTE: This is a nonlinear type
-    @process.register(pyop3.expr.MatArrayBufferExpression)
-    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
-        candidates = {}
-        layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
-        for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
-            for j, (path, layout) in enumerate(layouts.items()):
-                selector_ = selector[index, i, j] if selector is not None else None
-                candidates[index, i, j] = collect_candidate_indirections(
-                    layout, axis_tree.linearize(path), loop_indices, compress=compress, selector=selector_
-                )
-        return idict(candidates)
-
-
-def collect_tensor_candidate_indirections(expr, *args, **kwargs):
-    return TensorCandidateIndirectionsCollector()(expr, *args, **kwargs)
-
-
-# TODO: account for non-affine accesses in arrays and selectively apply this
-INDIRECTION_PENALTY_FACTOR = 5
-
-MINIMUM_COST_TABULATION_THRESHOLD = 128
-"""The minimum cost below which tabulation will not be considered.
-
-Indirections with a cost below this are considered as fitting into cache and
-so memory optimisations are ineffectual.
-
-"""
-
-
-class CandidateIndirectionsCollector(ExpressionVisitor):
-
-    def preprocess_node(self, node) -> tuple[Any, ...]:
-        return node, self.index
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-    @process.register(numbers.Number)
-    @process.register(pyop3.expr.AxisVar)
-    @process.register(pyop3.expr.LoopIndexVar)
-    @process.register(pyop3.expr.NaN)
-    @process.register(pyop3.expr.ScalarBufferExpression)
-    def _(self, var: Any, index: int, /, *args, selector, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        if selector is not None:
-            assert index not in selector
-            return var
-        else:
-            return ((var, 0, ()),)
-
-    @process.register(pyop3.expr.Operator)
-    def _(self, op: pyop3.expr.Operator, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
-        operand_candidatess = tuple(
-            self._call(operand, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress, selector=selector)
-            for operand in op.operands
-        )
-
-        if selector is not None:
-            if index in selector:
-                op_axes = utils.just_one(get_shape(op))
-                return pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
-            else:
-                return type(op)(*operand_candidatess)
-        else:
-            candidates = []
-            for operand_candidates in itertools.product(*operand_candidatess):
-                operand_exprs, operand_costs, materialization_indices = zip(*operand_candidates, strict=True)
-
-                materialization_indices = sum(materialization_indices, ())
-
-                # If there is at most one non-zero operand cost then there is no point
-                # in compressing the expression.
-                if len([cost for cost in operand_costs if cost > 0]) <= 1:
-                    compress = False
-
-                candidate_expr = type(op)(*operand_exprs)
-
-                # NOTE: This isn't quite correct. For example consider the expression
-                # 'mapA[i] + mapA[i]'. The cost is just the cost of 'mapA[i]', not double.
-                candidate_cost = sum(operand_costs)
-                candidates.append((candidate_expr, candidate_cost, materialization_indices))
-
-            if compress:
-                # Now also include a candidate representing the packing of the expression
-                # into a Dat. The cost for this is simply the size of the resulting array.
-                # Only do this when the cost is large as small arrays will fit in cache
-                # and not benefit from the optimisation.
-                if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                    op_axes = utils.just_one(get_shape(op))
-                    op_loop_axes = get_loop_axes(op)
-                    compressed_expr = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
-
-                    op_cost = op_axes.local_size
-                    for loop_axes in op_loop_axes.values():
-                        for loop_axis in loop_axes:
-                            op_cost *= loop_axis.component.local_size
-                    if not isinstance(op_cost, numbers.Integral):
-                        raise NotImplementedError("Ragged sizes are not supported")
-                    candidates.append((compressed_expr, op_cost, (index,)))
-
-            return tuple(candidates)
-
-
-    @process.register(pyop3.expr.LinearDatBufferExpression)
-    def _(self, expr: pyop3.expr.LinearDatBufferExpression, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
-        # The cost of an expression dat (i.e. the memory volume) is given by...
-        # Remember that the axes here described the outer loops that exist and that
-        # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
-        # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
-
-        # dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
-        dat_axes = utils.just_one(get_shape(expr.layout))
-        dat_loop_axes = get_loop_axes(expr.layout)
-        dat_cost = dat_axes.local_size
-        for loop_axes in dat_loop_axes.values():
-            for loop_axis in loop_axes:
-                dat_cost *= loop_axis.component.local_size
-        if not isinstance(dat_cost, numbers.Integral):
-            raise NotImplementedError("Ragged sizes are not supported")
-
-        child = self._call(expr.layout, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress,selector=selector)
-
-        if selector is not None:
-            if index in selector:
-                return pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
-            else:
-                return expr.__record_init__(layout=child)
-        else:
-            candidates = []
-            for layout_expr, layout_cost, layout_materialization_indices in child:
-                candidate_expr = expr.__record_init__(layout=layout_expr)
-
-                # TODO: Only apply penalty for non-affine layouts
-                candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
-                candidates.append((candidate_expr, candidate_cost, layout_materialization_indices))
-
-            if compress:
-                if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                    candidates.append((pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (index,)))
-            return tuple(candidates)
-
-
-def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tuple[LoopIndex, ...], *, compress: bool, selector=None) -> tuple[tuple[Any, int], ...]:
-    return CandidateIndirectionsCollector()(obj, visited_axes=visited_axes, loop_indices=loop_indices, selector=selector,compress=compress)
-
+    return mat_expr.record_new(row_layouts=row_layouts, column_layouts=column_layouts)
 
 
 class MaterializedIndirectionsSetter(NodeVisitor):
@@ -784,7 +514,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
     @process.register(pyop3.expr.LinearDatBufferExpression)
     def _(self, buffer_expr: pyop3.expr.LinearDatBufferExpression, index, layouts, key):
         layout = linearize_expr(layouts[key + (index,)])
-        return buffer_expr.__record_init__(layout=layout)
+        return buffer_expr.record_new(layout=layout)
 
 
     @process.register(pyop3.expr.NonlinearDatBufferExpression)
@@ -794,7 +524,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
             layout = layouts[key + ((index, i),)]
             new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
         new_layouts = idict(new_layouts)
-        return buffer_expr.__record_init__(layouts=new_layouts)
+        return buffer_expr.record_new(layouts=new_layouts)
 
 
     @process.register(pyop3.expr.MatPetscMatBufferExpression)
@@ -802,7 +532,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
         # TODO: linearise the layouts here like we do for dats (but with no path)
         row_layout = layouts[key + ((index, 0),)]
         column_layout = layouts[key + ((index, 1),)]
-        return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
+        return mat_expr.record_new(row_layout=row_layout, column_layout=column_layout)
 
 
     @process.register(pyop3.expr.MatArrayBufferExpression)
@@ -815,7 +545,7 @@ class MaterializedIndirectionsSetter(NodeVisitor):
                 layout = layouts[key + ((index, i, j),)]
                 new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
             new_buffer_layoutss.append(utils.freeze(new_layouts))
-        return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
+        return buffer_expr.record_new(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
 
 
 def concretize_materialized_tensor_indirections(expr, layouts, key):
@@ -856,101 +586,86 @@ def _(dat: pyop3.expr.NonlinearDatBufferExpression, /) -> OrderedSet:
     return result
 
 
-@functools.singledispatch
-def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
+def materialize_composite_dat(
+    composite_dat: pyop3.expr.CompositeDat,
+    comm: MPI.Comm,
+    linear: bool,
+) -> pyop3.expr.BufferExpression:
+    import pyop3.visitors
 
-
-@collect_composite_dats.register(pyop3.expr.Operator)
-def _(op: pyop3.expr.Operator, /) -> OrderedFrozenSet:
-    return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
-
-
-@collect_composite_dats.register(numbers.Number)
-@collect_composite_dats.register(pyop3.expr.AxisVar)
-@collect_composite_dats.register(pyop3.expr.LoopIndexVar)
-@collect_composite_dats.register(pyop3.expr.NaN)
-@collect_composite_dats.register(pyop3.expr.ScalarBufferExpression)
-def _(op, /) -> OrderedFrozenSet:
-    return OrderedFrozenSet()
-
-
-@collect_composite_dats.register(pyop3.expr.LinearDatBufferExpression)
-def _(dat, /) -> OrderedFrozenSet:
-    return collect_composite_dats(dat.layout)
-
-
-@collect_composite_dats.register(pyop3.expr.CompositeDat)
-def _(dat, /) -> OrderedFrozenSet:
-    return OrderedFrozenSet([dat])
+    # For maximum cache reuse we relabel the expression on the way in and
+    # apply the inverse relabeling on the way out
+    relabeler = pyop3.visitors.Relabeler()
+    relabeled_composite_dat = relabeler(composite_dat)
+    materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm, linear)
+    return pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map)
 
 
 @memory_cache(heavy=True)
 @pyop3.mpi.collective
-def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.Comm) -> pyop3.expr.LinearDatBufferExpression:
+def _materialize_composite_dat_cached(
+    composite_dat: pyop3.expr.CompositeDat,
+    comm: MPI.Comm,  # needed now?
+    linear,
+) -> pyop3.expr.NonlinearDatBufferExpression:
+    import pyop3.visitors
+
     axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
-    assert not big_tree._all_region_labels
 
     # step 2: assign
     assignee = Dat.empty(big_tree, dtype=IntType)
 
-    # replace LoopIndexVars in the expression with AxisVars
-    # loop_index_replace_map = []
+
     loop_slices = []
-    for loop_var in collect_loop_index_vars(composite_dat):
-        orig_axis = loop_var.axis
-        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
+    for axis_var in loop_var_replace_map.values():
+        axis = axis_var.axis
+        loop_slices.append(Slice(axis.label, utils.atom(axis.component.label)))
 
-        loop_slice = Slice(new_axis.label, pyop3.index_tree.as_slice(orig_axis.component.label))
-        loop_slices.append(loop_slice)
-
-    to_skip = set()
     for leaf_path in composite_dat.axis_tree.leaf_paths:
-        expr = composite_dat.exprs[leaf_path]
-        expr = replace(expr, loop_var_replace_map)
+        leaf_expr = composite_dat.exprs[leaf_path]
+        leaf_expr = pyop3.visitors.replace(leaf_expr, loop_var_replace_map)
 
-        slices = [
-            Slice(axis, pyop3.index_tree.as_slice(component))
-            for axis, component in leaf_path.items()
+        slices = loop_slices + [
+            Slice(axis, utils.atom(component)) for axis, component in leaf_path.items()
         ]
-        iforest = IndexTree.from_iterable((*loop_slices, *slices))
+        slice_tree = pyop3.index_tree.IndexTree.from_iterable(slices)
+        leaf_assignee = assignee[slice_tree]
 
-        assignee_ = assignee[iforest]
-
-        if assignee_.size > 0:
-            assignee_.assign(
-                expr,
+        if leaf_assignee.size > 0:
+            leaf_assignee.assign(
+                leaf_expr,
                 eager=True,
                 eager_strategy="compile",
                 compiler_parameters={"propagate_negatives": True},
             )
-        else:
-            to_skip.add(leaf_path)
+
 
     # step 3: replace axis vars with loop indices in the layouts
+    # newlayouts = {}
+    # axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
+    will_modify = len(loop_var_replace_map) > 0
+    # if isinstance(composite_dat.axis_tree, _UnitAxisTree):
+    #     layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
+    #     newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
+    #     newlayouts[idict()] = newlayout
+    # else:
     newlayouts = {}
-    axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
-    will_modify = len(axis_to_loop_var_replace_map) > 0
-    if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-        layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
-        newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
-        newlayouts[idict()] = newlayout
-    else:
-        from pyop3.expr.base import get_loop_tree
-        loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
-        for path_ in composite_dat.axis_tree.node_map:
-            fullpath = loop_tree.leaf_path | path_
-            layout = assignee.axes.subst_layouts()[fullpath]
-            newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
-            newlayouts[path_] = newlayout
+    from pyop3.expr.base import get_loop_tree
+    loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
+    for path_ in composite_dat.axis_tree.node_map:
+        fullpath = loop_tree.leaf_path | path_
+        layout = assignee.axes.subst_layouts()[fullpath]
+        newlayout = pyop3.visitors.replace(layout, utils.invert_mapping(loop_var_replace_map), assert_modified=will_modify)
+        newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
-    if axes.nest_indices:
-        raise NotImplementedError("Need a buffer ref")
-
-    return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
+    if linear:
+        layout = newlayouts[composite_dat.axis_tree.leaf_path]
+        return pyop3.expr.LinearDatBufferExpression(assignee.buffer, layout)
+    else:
+        return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
@@ -1125,7 +840,7 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
         fn = min_
 
     axes, loop_var_replace_map = loopified_shape(expr)
-    expr = replace(expr, loop_var_replace_map)
+    expr = pyop3.visitors.replace(expr, loop_var_replace_map)
     loop_index = axes.iter()
 
     # NOTE: might hit issues if things aren't linear
@@ -1303,7 +1018,7 @@ class BufferCollector(NodeCollector):
         if self._lazy_tree_collector._tree is not None:
             return OrderedFrozenSet()
 
-        return self._lazy_tree_collector._safe_call(axis_tree, OrderedFrozenSet())
+        return self._lazy_tree_collector(axis_tree, OrderedFrozenSet())
 
 
 def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFrozenSet:
@@ -1344,7 +1059,7 @@ def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFroze
 #         buffer = expr.buffer.buffer
 #         if buffer.rank_equal and buffer.size < CONFIG.max_static_array_size:
 #             new_buffer = ConstantBuffer(buffer.data_ro)
-#             return expr.__record_init__(_buffer=new_buffer)
+#             return expr.record_new(_buffer=new_buffer)
 #         else:
 #             return expr
 #
@@ -1482,7 +1197,7 @@ def _(tensor: pyop3.expr.Tensor, /, access_type):
     if not tensor.transform:
         return tensor, ()
     else:
-        bare_tensor = tensor.__record_init__(_transform=None)
+        bare_tensor = tensor.record_new(_transform=None)
         return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
 
 
@@ -1586,102 +1301,3 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
             insns = transform.transform_out(tensor, prev_tensor) + prev_insns
         return tensor, insns
-
-
-# class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
-#     def __init__(self, relabeler):
-#         # TODO: relabeler could be some over-arching caching object so we don't
-#         # need to fully traverse everything
-#         self._relabeler = relabeler
-#         super().__init__()
-#
-#     @functools.singledispatchmethod
-#     def process(self, obj: ExpressionT, /) -> ExpressionT:
-#         return super().process(obj)
-#
-#     @process.register(numbers.Number)
-#     @process.register(pyop3.expr.NaN)
-#     @process.register(pyop3.expr.Operator)
-#     @process.register(pyop3.expr.OpaqueTerminal)
-#     def _(self, expr: ExpressionT, /) -> ExpressionT:
-#         return self.reuse_if_untouched(expr)
-#
-#     @process.register(pyop3.expr.AxisVar)
-#     def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
-#         relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
-#         return axis_var.__record_init__(axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.LoopIndexVar)
-#     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
-#         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
-#         relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
-#         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
-#         return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.Scalar)
-#     @process.register(pyop3.expr.ScalarBufferExpression)
-#     def _(self, scalar: ExpressionT, /) -> ExpressionT:
-#         return scalar
-#
-#     @process.register(pyop3.expr.Dat)
-#     def _(self, dat: pyop3.expr.Dat, /) -> pyop3.expr.Dat:
-#         relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
-#         if dat.transform is not None:
-#             if isinstance(dat.transform, ReshapeTensorTransform):
-#                 relabeled_axis_trees = tuple(
-#                     canonicalize_axis_labels(tree, self._relabeler) for tree in dat.transform.axis_trees
-#                 )
-#                 if dat.transform.prev is not None:
-#                     relabeled_prev = self(dat.transform.prev)
-#                 else:
-#                     relabeled_prev = None
-#                 relabeled_transform = dat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-#             else:
-#                 raise NotImplementedError
-#         else:
-#             relabeled_transform = None
-#         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
-#
-#     @process.register(pyop3.expr.AggregateDat)
-#     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
-#         relabeled_axis = canonicalize_axis_labels(agg_dat.axis, self._relabeler)
-#         relabeled_subdats = np.asarray(
-#             [self(subdat) for subdat in agg_dat.subdats], dtype=object
-#         )
-#         return agg_dat.__record_init__(subdats=relabeled_subdats, axis=relabeled_axis)
-#
-#     @process.register(pyop3.expr.Mat)
-#     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
-#         relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
-#         relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
-#         if mat.transform is not None:
-#             if isinstance(mat.transform, ReshapeTensorTransform):
-#                 relabeled_axis_trees = tuple(
-#                     canonicalize_axis_labels(tree, self._relabeler) for tree in mat.transform.axis_trees
-#                 )
-#                 if mat.transform.prev is not None:
-#                     relabeled_prev = self(mat.transform.prev)
-#                 else:
-#                     relabeled_prev = None
-#                 relabeled_transform = mat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
-#             else:
-#                 raise NotImplementedError
-#         else:
-#             relabeled_transform = None
-#         return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
-#
-#     @process.register(pyop3.expr.LinearDatBufferExpression)
-#     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
-#         relabeled_layout = self(dat_expr.layout)
-#         return dat_expr.__record_init__(layout=relabeled_layout)
-#
-#     @process.register(pyop3.expr.NonlinearDatBufferExpression)
-#     def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
-#         relabeled_layouts = idict({
-#             path: self(layout) for path, layout in dat_expr.layouts.items()
-#         })
-#         return dat_expr.__record_init__(layouts=relabeled_layouts)
-#
-#
-# def canonicalize_labels(expr: ExpressionT, relabeler: Renamer) -> ExpressionT:
-#     return LabelCanonicalizer(relabeler)(expr)

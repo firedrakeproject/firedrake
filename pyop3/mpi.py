@@ -36,36 +36,34 @@
 """PyOP2 MPI communicator."""
 
 
-from collections.abc import Iterable
-from typing import Any, Callable
-from petsc4py import PETSc
-from mpi4py import MPI  # noqa
-from itertools import count
-from typing import Any
-from functools import wraps
 import atexit
 import gc
 import glob
 import os
 import tempfile
 import weakref
+from collections.abc import Callable, Iterable
+from functools import wraps
+from itertools import count
+from typing import Any
 
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
+from petsc4py import PETSc
 
 import pyop3.config
 import pyop3.constants
 from pyop3 import utils
 from pyop3.exceptions import CompilationException
-from pyop3.log import debug, LOGGER, DEBUG
-
+from pyop3.log import DEBUG, LOGGER, debug
 
 __all__ = (
-    "COMM_WORLD",
     "COMM_SELF",
+    "COMM_WORLD",
     "MPI",
-    "is_pyop2_comm",
-    "incref",
     "decref",
+    "incref",
+    "is_pyop2_comm",
     "temp_internal_comm"
 )
 
@@ -587,7 +585,7 @@ def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
     return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
 
 
-def common_comm(*comms: Iterable[MPI.Comm]) -> MPI.Comm:
+def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -> MPI.Comm:
     """Return a communicator valid for all objects.
 
     The valid communicator is defined as the one with the largest size.
@@ -605,6 +603,10 @@ def common_comm(*comms: Iterable[MPI.Comm]) -> MPI.Comm:
     """
     shared_comm = None
     for comm in utils.iterflat(comms):
+        # COMM_WORLD always wins out as it is always valid for everyone
+        if comm is MPI.COMM_WORLD:
+            return comm
+
         if shared_comm is None:
             shared_comm = comm
             continue
@@ -617,8 +619,14 @@ def common_comm(*comms: Iterable[MPI.Comm]) -> MPI.Comm:
             small_comm = comm
         assert comm_is_subset(small_comm, big_comm)
         shared_comm = big_comm
-    assert shared_comm is not None
-    return shared_comm
+
+    if shared_comm is not None:
+        return shared_comm
+    elif default is not None:
+        return default
+    else:
+        raise AssertionError
+
 
 
 def finalize_safe_debug():

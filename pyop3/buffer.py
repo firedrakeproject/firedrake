@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import abc
-import collections
 import contextlib
 import dataclasses
 import functools
 import numbers
-import weakref
-from collections.abc import Mapping
-from functools import cached_property
-from typing import Any, ClassVar, Hashable
+from collections.abc import Hashable, Mapping
+from typing import Any, ClassVar
 
 import numpy as np
 from mpi4py import MPI
@@ -23,17 +20,14 @@ import pyop3.sf
 from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
-from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop3.sf import NullStarForest, StarForest, local_sf
-from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
-from pyop3.device import (
-    Device,
-    get_current_device,
-    on_host
+from pyop3.device import Device, get_current_device, on_host
+from pyop3.dtypes import DTypeT, IntType, ScalarType
+from pyop3.sf import NullStarForest, StarForest
+from pyop3.utils import (
+    readonly,
 )
 
-from ._buffer_cy import set_petsc_mat_diagonal, get_preallocation
-
+from ._buffer_cy import set_petsc_mat_diagonal, petscmat_get_insert_mode
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -76,7 +70,7 @@ def _check_finalizer(func):
 
 
 
-class AbstractBuffer(pyop3.obj.Pyop3Object):
+class AbstractBuffer(pyop3.obj.Object):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
@@ -126,11 +120,6 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def max_value(self) -> np.number:
-        pass
-
-    @property
-    @abc.abstractmethod
     def ordered(self) -> bool:
         pass
 
@@ -157,14 +146,13 @@ class NullBuffer(AbstractArrayBuffer):
     _shape: tuple[int, ...]
     _name: str
     _dtype: np.dtype
-    _max_value: np.number | None  # unused?
     _ordered: bool  # unused?
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
         return OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), self._shape, visitor.renamer.add(self._name, "NullBuffer"), self._dtype)
+        return (type(self), self._shape, visitor.renamer.add_obj(self), self._dtype)
 
     def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
         return (type(self), self._shape, self._dtype, self._ordered, buffer_counter[self])
@@ -176,26 +164,28 @@ class NullBuffer(AbstractArrayBuffer):
         *,
         name: str | None = None,
         prefix: str | None = None,
-        max_value: numbers.Number | None = None,
         ordered: bool = False,
-    ):
+    ) -> None:
         if isinstance(shape, numbers.Integral):
             shape = (shape,)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
 
         self._shape = shape
         self._name = name
         self._dtype = dtype
-        self._max_value = max_value
         self._ordered = ordered
 
-        self.record_setup()
-
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self.shape, tuple)
+
+    # }}}
+
+    # {{{ pyop3.obj.Object interface impls
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     # }}}
 
@@ -210,20 +200,15 @@ class NullBuffer(AbstractArrayBuffer):
     shape: ClassVar[property] = pyop3.record.attr("_shape")
     name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
-    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> NullBuffer:
         if constant is None:
             raise NotImplementedError
         name = f"{self.name}_copy"
-        return self.__record_init__(_name=name)
+        return self.record_new(_name=name)
 
     is_nested: ClassVar[bool] = False
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return MPI.COMM_SELF
 
     # }}}
 
@@ -255,9 +240,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         """The underlying data structure."""
 
 
-# NOTE: Due to the large amounts of state tracking we should disallow __record_init__
-# for this class. It's not a record.
-@pyop3.record.record(repr=False, add_record_init=False)
+@pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
 
@@ -288,8 +271,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    _state: dict
-
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
 
@@ -297,7 +278,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return (
             type(self),
             self.dtype,
-            visitor.renamer.add(self, "ArrayBuffer"),
+            visitor.renamer.add_obj(self),
             self._constant,
             self._rank_equal,
             self._ordered,
@@ -318,11 +299,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # up map1 and map2*. If those change then we need to recompute map3 from
         # scratch. The cache key here therefore distinguishes between outermost buffers
         # and inner ones.
-        if visitor.outer:
+        if not visitor._weak_hash_buffers:
             return (
                 type(self),
                 self.dtype,
-                visitor.renamer.add(self, "ArrayBuffer"),
+                visitor.renamer.add_obj(self),
                 self._constant,
                 self._rank_equal,
                 self._ordered,
@@ -340,9 +321,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         prefix: str | None = None,
         constant: bool = False,
         rank_equal: bool = False,
-        max_value: numbers.Number | None = None,  # remove?
         ordered: bool = False
-    ):
+    ) -> None:
         if isinstance(data, Mapping):
             assert len(data) > 0
             if len(data) > 1:
@@ -360,34 +340,24 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             )
 
         device_arrays = {get_current_device(): data}
-        state = {get_current_device(): 0}
 
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
 
         if rank_equal and not constant:
             raise ValueError
 
         self._device_arrays_private = device_arrays
-        self._state = state
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
-        self._max_value = max_value
         self._ordered = ordered
 
-        self.record_setup()
-
-    # TODO: just drop this, move into __init__
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # state tracking attrs
-        # TODO: I don't think that this should be a defaultdict, key misses are meaningful
-        curr_dev = get_current_device()
-        # self._state = collections.defaultdict(lambda: -1, [(curr_dev, 0)])
+        self._state = {pyop3.device.get_current_device(): 0}
         self._state_locks = 0
         self._device_locks = []
 
@@ -412,6 +382,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         self._debug_is_poisoned = False
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm
+
+
     # }}}
 
     # {{{ Class attrs
@@ -425,7 +400,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     name: ClassVar[property] = pyop3.record.attr("_name")
     constant: ClassVar[property] = pyop3.record.attr("_constant")
     rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
-    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
     ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     @property
@@ -463,10 +437,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def handle(self) -> pyop3.types.DeviceArrayT:
         return self._current_device_array
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm if self.sf is not None else MPI.COMM_SELF
 
     def zero(self) -> None:
         self.data_wo[...] = 0
@@ -557,11 +527,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ data accessors
 
     @property
-    @deprecated(".data_rw")
-    def data(self):
-        return self.data_rw
-
-    @property
     def data_rw(self):
         return self.get_array("rw")
 
@@ -583,7 +548,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: It would be good to be able to get data_ro but without updating the
     # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
     @_not_in_flight
-    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
+    def get_array(self, intent: Literal[ro, rw, wo] = "ro"):
         match intent:
             case "ro":
                 if not self._roots_valid:
@@ -710,7 +675,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._lock_semaphores()
 
     @_check_finalizer
-    def reduce_leaves_to_roots_end(self) -> None:
+    def reduce_leaves_to_roots_end(self, op: MPI.Op) -> None:
         """Finish unconditionally updating roots."""
         self._unlock_semaphores()
         self._reduce_leaves_to_roots_end(op)
@@ -918,7 +883,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @contextlib.contextmanager
     def as_vec(
         self,
-        mode: Literal["ro", "rw", "wo"],
+        mode: Literal[ro, rw, wo],
         block_shape: Iterable[int] | int = (),
     ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
@@ -926,6 +891,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
                 f"must be '{PETSc.ScalarType}'"
             )
+
+        self.assemble()
 
         # TODO: how should we handle the state of the work vec?
         # TODO: catch nested contexts
@@ -942,7 +909,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @cached_method()
     def localize(self) -> Self:
-        return self.__record_init__(sf=None)
+        return self.record_new(sf=None)
 
     # }}}
 
@@ -974,13 +941,13 @@ class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass(frozen=True)
 class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
     block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass(frozen=True)
 class PetscMatNestBufferSpec(PetscMatBufferSpec):
     submat_specs: np.ndarray
 
@@ -993,20 +960,24 @@ class PetscMatNestBufferSpec(PetscMatBufferSpec):
 # into the matrix constructor logic, which belongs on the buffer.
 # @pyop3.record.frozenrecord()
 @pyop3.record.record()
-class FullPetscMatBufferSpec:
+class FullPetscMatBufferSpec(pyop3.obj.Object):
     mat_type: str
-    row_spec: PetscMatAxisSpec | "AbstractAxisTree"
-    column_spec: PetscMatAxisSpec | "AbstractAxisTree"
-    comm: MPI.Comm
+    row_spec: PetscMatAxisSpec | AbstractAxisTree
+    column_spec: PetscMatAxisSpec | AbstractAxisTree
+    _comm: MPI.Comm
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
 
 
-@pyop3.record.frozenrecord()
+@dataclasses.dataclass()
 class PetscMatAxisSpec:
     size: int
     lgmap: PETSc.LGMap
     block_shape: tuple[int, ...] = ()
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self.block_shape, tuple)
 
     @property
@@ -1032,48 +1003,46 @@ class PetscMatBuffer(ConcreteBuffer):
     mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
     _name: str
     _constant: bool
-
-    def collect_buffers(self, visitor):
-        return OrderedFrozenSet([self])
+    _comm: MPI.Comm
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            visitor.renamer.add(self.name, "PetscMatBuffer"),
-            self._constant,
-        )
+        return (type(self), visitor.renamer.add_obj(self), self._constant)
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # we can hit buffers in multiple places...
         # on the outside these are allowed to differ but inside they aren't
-        if visitor.outer:
+        if not visitor._weak_hash_buffers:
             return (
                 type(self),
-                visitor.renamer.add(self._name, "PetscMatBuffer"),
+                visitor.renamer.add_obj(self),
                 self._constant,
             )
         else:
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
 
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
     def __init__(
         self,
         mat: PETSc.Mat,
         *,
+        comm: MPI.Comm,
         mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
-        name:str | None = None,
-        prefix:str|None=None,
-        constant:bool=False
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
     ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.mat = mat
-        self.mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-        self.record_setup()
+        self.mat=mat
+        self.mat_spec=mat_spec
+        self._name=name
+        self._constant=constant
+        self._comm=comm
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
         # destroyed too early and subsequently some non-data attributes end up crashing.
         # The Right Thing is just to not destroy them - we have a GC after all.
@@ -1081,18 +1050,87 @@ class PetscMatBuffer(ConcreteBuffer):
 
     # }}}
 
-    # {{{ factory methods
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
 
-    @classmethod
-    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, preallocator: bool = False, **kwargs):
-        mat = cls._make_petsc_mat(mat_spec, preallocator=preallocator)
-        if preallocator:
-            return cls(mat, mat_spec=mat_spec, **kwargs)
-        else:
-            return cls(mat, **kwargs)
+
+    # {{{ class attrs
+
+    DEFAULT_PREFIX = "petscmat"
 
     # }}}
 
+    # {{{ factory methods
+
+    @classmethod
+    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, comm, preallocator: bool = False, **kwargs):
+        mat = cls._make_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
+        if preallocator:
+            return cls(mat, mat_spec=mat_spec, comm=comm, **kwargs)
+        else:
+            return cls(mat, comm=comm, **kwargs)
+
+    @classmethod
+    def _make_petsc_mat(
+        cls,
+        mat_spec: FullPetscMatBufferSpec | np.ndarray,
+        *,
+        comm,
+        preallocator: bool = False,
+    ):
+        if isinstance(mat_spec, np.ndarray):
+            submats = np.empty(mat_spec.shape, dtype=object)
+            for (i, j), submat_spec in np.ndenumerate(mat_spec):
+                submat = cls._make_petsc_mat(submat_spec, comm=comm, preallocator=preallocator)
+                submats[i, j] = submat
+
+            return PETSc.Mat().createNest(submats, comm=comm)
+        else:
+            assert isinstance(mat_spec, FullPetscMatBufferSpec)
+            return cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
+
+    @classmethod
+    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, comm, preallocator: bool):
+        mat_type = mat_spec.mat_type
+        row_spec = mat_spec.row_spec
+        column_spec = mat_spec.column_spec
+
+        # TODO: just want the size here, don't need more than that. Can clean up matspec stuff
+        # Maybe can then even set lgmaps in the same way...
+        if mat_type in {"rvec", "cvec"}:
+            row_axes = row_spec
+            column_axes = column_spec
+
+            if mat_type == "rvec":
+                mode = "row"
+                # a row vec (horizontal) has #columns entries
+                sf = column_axes.sf
+            else:
+                mode = "column"
+                # a column vec (vertical) has #rows entries
+                sf = row_axes.sf
+
+            assert sf.comm == comm
+            mat_context = DensePythonMatContext.empty(mode, sf)
+            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
+        else:
+            if preallocator:
+                mat_type = PETSc.Mat.Type.PREALLOCATOR
+
+            mat = PETSc.Mat().create(comm)
+            mat.setType(mat_type)
+            # None is for the global size, PETSc will figure it out for us
+            sizes = ((row_spec.size, None), (column_spec.size, None))
+            mat.setSizes(sizes)
+            mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
+            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
+
+        mat.setUp()
+        return mat
+
+
+    # }}}
 
     # {{{ interface impls
 
@@ -1101,17 +1139,6 @@ class PetscMatBuffer(ConcreteBuffer):
 
     dtype = ScalarType
     rank_equal = False
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
-
-    @property
-    def state(self) -> int:
-        return self.mat.stateGet()
-
-    def inc_state(self) -> None:
-        self.mat.stateIncrease()
 
     def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
@@ -1130,7 +1157,7 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             mat_spec = None
         name = f"{self.name}_{row_index}_{column_index}"
-        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
+        return self.record_new(mat=mat, mat_spec=mat_spec, _name=name, _constant=self.constant)
 
     @property
     def handle(self) -> Any:
@@ -1144,83 +1171,77 @@ class PetscMatBuffer(ConcreteBuffer):
 
     # }}}
 
-    DEFAULT_PREFIX = "petscmat"
+    # {{{ state tracking
 
-    @cached_property
-    def _mat_spec_instruction_executor_cache_key(self) -> Hashable:
-        # FIXME: This is a hack, missing a lot of information from the mat spec
-        return self.mat.type
-        if isinstance(self.mat_spec, np.ndarray):
-            return tuple(self.mat_spec.flatten())
+    def maybe_flush_assemble(self, insert_mode: PETSc.InsertMode) -> None:
+        self.maybe_flush_assemble_begin(insert_mode)
+        self.maybe_flush_assemble_end(insert_mode)
+
+    def maybe_flush_assemble_begin(self, insert_mode: PETSc.InsertMode) -> None:
+        self._maybe_flush_assemble(self.mat, insert_mode, "begin")
+
+    def maybe_flush_assemble_end(self, insert_mode: PETSc.InsertMode) -> None:
+        self._maybe_flush_assemble(self.mat, insert_mode, "end")
+
+    def _maybe_flush_assemble(
+        self,
+        mat: PETSc.Mat,
+        insert_mode: PETSc.InsertMode,
+        mode: Literal["begin", "end"],
+    ) -> None:
+        if mat.type == PETSc.Mat.Type.NEST:
+            for i, j in np.ndindex(mat.getNestSize()):
+                submat = mat.getNestSubMatrix(i, j)
+                self._maybe_flush_assemble(submat, insert_mode, mode)
         else:
-            return self.mat_spec
+            self._maybe_flush_assemble_monolithic(mat, insert_mode, mode)
+
+    def _maybe_flush_assemble_monolithic(
+        self,
+        mat: PETSc.Mat,
+        insert_mode: PETSc.InsertMode,
+        mode: Literal["begin", "end"],
+    ) -> None:
+        current_insert_mode = petscmat_get_insert_mode(mat)
+        valid_modes = {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}
+        if current_insert_mode not in valid_modes:
+            if mode == "begin":
+                self.assemble_begin(final=False)
+            else:
+                self.assemble_end(final=False)
+
+    def assemble(self, *, final: bool = True) -> None:
+        self.assemble_begin(final=final)
+        self.assemble_end(final=final)
+
+    def assemble_begin(self, *, final: bool = True) -> None:
+        if final:
+            assembly_type = PETSc.Mat.AssemblyType.FINAL
+        else:
+            assembly_type = PETSc.Mat.AssemblyType.FLUSH
+        self.mat.assemblyBegin(assembly_type)
+
+    def assemble_end(self, *, final: bool = True) -> None:
+        # TODO: It would be nice to assert that assemble_begin has been
+        # called first (and with the same value for 'final')
+        if final:
+            assembly_type = PETSc.Mat.AssemblyType.FINAL
+        else:
+            assembly_type = PETSc.Mat.AssemblyType.FLUSH
+        self.mat.assemblyEnd(assembly_type)
+
+    @property
+    def state(self) -> int:
+        return self.mat.stateGet()
+
+    def inc_state(self) -> None:
+        self.mat.stateIncrease()
+
+    # }}}
 
     @property
     def mat_type(self) -> str:
         return self._mat_type
-
-    def assemble(self) -> None:
-        self.mat.assemble()
-
-    @classmethod
-    def _make_petsc_mat(
-        cls,
-        mat_spec: FullPetscMatBufferSpec | np.ndarray,
-        *,
-        preallocator: bool = False,
-    ):
-        if isinstance(mat_spec, np.ndarray):
-            submats = np.empty(mat_spec.shape, dtype=object)
-            for (i, j), submat_spec in np.ndenumerate(mat_spec):
-                submat = cls._make_petsc_mat(submat_spec, preallocator=preallocator)
-                submats[i, j] = submat
-
-            comm = pyop3.visitors.single_comm(*submats.flatten())
-            return PETSc.Mat().createNest(submats, comm=comm)
-        else:
-            assert isinstance(mat_spec, FullPetscMatBufferSpec)
-            return cls._make_non_nested_petsc_mat(mat_spec, preallocator=preallocator)
-
-    @classmethod
-    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
-        mat_type = mat_spec.mat_type
-        row_spec = mat_spec.row_spec
-        column_spec = mat_spec.column_spec
-
-        # TODO: just want the size here, don't need more than that. Can clean up matspec stuff
-        # Maybe can then even set lgmaps in the same way...
-        if mat_type in {"rvec", "cvec"}:
-            row_axes = row_spec
-            column_axes = column_spec
-
-            comm = pyop3.visitors.single_comm(row_axes, column_axes)
-
-            if mat_type == "rvec":
-                mode = "row"
-                # a row vec (horizontal) has #columns entries
-                sf = column_axes.sf
-            else:
-                mode = "column"
-                # a column vec (vertical) has #rows entries
-                sf = row_axes.sf
-            mat_context = DensePythonMatContext.empty(mode, sf)
-            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
-        else:
-            if preallocator:
-                mat_type = PETSc.Mat.Type.PREALLOCATOR
-
-            comm = pyop3.visitors.single_comm(row_spec.lgmap, column_spec.lgmap)
-
-            mat = PETSc.Mat().create(comm)
-            mat.setType(mat_type)
-            # None is for the global size, PETSc will figure it out for us
-            sizes = ((row_spec.size, None), (column_spec.size, None))
-            mat.setSizes(sizes)
-            mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
-            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
-
-        mat.setUp()
-        return mat
 
     # TODO: Could also accept a vector here
     def set_diagonal(self, value: numbers.Number) -> None:
@@ -1231,7 +1252,7 @@ class PetscMatBuffer(ConcreteBuffer):
         if not hasattr(self, "_lazy_template"):
             self.assemble()
 
-            template = self._make_petsc_mat(self.mat_spec)
+            template = self._make_petsc_mat(self.mat_spec, comm=self.comm)
             self._preallocate(self.mat, template)
 
             # We can safely set these options since by using a sparsity we
@@ -1243,7 +1264,7 @@ class PetscMatBuffer(ConcreteBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        return PetscMatBuffer(mat)
+        return PetscMatBuffer(mat, comm=self.comm)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
         if template.type == PETSc.Mat.Type.NEST:
@@ -1257,8 +1278,6 @@ class PetscMatBuffer(ConcreteBuffer):
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
 
-            # nnz, onnz = get_preallocation(preallocator)
-            # template.setPreallocationNNZ((nnz, onnz))
             preallocator.preallocatorPreallocate(template)
 
 
@@ -1294,12 +1313,12 @@ class DensePythonMatContext:
 
     """
 
-    def __init__(self, /, mode: Literal["row", "column"], buffer: ArrayBuffer) -> None:
+    def __init__(self, /, mode: Literal[row, column], buffer: ArrayBuffer) -> None:
         self.mode = mode
         self.buffer = buffer
 
     @classmethod
-    def empty(cls, mode: Literal["row", "column"], sf: pyop3.sf.StarForest) -> Self:
+    def empty(cls, mode: Literal[row, column], sf: pyop3.sf.StarForest) -> Self:
         if mode == "row":
             shape = (1, sf.size)
         else:
@@ -1307,6 +1326,10 @@ class DensePythonMatContext:
             shape = (sf.size, 1)
         buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType)
         return cls(mode, buffer)
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
@@ -1453,7 +1476,3 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm

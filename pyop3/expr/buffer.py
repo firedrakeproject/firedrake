@@ -3,23 +3,20 @@ from __future__ import annotations
 import abc
 import functools
 import numbers
-from functools import cached_property
-from immutabledict import immutabledict as idict
 from typing import ClassVar
 
 import numpy as np
+from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
 import pyop3.record
 from pyop3 import utils
-from pyop3.node import NodeVisitor
-from pyop3.labeled_tree import is_subpath
-from pyop3.axis_tree import UNIT_AXIS_TREE
-from pyop3.buffer import AbstractBuffer, ArrayBuffer
+from pyop3.buffer import AbstractBuffer
 from pyop3.collections import OrderedFrozenSet
+from pyop3.labeled_tree import is_subpath
 
 from .base import Expression, as_str
-from .tensor import Scalar, Dat, CompositeDat
+from .tensor import CompositeDat, Dat, Scalar
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -31,14 +28,6 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def buffer(self) -> AbstractBuffer:
         pass
-
-    # }}}
-
-    # {{{ interface impls
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
 
     # }}}
 
@@ -80,8 +69,13 @@ class ScalarBufferExpression(BufferExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, buffer) -> None:
-        object.__setattr__(self, "_buffer", buffer)
+    @classmethod
+    def get_custom_comm(cls, **attrs) -> None:
+        return None
+
+    @classmethod
+    def detect_comm(cls, **attrs) -> MPI.Comm:
+        return attrs["_buffer"].comm
 
     # }}}
 
@@ -176,15 +170,14 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         return (type(self), visitor(self._buffer), visitor(self.layout))
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
-        return (type(self), visitor(self._buffer), visitor(self.layout, inside=True))
+        buffer_key = visitor(self._buffer)
+        with visitor.strong_hash_buffers():
+            layout_key = visitor(self.layout)
+        return (type(self), buffer_key, layout_key)
 
-    def __init__(self, buffer, layout):
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "layout", layout)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        pass
+    @property
+    def comm(self):
+        return self._buffer.comm
 
     # }}}
 
@@ -228,20 +221,22 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     _buffer: AbstractBuffer
     layouts: idict
 
-    def collect_buffers(self, visitor):
-        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         layouts_key = {}
         for path, layout in self.layouts.items():
-            layouts_key[visitor.relabel_path(path)] = visitor(layout)
+            layouts_key[visitor.relabel_axis_tree_path(path)] = visitor(layout)
         layouts_key = idict(layouts_key)
         return (type(self), visitor(self._buffer), layouts_key)
 
-    def __post_init__(self) -> None:
-        pass
+    def collect_buffers(self, visitor):
+        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
 
     # }}}
+
+    @property
+    def comm(self):
+        return self._buffer.comm
+
 
     # {{{ interface impls
 
@@ -312,11 +307,6 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
             visitor(self.column_layout),
         )
 
-    def __init__(self, buffer, row_layout, column_layout):
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "row_layout", row_layout)
-        object.__setattr__(self, "column_layout", column_layout)
-
     # }}}
 
     # {{{ class constructors
@@ -369,21 +359,16 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         row_layouts_key = idict({
-            visitor.relabel_path(path): visitor(layout)
+            visitor.relabel_axis_tree_path(path): visitor(layout)
             for path, layout in self.row_layouts.items()
         })
         column_layouts_key = idict({
-            visitor.relabel_path(path): visitor(layout)
+            visitor.relabel_axis_tree_path(path): visitor(layout)
             for path, layout in self.column_layouts.items()
         })
         return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)
 
-    def __init__(self, buffer, row_layouts, column_layouts) -> None:
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "row_layouts", row_layouts)
-        object.__setattr__(self, "column_layouts", column_layouts)
-
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         assert isinstance(self._buffer, AbstractBuffer)
         assert isinstance(self.row_layouts, idict)
         assert isinstance(self.column_layouts, idict)

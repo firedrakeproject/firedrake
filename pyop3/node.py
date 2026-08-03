@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import abc
+import collections
 import functools
+import itertools
 from collections.abc import Hashable
-from functools import cached_property
-from typing import Any
+from typing import Any, Union
 
 from immutabledict import immutabledict as idict
 
 import pyop3.obj
-from pyop3 import collections as op3_collections, utils
-from pyop3.cache import memory_cache
+from pyop3 import collections as op3_collections
+from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 
 
@@ -60,7 +61,7 @@ def postorder(method):
     def wrapper(self, *args, **kwargs):
         if isinstance(self, NodeVisitor):
             return _postorder_node(self, *args, **kwargs)
-        elif isinstance(self, LabelledTreeVisitor):
+        elif isinstance(self, LabeledTreeVisitor):
             return _postorder_labelled_tree(self, *args, **kwargs)
         else:
             raise TypeError(f"Cannot postorder visit '{utils.pretty_type(self)}'")
@@ -68,8 +69,8 @@ def postorder(method):
     return wrapper
 
 
-# maybe implement __record_init__ here?
-class Node(pyop3.obj.Pyop3Object, abc.ABC):
+# maybe implement record_new here?
+class Node(pyop3.obj.Object, abc.ABC):
     # bikeshedding, since this is meant to be inherited from it would be good to 'namespace' it
     @property
     @abc.abstractmethod
@@ -102,26 +103,28 @@ class Visitor(abc.ABC):
 
     def __init__(
         self,
-        compress: bool | None = True,
-        visited_cache: dict[tuple, Expr] | None = None,
-        result_cache: dict[Expr, Expr] | None = None,
+        *,
+        allowed_types: type | tuple[type, ...] | Union | None = None,
+        reuse_results: bool = True,
     ) -> None:
-        """Initialise."""
-        self._compress = compress
-        self._visited_cache = {} if visited_cache is None else visited_cache
-        self._result_cache = {} if result_cache is None else result_cache
-        self._seen_nodes = set()
-        self.index = -1
+        if reuse_results:
+            result_cache = {}
+        else:
+            result_cache = None
+
+        self.allowed_types = allowed_types
+        self.reuse_results = reuse_results
+
+        self._visited_cache = {}
+        self._result_cache = result_cache
+        self.index = ()
+        self._index_stack = collections.defaultdict(itertools.count)
 
     # {{{ overrideable interface
 
     def __call__(self, *args, **kwargs):
         """Maybe overload this if you want to set some things up"""
-        # assert self.index == -1  # FIXME: This fails because we sometimes have traversals within traversals
-        try:
-            return self._call(*args, **kwargs)
-        finally:
-            self.index = -1
+        return self._call(*args, **kwargs)
 
     def get_cache_key(self, node, **kwargs) -> Hashable:
         """Maybe overload this if you want to set some things up"""
@@ -161,8 +164,17 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
-        self.index += 1
-        self._seen_nodes.add(node)
+        if (
+            self.allowed_types is not None
+            and not isinstance(node, self.allowed_types)
+        ):
+            raise TypeError(
+                f"'{utils.pretty_type(node)}' is not one of the allowed types "
+                f"({self.allowed_types}) for {utils.pretty_type(self)}"
+            )
+
+        prev_index = self.index
+        self.index += (next(self._index_stack[self.index]),)
 
         cache_key = self.get_cache_key(node, **kwargs)
         try:
@@ -170,9 +182,9 @@ class Visitor(abc.ABC):
         except KeyError:
             preprocessed = self.preprocess_node(node)
             result = self.process(*preprocessed, **kwargs)
-            # Optionally check if r is in result_cache, a memory optimization
+            # Conditionally check if r is in result_cache, a memory optimization
             # to be able to keep representation of result compact
-            if self._compress:
+            if self.reuse_results:
                 try:
                     # Cache hit: Use previously computed object, allowing current
                     # ``result`` to be garbage collected as soon as possible
@@ -183,18 +195,11 @@ class Visitor(abc.ABC):
             # Store result in cache
             self._visited_cache[cache_key] = result
             return result
-
-    def _safe_call(self, node, default=None, **kwargs):
-        # doesnt really work
-        # return self._call(*args, **kwargs)
-        return self(node, **kwargs)
-        if node in self._seen_nodes:
-            return default
-        else:
-            return self(node, **kwargs)
+        finally:
+            self.index = prev_index
 
 
-class LabelledTreeVisitor(Visitor):
+class LabeledTreeVisitor(Visitor):
     """
     Notes
     -----
@@ -203,6 +208,7 @@ class LabelledTreeVisitor(Visitor):
     """
 
     def __init__(self):
+        assert False, "used?"
         # FIXME: component.size is unique to each axis object, but the cache
         # keys used aren't. This means that we hit cache erroneously sometimes.
         super().__init__(visited_cache=op3_collections.AlwaysEmptyDict())
@@ -276,7 +282,7 @@ class NodeTransformer(NodeVisitor, abc.ABC):
         ):
             return node
         else:
-            return node.__record_init__(**visited)
+            return node.record_new(**visited)
 
 
 class NodeCollector(NodeVisitor, abc.ABC):

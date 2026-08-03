@@ -9,24 +9,22 @@ import itertools
 import numbers
 import operator
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
+from collections.abc import Hashable, Iterable, Mapping
 from typing import Any
 
-import cachetools
+import loopy.tools
 import numpy as np
 import pytools
-from immutabledict import immutabledict
-from mpi4py import MPI
-
+from immutabledict import immutabledict as idict
 
 import pyop3.config
+import pyop3.constants
 import pyop3.exceptions
-from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
-from pyop3.collections import unique, as_tuple
-from pyop3.constants import PYOP3_DECIDE, _nothing
+from pyop3.collections import StrictlyUniqueDict, unique
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
-from pyop3.mpi import collective
+from pyop3.exceptions import (
+    UnhashableObjectException,
+)
 
 ndarray_types = (np.ndarray,)
 try: 
@@ -71,56 +69,16 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
             return generator(default_prefix)
 
 
-_unique_id_generator = UniqueNameGenerator()
-"""Generator for creating globally unique IDs.
+def generate_name(prefix: str):
+    return _unique_name_generator(prefix)
 
-Unlike object names, object IDs are guaranteed to be unique for every object and
-hence are suitable for caching.
 
-"""
+_unique_name_generator = UniqueNameGenerator()
+"""Generator for creating globally unique names."""
 
 
 def unique_id(obj) -> str:
     return _unique_id_generator(type(obj).__name__)
-
-
-
-# does this live here?
-class Renamer:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def __getitem__(self, key):
-        return self._store[key]
-
-    def add(self, obj: Any):
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[type(obj)])
-            label = f"{type(obj).__name__}_{index}"
-            return self._store.setdefault(obj, label)
-
-# same as above but takes in strings (except it also takes more now)
-class Renamer2:
-    def __init__(self):
-        self._store = {}
-        self._counter_by_type = collections.defaultdict(itertools.count)
-
-    def __getitem__(self, key):
-        assert isinstance(key, str)
-        return self._store[key]
-
-    def add(self, obj: Hashable, obj_type: str):
-        assert isinstance(obj_type, str)
-        try:
-            return self._store[obj]
-        except KeyError:
-            index = next(self._counter_by_type[obj_type])
-            label = f"{obj_type}_{index}"
-            return self._store.setdefault(obj, label)
-
 
 
 # NOTE: Python 3.13 has warnings.deprecated
@@ -140,31 +98,15 @@ def deprecated(prefer=None, internal=False):
 
 
 # remove me
-class auto:
-    pass
+# class auto:
+#     pass
 
 
-# type aliases
-Id = str
-Label = str
-
-
-class Identified(abc.ABC):
-    def __init__(self, id):
-        self.id = id if id is not None else self.unique_id()
+class Labeled(abc.ABC):
 
     @classmethod
     def unique_id(cls) -> str:
         return unique_name(f"_id_{cls.__name__}")
-
-
-class Labelled(abc.ABC):
-    # def __init__(self, label):
-    #     self.label = label if label is not PYOP3_DECIDE else self.unique_label()
-
-    @classmethod
-    def unique_label(cls) -> str:
-        return unique_name(f"_label_{cls.__name__}")
 
 
 def split_at(iterable, index):
@@ -188,17 +130,17 @@ def single_valued(iterable):
 def is_single_valued(iterable):
     try:
         single_valued(iterable)
-    except RuntimeError as e:
+    except RuntimeError:
         return False
     else:
         return True
 
 
-def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
+def merge_dicts(dicts: Iterable[Mapping]) -> idict:
     merged = StrictlyUniqueDict()
     for dict_ in dicts:
         merged.update(dict_)
-    return immutabledict(merged)
+    return idict(merged)
 
 
 def has_unique_entries(iterable):
@@ -337,8 +279,8 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
 
 
 
-def pairwise(iterable, *, final=_nothing):
-    if final is not _nothing:
+def pairwise(iterable, *, final=pyop3.constants._nothing):
+    if final is not pyop3.constants._nothing:
         return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
     else:
         return zip(iterable, iterable[1:])
@@ -436,7 +378,7 @@ def expand_collection_of_iterables(compressed: Mapping[Hashable, Sequence[Any]])
         compressed = dict(compressed)
 
     if not compressed:
-        return (immutabledict(),)
+        return (idict(),)
     else:
         compressed_mut = dict(compressed)
         return _expand_dict_of_iterables_rec(compressed_mut)
@@ -449,12 +391,12 @@ def _expand_dict_of_iterables_rec(compressed_mut):
     if compressed_mut:
         subexpanded = _expand_dict_of_iterables_rec(compressed_mut)
         for item in items:
-            entry = immutabledict({key: item})
+            entry = idict({key: item})
             for subentry in subexpanded:
                 expanded.append(entry | subentry)
     else:
         for item in items:
-            entry = immutabledict({key: item})
+            entry = idict({key: item})
             expanded.append(entry)
 
     return tuple(expanded)
@@ -506,16 +448,16 @@ def _(list_: list) -> tuple:
 
 
 @freeze.register
-def _(immutabledict_: immutabledict) -> immutabledict:
-    return immutabledict({
+def _(immutabledict_: idict) -> idict:
+    return idict({
         key: freeze(value)
         for key, value in immutabledict_.items()
     })
 
 
 @freeze.register
-def _(dict_: dict) -> immutabledict:
-    return immutabledict({
+def _(dict_: dict) -> idict:
+    return idict({
         key: freeze(value)
         for key, value in dict_.items()
     })
@@ -612,3 +554,32 @@ def safe_equals(a, b, /) -> bool:
 
 def raise_missing_dispatch_handler(obj: Any) -> None:
     raise TypeError(f"No handler defined for {pretty_type(obj)}")
+
+
+_loopy_key_builder = loopy.tools.LoopyKeyBuilder()
+"""Persistent object for computing hashes of loopy kernels."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Atom:
+    """Wrapper object indicating that something should not be subdivided.
+
+    This class is necessary because the special-casing of tuples in
+    ``__getitem__`` by Python breaks the syntactic sugar we have for
+    slices. For example consider an axis component with (tuple) label
+    '(2, 1)'. We would like to be able to take this slice by executing:
+
+        dat[(2, 1)]
+
+    However, ``__getitem__`` turns this into the very different:
+
+        dat[2, 1]
+
+    Turning the tuple (2, 1) into an atom resolves this.
+
+    """
+    item: Any
+
+
+def atom(item):
+    return Atom(item)

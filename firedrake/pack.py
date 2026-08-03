@@ -22,38 +22,45 @@ from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex
 
 
+@op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
+def pack(tensor: Any, loop_info: MeshLoopIndex, *args, **kwargs) -> op3.Tensor:
+    """Prepare a tensor for use inside a pyop3 expression."""
+    return _pack(tensor, loop_info, *args, **kwargs)
+
+
 @functools.singledispatch
-def pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
+def _pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
-@pack.register
+@_pack.register
 def _(const: firedrake.constant.Constant, loop_info: MeshLoopIndex, **kwargs) -> op3.Dat:
     return const.dat
 
 
-@pack.register(Function)
-@pack.register(Cofunction)
-@pack.register(CoordinatelessFunction)
-def _(func, loop_info: MeshLoopIndex, **kwargs):
-    return pack(func.dat, func.function_space(), loop_info, **kwargs)
+@_pack.register(Function)
+@_pack.register(Cofunction)
+@_pack.register(CoordinatelessFunction)
+def _(func, loop_index: MeshLoopIndex, **kwargs):
+    return pack(func.dat, loop_index, func.function_space(), **kwargs)
 
 
-@pack.register(Matrix)
-def _(matrix: Matrix, loop_info, **kwargs):
-    return pack(matrix.M, *matrix.ufl_function_spaces(), loop_info, **kwargs)
+@_pack.register(Matrix)
+def _(matrix: Matrix, loop_index, **kwargs):
+    return pack(matrix.M, loop_index, *matrix.ufl_function_spaces(), **kwargs)
 
 
 def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
     iter_mesh = loop_index.mesh
-    if iter_mesh.topology is mesh.topology:
+    mesh = mesh.topology
+    if iter_mesh.topology is mesh:
         composed_map = None
         target_integral_type = loop_index.integral_type
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
-        and iter_mesh.topology._base_mesh is mesh.topology
+        and iter_mesh.topology._base_mesh is mesh
     ):
         composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
         target_integral_type = "cell"
@@ -79,11 +86,11 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         return self_map(composed_map)
 
 
-@pack.register(op3.Dat)
+@_pack.register(op3.Dat)
 def _(
     dat: op3.Dat,
+    loop_index: MeshLoopIndex,
     space: WithGeometry,
-    loop_info: MeshLoopIndex,
     **kwargs,
 ):
     # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -97,7 +104,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, **kwargs)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], loop_index, subspace, **kwargs)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -107,17 +114,18 @@ def _(
 
 def _pack_dat_nonmixed(
     dat: op3.Dat,
+    loop_index: MeshLoopIndex,
     space: WithGeometry,
-    loop_info: MeshLoopIndex,
     *,
     permutation: collections.abc.Iterable | None = None,
-):
+) -> op3.Dat:
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
-    map_ = _pack_map(loop_info, space.mesh())
+    map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
     packed_dat = dat[map_]
+
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
     if isinstance(packed_dat.axes, op3.AxisForest):
@@ -131,12 +139,12 @@ def _pack_dat_nonmixed(
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
 
-@pack.register(op3.Mat)
+@_pack.register(op3.Mat)
 def _(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: MeshLoopIndex,
 ):
     if isinstance(row_space.topological, RestrictedFunctionSpace):
         row_space = row_space.function_space
@@ -147,7 +155,7 @@ def _(
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
         for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
             packed_mats[ir, ic] = _pack_mat_nonmixed(
-                mat[row_index, column_index], row_subspace, column_subspace, loop_info,
+                mat[row_index, column_index], loop_info, row_subspace, column_subspace,
             )
 
     if packed_mats.size == 1:
@@ -158,9 +166,9 @@ def _(
 
 def _pack_mat_nonmixed(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: MeshLoopIndex,
 ):
     row_map = _pack_map(loop_info, row_space.mesh())
     column_map = _pack_map(loop_info, column_space.mesh())
@@ -246,7 +254,7 @@ def transform_packed_cell_closure_dat(
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
             perm_slice = op3.Slice(
                 nodal_axis.label,
-                [op3.Subset(None, perm_dat)],
+                [op3.SubsetSliceComponent(None, perm_dat)],
             )
             packed_dat = packed_dat[perm_slice]
 
@@ -428,7 +436,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
-        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.as_slice(dim_label),)])
+        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.atom(dim_label),)])
         selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis.label == "which")
         perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr}, assert_modified=True)
 
@@ -438,14 +446,14 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: None}
         before = utils.just_one(new_targets[path][0])  # hack to get the right one...
         assert before.axis == "dof"
-        new_targets[path] = [[before.__record_init__(
+        new_targets[path] = [[before.record_new(
             # expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr}, assert_modified=True)
             expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr})
         )]]
 
     new_targets = utils.freeze(new_targets)
 
-    return axes.__record_init__(_targets=new_targets)
+    return axes.record_new(_targets=new_targets)
 
 
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
@@ -456,7 +464,8 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
+    ndofs = utils.single_valued(len(v) for v in space.finat_element.entity_dofs()[dim_label].values())
+    dof_axis = op3.Axis(ndofs, f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)
@@ -517,7 +526,7 @@ def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tu
     dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
     dof_perm_slice = op3.Slice(
         nodal_axis.label,
-        [op3.Subset(None, dof_perm_dat)],
+        [op3.SubsetSliceComponent(None, dof_perm_dat)],
     )
     return (*[slice(None)]*depth, dof_perm_slice)
 

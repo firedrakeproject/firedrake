@@ -94,7 +94,12 @@ class AssignExprBuilder(DAGTraverser):
             # If we have a restricted function space we have different data
             # layouts so naive array assignment will fail and we have to fall
             # back to generating code.
-            if func.function_space().boundary_set != self.function_space.boundary_set:
+            if any(
+                func_fs.boundary_set != self_fs.boundary_set
+                for func_fs, self_fs in zip(
+                    func.function_space(), self.function_space, strict=True
+                )
+            ):
                 self.array_assign_safe = False
 
         # NOTE: Is it really valid to consider Real a scalar type here?
@@ -384,7 +389,7 @@ def parse_subset(obj: Any) -> op3.Slice | types.EllipsisType:
 
 
 @parse_subset.register
-def _(slice_: op3.Slice) -> op3.Slice:
+def _(slice_: op3.Slice | op3.IndexTree) -> op3.Slice:
     return slice_
 
 
@@ -399,7 +404,7 @@ def _(none: None) -> types.EllipsisType:
 
 
 @parse_subset.register
-def _(subset: op3.Subset) -> op3.Slice:
+def _(subset: op3.SubsetSliceComponent) -> op3.Slice:
     return op3.Slice("nodes", [subset])
 
 
@@ -407,5 +412,5 @@ def _(subset: op3.Subset) -> op3.Slice:
 @parse_subset.register(tuple)
 def _(subset: list | tuple) -> op3.Slice:
     subset_dat = op3.Dat.from_sequence(subset, dtype=IntType)
-    subset = op3.Subset(None, subset_dat)
+    subset = op3.SubsetSliceComponent(None, subset_dat)
     return parse_subset(subset)

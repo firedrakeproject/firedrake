@@ -4,9 +4,8 @@
 
 """The PyOP2 logger, based on the Python standard library logging module."""
 
-from contextlib import contextmanager
 import logging
-
+from contextlib import contextmanager
 
 LOGGER = logging.getLogger('pyop3')
 

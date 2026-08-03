@@ -48,7 +48,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "global"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -165,6 +165,11 @@ class _SNESContext(object):
         User-defined function called immediately before residual assembly.
     post_function_callback
         User-defined function called immediately after residual assembly.
+    marking_callback
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -189,6 +194,7 @@ class _SNESContext(object):
                  appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
+                 marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
@@ -213,6 +219,7 @@ class _SNESContext(object):
         self._pre_function_callback = pre_function_callback
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
+        self._marking_callback = marking_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -233,6 +240,7 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
         Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
@@ -263,6 +271,12 @@ class _SNESContext(object):
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
+        self._assemble_objective = lambda *args, **kwargs: args
+        if self.E:
+            self._assemble_objective = get_assembler(self.E,
+                                                     form_compiler_parameters=self.fcp,
+                                                     ).assemble
+
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
                                                 zero_bc_nodes=pre_apply_bcs,
@@ -292,6 +306,7 @@ class _SNESContext(object):
             "options_prefix": self.options_prefix,
             "transfer_manager": self.transfer_manager,
             "pre_apply_bcs": self.pre_apply_bcs,
+            "marking_callback": self._marking_callback,
         }
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -344,10 +359,18 @@ class _SNESContext(object):
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
 
+    def set_objective(self, snes):
+        if self._problem.E:
+            snes.setObjective(self.form_objective)
+        else:
+            snes.setObjective(None)
+
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
-        with self._F.dat.vec_wo as v:
-            snes.setFunction(self.form_function, v)
+        # Pass the vec from self._F here. We don't use a context because
+        # setting state flags does not make sense (we call this function
+        # before we do any compute).
+        snes.setFunction(self.form_function, self._F.dat._work_vec)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -451,6 +474,27 @@ class _SNESContext(object):
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
+    def form_objective(snes, X):
+        r"""Form the objective for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X: the current guess (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
+
+        # Apply DirichletBC on the solution
+        if not ctx._problem.restrict:
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._x)
+
+        return ctx._assemble_objective()
+
+    @staticmethod
     def form_function(snes, X, F):
         r"""Form the residual for this problem
 
@@ -460,10 +504,14 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec_wo as v:
-            X.copy(v)
+        # NOTE: I think we may have to set 'leaves_valid' to false here, as I
+        # don't think ctx._x.dat knows enough about changes. This could be
+        # done according to the vec state.
+        if ctx._x.dat._work_vec.handle != X.handle:
+            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -479,10 +527,13 @@ class _SNESContext(object):
             with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
 
+        # Make sure all owned values are fully updated before yielding to PETSc
+        ctx._F.dat.buffer.sync_roots()
+
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._F.dat.vec_ro as v:
-            v.copy(F)
+        if ctx._F.dat._work_vec.handle != F.handle:
+            F.array_w[...] = ctx._F.dat.data_ro.flatten()
 
     @staticmethod
     def form_jacobian(snes, X, J, P):
@@ -526,6 +577,17 @@ class _SNESContext(object):
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
     @staticmethod
+    def create_operators(ksp):
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        A = ctx._jac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
+        return A, P
+
+    @staticmethod
     def compute_operators(ksp, J, P):
         r"""Form the Jacobian for this problem
 
@@ -536,13 +598,20 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-        assert J.handle == ctx._jac.petscmat.handle
+
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
         ctx._jacobian_assembled = True
 
+        if ctx.Jp is not None and (J.handle == ctx._pjac.petscmat.handle):
+            # Assemble the preconditioner only
+            assert P.handle == ctx._pjac.petscmat.handle
+            ctx._assemble_pjac(ctx._pjac)
+            return
+
+        assert J.handle == ctx._jac.petscmat.handle
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle

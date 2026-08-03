@@ -17,7 +17,7 @@ import numpy as np
 import pyop3 as op3
 import ufl
 from pyop3.cache import heavy_caches, serial_cache
-from pyop3 import READ, WRITE, RW, INC, MIN_WRITE as MIN, MAX_WRITE as MAX
+from pyop3 import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 from pyop3.expr.visitors import evaluate as eval_expr
 from pyop3.utils import readonly
 from ufl.indexed import Indexed
@@ -37,6 +37,10 @@ from firedrake.utils import IntType, assert_empty, tuplify
 # Set a default loopy language version (should be in __init__.py)
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
+
+# Ambiguous old API
+MIN = MIN_RW
+MAX = MAX_RW
 
 kernel_cache = LRUCache(maxsize=128)
 
@@ -69,8 +73,8 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
     for var, (func, intent) in args.items():
         intents.append(intent)
 
-        is_input = intent in [INC, READ, RW]
-        is_output = intent in [INC, RW, WRITE]
+        is_input = intent in [INC, READ, RW, MAX_RW, MIN_RW]
+        is_output = intent in [INC, RW, WRITE, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE]
         if isinstance(func, Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")

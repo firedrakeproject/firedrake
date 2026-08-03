@@ -1,19 +1,28 @@
 from __future__ import annotations
 
-import collections
 import dataclasses
 import os
 import pathlib
 import tempfile
-from typing import Any, Callable, Self
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
 from pyop3.constants import _nothing
 
-
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
+
+
+def _str_to_bool(option: str) -> bool:
+    match option:
+        case "1" | "yes"  | "Yes" | "YES" | "true" | "True" | "TRUE":
+            return True
+        case "0" | "no" | "No" | "NO" | "false" | "False" | "FALSE":
+            return False
+        case _:
+            raise ValueError(f"Don't know how to parse '{option}' into a boolean")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,7 +103,7 @@ class Pyop3Configuration:
             node-local filesystem too.
 
             """,
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         ),
 
         # }}}
@@ -114,7 +123,7 @@ class Pyop3Configuration:
             False,
             """Print cache statistics at the end of the program.""",
             default_debug_value=True,
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         ),
 
         # }}}
@@ -130,7 +139,7 @@ class Pyop3Configuration:
 
             """,
             default_debug_value=True,
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         ),
 
         "compiler_use_debug_flags": ConfigOption(
@@ -142,14 +151,14 @@ class Pyop3Configuration:
 
             """,
             default_debug_value=True,
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         ),
 
         "check_src_hashes": ConfigOption(
             bool,
             True,
             """Check that generated code is the same on all processes.""",
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         ),
 
         "spmd_strict": ConfigOption(
@@ -165,7 +174,7 @@ class Pyop3Configuration:
 
             """,
             default_debug_value=True,
-            from_str=lambda x: bool(x),
+            from_str=_str_to_bool,
         )
 
         # }}}

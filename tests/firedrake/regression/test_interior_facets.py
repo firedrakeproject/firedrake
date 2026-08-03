@@ -38,8 +38,8 @@ def test_interior_facet_vfs_horiz_rhs():
 
     temp = assemble(jump(conj(v), n)*dS).dat.data_ro
 
-    assert np.all(temp[::2] == 0.0)
-    assert not np.all(temp[1::2] == 0.0)
+    assert np.all(temp[:, 0] == 0.0)
+    assert not np.all(temp[:, 1] == 0.0)
 
 
 def test_interior_facet_vfs_horiz_lhs():
@@ -73,12 +73,13 @@ def test_interior_facet_vfs_horiz_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS)
     mm = assemble(inner(u2('-'), v1('-'))*dS)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)
 
 
 def test_interior_facet_vfs_vert_rhs():
@@ -88,10 +89,10 @@ def test_interior_facet_vfs_vert_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(conj(v), n)*dS).dat.data
+    temp = assemble(jump(conj(v), n)*dS).dat.data_ro
 
-    assert not np.all(temp[::2] == 0.0)
-    assert np.all(temp[1::2] == 0.0)
+    assert not np.all(temp[:, 0] == 0.0)
+    assert np.all(temp[:, 1] == 0.0)
 
 
 def test_interior_facet_vfs_vert_lhs():
@@ -125,12 +126,13 @@ def test_interior_facet_vfs_vert_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS)
     mm = assemble(inner(u2('-'), v1('-'))*dS)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)
 
 
 @pytest.fixture

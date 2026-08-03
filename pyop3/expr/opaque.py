@@ -4,6 +4,7 @@ import pyop3.buffer
 import pyop3.collections
 import pyop3.record
 import pyop3.utils
+
 from .base import NamedTerminalExpression
 
 
@@ -19,7 +20,7 @@ class OpaqueTerminal(NamedTerminalExpression):
     # {{{ instance attrs
 
     buffer: pyop3.buffer.AbstractBuffer
-    _name: str
+    name: str
 
     def collect_buffers(self, visitor):
         return pyop3.collections.OrderedFrozenSet({self.buffer})
@@ -29,23 +30,19 @@ class OpaqueTerminal(NamedTerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None) -> None:
+        name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        object.__setattr__(self, "buffer", buffer)
+        object.__setattr__(self, "name", name)
+
+    # }}}
+
     @property
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
 
-    def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None):
-        name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        object.__setattr__(self, "buffer", buffer)
-        object.__setattr__(self, "_name", name)
-
-        self.record_setup()
-
-    # }}}
-
     # {{{ interface impls
-
-    name: ClassVar[str] = pyop3.record.attr("_name")
 
     @property
     def _full_str(self) -> str:

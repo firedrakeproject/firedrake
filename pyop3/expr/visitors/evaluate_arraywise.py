@@ -12,7 +12,8 @@ from pyop3.expr.visitors.base import OverloadedExpressionEvaluator
 class ArraywiseEvaluator(OverloadedExpressionEvaluator):
 
     def __init__(self) -> None:
-        super().__init__(compress=False)
+        # Pass reuse_results=False because numpy arrays are not hashable
+        super().__init__(reuse_results=False)
 
     @functools.singledispatchmethod
     def process(self, obj: pyop3.expr.ExpressionT, /) -> pyop3.expr.ExpressionT:

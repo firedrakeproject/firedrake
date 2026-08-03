@@ -1,24 +1,11 @@
 from __future__ import annotations
 
 import abc
-import collections
 import contextlib
-import ctypes
-import dataclasses
-import enum
 import functools
-import os
 import numbers
-import textwrap
-import warnings
-import weakref
-from collections.abc import Mapping
-from functools import cached_property
+import os
 from typing import Any
-from weakref import WeakValueDictionary
-
-from cachetools import cachedmethod
-from petsc4py import PETSc
 
 import loopy as lp
 import numpy as np
@@ -31,29 +18,36 @@ import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
-from pyop3 import utils, mpi
-from pyop3.cache import memory_and_disk_cache
+from pyop3 import mpi, utils
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+    IndexedAxisTree,
+)
+from pyop3.buffer import (
+    AbstractBuffer,
+    NullBuffer,
+    PetscMatBuffer,
+)
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
-from pyop3.expr import NonlinearDatBufferExpression
-from pyop3.expr.visitors import collect_axis_vars, replace
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.dtypes import IntType
-from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
     AbstractAssignment,
-    Exscan,
-    NullInstruction,
-    assignment_type_as_intent,
     AssignmentType,
-    ConcretizedNonEmptyArrayAssignment,
-    StandaloneCalledFunction,
-    Loop,
+    Exscan,
     InstructionList,
+    Loop,
+    NonEmptyArrayAssignment,
+    NullInstruction,
+    StandaloneCalledFunction,
+    assignment_type_as_intent,
 )
-# TODO: import other way around?
-from pyop3.insn.exec import parse_compiler_parameters
 
+# TODO: import other way around?
+from pyop3.lower.transform import (
+    with_attach_debugger,
+    with_likwid_markers,
+    with_petsc_event,
+)
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -310,7 +304,7 @@ class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
             assert name == self.name
 
         name_in_target = name_in_target if name_in_target else self.name
-        super(LACallable, self).__init__(self.name,
+        super().__init__(self.name,
                                          arg_id_to_dtype=arg_id_to_dtype,
                                          arg_id_to_descr=arg_id_to_descr,
                                          name_in_target=name_in_target)
@@ -407,7 +401,6 @@ class SolveCallable(LACallable):
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-    # NOTE: is config valid to include here?
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
 
@@ -416,7 +409,7 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
 # of the InstructionExecutionContext
 @pyop3.cache.memory_and_disk_cache(
     hashkey=_compile_static_hashkey,
-    get_comm=lambda op, *args, **kwargs: op.comm,
+    get_comm=lambda op, *a, **kw: op.comm,
 )
 def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
@@ -451,7 +444,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
 
-        for e in utils.as_tuple(ex): # TODO: get rid of this loop
+        for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
@@ -696,8 +689,8 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     context.add_subkernel(subkernel)
 
 
-@_compile.register(ConcretizedNonEmptyArrayAssignment)
-def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
+@_compile.register(NonEmptyArrayAssignment)
+def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:
@@ -709,7 +702,7 @@ def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indice
         )
 
 
-def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
+def _compile_petsc_mat(assignment: NonEmptyArrayAssignment, loop_indices, context) -> None:
     # We need to know whether the matrix is the assignee or not because we need
     # to know whether to put MatGetValues or MatSetValues
     if isinstance(assignment.assignee.buffer, PetscMatBuffer):
@@ -957,11 +950,12 @@ def _(exscan: Exscan, loop_indices, context) -> None:
     iname = context.unique_name("i")
     context.add_domain(iname, domain_var)
 
-    lexpr = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)+1}], loop_indices, context, intent=WRITE)
-    lexpr2 = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
-    rexpr = lower_expr(exscan.expression, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+    iname_var = pym.var(iname)
+    iname_map = {exscan.scan_axis.label: pym.var(iname)}
 
-    rexpr = lexpr2 + rexpr
+    lexpr = lower_expr(exscan.assignee, [iname_map], loop_indices, context, intent=RW)
+    rexpr = lexpr + lower_expr(exscan.expression, [iname_map], loop_indices, context)
+    lexpr = pym.substitute(lexpr, {iname: iname_var+1})
     context.add_assignment(lexpr, rexpr)
 
 

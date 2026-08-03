@@ -449,7 +449,7 @@ def test_changing_default_reorder_works(reorder):
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    assert m.num_cells == num_cells
+    assert m.num_cells() == num_cells
 
 
 @pytest.mark.parallel(2)

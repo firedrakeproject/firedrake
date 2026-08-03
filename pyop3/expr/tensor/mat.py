@@ -1,45 +1,42 @@
 from __future__ import annotations
 
-import abc
-import collections
 import itertools
 import numbers
 import typing
 from functools import cached_property
-from itertools import product
 from typing import Any, ClassVar
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop3 import buffer
 
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
-import pyop3.visitors
 from pyop3 import utils
-from pyop3.cache import cached_method
-from .base import Tensor, ReshapeTensorTransform, TensorTransform
-from .dat import Dat
 from pyop3.axis_tree import (
     AbstractNonUnitAxisTree,
-    AxisForest,
-    AxisTree,
     Axis,
-    ContextSensitiveAxisTree,
+    AxisTree,
+    as_axis_tree,
     as_axis_tree_type,
 )
-from pyop3.axis_tree import as_axis_tree, as_axis_forest
-from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
-from pyop3.dtypes import ScalarType
-from pyop3.utils import (
-    just_one,
-    single_valued,
-    strictly_all,
-    unique,
+from pyop3.buffer import (
+    AbstractBuffer,
+    FullPetscMatBufferSpec,
+    MatBufferSpec,
+    NonNestedPetscMatBufferSpec,
+    NullBuffer,
+    PetscMatAxisSpec,
+    PetscMatBuffer,
+    PetscMatBufferSpec,
+    PetscMatNestBufferSpec,
 )
+from pyop3.cache import cached_method
+from pyop3.dtypes import ScalarType
+
+from .base import ReshapeTensorTransform, Tensor, TensorTransform
 
 if typing.TYPE_CHECKING:
     from pyop3.types import *
@@ -52,25 +49,22 @@ class Mat(Tensor):
 
     row_axes: AxisTreeT
     column_axes: AxisTreeT
-    _buffer: AbstractBuffer
-    _name: str
+    buffer: AbstractBuffer
+    name: str
     _transform: TensorTransform | None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # buffers in the axis trees aren't allowed to change
-        with visitor.inside():
+        with visitor.strong_hash_buffers():
             row_axes_key = visitor(self.row_axes)
             column_axes_key = visitor(self.column_axes)
         return (
             type(self),
             row_axes_key,
             column_axes_key,
-            visitor(self._buffer),
+            visitor(self.buffer),
             visitor(self._transform),
         )
-
-    # Attributes that do not invalidate the object ID
-    non_id_attrs = ("row_axes", "column_axes", "_transform")
 
     def __init__(
         self,
@@ -81,7 +75,7 @@ class Mat(Tensor):
         name=None,
         prefix=None,
         transform=None,
-    ):
+    ) -> None:
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
@@ -89,19 +83,21 @@ class Mat(Tensor):
         column_axes = as_axis_tree_type(column_axes)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.row_axes = row_axes
-        self.column_axes = column_axes
-        self._buffer = buffer
-        self._name = name
-        self._transform = transform
+        object.__setattr__(self, "row_axes", row_axes)
+        object.__setattr__(self, "column_axes", column_axes)
+        object.__setattr__(self, "buffer", buffer)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "_transform", transform)
 
-        self.record_setup()
-
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
             assert len(self.buffer.shape) == 2
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return pyop3.mpi.common_comm([self.row_axes.comm, self.column_axes.comm])
 
     # {{{ class attrs
 
@@ -112,7 +108,6 @@ class Mat(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = pyop3.record.attr("_name")
     transform: ClassVar[property] = pyop3.record.attr("_transform")
 
     @property
@@ -127,7 +122,7 @@ class Mat(Tensor):
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}
@@ -148,8 +143,9 @@ class Mat(Tensor):
         if buffer_spec is None:
             buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
 
+        comm = pyop3.mpi.common_comm([row_axes.comm, column_axes.comm])
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, **buffer_kwargs)
+        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=comm, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -236,33 +232,18 @@ class Mat(Tensor):
         #   }
         indexed_row_axes = self.row_axes.getitem(row_index, strict=strict)
         indexed_column_axes = self.column_axes.getitem(column_index, strict=strict)
-        return self.__record_init__(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
+        return self.record_new(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
 
-    def with_context(self, context):
-        cf_row_axes = self.row_axes.with_context(context)
-        cf_column_axes = self.column_axes.with_context(context)
-        return self.__record_init__(row_axes=cf_row_axes, column_axes=cf_column_axes)
+    def with_axis_trees(self, axis_trees):
+        row_axes, column_axes = axis_trees
+        return self.record_new(row_axes=row_axes, column_axes=column_axes)
 
-    def with_axes(self, row_axes, col_axes):
-        return self.__record_init__(row_axes=row_axes, column_axes=col_axes)
+    def with_axes(self, row_axes, column_axes) -> Self:
+        """Return a view of the current mat with new axes."""
+        return self.with_axis_trees([row_axes, column_axes])
 
     def null_like(self, **kwargs) -> Mat:
         return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
-
-    @property
-    def leaf_layouts(self):
-        assert False, "unused"
-
-    def concretize(self):
-        raise NotImplementedError
-
-    @property
-    def buffer(self) -> Any:
-        return self._buffer
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return single_valued([self.row_axes.comm, self.column_axes.comm])
 
     # }}}
 
@@ -274,7 +255,7 @@ class Mat(Tensor):
         """
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(column_axes, AxisTree), "not indexed"
-        return self.__record_init__(
+        return self.record_new(
             row_axes=row_axes,
             column_axes=column_axes,
             _transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
@@ -357,8 +338,10 @@ class Mat(Tensor):
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
+    import pyop3.visitors
+
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
-        comm = pyop3.visitors.common_comm(row_axes, column_axes)
+        comm = pyop3.visitors.common_comm([row_axes, column_axes])
 
         if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes
@@ -404,7 +387,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
 # TODO: Should inherit from SymbolicTensor/SymbolicMat
 @pyop3.record.record()
-class AggregateMat(pyop3.obj.Pyop3Object):
+class AggregateMat(pyop3.obj.Object):
     """A matrix formed of multiple submatrices concatenated together."""
 
     # {{{ instance attrs
@@ -422,21 +405,27 @@ class AggregateMat(pyop3.obj.Pyop3Object):
             visitor(self.column_axis),
         )
 
+    def __init__(
+        self,
+        submats,
+        row_axis: Axis,
+        column_axis: Axis,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        # TODO: check size 1 for each axis component and # components must match # subdats
+        object.__setattr__(self, "submats", submats)
+        object.__setattr__(self, "row_axis", row_axis)
+        object.__setattr__(self, "column_axis", column_axis)
+        object.__setattr__(self, "name", name)
+
+    # }}}
+
     @property
     def comm(self) -> MPI.Comm:
         return utils.single_valued(m.comm for m in self.submats.flatten())
-
-    def __init__(self, submats, row_axis: Axis, column_axis: Axis, *, name: str | None = None, prefix: str | None = None):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        # TODO: check size 1 for each axis component and # components must match # subdats
-        self.submats = submats
-        self.row_axis = row_axis
-        self.column_axis = column_axis
-        self.name = name
-
-        self.record_setup()
-
-    # }}}
 
     DEFAULT_PREFIX: ClassVar[str] = "aggmat"
 
@@ -460,7 +449,7 @@ class AggregateMat(pyop3.obj.Pyop3Object):
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):
             cf_submats[loc] = submat.with_context(context)
-        return self.__record_init__(submats=cf_submats)
+        return self.record_new(submats=cf_submats)
 
     @cached_property
     def row_axes(self) -> AxisTree:

@@ -2,13 +2,11 @@ import abc
 import contextlib
 import contextvars
 import functools
-import warnings
 from typing import Any
 
 import numpy as np
 
 from pyop3 import utils
-
 
 try:
     import cupy as cp

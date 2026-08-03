@@ -16,7 +16,7 @@ from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
-from firedrake.parloops import par_loop
+from firedrake.parloops import par_loop, READ, WRITE
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import IntType, ScalarType
 from firedrake.pack import pack
@@ -259,13 +259,15 @@ class FDMPC(PCBase):
             P = self.setup_block(Vrow, Vcol)
             addv = self.insert_mode[Vrow, Vcol]
 
-            assemble_sparsity = P.getType() == "is"
+            assemble_sparsity = P.type == "is"
             if assemble_sparsity:
                 self.set_values(P, Vrow, Vcol, mat_type="preallocator")
                 if on_diag:
                     # populate diagonal entries
                     i = numpy.arange(P.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
                     v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+                    # FIXME
+                    P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
                     P.setValuesLocalRCV(i, i, v, addv=addv)
                 P.assemble()
 
@@ -425,7 +427,7 @@ class FDMPC(PCBase):
             sizes = (Vsub.template_vec.getSizes(),) * 2
             raise NotImplementedError
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result)),
+                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result, comm=V.comm)),
                                   *args_acc,
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
@@ -696,6 +698,14 @@ class FDMPC(PCBase):
 
         preallocator = get_preallocator(self.comm, sizes, rmap, cmap, mat_type=ptype)
         self.set_values(preallocator, Vrow, Vcol)
+
+        # make sure to allocate values for the diagonal
+        # FIXME: This doesnt make the bug go away
+        # i = numpy.arange(preallocator.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
+        # v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+        # addv = self.insert_mode[Vrow, Vcol]
+        # preallocator.setValuesLocalRCV(i, i, v, addv=addv)
+
         preallocator.assemble()
         P = allocate_matrix(preallocator, ptype, on_diag=on_diag, allow_repeated=self.allow_repeated)
 
@@ -724,7 +734,7 @@ class FDMPC(PCBase):
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
         if mat_type is None:
-            mat_type = A.getType()
+            mat_type = A.type
         try:
             assembler = self.assemblers[key]
         except KeyError:
@@ -751,7 +761,7 @@ class FDMPC(PCBase):
             loop_index = Vrow.mesh().iter("cell")
             element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
-            mat_args = element_kernel.make_args(A)
+            mat_args = element_kernel.make_args(A, comm=Vrow.comm)
             assembler = op3.loop(
                 loop_index,
                 kernel(
@@ -778,7 +788,7 @@ class FDMPC(PCBase):
                 self.assemblers.setdefault(key, assembler)
 
         args = assembler.statements[0].arguments
-        assembler(**{args[0].record_id: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
+        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A, comm=Vrow.comm))})
 
 
 class ElementKernel:
@@ -792,9 +802,9 @@ class ElementKernel:
         self.name = name or type(self).__name__
         self.rules = {}
 
-    def make_args(self, *mats: PETSc.Mat) -> tuple[op3.OpaqueTerminal, ...]:
+    def make_args(self, *mats: PETSc.Mat, comm: MPI.Comm) -> tuple[op3.OpaqueTerminal, ...]:
         return tuple(
-            op3.OpaqueTerminal(op3.PetscMatBuffer(mat))
+            op3.OpaqueTerminal(op3.PetscMatBuffer(mat, comm=comm))
             for mat in chain(mats, self.mats)
         )
 
@@ -1058,9 +1068,9 @@ class SchurComplementBlockLU(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its LU factorization to compute S = A11 - (A10 U^-1) (L^-1 A01)."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, bsize, irow, icol, nnz, iswap, *ipiv, *perm;
+        PetscInt m, bsize, irow, icol, nnz, iswap, *perm;
         const PetscInt *ai;
         PetscScalar *vals, *work, *L, *U;
         Mat X;
@@ -1158,9 +1168,9 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     """Schur complement kernel builder that assumes a block-diagonal interior block,
     and uses its inverse to compute S = A11 - A10 A00^-1 A01."""
     condense_code = dedent("""
-        PetscBLASInt bn, lierr, lwork;
+        PetscBLASInt bn, lierr, lwork, *ipiv;
         PetscBool done;
-        PetscInt m, irow, bsize, *ipiv;
+        PetscInt m, irow, bsize;
         const PetscInt *ai;
         PetscScalar *vals, *work, *ainv, swork;
         PetscCallVoid(MatProductNumeric(A11));
@@ -1631,14 +1641,14 @@ def broken_function(V, val):
     """Return a Function(V, val=val) interpolated onto the broken space."""
     W = V.broken_space()
     w = Function(W, dtype=val.dtype)
-    v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
+    v = Function(V, val=val, dtype=val.dtype)
+    domain = "{[i,j]: 0 <= i < v.dofs and 0 <= j < %d}" % V.block_size
     instructions = """
-    for i
-        w[i] = v[i]
+    for i, j
+        w[i,j] = v[i,j]
     end
     """
-    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+    par_loop((domain, instructions), ufl.dx, {'w': (w, WRITE), 'v': (v, READ)})
     return w
 
 
@@ -1688,7 +1698,7 @@ def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False)
     if on_diag:
         numpy.maximum(nnz[0], 1, out=nnz[0])
 
-    A = PETSc.Mat().create(comm=preallocator.getComm())
+    A = PETSc.Mat().create(comm=preallocator.comm)
     A.setType(mat_type)
     A.setSizes(sizes)
     A.setBlockSize(preallocator.getBlockSize())
@@ -1777,7 +1787,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
     loop_index = Vc.mesh().iter("cell")
-    mat_args = kernel.make_args(preallocator)
+    mat_args = kernel.make_args(preallocator, comm=Vf.comm)
     assembler = op3.loop(
         loop_index,
         kernel.kernel(mat_type=mat_type)(
@@ -1792,13 +1802,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     preallocator.assemble()
 
     Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
-    # preallocator.destroy()
 
     # Now run the same loop but with the allocated matrix
-    Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat))
-    assembler(**{mat_args[0].record_id: Dmat_arg})
+    Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat, comm=Vf.comm))
+    assembler(**{mat_args[0].name: Dmat_arg})
     Dmat.assemble()
-    # Dhat.destroy()
     return Dmat
 
 

@@ -1,36 +1,17 @@
-"""
-
-Instantiating record types
---------------------------
-* call record_setup()
-
-Record IDs
-----------
-All records are given a unique ID (a string). This is useful as a cache key
-
-In general if you call `record_init` on a record you will get an object with a
-new ID. However, sometimes you want to preserve the ID (e.g. if you are only
-reshaping something - the object is still considered to be the 'same'). To do
-this you have to specify 'non_id_attrs'.
-
-"""
 from __future__ import annotations
 
-import collections
 import dataclasses
-from collections.abc import Callable, Mapping
 from typing import Any
 
-from mpi4py import MPI
-
+import pyop3.cache
+import pyop3.obj
 from pyop3 import utils
-from pyop3.cache import memory_cache
-from pyop3.exceptions import UnhashableObjectException
 
 
 def record(**kwargs):
     assert "eq" not in kwargs
-    return _make_record_class(eq=False, **kwargs)
+    assert "repr" not in kwargs
+    return _make_record_class(eq=False, repr=False, **kwargs)
 
 
 def frozenrecord(**kwargs):
@@ -38,36 +19,87 @@ def frozenrecord(**kwargs):
     return _make_record_class(frozen=True, **kwargs)
 
 
-def _make_record_class(*, add_record_init: bool = True, **kwargs):
+def _make_record_class(**kwargs):
+
     def wrapper(cls):
-        cls = dataclasses.dataclass(**kwargs)(cls)
-        cls.record_setup = _record_setup
+        assert issubclass(cls, pyop3.obj.Object)
 
-        if add_record_init:
-            cls.__record_init__ = _record_init
+        # The __new__ to __init__ pipeline is quite confusing. By default, if
+        # __new__ returns an object with the same type as the original class,
+        # then __init__ is called on the resulting object using the *same
+        # arguments that were passed to __new__*. To demonstrate why this is
+        # an issue, consider the following case using pyop3.Mul nodes:
+        #
+        #     Mul(Mul("a", "b"), 1)
+        #
+        # We would like it such that the outer Mul (inside __new__) recognises
+        # that multiplying by 1 is identity and to then return a bare
+        # Mul("a", "b"). However, *this is the same type as the original caller*.
+        # This means that Mul.__init__ will then be called on an already
+        # initialised object, which is wrong.
+        #
+        # To get around this we require that, if an object defines __new__,
+        # then we disallow it to have an __init__ method. It is therefore the
+        # responsibility of __new__ to return a fully initialised object.
+        #
+        # As a final complication, it now becomes possible to call cls.__new__
+        # from both a 'regular' constructor call, and from record_new. These may
+        # have different interfaces and it is the responsibility of the class
+        # writer to makes things work.
+        assert "init" not in kwargs
+        if cls.__new__ is not object.__new__:
+            assert cls.__init__ is object.__init__
+            init = False
+        else:
+            init = True
+        cls = dataclasses.dataclass(init=init, **kwargs)(cls)
 
-        def _record_method_cache(self):
-            return collections.defaultdict(dict)
+        # Check that abstract attributes are implemented
+        for abstract_attr in _get_abstract_attrs(cls):
+            assert abstract_attr in cls.__dataclass_fields__, \
+                f"class '{cls.__qualname__}' does not have attribute '{abstract_attr}'"
 
-        # if kwargs.get("frozen", False):
-        #     cls.__hash__ = _frozenrecord_hash
+        # Make sure that we call all the finalisers after initialisation
+        if cls.__init__ is object.__init__:
+            def init_with_finalizers(self, *args, **kwargs):
+                object.__init__(self)
+                _finalize_obj(self)
+        else:
+            orig_init = cls.__init__
+            def init_with_finalizers(self, *args, **kwargs):
+                orig_init(self, *args, **kwargs)
+                _finalize_obj(self)
+        cls.__init__ = init_with_finalizers
+
+        # Attach the other init method
+        cls.record_new = _record_new
+
+        # Cache the hash for frozen objects
+        if cls.__dataclass_params__.frozen:
+            orig_hash = cls.__hash__
+            def frozen_hash(self):
+                if not hasattr(self, "_record_cached_hash"):
+                    object.__setattr__(self, "_record_cached_hash", orig_hash(self))
+                return self._record_cached_hash
+            cls.__hash__ = frozen_hash
 
         return cls
+
     return wrapper
 
 
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+def _record_new(self, **attrs: Any) -> Any:
+    """Create and initialise a new record from an existing one."""
     new_attrs = {}
     attrs_changed = False
-    change_id = False
     for field in dataclasses.fields(self):
         orig_attr = getattr(self, field.name)
-        new_attr = attrs.pop(field.name, orig_attr)
-        if not utils.safe_equals(new_attr, orig_attr):
-            attrs_changed = True
-            # We only have to change the ID for some attrs
-            if field.name not in getattr(self, "non_id_attrs", set()):
-                change_id = True
+        if field.name in attrs:
+            new_attr = attrs.pop(field.name, orig_attr)
+            if not utils.safe_equals(new_attr, orig_attr):
+                attrs_changed = True
+        else:
+            new_attr = orig_attr
         new_attrs[field.name] = new_attr
 
     if attrs:
@@ -76,65 +108,51 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
             f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
         )
 
-    if not attrs_changed:
+    # If we haven't changed anything and the object is frozen then just hand it back
+    if not attrs_changed and self.__dataclass_params__.frozen:
         return self
-    elif self.__dataclass_params__.frozen and not change_id:
-        try:
-            return _make_record_maybe_singleton(self, new_attrs, change_id=False)
-        except UnhashableObjectException:
-            return _make_record(self, new_attrs, change_id=False)
-    else:
-        return _make_record(self, new_attrs, change_id=change_id)
 
+    cls = type(self)
+    new = cls.__new__(cls, **new_attrs)
 
-# NOTE: We use COMM_SELF because __record_init__ isn't always called collectively.
-# I need to think harder about the legality of this. Should I disallow the comm attr
-# for objects where this happens?
-# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
-# actually just disable this unless we can prove that it's necessary - it generates a
-# lot of cache misses and probably slows up GC
-# @memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
-def _make_record_maybe_singleton(*args, **kwargs):
-    return _make_record(*args, **kwargs)
+    # If a class defines a custom __new__ method then we assume all
+    # initialisation is done there
+    if cls.__new__ is object.__new__:
+        for attr_name, new_attr in new_attrs.items():
+            object.__setattr__(new, attr_name, new_attr)
 
-
-def _make_record(self, attrs, *, change_id: bool):
-    new = object.__new__(type(self))
-    for field_name, attr in attrs.items():
-        object.__setattr__(new, field_name, attr)
-    new_id = utils.unique_id(self) if change_id else self.record_id
-    new.record_setup(_id=new_id)
+    _finalize_obj(new)
     return new
 
 
-def _record_setup(self, *, _id: str | None = None) -> None:
-    """Finalise a record object.
-
-    This method should be called inside every record ``__init__`` method.
-
-    Parameters
-    ----------
-    _id
-        The ID of the object. Internal use only.
-    """
-    if _id is None:
-        _id = utils.unique_id(self)
-    object.__setattr__(self, "record_id", _id)
-
-    if hasattr(self, "__post_init__"):
-        self.__post_init__()
+def _finalize_obj(obj: pyop3.obj.Object) -> None:
+    # Call any finaliser functions. Because inheritance is complicated we ignore
+    # it and call all of the finalisers we find in the MRO.
+    for type_ in type(obj).__mro__:
+        if hasattr(type_, _demangle(type_, "__record_post_init")):
+            getattr(type_, _demangle(type_, "__record_post_init"))(obj)
 
 
-def _frozenrecord_hash(self):
-    if hasattr(self, "_cached_hash"):
-        return self._cached_hash
-
-    hash_ = hash(dataclasses.fields(self))
-    object.__setattr__(self, "_cached_hash", hash_)
-    return hash_
-
-
+# Now we have abstract attrs I don't think we need this any more
 def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
 
 
+def _get_abstract_attrs_per_class(cls: type) -> tuple:
+    # Undo the name mangling that the double underscore introduces
+    return getattr(cls, _demangle(cls, "__abstract_record_attrs"), ())
+
+
+def _get_abstract_attrs(cls: type) -> tuple:
+    assert not _get_abstract_attrs_per_class(cls), \
+        "Final class should not define any abstract attributes"
+    attrs = []
+    for parent_class in cls.__mro__[1:]:
+        attrs.extend(_get_abstract_attrs_per_class(parent_class))
+    return tuple(attrs)
+
+
+def _demangle(cls: type, attr: str) -> str:
+    """Undo Python name mangling."""
+    assert attr.startswith("__")
+    return f"_{cls.__name__}{attr}"

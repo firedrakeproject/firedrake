@@ -4,7 +4,6 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.skip(reason="pyop3 TODO, R tensor product")
 def test_extruded_change_coordinates():
     # This test exists to ensure the code in the manual works.
 

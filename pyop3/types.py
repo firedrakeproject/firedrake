@@ -1,15 +1,13 @@
 # Note that this file contains imports from all of pyop3. This module should
 # therefore only be imported inside a 'typing.TYPE_CHECKING' block.
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from typing import Any
-from typing import Hashable, Mapping
 
 import numpy as np
-from petsc4py import PETSc
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
 
 import pyop3
-
 
 IntType = PETSc.IntType
 
@@ -41,5 +39,7 @@ IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 ArrayT = np.ndarray | pyop3.arrayref.ArrayReference
 
 DeviceArrayT = np.ndarray | cp.array
+
+MatInsertMode = Literal[PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES]
 
 # }}}

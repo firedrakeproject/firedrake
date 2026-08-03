@@ -1,13 +1,12 @@
-Adaptive Multigrid Methods using AdaptiveMeshHierarchy
-======================================================
+Adaptive Multigrid Methods
+==========================
 
 
 Contributed by Anurag Rao.
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
-We will first have a look at how to use the :class:`~.AdaptiveMeshHierarchy` to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain.
-Finally, we will show how to use the :class:`~.AdaptiveMeshHierarchy` and :class:`~.AdaptiveTransferManager` to construct a scalable solver. The :class:`~.AdaptiveMeshHierarchy` contains information of the mesh hierarchy and the parent child relations between the meshes.
-The :class:`~.AdaptiveTransferManager` deals with the transfer operator logic across any given levels in the hierarchy.
+A :func:`~.MeshHierarchy` is not restricted to uniform refinement: the same object records the parent child relations between adaptively refined meshes, and grows a level at a time as the solution is resolved.
+We will first have a look at how to construct such a hierarchy from Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain, and finally we will use the hierarchy to construct a scalable solver.
 We begin by importing the necessary libraries ::
 
    from firedrake import *
@@ -28,16 +27,15 @@ We begin with the L-shaped domain, which we build as the union of two rectangles
    ngmsh = geo.GenerateMesh(maxh=0.5)
    mesh = Mesh(ngmsh)
 
-It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :class:`~.AdaptiveMeshHierarchy`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
+It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :func:`~.MeshHierarchy`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
 
 .. figure:: initial_mesh.png
    :align: center
    :alt: Initial mesh.
 
-We will also initialize the :class:`~.AdaptiveTransferManager` here: ::
+We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same: ::
   
-   amh = AdaptiveMeshHierarchy(mesh)
-   atm = AdaptiveTransferManager()
+   mh = MeshHierarchy(mesh)
 
 Poisson Problem
 ---------------
@@ -62,15 +60,12 @@ Our approach strongly follows the similar problem in this `lecture course <https
 
       problem = LinearVariationalProblem(a, L, uh, bcs)
       solver = LinearVariationalSolver(problem, solver_parameters=params)
-
-      solver.set_transfer_manager(atm)
       solver.solve()
 
       its = solver.snes.getLinearSolveIterations()
       return uh, its
 
-Note the code after the construction of the :class:`~.LinearVariationalProblem`. To use the :class:`~.AdaptiveMeshHierarchy` with the existing Firedrake solver, we have to set the :class:`~.AdaptiveTransferManager` as the transfer manager of the multigrid solver.
-Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
+To use the hierarchy in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
 
    solver_params = {
       "mat_type": "matfree",
@@ -100,7 +95,7 @@ The initial solution is shown below.
 
 Adaptive Mesh Refinement
 ------------------------
-In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the :class:`~.AdaptiveMeshHierarchy`.
+In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the hierarchy.
 For this problem, we will be using the Babuška-Rheinbolt a-posteriori estimate for an element:
 
 .. math::
@@ -159,7 +154,7 @@ With these helper functions complete, we can solve the system iteratively. In th
    for level in range(refinements):
       print(f"level {level}")
 
-      mesh = amh[-1]
+      mesh = mh[-1]
       uh, its = solve_poisson(mesh, solver_params)
       VTKFile(f"output/adaptive_loop_{level}.pvd").write(uh)
 
@@ -175,10 +170,17 @@ With these helper functions complete, we can solve the system iteratively. In th
          rates = -numpy.diff(numpy.log(est_errors)) / numpy.diff(numpy.log(sqrt_dofs))
          print(f"  rate = {rates[-1]}")
 
-      if i != refinements - 1:
-         amh.adapt(eta, theta)
+      if level != refinements - 1:
+         mh.adapt(eta, theta)
 
-To perform Dörfler marking, refine the current mesh, and add the mesh to the :class:`~.AdaptiveMeshHierarchy`, we use the ``amh.adapt(eta, theta)`` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy. There is another method for adding a mesh to the hierarchy: ``amh.add_mesh(mesh)``. In this method, refinement on the mesh is performed externally by some custom procedure and the resulting mesh directly gets added to the hierarchy.
+To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`~.HierarchyBase.adapt` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
+To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`~.HierarchyBase.adapt` does once it has marked:
+
+.. code-block:: python
+
+   mh.add_mesh(mh[-1].refine_marked_elements(markers))
+
+Here ``markers`` is a DG0 function whose value on each cell is the number of times to refine it. If the mesh was instead produced by some procedure Firedrake cannot trace the parent child relations through, pass those cell maps to :meth:`~.HierarchyBase.add_mesh` explicitly.
 The meshes now refine according to the error estimator. The error estimators at levels 3,5, and 15 are shown below. Zooming into the vertex of the L-shape at level 15 shows the error indicator remains strongest there. Further refinements will focus on that area.
 
 +-------------------------------+-------------------------------+-------------------------------+

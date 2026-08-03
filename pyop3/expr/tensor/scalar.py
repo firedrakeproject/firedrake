@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import numbers
 from typing import ClassVar
 
@@ -9,11 +8,13 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 import pyop3.record
-from pyop3 import dtypes, exceptions as exc, utils
+from pyop3 import dtypes, utils
+from pyop3 import exceptions as exc
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE
-from .base import Tensor
-from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
+
+from .base import Tensor
 
 
 @pyop3.record.record()
@@ -21,11 +22,11 @@ class Scalar(Tensor):
 
     # {{{ instance attrs
 
-    _name: str
-    _buffer: AbstractBuffer
+    name: str
+    buffer: AbstractBuffer
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self._buffer))
+        return (type(self), visitor(self.buffer))
 
     def __init__(
         self,
@@ -36,7 +37,7 @@ class Scalar(Tensor):
         constant: bool | None = None,
         name: str | None = None,
         prefix: str | None = None,
-    ):
+    ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
@@ -63,24 +64,20 @@ class Scalar(Tensor):
         if buffer.size != 1:
             raise exc.SizeMismatchException("Expected a buffer with unit size")
 
-        self._name = name
-        self._buffer = buffer
-
-        self.record_setup()
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "buffer", buffer)
 
     # }}}
 
     # {{{ interface impls
 
-    name: ClassVar[str] = pyop3.record.attr("_name")
-    buffer: ClassVar[ArrayBuffer] = pyop3.record.attr("_buffer")
     dim: ClassVar[int] = 0
     transform: ClassVar[None] = None
 
     def copy(self) -> Scalar:
         name = f"{self.name}_copy"
         buffer = self._buffer.copy()
-        return self.__record_init__(_name=name, _buffer=buffer)
+        return self.record_new(_name=name, _buffer=buffer)
 
     shape = (UNIT_AXIS_TREE,)
     loop_axes = idict()
@@ -107,7 +104,7 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         other_eval = evaluate_arraywise(other)
@@ -132,16 +129,13 @@ class Scalar(Tensor):
     def getitem(self, *, strict=False):
         return self
 
-    def with_context(self, *args, **kwargs):
+    def with_axis_trees(self, axis_trees):
+        assert len(axis_trees) == 0, "scalars don't have axis trees"
         return self
 
     @property
     def alloc_size(self) -> int:
         return 1
-
-    @property
-    def leaf_layouts(self):  # or all layouts?
-        raise NotImplementedError
 
     @property
     def value(self):

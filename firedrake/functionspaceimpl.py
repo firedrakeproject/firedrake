@@ -626,75 +626,6 @@ class WithGeometryBase:
             V = V.sub(i)
         return V
 
-    # {{{ submesh
-
-    @cached_property
-    def submesh_parent_to_child_map(self) -> op3.Map:
-        """Return the map between parent and child meshes.
-
-        This method augments the existing point to point maps stored on the
-        mesh with an additional node to node map.
-
-        """
-        mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
-        # debugging, think this fails in parallel!
-        # node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
-        # connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
-        connectivity = mesh_pt_to_pt_map.connectivity
-        return op3.ScalarMap(
-            connectivity,
-            name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
-        )
-
-    @cached_property
-    def submesh_child_to_parent_map(self) -> op3.Map:
-        """Return the map between child and parent meshes.
-
-        This method augments the existing point to point maps stored on the
-        mesh with an additional node to node map.
-
-        """
-        mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
-        # debugging, think this fails in parallel!
-        # node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
-        # connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
-        connectivity = mesh_pt_to_pt_map.connectivity
-        return op3.ScalarMap(
-            connectivity,
-            name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",
-        )
-
-    def _make_submesh_node_to_node_map(
-        self, direction: Literal["parent_to_child", "child_to_parent"]
-    ) -> dict:
-        # NOTE: This is really a topological consideration and only here
-        # because topological function spaces don't have a reconstruct
-        # method.
-        parent_space = self.reconstruct(mesh=self.mesh().submesh_parent)
-
-        if direction == "parent_to_child":
-            plex_indices = self.mesh()._parent_to_submesh_plex_index_map
-            from_section = parent_space.local_section
-            to_section = self.local_section
-            nodes_axis = parent_space.nodes
-        else:
-            plex_indices = self.mesh()._submesh_to_parent_plex_index_map
-            from_section = self.local_section
-            to_section = parent_space.local_section
-            nodes_axis = self.nodes
-
-        node_to_node_map_array = dmcommon.make_node_to_node_map(
-            plex_indices, from_section, to_section, self.block_size
-        )
-        node_to_node_map_dat = op3.Dat(nodes_axis, data=node_to_node_map_array)
-        return {
-            idict({"nodes": None}): [
-                op3.TabulatedMapComponent("nodes", None, node_to_node_map_dat, label=None)
-            ]
-        }
-
-    # }}}
-
 
 class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 
@@ -748,7 +679,9 @@ class AbstractFunctionSpace:
         # restricted, mixed, Real, and Real tensor product spaces. All data
         # layouts are in principle expressible, but the composition isn't
         # currently right.
-        return op3.AxisForest([self.plex_axes, self.nodal_axes])
+        forest = op3.AxisForest([self.plex_axes, self.nodal_axes])
+        assert forest.comm == self.comm
+        return forest
 
     @property
     @abc.abstractmethod
@@ -782,7 +715,7 @@ class AbstractFunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        return layout_from_spec(self.layout, self.dm_axis_constraints)
+        return layout_from_spec(self.layout, self.dm_axis_constraints, self.comm)
 
     @cached_property
     @_mesh_cached
@@ -801,7 +734,7 @@ class AbstractFunctionSpace:
         # immediately after each other then we have an incompatible layout
         # as described.
         nodal_layout = self._parse_nodal_layout(self.layout)
-        return layout_from_spec(nodal_layout, self.nodal_axis_constraints)
+        return layout_from_spec(nodal_layout, self.nodal_axis_constraints, self.comm)
 
     @classmethod
     def _parse_nodal_layout(cls, layout):
@@ -1081,8 +1014,8 @@ class AbstractFunctionSpace:
         )
 
         # Now pack this for use in a parloop
-        loop_index = space.mesh().iter(iter_type)
-        packed_offsets = pack(offsets, space, loop_index)
+        loop_index = space.mesh().iter(iter_type, include_ghosts=True)
+        packed_offsets = pack(offsets, loop_index, space)
 
         # Create the array to store the indirection map. If mixed then this stores
         # offsets per iteration entity then per field.
@@ -1124,6 +1057,75 @@ class AbstractFunctionSpace:
         return op3.Dat(map_dof_axes, buffer=map_plex.buffer, prefix="map")
 
     # }}}
+
+    # {{{ submesh
+
+    @abc.abstractmethod
+    def _with_mesh(self, mesh) -> Self:
+        """Reconstruct the function space on the new mesh."""
+        # This is functionally the same kind of thing as WithGeometry.reconstruct
+        # but that is really tangled and I need something very specific.
+
+    @cached_property
+    def submesh_parent_to_child_map(self) -> op3.Map:
+        """Return the map between parent and child meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_parent_to_child_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("parent_to_child")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().submesh_parent.name}_to_{self.mesh().name}_map",
+        )
+
+    @cached_property
+    def submesh_child_to_parent_map(self) -> op3.Map:
+        """Return the map between child and parent meshes.
+
+        This method augments the existing point to point maps stored on the
+        mesh with an additional node to node map.
+
+        """
+        mesh_pt_to_pt_map = self.mesh().submesh_child_to_parent_map
+        node_to_node_map_connectivity = self._make_submesh_node_to_node_map("child_to_parent")
+        connectivity = mesh_pt_to_pt_map.connectivity | node_to_node_map_connectivity
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.mesh().name}_to_{self.mesh().submesh_parent.name}_map",
+        )
+
+    def _make_submesh_node_to_node_map(
+        self, direction: Literal["parent_to_child", "child_to_parent"]
+    ) -> dict:
+        parent_space = self._with_mesh(self.mesh().submesh_parent)
+
+        if direction == "parent_to_child":
+            plex_indices = self.mesh()._parent_to_submesh_plex_index_map
+            from_section = parent_space.local_section
+            to_section = self.local_section
+            nodes_axis = parent_space.nodes
+        else:
+            plex_indices = self.mesh()._submesh_to_parent_plex_index_map
+            from_section = self.local_section
+            to_section = parent_space.local_section
+            nodes_axis = self.nodes
+
+        node_to_node_map_array = dmcommon.make_node_to_node_map(
+            plex_indices, from_section, to_section, self.block_size
+        )
+        node_to_node_map_dat = op3.Dat(nodes_axis, data=node_to_node_map_array)
+        return {
+            idict({"nodes": None}): [
+                op3.TabulatedMapComponent("nodes", None, node_to_node_map_dat, label=None)
+            ]
+        }
+
+    # }}}
+
 
 
 class FunctionSpace(AbstractFunctionSpace):
@@ -1389,6 +1391,7 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return self._make_plex_axes_default()
 
+    @_with_mesh_heavy_cache
     def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
@@ -1412,10 +1415,9 @@ class FunctionSpace(AbstractFunctionSpace):
                 ])
 
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
-        retval = self.dm_axes[index_tree]
-        assert retval.local_size == self.dm_axes.local_size
-        return retval
+        return self.dm_axes[index_tree]
 
+    @_with_mesh_heavy_cache
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except
         # the base mesh exists.
@@ -1462,10 +1464,10 @@ class FunctionSpace(AbstractFunctionSpace):
                         )
 
                         if extr_dim == 0:
-                            selector = numpy.repeat(base_selector.data, self.mesh().layers)
+                            selector = numpy.repeat(base_selector.data_ro, self.mesh().layers)
                         else:
                             assert extr_dim == 1
-                            selector = numpy.repeat(base_selector.data, self.mesh().layers-1)
+                            selector = numpy.repeat(base_selector.data_ro, self.mesh().layers-1)
                         selector = op3.ArrayBuffer(selector, prefix="map", constant=True)
 
                         target_expr = op3.LinearDatBufferExpression(
@@ -1531,10 +1533,10 @@ class FunctionSpace(AbstractFunctionSpace):
             region_size = scalar_axis_tree.with_region_labels(region_set).size
             regions.append(op3.AxisComponentRegion(region_size, frozenset(region_set)))
 
-        # return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
         return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
     @cached_property
+    @_with_mesh_heavy_cache
     def nodal_axes(self) -> op3.IndexedAxisTree:
         if self._is_real_tensor_product:
             return self._make_plex_axes_real_tensor_product("nodal")
@@ -1544,6 +1546,9 @@ class FunctionSpace(AbstractFunctionSpace):
         # relabeling_slice = op3.Slice("layoutnodes", [op3.AffineSliceComponent(None, label=None)], label="nodes")
         relabeling_slice = op3.Slice("layoutnodes", None, label="nodes")
         return self.nodal_layout_axes[relabeling_slice]
+
+    def _with_mesh(self, mesh):
+        return type(self)(mesh, self.element, name=self.name, layout=self._layout)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -1720,6 +1725,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return dmcommon.restrict_section(
             self.function_space.section,
             self.mesh().topology_dm,
+            self.mesh().points.owned.local_size,
             self.boundary_set,
             self.extruded,
         )
@@ -1995,7 +2001,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return self._make_axes("nodal")
 
     def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
-        axis_tree = op3.AxisTree(self.field_axis)
+        axis_tree = op3.AxisTree(self.field_axis, comm=self.comm)
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(
             self.field_axis.components, self._orig_spaces, strict=True
@@ -2011,33 +2017,28 @@ class MixedFunctionSpace(AbstractFunctionSpace):
                 leaf_path, subaxes.materialize()
             )
 
-            # if mode == "plex":
-            if True:
-                # Target a full slice of the 'field' component
-                targets[leaf_path] = [[
-                    op3.AxisTarget(
-                        self.field_axis.label,
-                        field_component.label,
-                        op3.AxisVar(self.field_axis.linearize(field_component.label)),
-                    ),
-                ]]
-                for subpath, subaxis_targets in subaxes.targets.items():
-                    if subpath:
-                        targets[leaf_path | subpath] = subaxis_targets
-                    else:
-                        assert subaxis_targets == ((),)
+            # Target a full slice of the 'field' component
+            targets[leaf_path] = [[
+                op3.AxisTarget(
+                    self.field_axis.label,
+                    field_component.label,
+                    op3.AxisVar(self.field_axis.linearize(field_component.label)),
+                ),
+            ]]
+            for subpath, subaxis_targets in subaxes.targets.items():
+                if subpath:
+                    targets[leaf_path | subpath] = subaxis_targets
+                else:
+                    assert subaxis_targets == ((),)
 
         if mode == "plex":
             unindexed = self.dm_axes
         else:
             unindexed = self.nodal_layout_axes
-        if True:
-            targets = utils.freeze(targets)
-            return op3.IndexedAxisTree(
-                axis_tree, unindexed=unindexed, targets=targets,
-            )
-        else:
-            return axis_tree
+        targets = utils.freeze(targets)
+        return op3.IndexedAxisTree(
+            axis_tree, unindexed=unindexed, targets=targets
+        )
 
     @cached_property
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
@@ -2068,6 +2069,12 @@ class MixedFunctionSpace(AbstractFunctionSpace):
 
     def mesh(self):
         return self._mesh
+
+    def _with_mesh(self, mesh):
+        spaces = []
+        for m, s in zip(mesh, self._orig_spaces, strict=True):
+            spaces.append(s._with_mesh(m))
+        return type(self)(spaces, mesh, name=self.name, layout=self._layout, _labels=self._labels)
 
     @property
     def topological(self):
@@ -2170,15 +2177,16 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
             start = icomm.exscan(self.axes.free.buffer_size(include_ghosts=False)) or 0
-        for subspace in self:
+
+        ises = []
+        for local_is, subspace in zip(self.local_ises, self):
             size = subspace.axes.free.buffer_size(include_ghosts=False)
-            is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
-            is_.setBlockSize(subspace.block_size)
+            is_ = PETSc.IS().createGeneral(
+                local_is.indices[:size]+start, comm=self.comm
+            )
             ises.append(is_)
-            start += size
         return tuple(ises)
 
     @property
@@ -2200,34 +2208,10 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers.
 
         """
-        if self.boundary_set:
-            raise NotImplementedError
-
-        # Currently a bit hacky but the idea is that we need to store the
-        # indices of both owned and ghost DoFs which in parallel are kept
-        # apart.
-        subspace_indices = [{"owned": None, "ghost": None} for _ in self]
-        start = 0
-        for partition in ["owned", "ghost"]:
-            for i, subspace in enumerate(self):
-                # inelegant
-                num_owned = subspace.axes.buffer_size(include_ghosts=False)
-                if partition == "owned":
-                    size = num_owned
-                else:
-                    size = subspace.axes.buffer_size(include_ghosts=True) - num_owned
-
-                subspace_indices[i][partition] = numpy.arange(start, start+size, dtype=IntType)
-                start += size
-
         ises = []
-        for idxss in subspace_indices:
-            # merge owned+ghost
-            is_ = PETSc.IS().createGeneral(
-                numpy.concatenate(list(idxss.values()), axis=None), comm=MPI.COMM_SELF
-            )
-            # TODO: Is this safe now that things are interleaved?
-            # is_.setBlockSize(subspace.block_size)
+        for label in self._labels:
+            idxs = self.axes[label]._buffer_indices(include_ghosts=True)
+            is_ = PETSc.IS().createGeneral(idxs, comm=MPI.COMM_SELF)
             ises.append(is_)
         return tuple(ises)
 
@@ -2532,10 +2516,10 @@ class InvalidFunctionSpaceLayoutException(Exception):
 
 
 @functools.singledispatch
-def layout_from_spec(layout_spec: Any, axis_constraints: Sequence) -> op3.AxisTree:
+def layout_from_spec(layout_spec: Any, axis_constraints: Sequence, comm: MPI.Comm) -> op3.AxisTree:
     visited_axes = frozenset()
     axis_nest = _parse_layout_spec(layout_spec, axis_constraints, visited_axes)
-    return op3.AxisTree.from_nest(axis_nest)
+    return op3.AxisTree.from_nest(axis_nest, comm=comm)
 
 
 def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited_axes) -> idict:

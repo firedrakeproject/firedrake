@@ -1,7 +1,13 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
-#include <petsc.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <petscsys.h>
+#include <petscerror.h>
+#include <rtree-capi.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,18 +33,20 @@ struct Function {
 
 typedef PetscReal (*ref_cell_l1_dist)(void *data_,
 				struct Function *f,
-				int cell,
+				PetscInt cell,
 				double *x);
 
-extern int locate_cell(struct Function *f,
+extern PetscErrorCode locate_cell_from_coordinates(struct Function *f,
 		       double *x,
-		       int dim,
 		       ref_cell_l1_dist try_candidate,
 		       void *temp_ref_coords,
 		       void *found_ref_coords,
-		       double *found_ref_cell_dist_l1,
+		       PetscReal *found_ref_cell_dist_l1,
+			   size_t nids,
+			   const int64_t *ids,
 			   size_t ncells_ignore,
-			   int* cells_ignore);
+			   const PetscInt *cells_ignore,
+			   PetscInt *cell_out);
 
 extern int evaluate(struct Function *f,
 		    double *x,

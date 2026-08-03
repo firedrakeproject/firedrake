@@ -232,7 +232,7 @@ class BCBase:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
         subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
-        subset = op3.Subset(None, subset_dat)
+        subset = op3.SubsetSliceComponent(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
     @PETSc.Log.EventDecorator()
@@ -796,4 +796,4 @@ def restricted_function_space(V, ids):
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces, name=V.name)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name, _labels=V._labels)

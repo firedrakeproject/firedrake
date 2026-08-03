@@ -4,6 +4,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import firedrake.cython.dmcommon
 import firedrake.mesh
 from firedrake.utils import IntType
 
@@ -41,20 +42,11 @@ def _partition_constrained_points(
     boundary_set,
 ):
     """Split a section into unconstrained and constrained sets."""
-    # identify constrained points
-    constrained_pts_is = PETSc.IS().createGeneral(
-        np.empty(0, dtype=IntType), comm=MPI.COMM_SELF
+    constrained_pts_is = firedrake.cython.dmcommon.get_boundary_set_points(
+        mesh.topology_dm,
+        boundary_set,
+        isinstance(mesh.topology, firedrake.mesh.ExtrudedMeshTopology),
     )
-    for marker in boundary_set:
-        if marker == "on_boundary":
-            label = "exterior_facets"
-            marker = 1
-        else:
-            label = "Face Sets"
-        n = mesh.topology_dm.getStratumSize(label, marker)
-        if n == 0:
-            continue
-        constrained_pts_is = constrained_pts_is.union(mesh.topology_dm.getStratumIS(label, marker))
     constrained_pts = constrained_pts_is.indices
     free_pts = np.setdiff1d(
         np.arange(mesh.num_points, dtype=IntType),

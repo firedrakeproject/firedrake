@@ -963,7 +963,7 @@ class PatchBase(PCSNESBase):
                     )
 
         patch.setDM(self.plex)
-        patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
+        patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
         if len(V) > 1:
             # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
@@ -1084,7 +1084,7 @@ def _get_ctypes_arg(arg: Any):
 
 @_get_ctypes_arg.register
 def _(dat: op3.Dat):
-    return dat.buffer._lazy_data[op3.HOST_DEVICE].ctypes.data
+    return dat.buffer._current_device_array.ctypes.data
 
 
 @_get_ctypes_arg.register

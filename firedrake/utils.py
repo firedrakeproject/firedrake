@@ -1,11 +1,13 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import functools
 import warnings
+from typing import Callable, Self, Hashable
 
 from decorator import decorator
 from petsc4py import PETSc
 
-from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict
+from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
 from pyop3.dtypes import ScalarType, as_cstr
 from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
@@ -25,7 +27,6 @@ from pyop3.utils import (  # noqa: F401
     strict_int,
     invert,
     split_by,
-    as_tuple,
     is_sorted,
     unique_name as op3_unique_name,
 )
@@ -244,3 +245,38 @@ def check_netgen_installed() -> None:
             "are installed and available to Firedrake (see "
             "https://www.firedrakeproject.org/install.html#netgen)."
         )
+
+
+def cached_property_until(key: Callable[[Self], Hashable]):
+    """Decorator for a property that is cached until some value changes.
+
+    For example, the ``expensive_property`` below will be cached until
+    ``self.value`` changes, and will be recomputed with the new ``self.value``
+    and cached when accessed again.
+
+    .. code-block:: python
+
+        class MyClass:
+
+            def __init__(self, value):
+                self.value = value
+
+            @cached_property_until(lambda self: self.value)
+            def expensive_property(self):
+                # Some expensive computation that depends on self.value
+                ...
+    """
+    def decorator(func):
+        @property
+        @functools.wraps(func)
+        def wrapper(self):
+            cache_attribute = f"_{func.__name__}_cache"
+            current_value = key(self)
+            cached_value = getattr(self, cache_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                result = func(self)
+                setattr(self, cache_attribute, (current_value, result))
+                return result
+            return cached_value[1]
+        return wrapper
+    return decorator

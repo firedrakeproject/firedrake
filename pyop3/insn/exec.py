@@ -6,29 +6,28 @@ import dataclasses
 import functools
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Hashable, Mapping
 from functools import cached_property
-from typing import Any, Callable, Hashable
+from typing import Any
 
 import loopy as lp
+import loopy.tools
 import numpy as np
+import petsctools
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
-import petsctools
-
-from pyop3 import utils
 import pyop3.buffer
+import pyop3.cache
 import pyop3.collections
 import pyop3.compile
 import pyop3.config
+import pyop3.debug
 import pyop3.expr
 import pyop3.insn.base
+from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
-from pyop3.constants import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
-
-
-import pyop3.debug
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -156,11 +155,11 @@ class InstructionExecutionContext:
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
-        for arg_id, new_arg in kwargs.items():
-            buffer_ids = self._argument_id_to_buffer_id_map[arg_id]
-            buffers = self._extract_buffers(new_arg)
-            for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
-                new_buffers[buffer_id] = buffer
+        for arg_name, new_arg in kwargs.items():
+            orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
+            new_arg_buffers = self._extract_buffers(new_arg)
+            for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
+                new_buffers[orig_buffer] = new_buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
@@ -168,15 +167,15 @@ class InstructionExecutionContext:
         if not self._has_called_compile:
             assert self._preprocessed is None
 
-        executable(**new_buffers)
+        executable(new_buffers)
 
     def preprocess(self) -> Instruction:
+        import pyop3.visitors
+
         from .visitors import (
-            expand_implicit_pack_unpack,
+            concretize_layouts,
             expand_loop_contexts,
             expand_transforms,
-            materialize_indirections,
-            concretize_layouts,
             insert_literals,
         )
 
@@ -195,7 +194,7 @@ class InstructionExecutionContext:
 
             insn = concretize_layouts(insn)
             insn = insert_literals(insn)
-            insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
+            insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
             self._preprocessed = insn
 
@@ -286,14 +285,29 @@ class InstructionExecutionContext:
         # TODO: We don't do anything with nest indices yet because we have always already
         # unpacked things
         sorted_buffers = {}
+        seen_buffers = set()
         for kernel_arg_name, buffer_info in buffer_index_map.items():
+            # NOTE: we drop nest_indices because we currently don't use it
             buffer_index, nest_indices, intent = buffer_info
             global_buffer = self.preprocessed_buffers[buffer_index]
+            assert global_buffer not in seen_buffers, "Only expect to see buffers once"
+            seen_buffers.add(global_buffer)
             sorted_buffers[kernel_arg_name] = (global_buffer, intent)
 
         executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)
 
-        return executor, self._argument_index_to_buffer_id_map
+        return executor, self._argument_index_to_buffer_map
+
+    # debugging
+    @staticmethod
+    def _count_buffers(string):
+        num_buffers = 0
+        array_pattern = \
+            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
+        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
+        for pattern in [array_pattern, petscmat_pattern]:
+            num_buffers += len(utils.unique(re.findall(pattern, string)))
+        return num_buffers
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
@@ -318,18 +332,32 @@ class InstructionExecutionContext:
 
 
     @cached_property
-    def _argument_index_to_buffer_id_map(self) -> idict[int, str]:
+    def _argument_index_to_buffer_map(self) -> idict[int, str]:
         return idict({
-            i: tuple(buf.record_id for buf in self._extract_buffers(arg))
+            i: self._extract_buffers(arg)
             for i, arg in enumerate(self.root_insn.global_arguments)
         })
 
     @cached_property
-    def _argument_id_to_buffer_id_map(self) -> idict:
-        return idict({
-            arg.record_id: tuple(buf.record_id for buf in self._extract_buffers(arg))
-            for arg in self.root_insn.global_arguments
-        })
+    def _argument_name_to_buffer_map(self) -> dict[str, tuple[AbstractBuffer, ...]]:
+        # This attribute is only used for argument replacement.
+        # We don't want to get conflicts if we pass in two tensors with the same name
+        name_to_buffer_map = {}
+        names_to_skip = set()
+        for arg in self.root_insn.global_arguments:
+            if arg.name in names_to_skip:
+                continue
+
+            arg_buffers = self._extract_buffers(arg)
+            if arg.name in name_to_buffer_map:
+                if name_to_buffer_map[arg.name] != arg_buffers:
+                    # found a duplicate arg name but with different buffers,
+                    # replacement by name isn't valid
+                    del name_to_buffer_map[arg.name]
+                    names_to_skip.add(arg.name)
+            else:
+                name_to_buffer_map[arg.name] = arg_buffers
+        return name_to_buffer_map
 
     @cached_property
     def _executor_cache_key(self) -> Hashable:
@@ -404,17 +432,11 @@ class Executable:
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __call__(self, *args: int) -> None:
-        # print("calling")
-        # print(self.code)
         self._callable(*args)
-        # print(self.code)
-        # print("done, didn't die")
 
     @cached_property
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
         """Compile the code and return a function pointer."""
-        device_code = lp.generate_code_v2(self.code).device_code()
-
         # ideally move this logic somewhere else
         cppargs = (
             *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
@@ -435,7 +457,7 @@ class Executable:
             cppargs += ("-DLIKWID_PERFMON",)
             ldargs += ("-llikwid",)
 
-        dll = pyop3.compile.load(device_code, "c", cppargs, ldargs, comm=self.comm)
+        dll = pyop3.compile.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
 
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
@@ -448,6 +470,10 @@ class Executable:
         ]
         func.restype = None
         return func
+
+    @cached_property
+    def _device_code(self):
+        return _loopy_to_c_string(self.code, self.comm)
 
 
 class CompiledCodeExecutor:
@@ -482,14 +508,14 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _buffer_global_id_to_name_in_kernel_map(self):
-        return {buffer.record_id: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
+        return {buffer: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
 
     @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
         # This is exactly the same as _buffer_refs!
         return tuple(buffer_ref for buffer_ref in self._buffer_refs)
 
-    def __call__(self, **kwargs) -> None:
+    def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
         """
         Notes
         -----
@@ -497,11 +523,11 @@ class CompiledCodeExecutor:
 
         """
         # print(self)
-        # if "form0_cell_integral" in str(self):
+        # if "form" in str(self):
         #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
-        if not kwargs:  # shortcut for the most common case
+        if not new_buffers:  # shortcut for the most common case
             buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
         else:
@@ -514,22 +540,15 @@ class CompiledCodeExecutor:
                 for buffer_name, replacement_buffer in kwargs.items():
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
-            for buffer_key, replacement_buffer in kwargs.items():
+            for buffer_key, replacement_buffer in new_buffers.items():
                 index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
                 exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
-
-        for index in self._modified_buffer_indices:
-            buffers[index].inc_state()
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
             "Attempting to pass a null pointer to the executable",
         )
-
-        if self.comm.size == 1:
-            self.executable(*exec_arguments)
-            return
 
         # TODO
         # if self.compiler_parameters.interleave_comp_comm:
@@ -581,29 +600,27 @@ class CompiledCodeExecutor:
             # with PETSc.Log.Event(f"compute_{self.name}_leaf"):
             #     code(**leaf_kwargs)
 
-        # This is a bit of a misnomer - the idea here is that for data to be ready to compute we
-        # must first update all roots and then update all leaves from these roots.
-        # Recall that points on a rank may be partitioned into 'core', 'root' and 'leaf' where a
-        # 'leaf' is a point owned by another process, 'root' is a point that exists as a ghost on
-        # another process, and 'core' are the rest.
-        # * It is valid to compute on parts of the iteration set that only touch 'core' points
-        # before any communication takes place
-        # * it is valid to compute on parts that touch core and root once all roots have been
-        # updated via reductions
-        # * you can only compute using leaf values once these have been updated
+            # This is a bit of a misnomer - the idea here is that for data to be ready to compute we
+            # must first update all roots and then update all leaves from these roots.
+            # Recall that points on a rank may be partitioned into 'core', 'root' and 'leaf' where a
+            # 'leaf' is a point owned by another process, 'root' is a point that exists as a ghost on
+            # another process, and 'core' are the rest.
+            # * It is valid to compute on parts of the iteration set that only touch 'core' points
+            # before any communication takes place
+            # * it is valid to compute on parts that touch core and root once all roots have been
+            # updated via reductions
+            # * you can only compute using leaf values once these have been updated
+
         initializers = []
         reductions = []
         broadcasts = []
+        finalizers = []
         for buffer_ref, (_, intent) in zip(buffers, self.buffer_map.values(), strict=True):
-            if isinstance(buffer_ref, pyop3.buffer.PetscMatBuffer):
-                continue
-            else:
-                assert isinstance(buffer_ref, pyop3.buffer.ArrayBuffer)
-
-            inits, reds, bcasts = self._buffer_exchanges(buffer_ref, intent)
+            inits, reds, bcasts, fins = self._buffer_exchanges(buffer_ref, intent)
             initializers.extend(inits)
             reductions.extend(reds)
             broadcasts.extend(bcasts)
+            finalizers.extend(fins)
 
         # Unoptimised case: perform all transfers eagerly
         for init in initializers:
@@ -616,15 +633,14 @@ class CompiledCodeExecutor:
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
-        # does this fix things? nope, but it changes the answer!
-        # for buffer in buffers:
-        #     buffer.assemble()
+        for fin in finalizers:
+            fin()
 
     def __str__(self) -> str:
         sep = "*" * 80
         str_ = []
         str_.append(sep)
-        str_.append(lp.generate_code_v2(self.executable.code).device_code())
+        str_.append(self.executable._device_code)
         str_.append(sep)
 
         for arg in self.executable.code.default_entrypoint.args:
@@ -649,16 +665,8 @@ class CompiledCodeExecutor:
     @cached_property
     def _buffer_ref_indices(self) -> idict[str, int]:
         return idict({
-            buffer.record_id: i for i, buffer in enumerate(self._buffer_refs)
+            buffer: i for i, buffer in enumerate(self._buffer_refs)
         })
-
-    @cached_property
-    def _modified_buffer_indices(self) -> tuple[int]:
-        return tuple(
-            i
-            for i, (_, intent) in enumerate(self.buffer_map.values())
-            if intent != READ
-        )
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
@@ -716,8 +724,13 @@ class CompiledCodeExecutor:
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
-    def _buffer_exchanges(self, buffer, intent):
-        initializers, reductions, finalizers = [], [], []
+    @functools.singledispatchmethod
+    def _buffer_exchanges(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
+        utils.raise_missing_dispatch_handler(buffer)
+
+    @_buffer_exchanges.register
+    def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
+        initializers, reductions, bcasts, finalizers = [], [], [], []
 
         # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
         # (we have filter_star_forest())
@@ -732,10 +745,10 @@ class CompiledCodeExecutor:
                         buffer.sync_roots_end,
                         buffer.sync_leaves_begin,
                     ])
-                    finalizers.append(buffer.sync_leaves_end)
+                    bcasts.append(buffer.sync_leaves_end)
                 elif not buffer._leaves_valid:
                     initializers.append(buffer.sync_leaves_begin)
-                    finalizers.append(buffer.sync_leaves_end)
+                    bcasts.append(buffer.sync_leaves_end)
                 else:
                     pass
             else:
@@ -756,15 +769,14 @@ class CompiledCodeExecutor:
             # again. For example we can increment into a buffer as many times
             # as we want. The reduction only needs to be done when the
             # data is read.
-            if buffer._roots_valid or intent == buffer._pending_reduction:
+            if buffer._pending_reduction == intent:
                 pass
             else:
                 # We assume that all points are visited, and therefore that
                 # WRITE accesses do not need to update roots. If only a subset
                 # of entities are written to then a manual reduction is required.
                 # This is the same assumption that we make for data_wo.
-                if intent in {INC, MIN_RW, MAX_RW}:
-                    assert buffer._pending_reduction is not None
+                if not buffer._roots_valid and intent in {INC, MIN_RW, MAX_RW}:
                     initializers.append(buffer._reduce_leaves_to_roots_begin)
                     reductions.append(buffer._reduce_leaves_to_roots_end)
 
@@ -779,7 +791,7 @@ class CompiledCodeExecutor:
 
                 def _init_nil():
                     # Not modifying owned values so don't want to update state via intent
-                    buffer._current_device_array[buffer.sf.ileaf] = nil
+                    np.ravel(buffer._current_device_array)[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 
@@ -792,7 +804,35 @@ class CompiledCodeExecutor:
             else:
                 finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
 
-        return tuple(initializers), tuple(reductions), tuple(finalizers)
+        if intent != READ:
+            finalizers.append(lambda: buffer.inc_state())
+
+        return initializers, reductions, bcasts, finalizers
+
+    @_buffer_exchanges.register
+    def _(self, buffer: pyop3.buffer.PetscMatBuffer, intent):
+        begin_insns = []
+        end_insns = []
+        finalizers = []
+        if intent == READ:
+            begin_insns.append(lambda: buffer.assemble_begin(final=True))
+            end_insns.append(lambda: buffer.assemble_end(final=True))
+        else:
+            if intent == WRITE:
+                insert_mode = PETSc.InsertMode.INSERT_VALUES
+            else:
+                assert intent == INC
+                insert_mode = PETSc.InsertMode.ADD_VALUES
+            begin_insns.append(lambda: buffer.maybe_flush_assemble_begin(insert_mode))
+            end_insns.append(lambda: buffer.maybe_flush_assemble_end(insert_mode))
+
+        # NOTE: The PETSc Mat may actually take care of this for us
+        if intent != READ:
+            finalizers.append(lambda: buffer.inc_state())
+
+        # TODO: We need all communication to happen before we begin computing, but if
+        # we have multiple matrices we can at least overlap their communication.
+        return begin_insns+end_insns, (), (), finalizers
 
 
 @functools.singledispatch
@@ -811,3 +851,12 @@ def _(arg: lp.ValueArg):
         return ctypes.c_voidp
     else:
         return np.ctypeslib.as_ctypes_type(arg.dtype)
+
+
+# TODO: This should probably get folded into '_compile_static', otherwise we
+# have to get the translation unit from cache, hash it, then get the thing
+# we actually want from the cache.
+@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu))
+@pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
+def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
+    return lp.generate_code_v2(tu).device_code()

@@ -165,5 +165,3 @@ def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> pet
     section.setUp()
 
     return create_petsc_section_sf(sf, section)
-
-

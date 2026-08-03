@@ -1,31 +1,34 @@
 from __future__ import annotations
 
 import collections
-import functools
-import itertools
-import numbers
 import typing
-from typing import Any
-
-from immutabledict import immutabledict as idict
 
 import numpy as np
+from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
-from pyop3.cache import memory_cache
-from pyop3.collections import OrderedSet
-from pyop3 import expr as op3_expr, utils
-from pyop3.dtypes import IntType
-from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
-from pyop3.expr.base import NAN, get_loop_tree, loopified_shape
-from pyop3.insn import exscan, loop_
+import pyop3.sf
+from pyop3 import utils
 from pyop3.axis_tree import (
     Axis,
     AxisTree,
-    AxisForest,
     merge_axis_trees,
 )
-from pyop3.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
+from pyop3.axis_tree.tree import (  # TODO: move this to visitors?
+    full_shape,
+    replace_exprs,
+)
+from pyop3.cache import memory_cache
+from pyop3.dtypes import IntType
+from pyop3.expr import (
+    AxisVar,
+    Dat,
+    ExpressionT,
+    LinearDatBufferExpression,
+    LoopIndexVar,
+)
+from pyop3.expr.base import NaN, get_loop_tree
+from pyop3.insn import exscan, loop_
 
 from .size import compute_axis_tree_component_size
 
@@ -144,6 +147,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
 
 def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
+    if axis_tree.is_empty:
+        return idict({idict(): None}), pyop3.sf.NullStarForest(0)
+
     # First traverse the axis tree and compute everything we can.
     to_tabulate = []
     tabulated = {}
@@ -197,7 +203,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     starts = [0] * len(to_tabulate)
     visited_regions_per_offset_dat = collections.defaultdict(set)
     for regions in axis_tree.region_sets:
-        for i, (offset_axes, offset_dat) in enumerate(to_tabulate):
+        for i, (offset_axes, offset_dat, _, _) in enumerate(to_tabulate):
             matching_regions = regions.intersection(offset_axes._all_region_labels)
 
             # Axes do not match the current region set, this means that it is
@@ -232,15 +238,32 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 if i != j:
                     starts[j] = starts[j] + step_size
 
-    # if "functionspace0" in str(axis_tree) and "functionspace1" in str(axis_tree):
-    #     breakpoint()
+    # Construct the star forest for the axis tree
+    if to_tabulate:
+        # sf stuff
+        offset_sfs = []
+        for _, offset_dat, sizes, offset_pt_sf in to_tabulate:
+            # offset_dat maps pts in the offset_dat to offsets (obviously)
+            # and offset_sf maps local pts in the offset dat to remote ones
+            # we can use this to build a new sf mapping between offsets
+            section = PETSc.Section().create(comm=offset_pt_sf.comm)
+            section.setChart(0, offset_dat.axes.local_size)
+            for pt, off in enumerate(offset_dat.data_ro):
+                section.setDof(pt, sizes[pt])
+                section.setOffset(pt, off)
+
+            new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
+            offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
+
+        sf = pyop3.sf.StarForest.merge(offset_sfs)
+    else:
+        sf = pyop3.sf.NullStarForest(axis_tree.local_size)
 
     # Lastly 'freeze' the offset dats so they can no longer be modified
-    for _, offset_dat in to_tabulate:
-        object.__setattr__(offset_dat.buffer, "_constant", True)
-        offset_dat.buffer.get_array().flags.writeable = False
+    for _, offset_dat, _, _ in to_tabulate:
+        offset_dat.buffer.freeze()
 
-    return layouts
+    return layouts, sf
 
 
 def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate, tabulated, parent_axes) -> idict:
@@ -284,19 +307,46 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         if subtree_has_non_trivial_regions:
             assert layout_expr_acc == 0
             layout_expr_acc_ = 0
-            layouts[path_acc_] = NAN
+            layouts[path_acc_] = NaN()
 
         # At the bottom region - now can compute layouts involving all regions
         elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                offset_dat = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
+                offset_dat, steps = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
             else:
-                offset_dat = _tabulate_regions(offset_axes, 1, axis_tree.comm)
-            to_tabulate.append((offset_axes, offset_dat))
+                offset_dat, steps = _tabulate_regions(offset_axes, 1, axis_tree.comm)
+
+            # At this point we have a star forest that relates entries in a
+            # specific component to corresponding entries on other ranks. Since
+            # we are now moving to an offset-focused view of the world we need
+            # to transform this star forest to map between entries in 'offset_dat'.
+            # This is achieved simply by composing the component star forest with
+            # a section describing the number of unknowns for each component entry.
+            # The only complication is that the component carrying a star forest
+            # can be at any point in the tree, not necessarily at the root or leaf.
+
+            # Identify which axis (component) in the axes that we have seen is
+            # the one with a star forest
+            component_sf = None
+            component_sf_path = {}
+            for offset_axis in offset_axes.axes:
+                if offset_axis.component.sf is not None:
+                    component_sf = offset_axis.component.sf
+                    break
+                component_sf_path |= {offset_axis.label: offset_axis.component.label}
+            assert component_sf is not None
+
+            # Now get the section and build the new star forest. By default the
+            # section will drop values for all but the first region but here we
+            # don't want this to happen
+            component_sf_sec = offset_axes.regionless().section(component_sf_path)
+            offset_sf = component_sf.with_section(component_sf_sec)
+
+            to_tabulate.append((offset_axes, offset_dat, steps, offset_sf))
 
             assert layout_expr_acc == 0
-            layout_expr_acc_ = offset_dat.concretize()
+            layout_expr_acc_ = offset_dat.concretize(linear=True)
             layouts[path_acc_] = layout_expr_acc_
 
         # At leaves the layout function is trivial
@@ -326,7 +376,8 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
 @memory_cache(heavy=True)
 def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
-    from pyop3.expr.visitors import get_shape, replace
+    import pyop3.visitors
+    from pyop3.expr.visitors import get_shape
 
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
@@ -359,7 +410,7 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
 
     offset_dat = Dat.zeros(offset_axes.regionless(), dtype=IntType)
 
-    size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
+    size_expr_alt0 = pyop3.visitors.replace(size_expr, size_expr_loop_var_replace_map)
 
     if not outer_loop_tree.is_empty:
         ix = outer_loop_tree.iter()
@@ -369,26 +420,27 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
             for ax in ix.iterset.nodes
         }
 
-        size_expr_alt = replace(size_expr_alt0, axis_to_loop_var_replace_map)
+        size_expr_alt = pyop3.visitors.replace(size_expr_alt0, axis_to_loop_var_replace_map)
 
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
         loop_(
-            ix, exscan(assignee, size_expr_alt, "+", scan_axis, assignee.comm), eager=True
+            ix,
+            exscan(assignee, size_expr_alt, "+", scan_axis, assignee.comm),
+            eager=True
         )
 
     else:
-        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.comm, eager=True)
+        exscan(offset_dat.concretize(linear=True), size_expr, "+", linear_axis, offset_dat.comm, eager=True)
 
-    offset_expr = offset_dat.concretize()
+    offset_expr = offset_dat.concretize(linear=True)
 
     # more subst needed - replace the axes with loop indices...
     if not size_expr_loop_var_replace_map:
         return offset_expr
     else:
         invmap = utils.invert_mapping(size_expr_loop_var_replace_map)
-        retval = replace(offset_expr, invmap)
-        return retval
+        return pyop3.visitors.replace(offset_expr, invmap)
 
 
 # This gets the sizes right for a particular dat, then we merge them above
@@ -421,8 +473,6 @@ def _tabulate_regions(offset_axes, step, comm):
     ptr = 0
     for regions in offset_axes.region_sets:
         regioned_offset_axes = offset_axes.with_region_labels(regions).regionless()
-
-        # regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless())
 
         if not regioned_offset_axes.is_linear:
             raise NotImplementedError("Doesn't strictly have to be linear here")
@@ -457,4 +507,17 @@ def _tabulate_regions(offset_axes, step, comm):
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
-    return Dat(step_dat.axes, data=offsets)
+    # if "constrained" in offset_axes._all_region_labels:
+    #     unconstrained_step_dat = Dat.zeros_like(step_dat)
+    #     loop_(
+    #         i := offset_axes.with_region_label("constrained", allow_missing=True).iter(),
+    #         unconstrained_step_dat[i].assign(1),
+    #         eager=True,
+    #     )
+    #     masked = utils.just_one(np.nonzero(unconstrained_step_dat.data_ro == 1))
+    #     # breakpoint()
+    # else:
+    #     unconstrained_step_dat = step_dat
+    #     masked = np.empty(0, dtype=IntType)
+
+    return Dat(step_dat.axes, data=offsets), step_dat.data_ro

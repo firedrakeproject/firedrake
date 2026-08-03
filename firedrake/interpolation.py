@@ -670,6 +670,7 @@ class CrossMeshInterpolator(Interpolator):
                 assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
+                    f.dat.buffer.sync_roots()
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
                     f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
                 else:
@@ -783,7 +784,7 @@ class SameMeshInterpolator(Interpolator):
         loop_index = self.target_mesh.iter("cell")
         op3.loop(
             c := loop_index,
-            pack(sparsity, Vrow, Vcol, loop_index).assign(666),
+            pack(sparsity, loop_index, Vrow, Vcol).assign(666),
             eager=True,
         )
         return sparsity
@@ -850,8 +851,12 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            indices = tuple(self.ufl_interpolate.function_space().field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
-            sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
+            if self.rank == 1:
+                # indices[0] is None if the target space is not a MixedFunctionSpace
+                index = Ellipsis if indices[0] is None else self.ufl_interpolate.function_space().field_axis.component_labels[indices[0]]
+                sub_op2_tensor = op2_tensor[index]
+            else:
+                sub_op2_tensor = op2_tensor
             loops.extend(_build_interpolation_callables(
                 sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
 
@@ -864,7 +869,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data_ro.item()
+                return float(f)
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
@@ -988,8 +993,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
@@ -1152,11 +1158,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack(tensor, V_dest, loop_index)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack(tensor, V_dest, loop_index)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1174,7 +1180,7 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
 
-        packed_tensor = pack(tensor, Vrow, Vcol, loop_index)
+        packed_tensor = pack(tensor, loop_index, Vrow, Vcol)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:

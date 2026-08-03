@@ -280,7 +280,7 @@ def test_function_riesz_representation_l2_dat_version(V):
     assert f.dat.dat_version == version
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_function_assign_mixed_subset_3_quads_2_processes():
     # mesh
     # rank 0:
@@ -314,11 +314,14 @@ def test_function_assign_mixed_subset_3_quads_2_processes():
     cg1.interpolate(x)
     cg3.interpolate(x)
     # Include closure of the right-most cell.
-    subset_cg1_indices = np.where(cg1.dat.data_ro_with_halos[:, 0] > 1.999)
-    subset_cg3_indices = np.where(cg3.dat.data_ro_with_halos[:, 0] > 1.999)
-    subset_cg1 = op2.Subset(CG1.node_set, subset_cg1_indices)
-    subset_cg3 = op2.Subset(CG3.node_set, subset_cg3_indices)
-    subset = op2.MixedSet([subset_cg1, subset_cg3])
+    subset_cg1_indices = np.flatnonzero(cg1.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset_cg3_indices = np.flatnonzero(cg3.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset = op3.IndexTree.from_nest({
+        op3.Slice("field", V._labels): [
+            op3.Slice("nodes", {None: subset_cg1_indices}),
+            op3.Slice("nodes", {None: subset_cg3_indices}),
+        ]
+    })
     f = Function(V)
     c = Constant(7.)
     f.assign(c)

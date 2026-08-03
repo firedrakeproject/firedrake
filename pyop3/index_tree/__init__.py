@@ -1,18 +1,17 @@
+from .apply import index_axes  # noqa: F401
 from .tree import (  # noqa: F401
     AffineSliceComponent,
-    RegionSliceComponent,
     CalledMap,
     Index,
-    ScalarIndex,
-    index_axes,
     IndexTree,
     LoopIndex,
     Map,
+    RegionSliceComponent,
+    ScalarIndex,
     ScalarMap,
     Slice,
     SliceComponent,
-    Subset,
     SubsetSliceComponent,
     TabulatedMapComponent,
-    as_slice,
+    LoopContextSensitive,
 )

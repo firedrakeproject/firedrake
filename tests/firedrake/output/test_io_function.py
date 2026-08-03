@@ -238,13 +238,12 @@ def test_io_function_real(cell_type, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_tuples', [("triangle", (("BDMF", 4), ("DP", 3))),
-                                                       ("tetrahedra", (("P", 2), ("DP", 1))),
-                                                       ("tetrahedra", (("N1E", 2), ("DP", 1))),
-                                                       ("quadrilateral", (("Q", 4), ("DQ", 3))),
-                                                       ("quadrilateral", (("RTCF", 3), ("DQ", 2)))])
-def test_io_function_mixed(cell_family_degree_tuples, tmpdir):
-    cell_type, family_degree_tuples = cell_family_degree_tuples
+@pytest.mark.parametrize('cell_type,family_degree_tuples', [("triangle", (("BDMF", 4), ("DP", 3))),
+                                                            ("tetrahedra", (("P", 2), ("DP", 1))),
+                                                            ("tetrahedra", (("N1E", 2), ("DP", 1))),
+                                                            ("quadrilateral", (("Q", 4), ("DQ", 3))),
+                                                            ("quadrilateral", (("RTCF", 3), ("DQ", 2)))])
+def test_io_function_mixed(cell_type, family_degree_tuples, tmpdir):
     filename = join(str(tmpdir), "test_io_function_mixed_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)
@@ -268,10 +267,9 @@ def test_io_function_mixed(cell_family_degree_tuples, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_tuples', [("triangle", (("BDME", 4), ("Real", 0))),
-                                                       ("quadrilateral", (("RTCF", 3), ("Real", 0)))])
-def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
-    cell_type, family_degree_tuples = cell_family_degree_tuples
+@pytest.mark.parametrize('cell_type,family_degree_tuples', [("triangle", (("BDME", 4), ("Real", 0))),
+                                                            ("quadrilateral", (("RTCF", 3), ("Real", 0)))])
+def test_io_function_mixed_real(cell_type, family_degree_tuples, tmpdir):
     filename = join(str(tmpdir), "test_io_function_mixed_real_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)
@@ -307,17 +305,16 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_dim', [("triangle", "RTE", 3, 3),
-                                                    ("triangle", "RTF", 3, 4),
-                                                    ("tetrahedra", "P", 2, 3),
-                                                    ("tetrahedra", "N1E", 4, 3),
-                                                    ("tetrahedra", "N1F", 3, 4),
-                                                    ("quadrilateral", "Q", 4, 5),
-                                                    ("quadrilateral", "RTCE", 3, 4),
-                                                    ("quadrilateral", "RTCF", 3, 3),
-                                                    ("quadrilateral", "DPC", 5, 3)])
-def test_io_function_vector(cell_family_degree_dim, tmpdir):
-    cell_type, family, degree, vector_dim = cell_family_degree_dim
+@pytest.mark.parametrize('cell_type,family,degree,vector_dim', [("triangle", "RTE", 3, 3),
+                                                                ("triangle", "RTF", 3, 4),
+                                                                ("tetrahedra", "P", 2, 3),
+                                                                ("tetrahedra", "N1E", 4, 3),
+                                                                ("tetrahedra", "N1F", 3, 4),
+                                                                ("quadrilateral", "Q", 4, 5),
+                                                                ("quadrilateral", "RTCE", 3, 4),
+                                                                ("quadrilateral", "RTCF", 3, 3),
+                                                                ("quadrilateral", "DPC", 5, 3)])
+def test_io_function_vector(cell_type, family, degree, vector_dim, tmpdir):
     filename = join(str(tmpdir), "test_io_function_vector_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)
@@ -338,12 +335,11 @@ def test_io_function_vector(cell_family_degree_dim, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_shape_symmetry', [("triangle", "P", 3, (3, 4), None),
-                                                               ("tetrahedra", "P", 4, (3, 4), None),
-                                                               ("quadrilateral", "Q", 4, (2, 4), None),
-                                                               ("quadrilateral", "Q", 3, (3, 3), True)])
-def test_io_function_tensor(cell_family_degree_shape_symmetry, tmpdir):
-    cell_type, family, degree, shape, symmetry = cell_family_degree_shape_symmetry
+@pytest.mark.parametrize('cell_type,family,degree,shape,symmetry', [("triangle", "P", 3, (3, 4), None),
+                                                                    ("tetrahedra", "P", 4, (3, 4), None),
+                                                                    ("quadrilateral", "Q", 4, (2, 4), None),
+                                                                    ("quadrilateral", "Q", 3, (3, 3), True)])
+def test_io_function_tensor(cell_type, family, degree, shape, symmetry, tmpdir):
     filename = join(str(tmpdir), "test_io_function_tensor_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)
@@ -400,10 +396,9 @@ def test_io_function_mixed_vector(cell_type, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_vfamily_vdegree', [("triangle", "BDMF", 2, "DG", 1),
-                                                                ("quadrilateral", "RTCF", 2, "DG", 1)])
-def test_io_function_extrusion(cell_family_degree_vfamily_vdegree, tmpdir):
-    cell_type, family, degree, vfamily, vdegree = cell_family_degree_vfamily_vdegree
+@pytest.mark.parametrize('cell_type,family,degree,vfamily,vdegree', [("triangle", "BDMF", 2, "DG", 1),
+                                                                     ("quadrilateral", "RTCF", 2, "DG", 1)])
+def test_io_function_extrusion(cell_type, family, degree, vfamily, vdegree, tmpdir):
     filename = join(str(tmpdir), "test_io_function_extrusion_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     mesh = _get_mesh(cell_type, COMM_WORLD)
@@ -428,10 +423,9 @@ def test_io_function_extrusion(cell_family_degree_vfamily_vdegree, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree', [("triangle", "P", 4),
-                                                ("quadrilateral", "Q", 4)])
-def test_io_function_extrusion_real(cell_family_degree, tmpdir):
-    cell_type, family, degree = cell_family_degree
+@pytest.mark.parametrize('cell_type,family,degree', [("triangle", "P", 4),
+                                                     ("quadrilateral", "Q", 4)])
+def test_io_function_extrusion_real(cell_type, family, degree, tmpdir):
     filename = join(str(tmpdir), "test_io_function_extrusion_real_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     mesh = _get_mesh(cell_type, COMM_WORLD)
@@ -453,10 +447,9 @@ def test_io_function_extrusion_real(cell_family_degree, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree_dim', [("triangle", "P", 4, 5),
-                                                    ("quadrilateral", "Q", 4, 7)])
-def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
-    cell_type, family, degree, dim = cell_family_degree_dim
+@pytest.mark.parametrize('cell_type,family,degree,dim', [("triangle", "P", 4, 5),
+                                                         ("quadrilateral", "Q", 4, 7)])
+def test_io_function_vector_extrusion_real(cell_type, family, degree, dim, tmpdir):
     filename = join(str(tmpdir), "test_io_function_vector_extrusion_real_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     mesh = _get_mesh(cell_type, COMM_WORLD)
@@ -478,12 +471,11 @@ def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('cell_family_degree_dim', [
+@pytest.mark.parametrize('cell_type,family0,degree0,dim0,family1,degree1,vfamily1,vdegree1,dim1', [
     ("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2),
     ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)
 ])
-def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir):
-    cell_type, family0, degree0, dim0, family1, degree1, vfamily1, vdegree1, dim1 = cell_family_degree_dim
+def test_io_function_mixed_vector_extrusion_real(cell_type, family0, degree0, dim0, family1, degree1, vfamily1, vdegree1, dim1, tmpdir):
     filename = join(str(tmpdir), "test_io_function_mixed_vector_extrusion_real_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     mesh = _get_mesh(cell_type, COMM_WORLD)
@@ -556,10 +548,9 @@ def test_io_function_extrusion_periodic(tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize("cell_family_degree", [("triangle", "P", 1),
-                                                ("quadrilateral", "Q", 1)])
-def test_io_function_naming(cell_family_degree, tmpdir):
-    cell_type, family, degree = cell_family_degree
+@pytest.mark.parametrize("cell_type,family,degree", [("triangle", "P", 1),
+                                                     ("quadrilateral", "Q", 1)])
+def test_io_function_naming(cell_type, family, degree, tmpdir):
     filename = join(str(tmpdir), "test_io_function_naming.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     meshA = _get_mesh(cell_type, COMM_WORLD)
