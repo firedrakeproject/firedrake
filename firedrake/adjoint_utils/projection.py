@@ -3,6 +3,25 @@ from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
 
 
+def annotate_project(project):
+    """
+    A wrapper for the bare project() call to handle
+    switching annotation on/off without dispatching
+    into all the types of projectors.
+    """
+
+    @wraps(project)
+    def wrapper(*args, **kwargs):
+        annotate = annotate_tape(kwargs)
+        if annotate:
+            return project(*args, **kwargs)
+
+        with stop_annotating():
+            return project(*args, **kwargs)
+
+    return wrapper
+
+
 def annotate_super_project(project):
     """
     A wrapper for SupermeshProjector.project(), only handles
