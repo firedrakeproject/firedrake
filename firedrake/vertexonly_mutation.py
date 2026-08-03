@@ -13,7 +13,7 @@ class VertexOnlyMeshMutator:
         self.vom = vom
         self.parent_mesh = self.vom._parent_mesh
 
-        if not isinstance(self.vom, VertexOnlyMeshTopology):
+        if not isinstance(self.vom.topology, VertexOnlyMeshTopology):
             raise TypeError(
             "The VertexOnlyMeshMutator requires a mesh with a VertexOnlyMeshTopology."
         )

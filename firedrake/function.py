@@ -324,7 +324,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         current_mesh_version = self._mesh_topology._topology_version
 
-        if current_mesh_version != self.self._mesh_topology_version:
+        if current_mesh_version != self._mesh_topology_version:
             self._rebuild_function(current_mesh_version)
 
     def _rebuild_function(self, current_version):
