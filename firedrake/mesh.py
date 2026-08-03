@@ -5274,6 +5274,10 @@ class MeshSequenceTopology:
         This is to ensure consistent naming for some multigrid codes."""
         return self
 
+    @property
+    def _topology_version(self):
+        return tuple(mesh._topology_version for mesh in self._meshes)
+
     def ufl_cell(self):
         return CellSequence([m.ufl_cell() for m in self._meshes])
 
