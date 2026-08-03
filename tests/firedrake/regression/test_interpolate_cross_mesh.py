@@ -767,7 +767,7 @@ def test_interpolate_mixed_expr(rank):
     x2, y2 = SpatialCoordinate(mesh2)
     expr1 = x1 + y1
     expr2 = x2 - y2
-    expr = as_vector([expr1, expr2])
+    expr = as_vector([expr2, expr1])
 
     V = FunctionSpace(mesh1, "CG", 1)
     U = FunctionSpace(mesh2, "CG", 2)
@@ -775,8 +775,8 @@ def test_interpolate_mixed_expr(rank):
 
     if rank == 1:
         result = assemble(interpolate(expr, W))
-        expected1 = assemble(interpolate(expr1, V))
-        expected2 = assemble(interpolate(expr2, U))
+        expected1 = assemble(interpolate(expr2, V))
+        expected2 = assemble(interpolate(expr1, U))
 
         assert np.allclose(result.subfunctions[0].dat.data_ro, expected1.dat.data_ro)
         assert np.allclose(result.subfunctions[1].dat.data_ro, expected2.dat.data_ro)
