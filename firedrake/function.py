@@ -348,11 +348,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         # First get the SF mapping from current mesh to the mesh at the time the Function was created
         # Then check if we need to chain multiple one-step SFs (this happens when the Function was created on a VOM topology
         # that's more than one version behind).
-        if current_version - self.self._mesh_topology_version > 1:
+        if current_version - self._mesh_topology_version > 1:
             # Compose multiple one-step SFs
             chained_sf = latest_topology_step_sf  # starts from latest V -> V-1
             # Iterate backwards through the intermediate versions
-            for v in range(current_version-1, self.self._mesh_topology_version, -1):
+            for v in range(current_version-1, self._mesh_topology_version, -1):
                 step_sf = self._mesh_topology._topology_step_sfs.get(v, None)  # maps V-1 -> V-2
                 if step_sf is None:
                     raise FunctionMigrationError(
@@ -377,7 +377,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._expression_cache.clear()
 
         # Update the mesh topology version stored on the function
-        self.self._mesh_topology_version = current_version
+        self._mesh_topology_version = current_version
 
     def __dir__(self):
         current = super(Function, self).__dir__()
