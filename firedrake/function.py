@@ -9,7 +9,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
 from numbers import Number
 from functools import partial, cached_property
@@ -20,11 +20,10 @@ from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes
+from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c
 
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
-from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
@@ -37,9 +36,9 @@ __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
-                ("extruded", c_int),
-                ("n_layers", c_int),
+    _fields_ = [("n_cols", as_ctypes(IntType)),
+                ("extruded", c_bool),
+                ("n_layers", as_ctypes(IntType)),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
@@ -75,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = utils._new_uid(self.comm)
+        self.uid = _new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -564,7 +563,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        coord = np.asarray(coord, dtype=utils.ScalarType)
+        coord = np.asarray(coord, dtype=ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
@@ -602,8 +601,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
-        if utils.complex_mode:
+        arg = np.asarray(arg, dtype=ScalarType)
+        if complex_mode:
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
@@ -652,6 +651,10 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+            elif err == -2:
+                raise RuntimeError("Rtree query failed.")
+            elif err != 0:
+                raise RuntimeError(f"C point evaluator failed with error code {err}")
 
         if not len(arg.shape) <= 2:
             raise ValueError("Function.at expects point or array of points.")
@@ -734,7 +737,7 @@ class PointEvaluator:
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks. Default is True.
         """
-        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.points = np.asarray(points, dtype=ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
         gdim = mesh.geometric_dimension
@@ -743,13 +746,20 @@ class PointEvaluator:
         self.points = self.points.reshape(-1, gdim)
 
         self.mesh = mesh
-
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
-        self.tolerance = tolerance
-        self.vom = VertexOnlyMesh(
-            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
-            redundant=redundant, tolerance=tolerance
+        if tolerance is not None:
+            mesh.tolerance = tolerance
+
+    @cached_property_until(
+        lambda self: (self.mesh.coordinates.dat.dat_version, self.mesh.tolerance)
+    )
+    def vom(self) -> MeshGeometry:
+        """The VOM used for point evaluation. This is cached until the mesh coordinates or tolerance change."""
+        # We invalidate when the parent mesh moves until https://github.com/firedrakeproject/firedrake/issues/4540 is fixed.
+        return VertexOnlyMesh(
+            self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+            redundant=self.redundant, tolerance=None
         )
 
     def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
@@ -787,19 +797,8 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh().unique()
-        if function_mesh is not self.mesh:
+        if function.function_space().mesh().unique() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
-            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
-            self.mesh = function_mesh
-        if tol_changed := self.mesh.tolerance != self.tolerance:
-            self.tolerance = self.mesh.tolerance
-        if coord_changed or tol_changed:
-            self.vom = VertexOnlyMesh(
-                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
-                redundant=self.redundant, tolerance=self.tolerance
-            )
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
@@ -823,7 +822,7 @@ class PointEvaluator:
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
-                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+                result = np.empty((len(self.points),) + shape, dtype=ScalarType)
             self.mesh.comm.Bcast(result)
         return result
 
@@ -851,7 +850,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     arg = function.dat(op2.READ, function.cell_node_map())
     args.append(arg)
 
-    p_ScalarType_c = f"{utils.ScalarType_c}*"
+    p_ScalarType_c = f"{ScalarType_c}*"
     src.append(generate_single_cell_wrapper(mesh.cell_set, args,
                                             forward_args=[p_ScalarType_c,
                                                           p_ScalarType_c],

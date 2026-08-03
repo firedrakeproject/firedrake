@@ -244,7 +244,7 @@ def NetgenHierarchy(mesh, levs, flags,
     order = flags.get("degree", 1)
     if isinstance(order, int):
         order = [order]*(levs+1)
-    permutation_tol = flags.get("permutation_tol", 1e-8)
+    permutation_tol = flags.get("permutation_tol", None)
     refType = flags.get("refinement_type", "uniform")
     optMoves = flags.get("optimisation_moves", False)
     snap = flags.get("snap_to", "geometry")
@@ -288,8 +288,9 @@ def NetgenHierarchy(mesh, levs, flags,
             label = cdm.getLabel("temp_label")
             label.setStratumIS(1, iset)
 
-        rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        cdm = rdm
+        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
+        # it first to keep an unoverlapped dm for the next refinement.
+        cdm = rdm.clone()
 
         if coarse_facet_label is not None:
             # Move coarse_facet_label into FACE_SETS_LABEL
@@ -370,5 +371,6 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh._did_reordering = mesh._did_reordering
     tmesh.netgen_mesh = mesh.netgen_mesh
     tmesh.netgen_flags = mesh.netgen_flags
+    tmesh.sfBC = mesh.sfBC
     tmesh.sfBC_orig = mesh.sfBC_orig
     return tmesh
