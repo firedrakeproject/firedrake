@@ -133,4 +133,4 @@ def test_submesh_facet_all_facets():
     facet_value = 999
     rmesh = RelabeledMesh(mesh, [facet_function], [facet_value])
     submesh2 = Submesh(rmesh, mesh.topological_dimension - 1, facet_value)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size

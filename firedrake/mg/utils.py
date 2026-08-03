@@ -148,12 +148,12 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         iterset = Vc.mesh().cells.owned
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
-        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().cells.local_size, arity), -1, dtype=IntType)
+        values = numpy.full((iterset.local_size, ncell, fine_per_cell), -1, dtype=IntType)
+        owned_coarse_to_fine = coarse_to_fine[:iterset.local_size, :]
         valid = owned_coarse_to_fine >= 0
-        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
-        values = values.reshape(iterset.size, arity)
+        values[valid, :] = Vf.cell_node_list[owned_coarse_to_fine[valid], :]
+        values = values.reshape(iterset.local_size, arity)
 
         coarse_to_fine_nodes[:iterset.local_size, :] = values
 

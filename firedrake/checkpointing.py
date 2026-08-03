@@ -808,9 +808,9 @@ class CheckpointFile:
                     # plex cone ordering).
                     # This can be done by flipping values (0 <-> 1) for cells for which "reflection" have been
                     # introduced relative to orientation 0.
-                    canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cell_set.size])
+                    canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cells.owned.local_size])
                     o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
-                    reflected = o_r_map[tmesh.entity_orientations[:tmesh.cell_set.size, -1]]
+                    reflected = o_r_map[tmesh.entity_orientations[:tmesh.cells.owned.local_size, -1]]
                     reflected_indices = (reflected == 1)
                     canonical_cell_orientations[reflected_indices] = 1 - canonical_cell_orientations[reflected_indices]
                     cell_orientations_iset = PETSc.IS().createGeneral(canonical_cell_orientations, comm=tmesh.comm)

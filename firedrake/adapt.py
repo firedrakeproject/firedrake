@@ -26,7 +26,7 @@ ADAPT_LABEL = "_adaptive_dmplex_adapt"
 def _adapt_marked_cells(mesh, cell_marker):
     """Refine the cells of ``mesh`` marked by ``cell_marker`` and return the refined DMPlex."""
     dm = mesh.topology_dm
-    ncoarse = mesh.cell_set.size
+    ncoarse = mesh.cells.owned.local_size
 
     dm.createLabel(ADAPT_LABEL)
     adapt_label = dm.getLabel(ADAPT_LABEL)
@@ -99,7 +99,9 @@ def refine_marked_elements(mesh, cell_marker):
     num_refinements = max(int(np.rint(num_refinements)), 1)
 
     coarse_dm = mesh.topology_dm
-    impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, PARENT_LABEL)
+    impl.set_adaptive_parent_label(
+        coarse_dm, mesh.cells.owned.local_size, mesh._cell_numbering, PARENT_LABEL
+    )
 
     current_mesh = mesh
     current_mark = cell_marker
@@ -115,7 +117,12 @@ def refine_marked_elements(mesh, cell_marker):
                 tolerance=mesh.tolerance,
             )
             coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
-                coarse_dm, new_dm, current_mesh._cell_numbering, PARENT_LABEL
+                coarse_dm,
+                mesh.cells.owned.local_size,
+                new_dm,
+                current_mesh.cells.owned.local_size,
+                current_mesh._cell_numbering,
+                PARENT_LABEL,
             )
             if ref < num_refinements - 1:
                 # A cell asking for n refinements stays marked until n rounds

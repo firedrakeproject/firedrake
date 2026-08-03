@@ -720,14 +720,14 @@ def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
 
 
 @get_shape.register
-def _(dat: pyop3.expr.Dat, /) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike]:
+def _(dat: pyop3.expr.Dat, /):
     return (dat.axes,)
 
 
 @get_shape.register
 def _(
     mat: pyop3.expr.Mat, /
-) -> tuple[pyop3.axis_tree.AbstractAxisTreeLike, pyop3.axis_tree.AbstractAxisTreeLike]:
+):
     return (mat.row_axes, mat.column_axes)
 
 

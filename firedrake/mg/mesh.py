@@ -494,7 +494,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
                            gdim=gdim)
               for layer in layers]
     refinements_per_level = 1
-    identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)
+    identity = np.arange(base_mesh.cells.owned.local_size, dtype=IntType).reshape(-1, 1)
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), identity)
                                 for i in range(nref))
     fine_to_coarse_cells = dict((Fraction(i+1, refinements_per_level), identity)

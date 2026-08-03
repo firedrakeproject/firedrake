@@ -33,7 +33,6 @@ from pyop3.utils import just_one, single_valued
 from pyop3.cache import cached_on, with_heavy_caches, cached_method
 from pyop3.device import on_host
 from finat.quadrature import QuadratureRule
-import pyop3.debug
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
@@ -801,7 +800,6 @@ class AbstractFunctionSpace:
         return self.section
 
     @cached_property
-    @deprecated("axes.template_vec")
     def template_vec(self):
         if is_mixed(self):
             block_shape = ()
