@@ -1570,7 +1570,7 @@ class FunctionSpace(AbstractFunctionSpace):
         )
 
     def __hash__(self):
-        return hash((self.mesh(), self.ufl_element(), self.index, self.component))
+        return hash((self.mesh(), self.ufl_element()))
 
     @cached_property
     def _ad_parent_space(self):

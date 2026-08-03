@@ -410,7 +410,10 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
     # temporary. Note that we expand literals at a later point, which is silly.
     # We should do this together.
     if (
-        isinstance(bare_assignee.buffer, PetscMatBuffer)
+        # FIXME: only here because some things have a 'buffer_view' and others
+        # a 'buffer'
+        hasattr(bare_assignee, "buffer")
+        and isinstance(bare_assignee.buffer, PetscMatBuffer)
         and isinstance(bare_expression, Mat)
         and not all(
             isinstance(t, pyop3.axis_tree.AbstractUnindexedAxisTree)

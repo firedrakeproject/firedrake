@@ -369,23 +369,34 @@ class InstructionExecutionContext:
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         utils.raise_missing_dispatch_handler(arg)
 
-    @_extract_buffers.register(pyop3.expr.Scalar)
-    @_extract_buffers.register(pyop3.expr.Dat)
-    @_extract_buffers.register(pyop3.expr.ScalarBufferExpression)
-    @_extract_buffers.register(pyop3.expr.LinearDatBufferExpression)
     @_extract_buffers.register(pyop3.expr.OpaqueTerminal)
     def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        return (expr.buffer,)
+
+    @_extract_buffers.register(pyop3.expr.ScalarBufferExpression)
+    @_extract_buffers.register(pyop3.expr.LinearDatBufferExpression)
+    def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        if expr.buffer_view.nest_indices is not None:
+            raise NotImplementedError(
+                "Extracting nested buffers that aren't PETSc MATNESTS not yet supported"
+            )
+        return (expr.buffer_view.buffer,)
+
+    @_extract_buffers.register(pyop3.expr.Scalar)
+    @_extract_buffers.register(pyop3.expr.Dat)
+    def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        if expr.buffer.nest_shape() is not None:
+            raise NotImplementedError(
+                "Extracting nested buffers that aren't PETSc MATNESTS not yet supported"
+            )
         return (expr.buffer,)
 
     # NOTE: This applies generally to other nested things
     @_extract_buffers.register(pyop3.expr.Mat)
     def _(self, mat: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        buffer = mat.buffer
-        if buffer.is_nested:
-            try:
-                nest_indices = utils.just_one(mat.nest_indices)
-            except ValueError:
-                raise NotImplementedError("Recursively nested MATNESTs not supported")
+        breakpoint()
+        if mat.buffer.nest_shape() is not None:
+            row_indices, column_indices = mat.buffer.nest_shape()
             buffer = buffer.restrict_nest(*nest_indices)
 
         if (

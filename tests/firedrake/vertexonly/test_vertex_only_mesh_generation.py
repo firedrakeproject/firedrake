@@ -176,7 +176,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.num_facets == 0
     assert vm.num_faces == vm.num_entities(2) == 0
     assert vm.num_edges == vm.num_entities(1) == 0
-    assert vm.num_vertices == vm.num_entities(0) == vm.num_cells()
+    assert vm.num_vertices() == vm.num_entities(0) == vm.num_cells()
     # Correct parent cell numbers
     stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
     vm.topology_dm.restoreField("DMSwarmPIC_coor")

@@ -14,6 +14,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.axis_tree
+import pyop3.buffer
 import pyop3.config
 import pyop3.exceptions
 import pyop3.expr
@@ -374,6 +375,9 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.Scal
 
 @concretize_layouts.register(pyop3.expr.Dat)
 def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AbstractNonUnitAxisTree]) -> pyop3.expr.DatBufferExpression:
+    if dat.buffer.nest_shape() is not None:
+        raise NotImplementedError("Dats wrapping nested buffers are not yet supported")
+
     axis_tree = utils.just_one(axis_trees)
 
     # the expression needn't exactly match the shape of the assignee, what matters
@@ -390,58 +394,120 @@ def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AbstractNonUnitAxisTree]) -> 
     else:
         raise pyop3.exceptions.IncompatibleAxisTargetException("No suitable axis tree candidates found")
 
+    ibuffer = pyop3.expr.IndexedBuffer(dat.buffer, None)
     if axis_tree.is_linear:
         layout = subst_layouts[axis_tree.leaf_path]
-        expr = pyop3.expr.LinearDatBufferExpression(dat.buffer, layout)
+        return pyop3.expr.LinearDatBufferExpression(ibuffer, layout)
     else:
         layouts = idict({leaf_path: subst_layouts[leaf_path] for leaf_path in axis_tree.leaf_paths})
-        expr = pyop3.expr.NonlinearDatBufferExpression(dat.buffer, layouts)
-    return concretize_layouts(expr, axis_trees)
+        return pyop3.expr.NonlinearDatBufferExpression(ibuffer, layouts)
+
+
+def _explode_nest(buffer, row_axes, column_axes, row_indices=(), column_indices=()):
+    if not buffer.nest_shape(row_indices, column_indices):
+        # Is the buffer actually a nested data structure? If it isn't then we
+        # don't have to recurse.
+        return (_buffer_expression(buffer, row_axes, column_axes, row_indices, column_indices),)
+    if row_axes.nest_indices:
+        # De-nest all row indices before all column indices. It is possible
+        # to index only the rows/columns of a nested matrix and need to still
+        # emit instructions for each nest index of the columns/rows.
+        row_index, *_ = row_axes.nest_indices
+        row_label, *_ = row_axes.nest_labels
+        return _explode_nest(
+            row_axes[row_label],
+            column_axes,
+            row_indices+(row_index,),
+            column_indices,
+        )
+    elif column_axes.nest_indices:
+        column_index, *_ = column_axes.nest_indices
+        column_label, *_ = column_axes.nest_labels
+        return _explode_nest(
+            row_axes,
+            column_axes[column_label],
+            row_indices,
+            column_indices+(column_index,),
+        )
+    else:
+        # We have run out of nest indices but the data structure is still
+        # nested. We therefore need to emit multiple instructions.
+        exprs = []
+        nrows, ncols = buffer.nest_shape(row_indices, column_indices)
+        for ridx in range(nrows):
+            row_label = row_axes.root.components[ridx]
+            row_subaxes = row_axes[row_label]
+            for cidx in range(ncols):
+                column_label = column_axes.root.components[cidx]
+                column_subaxes = column_axes[column_label]
+                subexprs = _explode_nest(
+                    row_subaxes,
+                    column_subaxes,
+                    row_indices+(ridx,),
+                    column_indices+(cidx,),
+                )
+                exprs.extend(subexprs)
+        return tuple(exprs)
+
+
+@functools.singledispatch
+def _buffer_expression(*args, **kwargs):
+    raise NotImplementedError
+
+
+@_buffer_expression.register
+def _(buffer: pyop3.buffer.PetscMatBuffer, row_axes, column_axes, row_indices, column_indices):
+    if buffer.mat.type == PETSc.Mat.Type.PYTHON:
+        context = buffer.mat.getPythonContext()
+        if context.mode == "row":
+            if row_axes.size != 1:
+                raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
+            row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
+            column_layouts = column_axes.leaf_subst_layouts
+        else:
+            assert context.mode == "column"
+            if column_axes.size != 1:
+                raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
+            row_layouts = row_axes.leaf_subst_layouts
+            column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
+        ibuffer = pyop3.expr.IndexedBuffer(buffer, (row_indices, column_indices))
+        return pyop3.expr.MatArrayBufferExpression(ibuffer, row_layouts, column_layouts)
+
+    else:
+        ibuffer = pyop3.expr.IndexedBuffer(buffer, (row_indices, column_indices))
+        layouts = []
+        for axis_tree in [row_axes, column_axes]:
+            symdat = pyop3.expr.CompositeDat(
+                axis_tree.materialize().regionless(),
+                axis_tree.subst_layouts(),
+            )
+            layout = materialize_composite_dat(symdat, comm=buffer.comm, linear=False)
+            layouts.append(layout)
+        row_layout, column_layout = layouts
+        return pyop3.expr.MatPetscMatBufferExpression(ibuffer, row_layout, column_layout)
+
+
+@_buffer_expression.register
+def _(buffer: pyop3.buffer.ArrayBuffer, row_axes, column_axes, row_indices, column_indices):
+    row_layouts = row_axes.leaf_subst_layouts
+    column_layouts = column_axes.leaf_subst_layouts
+    return pyop3.expr.MatArrayBufferExpression(buffer, row_layouts, column_layouts)
 
 
 @concretize_layouts.register(pyop3.expr.Mat)
 def _(mat: pyop3.expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.BufferExpression:
     buffer = mat.buffer
-    nest_indices = ()
+    nest_indices = None
     row_axes = matching_axis_tree(mat.row_axes, axis_trees[0])
     column_axes = matching_axis_tree(mat.column_axes, axis_trees[1])
-    if buffer.is_nested:
-        if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
-            raise NotImplementedError
 
-        row_label = utils.just_one(row_axes.nest_labels)
-        row_index = utils.just_one(row_axes.nest_indices)
-        column_label = utils.just_one(column_axes.nest_labels)
-        column_index = utils.just_one(column_axes.nest_indices)
-        nest_indices = ((row_index, column_index),)
-        row_axes = row_axes.restrict_nest(row_label)
-        column_axes = column_axes.restrict_nest(column_label)
-
-        buffer = buffer.restrict_nest(row_index, column_index)
-
-    if isinstance(buffer, PetscMatBuffer):
-        if buffer.mat.type == PETSc.Mat.Type.PYTHON:
-            context = buffer.mat.getPythonContext()
-            if context.mode == "row":
-                if row_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
-                row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
-                column_layouts = column_axes.leaf_subst_layouts
-            else:
-                assert context.mode == "column"
-                if column_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
-                row_layouts = row_axes.leaf_subst_layouts
-                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
-            mat_expr = pyop3.expr.MatArrayBufferExpression(context.buffer, row_layouts, column_layouts)
-        else:
-            mat_expr = pyop3.expr.MatPetscMatBufferExpression.from_axis_trees(buffer, row_axes, column_axes)
-    else:
-        row_layouts = row_axes.leaf_subst_layouts
-        column_layouts = column_axes.leaf_subst_layouts
-        mat_expr = pyop3.expr.MatArrayBufferExpression(buffer, row_layouts, column_layouts)
-
-    return concretize_layouts(mat_expr, axis_trees)
+    # Explode any nested data structures here. This can happen in two ways:
+    # 1. The nest index is known in advance and so we can emit a single
+    #    instruction using the indexed buffer.
+    # 2. The nest index is not specified. This is equivalent to having an
+    #    aggregate type where an instruction has to be emitted for each
+    #    possible nest index.
+    return _explode_nest(buffer, row_axes, column_axes)
 
 
 @concretize_layouts.register(pyop3.expr.BufferExpression)

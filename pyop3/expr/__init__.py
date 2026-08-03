@@ -31,6 +31,7 @@ from .base import (  # noqa: F401
 from .buffer import (  # noqa: F401
         BufferExpression,
         DatBufferExpression,
+        IndexedBuffer,
         LinearBufferExpression,
         LinearDatBufferExpression,
         MatArrayBufferExpression,

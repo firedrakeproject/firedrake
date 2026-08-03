@@ -9,6 +9,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
+import pyop3.buffer
 import pyop3.record
 from pyop3 import utils
 from pyop3.buffer import AbstractBuffer
@@ -19,29 +20,47 @@ from .base import Expression, as_str
 from .tensor import CompositeDat, Dat, Scalar
 
 
+@pyop3.record.frozenrecord()
+class IndexedBuffer(pyop3.obj.Object):
+    """Class collecting buffer and nest information.
+
+    This class is important during code generation because we want to emit
+    code that matches the wrapped, non-nested types, but we still want to
+    be able to refer to the actual buffer data structure.
+
+    """
+    buffer: AbstractBuffer
+    nest_indices: tuple[tuple[int, ...], ...] | None
+
+    def collect_buffers(self, visitor):
+        return visitor(self.buffer)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.buffer), self.nest_indices)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
-    # {{{ abstract methods
+    __abstract_record_attrs = ("buffer_view",)
 
-    @property
-    @abc.abstractmethod
-    def buffer(self) -> AbstractBuffer:
-        pass
-
-    # }}}
+    def __record_post_init(self):
+        assert isinstance(self.buffer_view, IndexedBuffer), "old API"
 
     @property
     def name(self) -> str:
-        return self.buffer.name
+        return self.buffer_view.name
 
     @property
     def dtype(self) -> np.dtype:
-        return self.buffer.dtype
+        return self.buffer_view.dtype
 
     @property
     def handle(self) -> Any:
-        return self.buffer.handle(nest_indices=self.buffer.nest_indices)
+        # is this used?
+        return self.buffer_view.handle(nest_indices=self.buffer_view.nest_indices)
 
     def assign(self, other) -> ArrayAssignment:
         from pyop3.insn import Assignment
@@ -53,37 +72,39 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
         return Assignment(self, other, "inc")
 
+    @property
+    def buffer(self) -> pyop3.buffer.AbstractBuffer:
+        assert self.buffer_view.nest_indices is None, \
+            "Direct 'buffer' access is ambiguous for nests"
+        return self.buffer_view.buffer
+
 
 @pyop3.record.frozenrecord()
 class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: AbstractBuffer
+    buffer_view: IndexedBuffer
 
     def collect_buffers(self, visitor):
-        return visitor(self._buffer)
+        return visitor(self.buffer_view)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self._buffer))
+        return (type(self), visitor(self.buffer_view))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    @classmethod
-    def get_custom_comm(cls, **attrs) -> None:
-        return None
-
-    @classmethod
-    def detect_comm(cls, **attrs) -> MPI.Comm:
-        return attrs["_buffer"].comm
+    def __init__(self, buffer_view: AbstractBuffer | IndexedBuffer) -> None:
+        if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
+            assert buffer_view.nest_shape() is None
+            buffer_view = IndexedBuffer(buffer_view, None)
+        object.__setattr__(self, "buffer_view", buffer_view)
 
     # }}}
 
     # {{{ interface impls
 
     child_attrs = ()
-
-    buffer = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -131,7 +152,7 @@ class ScalarBufferExpression(BufferExpression):
 
     @property
     def value(self) -> numbers.Number:
-        return self.buffer.data_ro.item()
+        return self.buffer_view.buffer.data_ro.item()
 
 
 # TODO: Does a Dat count as one of these?
@@ -160,32 +181,37 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: Any  # array buffer type
+    buffer_view: IndexedBuffer
     layout: Any
 
     def collect_buffers(self, visitor):
-        return visitor(self._buffer) | visitor(self.layout)
+        return visitor(self.buffer_view) | visitor(self.layout)
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self._buffer), visitor(self.layout))
+        return (type(self), visitor(self.buffer_view), visitor(self.layout))
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
-        buffer_key = visitor(self._buffer)
+        buffer_key = visitor(self.buffer_view)
         with visitor.strong_hash_buffers():
             layout_key = visitor(self.layout)
         return (type(self), buffer_key, layout_key)
 
     @property
     def comm(self):
-        return self._buffer.comm
+        return self.buffer_view.comm
+
+    def __init__(self, buffer_view, layout):
+        if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
+            assert buffer_view.nest_shape() is None
+            buffer_view = IndexedBuffer(buffer_view, None)
+        object.__setattr__(self, "buffer_view", buffer_view)
+        object.__setattr__(self, "layout", layout)
 
     # }}}
 
     # {{{ interface impls
 
     child_attrs = ("layout",)
-
-    buffer: ClassVar = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -218,7 +244,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     """
     # {{{ instance attrs
 
-    _buffer: AbstractBuffer
+    buffer_view: IndexedBuffer
     layouts: idict
 
     def get_disk_cache_key(self, visitor) -> Hashable:
@@ -226,23 +252,28 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         for path, layout in self.layouts.items():
             layouts_key[visitor.relabel_axis_tree_path(path)] = visitor(layout)
         layouts_key = idict(layouts_key)
-        return (type(self), visitor(self._buffer), layouts_key)
+        return (type(self), visitor(self.buffer_view), layouts_key)
 
     def collect_buffers(self, visitor):
-        return visitor(self._buffer).union(*(map(visitor, self.layouts.values()))) 
+        return visitor(self.buffer_view).union(*(map(visitor, self.layouts.values()))) 
+
+    def __init__(self, buffer_view, layouts) -> None:
+        if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
+            assert buffer_view.nest_shape() is None
+            buffer_view = IndexedBuffer(buffer_view, None)
+        object.__setattr__(self, "buffer_view", buffer_view)
+        object.__setattr__(self, "layouts", layouts)
 
     # }}}
 
     @property
     def comm(self):
-        return self._buffer.comm
+        return self.buffer_view.comm
 
 
     # {{{ interface impls
 
     child_attrs = ("layouts",)
-
-    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -255,7 +286,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     @property
     def _full_str(self) -> str:
         return " :: ".join(
-            f"{self.buffer.name}[{as_str(layout)}]"
+            f"{self.buffer_view.name}[{as_str(layout)}]"
             for layout in self.layouts.values()
         )
 
@@ -280,7 +311,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
                 for lpath in self.layouts.keys()
                 if lpath.keys() <= path.keys()
             )
-        return LinearDatBufferExpression(self.buffer, self.layouts[path])
+        return LinearDatBufferExpression(self.buffer_view, self.layouts[path])
 
 
 class MatBufferExpression(BufferExpression):
@@ -292,17 +323,17 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: AbstractBuffer
+    buffer_view: IndexedBuffer
     row_layout: ExprT
     column_layout: ExprT
 
     def collect_buffers(self, visitor):
-        return visitor(self._buffer).union(visitor(self.row_layout), visitor(self.column_layout))
+        return visitor(self.buffer_view).union(visitor(self.row_layout), visitor(self.column_layout))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._buffer),
+            visitor(self.buffer_view),
             visitor(self.row_layout),
             visitor(self.column_layout),
         )
@@ -325,8 +356,6 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     child_attrs = ("row_layout", "column_layout")
 
-    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
-
     @property
     def local_max(self) -> numbers.Number:
         raise NotImplementedError
@@ -337,7 +366,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
+        return f"{self.buffer_view.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
 
     # }}}
 
@@ -347,12 +376,12 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: AbstractBuffer
+    buffer_view: IndexedBuffer
     row_layouts: idict
     column_layouts: idict
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
-        return visitor(self._buffer).union(
+        return visitor(self.buffer_view).union(
             *(map(visitor, self.row_layouts.values())),
             *(map(visitor, self.column_layouts.values())),
         )
@@ -366,10 +395,10 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
             visitor.relabel_axis_tree_path(path): visitor(layout)
             for path, layout in self.column_layouts.items()
         })
-        return (type(self), visitor(self._buffer), row_layouts_key, column_layouts_key)
+        return (type(self), visitor(self.buffer_view), row_layouts_key, column_layouts_key)
 
     def __record_post_init(self) -> None:
-        assert isinstance(self._buffer, AbstractBuffer)
+        assert isinstance(self.buffer_view, AbstractBuffer)
         assert isinstance(self.row_layouts, idict)
         assert isinstance(self.column_layouts, idict)
 
@@ -378,8 +407,6 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     # {{{ interface impls
 
     child_attrs = ("row_layouts", "column_layouts")
-
-    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -391,7 +418,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
+        return f"{self.buffer_view.name}[{self.row_layouts}, {self.column_layouts}]"
 
     # }}}
 
@@ -410,6 +437,7 @@ def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
     return expr
 
 
+# TODO: This is the same as dat.concretize(linear=True)
 @_as_linear_buffer_expression.register
 def _(dat: Dat) -> LinearDatBufferExpression:
     assert dat.transform is None
@@ -425,8 +453,9 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         # FIXME, merge?
         axes = axes.trees[-1]
 
+    ibuffer = IndexedBuffer(dat.buffer, None)
     layout = utils.just_one(axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(dat.buffer, layout)
+    return LinearDatBufferExpression(ibuffer, layout)
 
 
 @_as_linear_buffer_expression.register

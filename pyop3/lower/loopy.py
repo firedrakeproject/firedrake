@@ -149,7 +149,11 @@ class LoopyCodegenContext(CodegenContext):
 
         self._add_instruction(insn)
 
-    def add_buffer(self, buffer, intent: pyop3.constants.Intent | None = None) -> str:
+    def add_buffer(
+        self,
+        buffer_view: pyop3.expr.IndexedBuffer,
+        intent: pyop3.constants.Intent | None = None,
+    ) -> str:
         # TODO: This should check to make sure that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
@@ -165,19 +169,27 @@ class LoopyCodegenContext(CodegenContext):
         #     dat2[i] = dat1[2*i]
         #
         # is not.
-        if buffer.is_nested:
-            raise NotImplementedError("Currently handle nesting outside the generated code")
 
-        buffer_key = (buffer.name, buffer.nest_indices)
+        buffer = buffer_view.buffer
+        # If we have a nested data structure then we will have a different
+        # data structure for each part of the nesting
+        buffer_key = (buffer, buffer_view.nest_indices)
+
         if isinstance(buffer, NullBuffer):
-            assert not buffer.nest_indices
-            # 'intent' is not important for temporaries
-            if buffer_key in self._kernel_names:
+            assert not buffer_view.nest_indices
+            # Note that intent is not important for temporaries
+            try:
                 return self._kernel_names[buffer_key]
-            shape = self._temporary_shapes.get(buffer_key, (buffer.size,))
-            assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
-            name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
+            except KeyError:
+                shape = self._temporary_shapes.get(buffer, (buffer.size,))
+                assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
+                name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
+                return self._kernel_names.setdefault(buffer_key, name_in_kernel)
+
         else:
+            if buffer_view.nest_indices:
+                raise NotImplementedError
+
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
@@ -212,7 +224,7 @@ class LoopyCodegenContext(CodegenContext):
 
                 # If the buffer is being passed straight through to a function then we
                 # have to make sure that the shapes match
-                shape = self._temporary_shapes.get(buffer_key, None)
+                shape = self._temporary_shapes.get(buffer, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
                 assert isinstance(buffer, PetscMatBuffer)
@@ -224,9 +236,7 @@ class LoopyCodegenContext(CodegenContext):
             self.global_buffers[buffer_key] = buffer
             self.global_buffer_intents[buffer_key] = intent
             self._arguments.append(loopy_arg)
-
-        self._kernel_names[buffer_key] = name_in_kernel
-        return name_in_kernel
+            return self._kernel_names.setdefault(buffer_key, name_in_kernel)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
@@ -498,7 +508,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         buffer_ref = context.global_buffers[buffer_key]
         buffer_index = op.preprocessed_buffers.index(buffer_ref)
         intent = context.global_buffer_intents[buffer_key]
-        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
+        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_key[1], intent)
 
     return translation_unit, buffer_index_map
 
@@ -536,11 +546,14 @@ def _(assignment: AbstractAssignment, /) -> idict:
     return idict()
 
 
+# NOTE: This is a bit of a misnomer, we care about the shapes of things that
+# we give to loopy, not just temporaries per se. We should be able to detect
+# everything from the local kernels
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
     return idict(
         {
-            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+            arg.buffer: lp_arg.shape
             for lp_arg, arg in zip(
                 call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
@@ -654,7 +667,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     subarrayrefs = {}
     loopy_args = call.function.code.default_entrypoint.args
     for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
-        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+        name_in_kernel = context.add_buffer(arg.buffer_view, spec.intent)
         if isinstance(loopy_arg, lp.ArrayArg):
             # array arguments to an inner kernel require all strides to be defined
             indices = []
@@ -722,7 +735,7 @@ def _compile_petsc_mat(assignment: NonEmptyArrayAssignment, loop_indices, contex
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    mat_name = context.add_buffer(mat.buffer, assignment_type_as_intent(assignment.assignment_type))
+    mat_name = context.add_buffer(mat.buffer_view, assignment_type_as_intent(assignment.assignment_type))
 
     # NOTE: Is this always correct? It is for now.
     array_name = context.add_buffer(array_buffer, READ)
@@ -1028,46 +1041,95 @@ def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **k
     return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 
-@_lower_expr.register(pyop3.expr.Scalar)
-def _(scalar: pyop3.expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
-    # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
-    buffer_ref = scalar.buffer
-    name_in_kernel = context.add_buffer(buffer_ref, intent)
+@_lower_expr.register
+def _(
+    scalar: pyop3.expr.Scalar,
+    /,
+    iname_maps,
+    loop_indices,
+    context,
+    *,
+    intent,
+    **kwargs,
+) -> pym.Expression:
+    assert False, "Old code?"
+    name_in_kernel = context.add_buffer(scalar.buffer_view, intent)
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
 
-@_lower_expr.register(pyop3.expr.ScalarBufferExpression)
-def _(expr: pyop3.expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
-    return lower_buffer_access(expr.buffer, [0], iname_maps, loop_indices, context, intent=intent)
+@_lower_expr.register
+def _(
+    expr: pyop3.expr.ScalarBufferExpression,
+    /,
+    iname_maps,
+    loop_indices,
+    context,
+    *,
+    intent,
+    **kwargs,
+) -> pym.Expression:
+    return lower_buffer_access(expr.buffer_view, [0], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
 def _(expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
-    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
+    return lower_buffer_access(expr.buffer_view, [expr.layout], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
 def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = utils.just_one(paths)
-    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+    return lower_buffer_access(
+        expr.buffer_view,
+        [expr.layouts[path]],
+        iname_maps,
+        loop_indices,
+        context,
+        intent=intent,
+    )
 
 
 @_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
 def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
     row_path, column_path = paths
-    layouts = (mat_expr.row_layout.linearize(row_path), mat_expr.column_layout.linearize(column_path))
-    return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
+    layouts = (
+        mat_expr.row_layout.linearize(row_path),
+        mat_expr.column_layout.linearize(column_path),
+    )
+    return lower_buffer_access(
+        mat_expr.buffer_view,
+        layouts,
+        iname_maps,
+        loop_indices,
+        context,
+        intent=intent,
+    )
 
 
 @_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
 def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent)
+    return lower_buffer_access(
+        expr.buffer_view,
+        layouts,
+        iname_maps,
+        loop_indices,
+        context,
+        intent=intent,
+    )
 
 
-def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent) -> pym.Expression:
-    name_in_kernel = context.add_buffer(buffer, intent)
+def lower_buffer_access(
+    buffer_view: pyop3.expr.IndexedBuffer,
+    layouts,
+    iname_maps,
+    loop_indices,
+    context,
+    *,
+    intent,
+) -> pym.Expression:
+    name_in_kernel = context.add_buffer(buffer_view, intent)
 
     # At this point we know how to address each axis of the underlying buffer.
     # This is sufficient to address a flat buffer, but for a buffer with more
@@ -1082,7 +1144,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     offset_expr = sum(
         stride * lower_expr(layout, [iname_map], loop_indices, context)
         for stride, layout, iname_map in zip(
-            utils.strides(buffer.shape),
+            utils.strides(buffer_view.buffer.shape),
             layouts,
             iname_maps,
             strict=True
@@ -1090,7 +1152,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     )
 
     # Add some leading zeros to make loopy happy
-    indices = maybe_multiindex(buffer, offset_expr, context)
+    indices = maybe_multiindex(buffer_view.buffer, offset_expr, context)
 
     subscript = pym.subscript(pym.var(name_in_kernel), indices)
     if context.propagate_negatives and intent == READ:
@@ -1101,12 +1163,11 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
         return subscript
 
 
-def maybe_multiindex(buffer_ref, offset_expr, context):
+def maybe_multiindex(buffer, offset_expr, context):
     # hack to handle the facbuffer.t that temporaries can have shape but we want to
     # linearly index it here
-    buffer_key = (buffer_ref.name, buffer_ref.nest_indices)
-    if buffer_key in context._temporary_shapes:
-        shape = context._temporary_shapes[buffer_key]
+    if buffer in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
 

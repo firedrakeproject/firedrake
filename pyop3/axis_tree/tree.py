@@ -179,18 +179,6 @@ class AxisComponentRegion(pyop3.obj.Object):
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "_custom_comm", None)
 
-    def __record_post_init(self) -> None:
-        from pyop3 import Scalar
-        from pyop3.expr import ScalarBufferExpression
-
-        # debugging
-        assert self.size is not None
-
-        if isinstance(self.size, numbers.Integral):
-            assert self.size >= 0
-        elif isinstance(self.size, Scalar | ScalarBufferExpression):
-            assert self.size.value >= 0
-
     # }}}
 
     # {{{ pyop3.obj.Object interface impls
@@ -979,7 +967,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
         try:
             return evaluate(self.size)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             return self.size
 
     @cached_property

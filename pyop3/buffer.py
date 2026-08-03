@@ -91,22 +91,15 @@ class AbstractBuffer(pyop3.obj.Object):
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> AbstractBuffer:
         pass
 
-    # TODO: not sure I need this here
     @property
     @abc.abstractmethod
-    def is_nested(self) -> bool:
+    def nest_shape(self) -> tuple[tuple[int, ...], ...] | None:
         pass
-
-    def restrict_nest(self):
-        assert not self.is_nested
-        return self
 
     # }}}
 
     def copy(self) -> AbstractBuffer:
         return self.duplicate(copy=True)
-
-    nest_indices = ()  # default, but nasty - clean me up
 
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
@@ -208,9 +201,10 @@ class NullBuffer(AbstractArrayBuffer):
         name = f"{self.name}_copy"
         return self.record_new(_name=name)
 
-    is_nested: ClassVar[bool] = False
-
     # }}}
+
+    def nest_shape(self, *args):
+        return None
 
 
 class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
@@ -907,6 +901,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ other methods
 
+    def nest_shape(self, nest_indices=()) -> tuple[tuple[int, ...]] | None:
+        return None
+
     @cached_method()
     def localize(self) -> Self:
         return self.record_new(sf=None)
@@ -1069,6 +1066,17 @@ class PetscMatBuffer(ConcreteBuffer):
     def comm(self) -> MPI.Comm:
         return self._comm
 
+    def nest_shape(self, row_indices=None, column_indices=None):
+        # Can only pass None if both row+columns get it... I think
+        if utils.strictly_all(x is None for x in [row_indices, column_indices]):
+            row_indices = ()
+            column_indices = ()
+
+        if self.mat.type == PETSc.Mat.Type.NEST:
+            breakpoint()
+        else:
+            return None
+
 
     # {{{ class attrs
 
@@ -1161,18 +1169,6 @@ class PetscMatBuffer(ConcreteBuffer):
     @property
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
-
-    @cached_method()
-    def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
-        # NOTE: mat_spec isn't a good abstraction, don't like passing along here
-        assert self.is_nested
-        mat = self.mat.getNestSubMatrix(row_index, column_index)
-        if self.mat_spec is not None:
-            mat_spec = self.mat_spec[row_index, column_index]
-        else:
-            mat_spec = None
-        name = f"{self.name}_{row_index}_{column_index}"
-        return self.record_new(mat=mat, mat_spec=mat_spec, _name=name, _constant=self.constant)
 
     @property
     def handle(self) -> Any:

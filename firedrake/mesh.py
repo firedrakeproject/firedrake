@@ -1843,22 +1843,18 @@ class AbstractMeshTopology(abc.ABC):
     def num_cells(self):
         pass
 
-    @property
     @abc.abstractmethod
     def num_facets(self):
         pass
 
-    @property
     @abc.abstractmethod
     def num_faces(self):
         pass
 
-    @property
     @abc.abstractmethod
     def num_edges(self):
         pass
 
-    @property
     @abc.abstractmethod
     def num_vertices(self):
         pass
@@ -2423,19 +2419,15 @@ class MeshTopology(AbstractMeshTopology):
     def num_cells(self) -> int:
         return self.entity_count(self.dimension)
 
-    @property
     def num_facets(self) -> int:
         return self.entity_count(self.dimension - 1)
 
-    @property
     def num_faces(self):
         return self.entity_count(2)
 
-    @property
     def num_edges(self):
         return self.entity_count(1)
 
-    @property
     def num_vertices(self):
         return self.entity_count(0)
 
@@ -2948,22 +2940,18 @@ class ExtrudedMeshTopology(MeshTopology):
         nlayers = int(self.layers) - 1
         return self._base_mesh.num_cells() * nlayers
 
-    @property
     def num_facets(self) -> int:
-        assert False, "hard"
+        raise TypeError
 
-    @property
     def num_faces(self):
-        assert False, "hard"
+        raise TypeError
 
-    @property
     def num_edges(self):
-        assert False, "hard"
+        raise TypeError
 
-    @property
     def num_vertices(self):
         nlayers = int(self.layers) - 1
-        return self._base_mesh.num_vertices * (nlayers+1)
+        return self._base_mesh.num_vertices() * (nlayers+1)
 
     @cached_property
     def _new_to_old_point_renumbering(self) -> PETSc.IS:
@@ -3438,24 +3426,20 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @property
     def num_points(self) -> int:
-        return self.num_vertices
+        return self.num_vertices()
 
     def num_cells(self) -> int:
-        return self.num_vertices
+        return self.num_vertices()
 
-    @property
     def num_facets(self):
         return 0
 
-    @property
     def num_faces(self):
         return 0
 
-    @property
     def num_edges(self):
         return 0
 
-    @property
     def num_vertices(self):
         return self.topology_dm.getLocalSize()
 
@@ -3463,12 +3447,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if d > 0:
             return 0
         else:
-            return self.num_vertices
+            return self.num_vertices()
 
     # TODO: Clean this all up
     def entity_count(self, dim):
         if dim == 0:
-            return self.num_vertices
+            return self.num_vertices()
         else:
             return 0
 
@@ -4539,7 +4523,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
         reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
-                                                               (topology.num_vertices, parent_tdim),
+                                                               (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
                                                                 val=reference_coordinates_data,
@@ -6310,7 +6294,7 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
     (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)
     coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
-                                                 (topology.num_vertices, gdim))
+                                                 (topology.num_vertices(), gdim))
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,
                                            name=_generate_default_mesh_coordinates_name(topology.name))
