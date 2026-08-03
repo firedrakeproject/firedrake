@@ -120,6 +120,7 @@ class TensorBase(BaseForm):
     terminal = False
     assembled = False
     diagonal = False
+    _initialised = False
 
     _id = count()
 
@@ -984,8 +985,17 @@ class TensorOp(TensorBase):
 
     def __init__(self, *operands):
         """Constructor for the TensorOp class."""
+        if self._initialised:
+            # __new__ can shortcut and return an existing operand of this
+            # same type (e.g. Add(A, B) returning B when A == 0); Python then
+            # re-invokes __init__ on that pre-existing, already-initialised
+            # object with the original arguments. Skip re-running the
+            # constructor so we don't corrupt it (e.g. into referencing
+            # itself).
+            return
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
+        self._initialised = True
 
     def reconstruct(self, *operands):
         """Reconstructs this TensorBase with new operands."""
@@ -1246,6 +1256,10 @@ class Add(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Add class."""
+        if self._initialised:
+            # See TensorOp.__init__: __new__ may have shortcut and returned
+            # a pre-existing, already-initialised operand (B or A) unchanged.
+            return
         if A.shape != B.shape:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
