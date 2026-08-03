@@ -197,14 +197,16 @@ genuinely **periodic**. This is exactly the representation Firedrake uses for it
 periodic identifications.
 
 Identifications are declared on the geometry, before meshing, with the OCC
-``Identify`` method::
+``Identify`` method:
 
-    shape_a.Identify(
-        shape_b,
-        name,
-        IdentificationType.PERIODIC,
-        transformation,
-    )
+.. code-block:: python
+
+   shape_a.Identify(
+       shape_b,
+       name,
+       IdentificationType.PERIODIC,
+       transformation,
+   )
 
 where ``transformation`` is the rigid motion (typically a translation) that maps ``shape_a`` onto ``shape_b``.
 Netgen then meshes the two boundaries compatibly and records the vertex pairs; Firedrake consumes them
@@ -417,7 +419,7 @@ their stored order, :math:`(R,Z,\phi)`::
         R*sin(phi),
         Zc,
     )))
-    VTKFile("output/TokamakCartesianSolution.pvd").write(sol)
+    VTKFile("TokamakCartesianSolution.pvd").write(sol)
 
 We plot a cross-section of the solution in Cartesian coordinates:
 
