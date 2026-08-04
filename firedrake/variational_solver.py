@@ -143,6 +143,57 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def dm(self):
         return self.u_restrict.function_space().dm
 
+    def reconstruct(self, function_space, form_compiler_parameters=None, form_transform=None):
+        r"""Reconstruct this problem on a new function space, on the same mesh.
+
+        The solution is reconstructed as a new zero :class:`.Function` on
+        `function_space`, and each of `self.bcs` is reconstructed on
+        `function_space`, with its value symbolically substituted through the
+        same coefficient mapping used to reconstruct the forms.
+
+        Parameters
+        ----------
+        function_space
+            The new function space for the solution.
+        form_compiler_parameters
+            The new form compiler parameters, defaults to the original parameters.
+        form_transform
+            An optional callable ``form_transform(form, coefficient_mapping)``
+            used instead of `ufl.replace` to reconstruct each UFL form.
+
+        Returns
+        -------
+        NonlinearVariationalProblem
+            The reconstructed problem.
+        """
+        mesh = self.u_restrict.function_space().mesh()
+        if function_space.mesh() is not mesh:
+            raise NotImplementedError("Can only reconstruct a problem on the same mesh")
+        u = Function(function_space)
+        if form_compiler_parameters is None:
+            form_compiler_parameters = self.form_compiler_parameters
+        if form_transform is None:
+            form_transform = replace
+
+        coefficient_mapping = {arg: arg.reconstruct(function_space=function_space)
+                               for arg in self.J.arguments()}
+        coefficient_mapping[self.u_restrict] = u
+
+        def _reconstruct_form(form):
+            if isinstance(form, ufl.BaseForm):
+                return form_transform(form, coefficient_mapping)
+            return form
+
+        F = _reconstruct_form(self.F)
+        J = _reconstruct_form(self.J)
+        Jp = _reconstruct_form(self.Jp)
+        E = _reconstruct_form(self.E)
+        bcs = [bc.reconstruct(V=function_space, indices=bc._indices) for bc in self.bcs]
+
+        return NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, objective=E,
+                                           form_compiler_parameters=form_compiler_parameters,
+                                           is_linear=self.is_linear)
+
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
                            u: Function,

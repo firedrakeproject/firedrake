@@ -97,6 +97,19 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
+    def reconstruct(self, function_space):
+        r"""Reconstruct this basis on a new function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+        """
+        vecs = [function.Function(function_space).interpolate(vec) for vec in self._vecs]
+        new_basis = VectorSpaceBasis(vecs, constant=self._constant, comm=self.comm)
+        new_basis.orthonormalize()
+        return new_basis
+
     @PETSc.Log.EventDecorator()
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
@@ -238,6 +251,22 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
+
+    def reconstruct(self, function_space):
+        r"""Reconstruct this basis on a new mixed function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+        """
+        bases = []
+        for V_, basis in zip(function_space, self._bases):
+            if isinstance(basis, VectorSpaceBasis):
+                bases.append(basis.reconstruct(V_))
+            else:
+                bases.append(function_space.sub(basis.index))
+        return MixedVectorSpaceBasis(function_space, bases)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.
