@@ -582,7 +582,7 @@ class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
     def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, **kwargs):
         new_assignee = self(assignment.assignee, **kwargs)
         new_expression = self(assignment.expression, **kwargs)
-        return assignment.record_new(_assignee=new_assignee, _expression=new_expression)
+        return assignment.record_new(assignee=new_assignee, expression=new_expression)
 
     @process.register(pyop3.insn.StandaloneCalledFunction)
     @process.register(pyop3.insn.Exscan)  # NOTE: not really ideal, relies on not traversing in other visitor

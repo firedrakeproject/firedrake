@@ -5,7 +5,7 @@ import contextlib
 import dataclasses
 import functools
 import numbers
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Iterable, Mapping
 from typing import Any, ClassVar
 
 import numpy as np
@@ -91,10 +91,12 @@ class AbstractBuffer(pyop3.obj.Object):
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> AbstractBuffer:
         pass
 
-    @property
     @abc.abstractmethod
-    def nest_shape(self) -> tuple[tuple[int, ...], ...] | None:
-        pass
+    def nest_shape(
+        self,
+        nest_indices: Iterable[tuple[int, ...], ...] = (),
+    ) -> tuple[int, ...] | None:
+        """Return the nest shape at a given level of nesting."""
 
     # }}}
 
@@ -901,7 +903,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ other methods
 
-    def nest_shape(self, nest_indices=()) -> tuple[tuple[int, ...]] | None:
+    def nest_shape(
+        self,
+        nest_indices=(),
+    ) -> tuple[tuple[int, ...]] | None:
+        assert not nest_indices
         return None
 
     @cached_method()
@@ -1066,17 +1072,11 @@ class PetscMatBuffer(ConcreteBuffer):
     def comm(self) -> MPI.Comm:
         return self._comm
 
-    def nest_shape(self, row_indices=None, column_indices=None):
-        # Can only pass None if both row+columns get it... I think
-        if utils.strictly_all(x is None for x in [row_indices, column_indices]):
-            row_indices = ()
-            column_indices = ()
-
+    def nest_shape(self, nest_indices: Iterable[tuple[int, int], ...] = ()):
         if self.mat.type == PETSc.Mat.Type.NEST:
             breakpoint()
         else:
             return None
-
 
     # {{{ class attrs
 

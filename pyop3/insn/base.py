@@ -5,7 +5,7 @@ import dataclasses
 import enum
 import textwrap
 import typing
-from collections.abc import Hashable, Iterable, Mapping
+from collections.abc import Hashable, Iterable, Mapping, Iterator
 from functools import cached_property
 from typing import Any, ClassVar
 
@@ -147,14 +147,31 @@ class Loop(NonTerminalInstruction):
             tuple(map(visitor, self.statements)),
         )
 
-    def __init__(
-        self,
-        index: LoopIndex,
-        statements: Iterable[Instruction] | Instruction,
-    ) -> None:
-        statements = pyop3.collections.as_tuple(statements)
-        object.__setattr__(self, "index", index)
-        object.__setattr__(self, "statements", statements)
+    def __new__(cls, *args, **kwargs):
+        if args:
+            index, stmts = args
+        else:
+            index = kwargs.pop("index")
+            stmts = kwargs.pop("statements")
+            assert not kwargs
+
+        processed_stmts = []
+        for stmt in pyop3.collections.as_tuple(stmts):
+            if isinstance(stmt, NullInstruction):
+                continue
+            elif isinstance(stmt, InstructionList):
+                processed_stmts.extend(stmt)
+            else:
+                processed_stmts.append(stmt)
+        stmts = tuple(processed_stmts)
+
+        if len(stmts) == 0:
+            return NullInstruction()
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "index", index)
+            object.__setattr__(self, "statements", stmts)
+            return self
 
     # }}}
 
@@ -194,9 +211,31 @@ class InstructionList(NonTerminalInstruction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
-    def __init__(self, instructions: Iterable[Instruction]) -> None:
-        instructions = tuple(instructions)
-        object.__setattr__(self, "instructions", instructions)
+    def __new__(cls, *args, **kwargs):
+        if args:
+            insns = utils.just_one(args)
+        else:
+            insns = kwargs.pop("instructions")
+            assert not kwargs
+
+        processed_insns = []
+        for insn in insns:
+            if isinstance(insn, NullInstruction):
+                continue
+            elif isinstance(insn, InstructionList):
+                processed_insns.extend(insn)
+            else:
+                processed_insns.append(insn)
+        insns = tuple(processed_insns)
+
+        if len(insns) == 0:
+            return NullInstruction()
+        elif len(insns) == 1:
+            return utils.just_one(insns)
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "instructions", insns)
+            return self
 
     # }}}
 
@@ -259,6 +298,11 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def axis_trees(self) -> AxisTree:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def shape(self):
         pass
 
 
@@ -464,9 +508,12 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
+    # or an empty tuple?
     @property
     def axis_trees(self) -> tuple[AxisTree, ...]:
         return (UNIT_AXIS_TREE,)
+
+    shape = ()
 
     @property
     def name(self):
@@ -580,6 +627,8 @@ class NullInstruction(TerminalInstruction):
 
     arguments = ()
 
+    shape = ()
+
 
 # TODO: With Python 3.11 can be made a StrEnum
 class AssignmentType(enum.Enum):
@@ -597,37 +646,57 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
+class AbstractAssignmentLike(TerminalInstruction):
 
-    # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def assignee(self) -> Any:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def expression(self) -> Any:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def assignment_type(self) -> AssignmentType:
-        pass
-
-    # }}}
-
-    # {{{ interface impls
+    __abstract_record_attrs = ("assignee", "expression")
 
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
 
-    # TODO: can do things like add #include <petscmat.h> here...
     @cached_property
     def compiler_options(self) -> pyop3.compile.CompilerOptions:
         return pyop3.compile.CompilerOptions()
+
+    # NOTE: Wrong type here...
+    @cached_property
+    def shape(self) -> tuple[AxisTree, ...]:
+        return pyop3.expr.visitors.get_shape(self.assignee)
+
+        # the below doesn't really work, need shapes to match exactly
+        # assignee_shapes = pyop3.expr.visitors.get_shape(self.assignee)
+        # expr_shapes = pyop3.expr.visitors.get_shape(self.expression)
+        #
+        # # sometimes the expression may not be matrix-valued
+        # if len(assignee_shapes) != len(expr_shapes):
+        #     assert len(assignee_shapes) == 2 and len(expr_shapes) == 1
+        #     expr_shapes = expr_shapes * 2
+        #
+        # # Set 'only_unit' here because we are happy for 'expr_shapes' to be
+        # # different to 'assignee_shape' up to unit axes. For example, we
+        # # want to allow the operation
+        # #
+        # #     loop(p, dat1[p].assign(dat2[f(p)])
+        # #
+        # # even though dat2[f(p)] will have an extra axis introduced by
+        # # the map. Provided f(p) only has size 1 the LHS and RHS are
+        # # still the same shape.
+        # return tuple(
+        #     pyop3.axis_tree.merge_axis_trees([assignee_shape, expr_shape], only_unit=True)
+        #     for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True)
+        # )
+
+
+
+
+class AbstractAssignment(AbstractAssignmentLike):
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def assignment_type(self) -> AssignmentType:
+        pass
 
     # }}}
 
@@ -665,13 +734,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
             else:
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
 
-    @property
-    def assignee(self):
-        return self.arguments[0]
-
-    @property
-    def expression(self):
-        return self.arguments[1]
 
 
 @pyop3.record.frozenrecord()
@@ -679,23 +741,23 @@ class Assignment(AbstractAssignment):
 
     # {{{ instance attrs
 
-    _assignee: Any
-    _expression: Any
+    assignee: Any
+    expression: Any
     _assignment_type: AssignmentType
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._assignee),
-            visitor(self._expression),
+            visitor(self.assignee),
+            visitor(self.expression),
             self._assignment_type,
         )
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
 
     # }}}
@@ -708,37 +770,7 @@ class Assignment(AbstractAssignment):
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = pyop3.record.attr("_assignee")
-    expression: ClassVar[property] = pyop3.record.attr("_expression")
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
-    # NOTE: Wrong type here...
-    @cached_property
-    def shape(self) -> tuple[AxisTree, ...]:
-        return pyop3.expr.visitors.get_shape(self.assignee)
-
-        # the below doesn't really work, need shapes to match exactly
-        # assignee_shapes = pyop3.expr.visitors.get_shape(self.assignee)
-        # expr_shapes = pyop3.expr.visitors.get_shape(self.expression)
-        #
-        # # sometimes the expression may not be matrix-valued
-        # if len(assignee_shapes) != len(expr_shapes):
-        #     assert len(assignee_shapes) == 2 and len(expr_shapes) == 1
-        #     expr_shapes = expr_shapes * 2
-        #
-        # # Set 'only_unit' here because we are happy for 'expr_shapes' to be
-        # # different to 'assignee_shape' up to unit axes. For example, we
-        # # want to allow the operation
-        # #
-        # #     loop(p, dat1[p].assign(dat2[f(p)])
-        # #
-        # # even though dat2[f(p)] will have an extra axis introduced by
-        # # the map. Provided f(p) only has size 1 the LHS and RHS are
-        # # still the same shape.
-        # return tuple(
-        #     pyop3.axis_tree.merge_axis_trees([assignee_shape, expr_shape], only_unit=True)
-        #     for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True)
-        # )
 
     # }}}
 
@@ -750,8 +782,8 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ instance attrs
 
-    _assignee: Any
-    _expression: Any
+    assignee: Any
+    expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
     # is this still needed?
@@ -760,16 +792,16 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._assignee),
-            visitor(self._expression),
+            visitor(self.assignee),
+            visitor(self.expression),
             *(map(visitor, self._axis_trees)),
             self._assignment_type,
         )
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
         return OrderedFrozenSet().union(
-            visitor(self._assignee),
-            visitor(self._expression),
+            visitor(self.assignee),
+            visitor(self.expression),
             *(visitor(tree) for tree in self._axis_trees),
         )
 
@@ -784,8 +816,8 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     ) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
@@ -798,8 +830,6 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ interface impls
 
-    assignee = pyop3.record.attr("_assignee")
-    expression = pyop3.record.attr("_expression")
     axis_trees = pyop3.record.attr("_axis_trees")
     assignment_type = pyop3.record.attr("_assignment_type")
 
@@ -807,7 +837,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
 
 @pyop3.record.frozenrecord()
-class Exscan(TerminalInstruction):
+class Exscan(AbstractAssignmentLike):
 
     # {{{ instance attrs
 

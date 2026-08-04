@@ -101,7 +101,7 @@ class LoopContextExpander(InstructionTransformer):
     def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
         assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
         expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
-        return assignment.record_new(_assignee=assignee, _expression=expression)
+        return assignment.record_new(assignee=assignee, expression=expression)
 
     @process.register(pyop3.insn.Exscan)  # for now assume we are fine
     def _(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
@@ -268,16 +268,10 @@ def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.InstructionList:
 
 @expand_transforms.register(pyop3.insn.Loop)
 def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop:
-    return pyop3.insn.Loop(
-        loop.index,
-        [
-            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_transforms(stmt))
-        ],
-    )
+    return loop.record_new(statements=tuple(expand_transforms(s) for s in loop.statements))
 
 
 @expand_transforms.register(pyop3.insn.StandaloneCalledFunction)
-# @expand_assignments.register(PetscMatAssignment)
 @expand_transforms.register(pyop3.insn.NullInstruction)
 @expand_transforms.register(pyop3.insn.Exscan)  # assume we are fine
 def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
@@ -429,8 +423,8 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         bare_expression = expression_temp
 
     bare_assignment = assignment.record_new(
-        _assignee=bare_assignee,
-        _expression=bare_expression,
+        assignee=bare_assignee,
+        expression=bare_expression,
         _assignment_type=assignment_type,
     )
     return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
@@ -443,79 +437,6 @@ def has_materialized_temporaries(tensor: Tensor) -> bool:
         else:
             tensor = tensor.transform.prev
     return False
-
-
-@functools.singledispatch
-def concretize_layouts(obj: Any, /) -> pyop3.insn.Instruction:
-    """Lock in the layout expressions that data arguments are accessed with.
-
-    For example this converts Dats to DatArrayBufferExpressions that cannot
-    be indexed further.
-
-    This function also trims expressions to remove any zero-sized bits.
-
-    """
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@concretize_layouts.register(pyop3.insn.NullInstruction)
-@concretize_layouts.register(pyop3.insn.Exscan)  # assume we are fine
-def _(null: pyop3.insn.NullInstruction, /) -> pyop3.insn.NullInstruction:
-    return null
-
-
-@concretize_layouts.register(pyop3.insn.InstructionList)
-def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.Instruction:
-    return maybe_enlist(
-        filter(non_null, (map(concretize_layouts, insn_list)))
-    )
-
-
-@concretize_layouts.register(pyop3.insn.Loop)
-def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop | pyop3.insn.NullInstruction:
-    index = loop.index.record_new(iterset=loop.index.iterset.materialize())
-    statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
-    return loop.record_new(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
-
-
-@concretize_layouts.register
-def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
-    return func
-
-
-@concretize_layouts.register
-def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.NonEmptyArrayAssignment | pyop3.insn.NullInstruction:
-    # The assignee may have an axis forest as its shape, but we can only
-    # emit loops for one of them. Try all candidates and hopefully one will match.
-    # For matrices there are two shape axes and so we need to try the product
-    # of all candidates.
-    for axis_trees in itertools.product(*(tree.trees for tree in assignment.shape)):
-        try:
-            assignee = pyop3.expr.visitors.concretize_layouts(assignment.assignee, axis_trees)
-            expression = pyop3.expr.visitors.concretize_layouts(assignment.expression, axis_trees)
-        except pyop3.exceptions.IncompatibleAxisTargetException:
-            continue
-        else:
-            shape = tuple(tree.materialize() for tree in axis_trees)
-            break
-    else:
-        raise pyop3.exceptions.IncompatibleAxisTargetException
-
-    return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, shape, assignment.assignment_type, comm=assignment.comm)
-
-
-
-class InstructionCacheKeyGetter(NodeVisitor):
-    @functools.singledispatchmethod
-    def process(self, obj: pyop3.insn.Instruction) -> Hashable:
-        return super().process(obj)
-
-    @process.register(pyop3.insn.InstructionList)
-    @process.register(pyop3.insn.NullInstruction)
-    @postorder
-    def _(self, insn: pyop3.insn.Instruction, *visited: Hashable) -> Hashable:
-        return (type(insn), *visited)
-
 
 
 class LiteralInserter(NodeTransformer):
@@ -554,7 +475,7 @@ class LiteralInserter(NodeTransformer):
 
             new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
-            return assignment.record_new(_expression=new_expression)
+            return assignment.record_new(expression=new_expression)
         else:
             return assignment
 

@@ -179,14 +179,14 @@ class Expression(Node, abc.ABC):
 
 class Operator(Expression, metaclass=abc.ABCMeta):
 
-    # {{{ abstract methods
-
     @property
     @abc.abstractmethod
     def operands(self) -> tuple[ExpressionT, ...]:
         pass
 
-    # }}}
+    @abc.abstractmethod
+    def with_operands(self, operands) -> Self:
+        pass
 
 
 @pyop3.record.frozenrecord()
@@ -211,6 +211,10 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     @property
     def operands(self) -> tuple[ExpressionT]:
         return (self.a,)
+
+    def with_operands(self, operands):
+        a, = operands
+        return self.record_new(a=a)
 
     child_attrs = ("a",)
 
@@ -287,6 +291,10 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     @property
     def operands(self) -> tuple[ExpressionT, ExpressionT]:
         return (self.a, self.b)
+
+    def with_operands(self, operands):
+        a, b = operands
+        return self.record_new(a=a, b=b)
 
     # }}}
 
@@ -492,6 +500,10 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
     @property
     def operands(self) -> tuple[ExpressionT, ExpressionT, ExpressionT]:
         return (self.a, self.b, self.c)
+
+    def with_operands(self, operands):
+        a, b, c = operands
+        return self.record_new(a=a, b=b, c=c)
 
     # }}}
 

@@ -356,14 +356,13 @@ class Dat(Tensor):
 
     def concretize(self, *, linear: bool):
         """Convert to an expression, can no longer be indexed properly"""
-        ibuffer = pyop3.expr.buffer.IndexedBuffer(self.buffer, None)
         if linear:
             return pyop3.expr.buffer.LinearDatBufferExpression(
-                ibuffer, self.axes.subst_layouts()[self.axes.leaf_path]
+                self.buffer, self.axes.subst_layouts()[self.axes.leaf_path]
             )
         else:
             return pyop3.expr.buffer.NonlinearDatBufferExpression(
-                ibuffer, self.axes.subst_layouts()
+                self.buffer, self.axes.subst_layouts()
             )
 
     @property

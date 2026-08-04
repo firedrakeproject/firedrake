@@ -173,7 +173,6 @@ class InstructionExecutionContext:
         import pyop3.visitors
 
         from .visitors import (
-            concretize_layouts,
             expand_loop_contexts,
             expand_transforms,
             insert_literals,
@@ -192,7 +191,7 @@ class InstructionExecutionContext:
                 old_insn = insn
                 insn = expand_transforms(insn)
 
-            insn = concretize_layouts(insn)
+            insn = pyop3.visitors.concretize(insn)
             insn = insert_literals(insn)
             insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
@@ -376,7 +375,7 @@ class InstructionExecutionContext:
     @_extract_buffers.register(pyop3.expr.ScalarBufferExpression)
     @_extract_buffers.register(pyop3.expr.LinearDatBufferExpression)
     def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        if expr.buffer_view.nest_indices is not None:
+        if expr.buffer_view.nest_indices != ():
             raise NotImplementedError(
                 "Extracting nested buffers that aren't PETSc MATNESTS not yet supported"
             )
@@ -394,18 +393,21 @@ class InstructionExecutionContext:
     # NOTE: This applies generally to other nested things
     @_extract_buffers.register(pyop3.expr.Mat)
     def _(self, mat: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        breakpoint()
-        if mat.buffer.nest_shape() is not None:
-            row_indices, column_indices = mat.buffer.nest_shape()
-            buffer = buffer.restrict_nest(*nest_indices)
+        buf = mat.buffer
+        if buf.nest_shape() is not None:
+            breakpoint()
+            row_indices, column_indices = buf.nest_shape()
+            # old API!
+            raise NotImplementedError
+            buf = buf.restrict_nest(*nest_indices)
 
         if (
-            isinstance(buffer, pyop3.buffer.PetscMatBuffer)
-            and buffer.handle.type == PETSc.Mat.Type.PYTHON
+            isinstance(buf, pyop3.buffer.PetscMatBuffer)
+            and buf.handle.type == PETSc.Mat.Type.PYTHON
         ):
-            buffer = buffer.handle.getPythonContext().buffer
+            buf = buf.handle.getPythonContext().buffer
 
-        return (buffer,)
+        return (buf,)
 
     @_extract_buffers.register
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:

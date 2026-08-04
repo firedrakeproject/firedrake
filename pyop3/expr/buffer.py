@@ -30,7 +30,7 @@ class IndexedBuffer(pyop3.obj.Object):
 
     """
     buffer: AbstractBuffer
-    nest_indices: tuple[tuple[int, ...], ...] | None
+    nest_indices: tuple[tuple[int, ...], ...]
 
     def collect_buffers(self, visitor):
         return visitor(self.buffer)
@@ -39,6 +39,11 @@ class IndexedBuffer(pyop3.obj.Object):
         return (type(self), visitor(self.buffer), self.nest_indices)
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    def __record_post_init(self):
+        assert self.nest_indices is not None, "old API"
+        if self.nest_indices == ((), ()):
+            breakpoint()
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -74,8 +79,8 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     @property
     def buffer(self) -> pyop3.buffer.AbstractBuffer:
-        assert self.buffer_view.nest_indices is None, \
-            "Direct 'buffer' access is ambiguous for nests"
+        assert self.buffer_view.nest_indices == (), \
+            "Direct access to 'buffer' is ambiguous for nests"
         return self.buffer_view.buffer
 
 
@@ -97,7 +102,7 @@ class ScalarBufferExpression(BufferExpression):
     def __init__(self, buffer_view: AbstractBuffer | IndexedBuffer) -> None:
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, None)
+            buffer_view = IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
 
     # }}}
@@ -203,7 +208,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def __init__(self, buffer_view, layout):
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, None)
+            buffer_view = IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "layout", layout)
 
@@ -260,7 +265,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     def __init__(self, buffer_view, layouts) -> None:
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, None)
+            buffer_view = IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "layouts", layouts)
 
@@ -340,18 +345,6 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # }}}
 
-    # {{{ class constructors
-
-    @classmethod
-    def from_axis_trees(cls, buffer_ref, row_axes, column_axes) -> MatPetscMatBufferExpression:
-        row_layout, column_layout = (
-            CompositeDat(axis_tree.materialize().regionless(), axis_tree.subst_layouts())
-            for axis_tree in [row_axes, column_axes]
-        )
-        return cls(buffer_ref, row_layout, column_layout)
-
-    # }}}
-
     # {{{ interface impls
 
     child_attrs = ("row_layout", "column_layout")
@@ -397,10 +390,13 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
         })
         return (type(self), visitor(self.buffer_view), row_layouts_key, column_layouts_key)
 
-    def __record_post_init(self) -> None:
-        assert isinstance(self.buffer_view, AbstractBuffer)
-        assert isinstance(self.row_layouts, idict)
-        assert isinstance(self.column_layouts, idict)
+    def __init__(self, buffer_view, row_layouts, column_layouts):
+        if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
+            assert buffer_view.nest_shape() is None
+            buffer_view = IndexedBuffer(buffer_view, ())
+        object.__setattr__(self, "buffer_view", buffer_view)
+        object.__setattr__(self, "row_layouts", row_layouts)
+        object.__setattr__(self, "column_layouts", column_layouts)
 
     # }}}
 
@@ -418,7 +414,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer_view.name}[{self.row_layouts}, {self.column_layouts}]"
+        return f"{self.buffer_view.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
 
     # }}}
 
@@ -453,7 +449,7 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         # FIXME, merge?
         axes = axes.trees[-1]
 
-    ibuffer = IndexedBuffer(dat.buffer, None)
+    ibuffer = IndexedBuffer(dat.buffer, ())
     layout = utils.just_one(axes.leaf_subst_layouts.values())
     return LinearDatBufferExpression(ibuffer, layout)
 

@@ -731,14 +731,11 @@ def _compile_petsc_mat(assignment: NonEmptyArrayAssignment, loop_indices, contex
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
     assert isinstance(expr, pyop3.expr.BufferExpression)
-    array_buffer = expr.buffer
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
     mat_name = context.add_buffer(mat.buffer_view, assignment_type_as_intent(assignment.assignment_type))
-
-    # NOTE: Is this always correct? It is for now.
-    array_name = context.add_buffer(array_buffer, READ)
+    array_name = context.add_buffer(expr.buffer_view, READ)
 
     rsize = row_axis_tree.size
     csize = column_axis_tree.size
