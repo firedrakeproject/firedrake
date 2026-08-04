@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import numpy
 
 from pyop2.mpi import COMM_WORLD
 
+import firedrake
 from firedrake import function
 from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
@@ -97,13 +100,18 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
-    def reconstruct(self, function_space):
+    def reconstruct(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> VectorSpaceBasis:
         r"""Reconstruct this basis on a new function space.
 
         Parameters
         ----------
         function_space
             the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        VectorSpaceBasis
+            The basis vectors interpolated onto `function_space` and re-orthonormalized.
         """
         vecs = [function.Function(function_space).interpolate(vec) for vec in self._vecs]
         new_basis = VectorSpaceBasis(vecs, constant=self._constant, comm=self.comm)
@@ -252,13 +260,18 @@ class MixedVectorSpaceBasis(object):
         self._bases = bases
         self._nullspace = None
 
-    def reconstruct(self, function_space):
+    def reconstruct(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> MixedVectorSpaceBasis:
         r"""Reconstruct this basis on a new mixed function space.
 
         Parameters
         ----------
         function_space
             the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        MixedVectorSpaceBasis
+            The bases reconstructed on the sub-spaces of `function_space`.
         """
         bases = []
         for V_, basis in zip(function_space, self._bases):
