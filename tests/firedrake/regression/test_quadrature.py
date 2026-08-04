@@ -3,9 +3,9 @@ import pytest
 import numpy as np
 
 
-@pytest.fixture
+@pytest.fixture(params=[False, True], ids=["triangle", "quadrilateral"])
 def mesh(request):
-    return UnitSquareMesh(5, 5)
+    return UnitSquareMesh(5, 5, quadrilateral=request.param)
 
 
 def test_hand_specified_quadrature(mesh):
@@ -52,3 +52,21 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
         a = inner(u, v) * dx
 
     assemble(a, mat_type=mat_type, diagonal=diagonal)
+
+
+@pytest.mark.parametrize("space", [FunctionSpace, VectorFunctionSpace, TensorFunctionSpace])
+def test_boundary_quadrature_interpolation(mesh, space):
+    V = space(mesh, "Boundary Quadrature", 2)
+    x = SpatialCoordinate(mesh)
+    if V.value_shape == ():
+        expr = x[0]**2 + x[1]
+    elif len(V.value_shape) == 1:
+        expr = as_vector([x[0]**2, x[1]])
+    else:
+        expr = as_tensor([[x[0]**2, x[1]], [x[0]*x[1], 1 + x[0]]])
+
+    f = Function(V).interpolate(expr)
+
+    # The functionals are point evaluations, so interpolation is exact there
+    assert np.isclose(assemble(inner(f - expr, f - expr) * ds), 0)
+    assert np.isclose(assemble(inner(f('+') - expr('+'), f('+') - expr('+')) * dS), 0)

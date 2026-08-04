@@ -14,6 +14,7 @@ from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
+from gem.optimise import constant_fold_zero
 from gem.unconcatenate import unconcatenate
 
 import finat
@@ -346,6 +347,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     else:
         coordinate_mapping = None
     evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
+    evaluation, = constant_fold_zero([evaluation])
 
     # Index splitting cache, shared by every unconcatenate() call below so
     # that a Concatenate index is always split the same way.
@@ -386,8 +388,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     return_expr = gem.Indexed(gem.reshape(return_var, return_shape), return_indices)
     return_expr, = gem.optimise.remove_componenttensors([return_expr])
 
-    # TODO: one should apply some GEM optimisations as in assembly,
-    # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)], cache=concatenate_cache)
     # Contract each block once the Concatenate nodes are gone.  An H(div) or
@@ -396,7 +396,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # and cancel the pairs that map to different components.
     pairs = [(variable, gem.optimise.contraction(expression))
              for variable, expression in pairs]
-    impero_c = impero_utils.compile_gem(pairs, return_indices)
+    impero_c = impero_utils.compile_gem(pairs, return_indices, remove_zeros=True)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
