@@ -217,11 +217,18 @@ class PMGBase(PCSNESBase):
         fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
 
         def _coarsen_form(a, coefficient_mapping):
-            if isinstance(a, ufl.BaseForm):
-                a = self.coarsen_form(a, coefficient_mapping)
             if isinstance(a, ufl.Form):
+                a = self.coarsen_form(a, coefficient_mapping)
                 a = ufl.Form([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
                               for f in a.integrals()])
+            elif isinstance(a, ufl.BaseForm):
+                # e.g. a residual F = action(J, u) - L with L a Cofunction:
+                # its implicit argument isn't a literal node ufl.replace can
+                # move to the coarse space, so only replace coefficients and
+                # re-pair the result with the coarse test function via interpolation.
+                ctest = coefficient_mapping[test]
+                coeffs = {k: v for k, v in coefficient_mapping.items() if k not in (test, trial)}
+                a = firedrake.interpolate(ctest, ufl.replace(a, coeffs))
             return a
 
         # Inherit mat_type from the fine _SNESContext
@@ -238,9 +245,24 @@ class PMGBase(PCSNESBase):
             pmat_type = self.coarse_pmat_type
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
+        cF = cJ = coefficient_mapping = None
+        if not self.is_snes:
+            # PC-only levels don't assemble their own residual; coarsen J
+            # ourselves and reuse it as action(cJ, cu), instead of coarsening
+            # fproblem.F, which may carry RHS Cofunctions ufl.replace can't handle.
+            fu = fproblem.u_restrict
+            cu = firedrake.Function(cV)
+            coefficient_mapping = {fu: cu,
+                                   test: test.reconstruct(function_space=cV),
+                                   trial: trial.reconstruct(function_space=cV)}
+            cJ = _coarsen_form(fproblem.J, coefficient_mapping)
+            cF = ufl.action(cJ, cu)
+
         # Coarsen the problem
         homogenize_bcs = not self.is_snes
-        cproblem = fproblem.reconstruct(function_space=cV,
+        cproblem = fproblem.reconstruct(F=cF, J=cJ,
+                                        function_space=cV,
+                                        coefficient_mapping=coefficient_mapping,
                                         form_compiler_parameters=fcp,
                                         form_transform=_coarsen_form,
                                         homogenize_bcs=homogenize_bcs)
