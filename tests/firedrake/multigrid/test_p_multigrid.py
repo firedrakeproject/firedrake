@@ -574,9 +574,8 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
     Vf = FunctionSpace(piola_mesh, family, degree)
     if mixed:
         DG = FunctionSpace(Vf.mesh(), "DG", 2)
-        Vc0 = Vf.reconstruct(degree=1)
-        Vc = Vc0 * Vc0 * DG.reconstruct(degree=1)
         Vf = Vf * Vf * DG
+        Vc = Vf.reconstruct(degree=[1, 1, 1])
     else:
         Vc = Vf.reconstruct(degree=1)
 
