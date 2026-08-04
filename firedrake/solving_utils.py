@@ -341,6 +341,36 @@ class _SNESContext(object):
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
 
+    def solve_jacobian_transpose(self, rhs: Cofunction,
+                                 solution: Function) -> None:
+        """Solve the transpose of the current Jacobian.
+
+        Parameters
+        ----------
+        rhs
+            The dual right-hand side.
+        solution
+            The Function in which to store the solution.
+        """
+        ksp = self._problem.dm.getAttr("_ksp")
+        if ksp is None:
+            raise RuntimeError("This context is not attached to a KSP")
+        with rhs.dat.vec_ro as b, solution.dat.vec_wo as x:
+            if b.norm() == 0:
+                x.set(0)
+                return
+            with dmhooks.add_hooks(ksp.getDM(), self, appctx=self, save=False):
+                ksp.solveTranspose(b, x)
+            reason = ksp.getConvergedReason()
+            if reason < 0:
+                raise ConvergenceError(
+                    "Transpose Jacobian solve failed to converge after "
+                    f"{ksp.getIterationNumber()} iterations.\nReason:\n   "
+                    f"{KSPReasons.get(reason, reason)} "
+                    f"(PC type {ksp.getPC().getType()}, "
+                    f"failure {ksp.getPC().getFailedReason()})"
+                )
+
     @property
     def transfer_manager(self):
         """This allows the transfer manager to be set from options, e.g.
@@ -602,6 +632,11 @@ class _SNESContext(object):
     def create_operators(ksp):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
+        # ksp.getDM() and similar accessors return a fresh Python wrapper on
+        # every call, so solve_jacobian_transpose could not otherwise find
+        # this ksp again later. Composing it directly on the DM keeps this
+        # specific wrapper alive for as long as the DM is.
+        dm.setAttr("_ksp", ksp)
         A = ctx._jac.petscmat
         if ctx.Jp is None:
             return A
