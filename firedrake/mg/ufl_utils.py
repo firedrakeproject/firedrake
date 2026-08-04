@@ -6,6 +6,7 @@ from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
+from firedrake.dwr import DWRMarkingCallback
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -421,6 +422,9 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     pmat_type = pmat_type or mat_type
     sub_pmat_type = sub_pmat_type or sub_mat_type
+
+    marking_callback = self(context._marking_callback, self, coefficient_mapping=coefficient_mapping)
+
     new_context = context.reconstruct(problem=problem,
                                       mat_type=mat_type,
                                       pmat_type=pmat_type,
@@ -428,6 +432,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       sub_pmat_type=sub_pmat_type,
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
+                                      marking_callback=marking_callback,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
     attach_relative(self, new_context, context, reverse=True)
@@ -456,6 +461,15 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
     return new_context
+
+
+@_reconstruct.register(DWRMarkingCallback)
+def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    goal = self(callback.goal_functional, self, coefficient_mapping=coefficient_mapping)
+    primal = coefficient_mapping[callback._primal]
+    return type(callback)(goal, primal, callback._enrichment_degree)
 
 
 @_reconstruct.register(firedrake.slate.AssembledVector)
