@@ -459,7 +459,7 @@ class LiteralInserter(NodeTransformer):
         # if the mat is on the rhs
         if (
             isinstance(assignment.assignee, MatPetscMatBufferExpression)
-            and isinstance(assignment.assignee.buffer.handle, PETSc.Mat)
+            and isinstance(assignment.assignee.buffer_view.buffer, pyop3.buffer.PetscMatBuffer)
             and isinstance(assignment.expression, numbers.Number)
         ):
             # If we have an expression like
@@ -471,7 +471,7 @@ class LiteralInserter(NodeTransformer):
             row_axis_tree, column_axis_tree = assignment.axis_trees
             nrows = row_axis_tree.local_max_size
             ncols = column_axis_tree.local_max_size
-            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.dtype)
+            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer_view.buffer.dtype)
 
             new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())

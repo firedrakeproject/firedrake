@@ -213,11 +213,13 @@ class InstructionExecutionContext:
         # the code executor cache but we will have to replace the buffers 
         # dat1 -> dat3 and dat2 -> dat4.
         if not self._has_called_compile:
+            raise NotImplementedError
             new_buffer_map = dict(executor.buffer_map)
             for arg_index, buffer_ids in argument_index_to_buffer_id_map.items():
                 arg = self.root_insn.global_arguments[arg_index]
                 buffers = self._extract_buffers(arg)
                 assert len(buffers) > 0
+                breakpoint()
                 for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
                     buffer_name_in_kernel = executor._buffer_global_id_to_name_in_kernel_map[buffer_id]
                     # TODO: ick behaviour with buffer ref...
@@ -227,6 +229,7 @@ class InstructionExecutionContext:
 
             # can we do this check more eagerly?
             if new_buffer_map != executor.buffer_map:
+                breakpoint()
                 executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
 
         return executor
@@ -265,7 +268,8 @@ class InstructionExecutionContext:
         assert num_buffers == len(self.preprocessed_buffers)
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
-        loopy_code, buffer_index_map = _compile_static(self, compiler_parameters)
+        loopy_code, kernel_name_to_buffer_info, buffer_intents = \
+            _compile_static(self, compiler_parameters)
 
         extra_compiler_options = collect_compiler_options(self._preprocessed)
 
@@ -281,32 +285,18 @@ class InstructionExecutionContext:
             petsc_events=petsc_events,
         )
 
-        # TODO: We don't do anything with nest indices yet because we have always already
-        # unpacked things
-        sorted_buffers = {}
-        seen_buffers = set()
-        for kernel_arg_name, buffer_info in buffer_index_map.items():
-            # NOTE: we drop nest_indices because we currently don't use it
-            buffer_index, nest_indices, intent = buffer_info
-            global_buffer = self.preprocessed_buffers[buffer_index]
-            assert global_buffer not in seen_buffers, "Only expect to see buffers once"
-            seen_buffers.add(global_buffer)
-            sorted_buffers[kernel_arg_name] = (global_buffer, intent)
-
-        executor = CompiledCodeExecutor(executable, sorted_buffers, self.comm)
+        # replace buffer indices with the real things
+        kernel_name_to_buffer_info = idict({
+            name: (self.preprocessed_buffers[buffer_index], nest_indices)
+            for name, (buffer_index, nest_indices) in kernel_name_to_buffer_info.items()
+        })
+        buffer_intents = idict({
+            self.preprocessed_buffers[buffer_index]: intent
+            for buffer_index, intent in buffer_intents.items()
+        })
+        executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_info, buffer_intents, self.comm)
 
         return executor, self._argument_index_to_buffer_map
-
-    # debugging
-    @staticmethod
-    def _count_buffers(string):
-        num_buffers = 0
-        array_pattern = \
-            r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
-        petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
-        for pattern in [array_pattern, petscmat_pattern]:
-            num_buffers += len(utils.unique(re.findall(pattern, string)))
-        return num_buffers
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
@@ -383,31 +373,9 @@ class InstructionExecutionContext:
 
     @_extract_buffers.register(pyop3.expr.Scalar)
     @_extract_buffers.register(pyop3.expr.Dat)
-    def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        if expr.buffer.nest_shape() is not None:
-            raise NotImplementedError(
-                "Extracting nested buffers that aren't PETSc MATNESTS not yet supported"
-            )
-        return (expr.buffer,)
-
-    # NOTE: This applies generally to other nested things
     @_extract_buffers.register(pyop3.expr.Mat)
-    def _(self, mat: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        buf = mat.buffer
-        if buf.nest_shape() is not None:
-            breakpoint()
-            row_indices, column_indices = buf.nest_shape()
-            # old API!
-            raise NotImplementedError
-            buf = buf.restrict_nest(*nest_indices)
-
-        if (
-            isinstance(buf, pyop3.buffer.PetscMatBuffer)
-            and buf.handle.type == PETSc.Mat.Type.PYTHON
-        ):
-            buf = buf.handle.getPythonContext().buffer
-
-        return (buf,)
+    def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        return (expr.buffer,)
 
     @_extract_buffers.register
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
@@ -496,8 +464,10 @@ class CompiledCodeExecutor:
     ----------
     executable
         The compiled operation.
-    buffer_map
-        Mapping between argument names in the compiled code and actual data buffers.
+    kernel_name_to_buffer_info
+        Mapping from local kernel argument names to the buffer and nest indices.
+    buffer_intents
+        Mapping from buffers to their intents.
 
     Notes
     -----
@@ -510,23 +480,25 @@ class CompiledCodeExecutor:
     """
 
     # TODO: decouple intents from the buffer map (put intents on the executable)
-    def __init__(self, executable: Executable, buffer_map: WeakValueDictionary[str, ConcreteBuffer], comm: Pyop3Comm):
+    def __init__(
+        self,
+        executable: Executable,
+        kernel_name_to_buffer_info,
+        buffer_intents,
+        comm: MPI.Comm,
+    ):
         self.executable = executable
-        self.buffer_map = buffer_map
+        self.kernel_name_to_buffer_info = kernel_name_to_buffer_info
+        self.buffer_intents = buffer_intents
         self.comm = comm
 
+    # @cached_property
+    # def _buffer_global_id_to_name_in_kernel_map(self):
+    #     return {buffer: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
+    #
     @cached_property
-    def _buffer_refs(self) -> tuple[BufferRef]:  # BufferRef is gone
-        return tuple(ref for ref, _ in self.buffer_map.values())
-
-    @cached_property
-    def _buffer_global_id_to_name_in_kernel_map(self):
-        return {buffer: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
-
-    @cached_property
-    def _default_buffers(self) -> tuple[ConcreteBuffer]:
-        # This is exactly the same as _buffer_refs!
-        return tuple(buffer_ref for buffer_ref in self._buffer_refs)
+    def _default_buffers(self):
+        return tuple(self.buffer_intents.keys())
 
     def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
         """
@@ -535,28 +507,25 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # print(self)
-        # if "form" in str(self):
-            # breakpoint()
+        # if "MatSetValues" in str(self):
+        #     breakpoint()
             # pyop3.debug.maybe_breakpoint()
 
         if not new_buffers:  # shortcut for the most common case
             buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
         else:
-            buffers = list(self._default_buffers)
-            exec_arguments = list(self._default_exec_arguments)
-
-            # TODO:
-            # if CONFIG.debug:
-            if False:
-                for buffer_name, replacement_buffer in kwargs.items():
-                    self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
-
-            for buffer_key, replacement_buffer in new_buffers.items():
-                index = self._buffer_ref_indices[buffer_key]
-                buffers[index] = replacement_buffer
-                exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
+            buffers = [
+                new_buffers.get(orig_buffer, orig_buffer)
+                for orig_buffer in self.buffer_intents
+            ]
+            exec_arguments = [
+                self._as_exec_argument(
+                    new_buffers.get(orig_buffer, orig_buffer),
+                    nest_indices,
+                )
+                for orig_buffer, nest_indices in self.kernel_name_to_buffer_info.values()
+            ]
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
@@ -628,8 +597,8 @@ class CompiledCodeExecutor:
         reductions = []
         broadcasts = []
         finalizers = []
-        for buffer_ref, (_, intent) in zip(buffers, self.buffer_map.values(), strict=True):
-            inits, reds, bcasts, fins = self._buffer_exchanges(buffer_ref, intent)
+        for buffer, intent in self.buffer_intents.items():
+            inits, reds, bcasts, fins = self._buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
             broadcasts.extend(bcasts)
@@ -646,6 +615,10 @@ class CompiledCodeExecutor:
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 
+        # if "MatSetValues" in str(self) and "form" in str(self):
+        #     buf = list(self.buffer_intents.keys())[0]
+        #     breakpoint()
+
         for fin in finalizers:
             fin()
 
@@ -657,7 +630,7 @@ class CompiledCodeExecutor:
         str_.append(sep)
 
         for arg in self.executable.code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.buffer_map[arg.name][0])
+            size, buffer = self._buffer_str(self.kernel_name_to_buffer_info[arg.name][0])
             str_.append(f"{arg.name} {size} : {buffer}")
 
         str_.append(sep)
@@ -676,21 +649,19 @@ class CompiledCodeExecutor:
         return "", "<PetscMat>"
 
     @cached_property
-    def _buffer_ref_indices(self) -> idict[str, int]:
-        return idict({
-            buffer: i for i, buffer in enumerate(self._buffer_refs)
-        })
-
-    @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
-        return tuple(self._as_exec_argument(buffer_ref.handle) for buffer_ref in self._buffer_refs)
+        return tuple(
+            self._as_exec_argument(buffer, nest_indices)
+            for buffer, nest_indices in self.kernel_name_to_buffer_info.values()
+        )
 
     @functools.singledispatchmethod
-    def _as_exec_argument(self, obj: Any) -> int:
+    def _as_exec_argument(self, obj: Any, nest_indices: tuple[tuple[int, ...], ...]) -> int:
         utils.raise_missing_dispatch_handler(obj)
 
     @_as_exec_argument.register
-    def _(self, handle: int):  # assumes an address
+    def _(self, handle: int, **kwargs):  # assumes an address
+        assert False, "ideally no"
         return handle
 
     # not used because we pass the handle in already
@@ -699,41 +670,44 @@ class CompiledCodeExecutor:
     #     return opaque.handle
 
     @_as_exec_argument.register
-    def _(self, handle: np.ndarray) -> int:
-        return handle.ctypes.data
+    def _(self, buffer: pyop3.buffer.ArrayBuffer, nest_indices) -> int:
+        if nest_indices:
+            raise NotImplementedError
 
-    try:
-        import cupy as cp
-        # NOTE: This gives a pointer to a GPU memory address.
-        # Loopy cannot work with GPU so this will lead to a segfault. 
-        @_as_exec_argument.register(cp.ndarray)
-        def _(self, handle: cp.ndarray) -> int:
-            raise MemoryError("SegFault will occur if you pass a CuPy GPU pointer to Loopy/C code")
-    except ImportError:
-        pass
+        array = buffer._current_device_array
+        if isinstance(array, np.ndarray):
+            return array.ctypes.data
+        else:
+            try:
+                import cupy as cp
+                # NOTE: This gives a pointer to a GPU memory address.
+                # Loopy cannot work with GPU so this will lead to a segfault. 
+                if isinstance(array, cp.ndarray):
+                    raise MemoryError("SegFault will occur if you pass a CuPy GPU pointer to Loopy/C code")
+            except ImportError:
+                pass
+
+        raise RuntimeError("didnt hit a case")
 
     @_as_exec_argument.register
-    def _(self, mat: PETSc.Mat) -> int:
+    def _(self, mat: pyop3.buffer.PetscMatBuffer, nest_indices) -> int | None:
         # Sometime the matrix is in an invalid state and we cannot return a handle.
         # This happens for example when reusing a loop that initially used a
         # preallocator matrix. Once used the preallocator matrix is no longer in a
         # valid state. This is generally fine though because when we compute things
         # we replace this matrix with a fully allocated one. We therefore pass a
         # None here and check things later.
-        if not mat:
+        if not mat.mat:
             return None
 
-        assert mat.type != PETSc.Mat.Type.NEST
-        return mat.handle
+        submat = mat.mat
+        for ri, ci in nest_indices:
+            submat = submat.getNestSubMatrix(ri, ci)
 
-    def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
-        valid = (
-            type(new_buffer) is type(orig_buffer)
-            and new_buffer.size == orig_buffer.size
-            and new_buffer.dtype == orig_buffer.dtype
-        )
-        if not valid:
-            raise exc.BufferMismatchException()
+        if submat.type == PETSc.Mat.Type.PYTHON:
+            return self._as_exec_argument(submat.getPythonContext().buffer, ())
+        else:
+            return submat.handle
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time

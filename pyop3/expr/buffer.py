@@ -64,6 +64,7 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     @property
     def handle(self) -> Any:
+        assert False, "unused?"
         # is this used?
         return self.buffer_view.handle(nest_indices=self.buffer_view.nest_indices)
 

@@ -8,8 +8,6 @@ import firedrake.cython.dmcommon
 import firedrake.mesh
 from firedrake.utils import IntType
 
-import pyop3.debug
-
 
 def _get_ndofs_extruded(mesh: firedrake.mesh.MeshGeometry, entity_dofs: dict) -> np.ndarray:
     ndofs = np.empty(mesh.num_points, dtype=IntType)

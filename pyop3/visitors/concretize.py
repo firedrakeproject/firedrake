@@ -154,9 +154,11 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
     def _(self, mat: pyop3.expr.Mat, /, *, axis_trees) -> pyop3.expr.MatBufferExpression:
         row_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.row_axes, axis_trees[0])
         column_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.column_axes, axis_trees[1])
-        return self._explode_nest(mat.buffer, row_axes, column_axes)
+        return self._explode_nest(
+            mat.buffer, row_axes, column_axes, row_axes.nest_indices, column_axes.nest_indices
+        )
 
-    def _explode_nest(self, buffer, row_axes, column_axes, row_indices=(), column_indices=()):
+    def _explode_nest(self, buffer, row_axes, column_axes, row_indices, column_indices):
         # Explode any nested data structures here. This can happen in two ways:
         # 1. The nest index is known in advance and so we can emit a single
         #    instruction using the indexed buffer.
@@ -164,51 +166,55 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
         #    aggregate type where an instruction has to be emitted for each
         #    possible nest index.
 
-        if (
-            len(row_indices) == len(column_indices)
-            and buffer.nest_shape(zip(row_indices, column_indices)) is None
-        ):
-            # Is the buffer actually a nested data structure? If it isn't then we
-            # don't have to recurse.
-            return (self._buffer_expression(buffer, row_axes, column_axes, row_indices, column_indices),)
-        elif row_axes.nest_indices:
-            # De-nest all row indices before all column indices. It isn't
-            # necessarily the case that there will be the same number of them.
-            row_index, *_ = row_axes.nest_indices
-            row_label, *_ = row_axes.nest_labels
-            return self._explode_nest(
-                row_axes[row_label],
-                column_axes,
-                row_indices+(row_index,),
-                column_indices,
-            )
-        elif column_axes.nest_indices:
-            column_index, *_ = column_axes.nest_indices
-            column_label, *_ = column_axes.nest_labels
-            return self._explode_nest(
-                row_axes,
-                column_axes[column_label],
-                row_indices,
-                column_indices+(column_index,),
-            )
-        else:
-            # We have run out of nest indices but the data structure is still
-            # nested. We therefore need to emit multiple instructions.
+        # First check, do the axes have enough information to un-nest the buffer?
+        if buffer.nest_shape() is None:
+            return (self._buffer_expression(buffer, row_axes, column_axes, ()),)
+
+        nest_indices = []
+        for ri, ci in zip(row_indices, column_indices, strict=False):
+            nest_indices.append((ri, ci))
+            if buffer.nest_shape(nest_indices) is None:
+                # All nesting consumed, emit a single expression
+                return (self._buffer_expression(buffer, row_axes, column_axes, nest_indices),)
+
+        return self._explode_nest_inner(buffer, row_axes, column_axes, row_indices, column_indices)
+
+    def _explode_nest_inner(self, buffer, row_axes, column_axes, row_indices, column_indices):
+        if len(row_indices) == len(column_indices):
+            nest_indices = tuple(zip(row_indices, column_indices))
+            if buffer.nest_shape(nest_indices) is None:
+                return (self._buffer_expression(buffer, row_axes, column_axes, nest_indices),)
+        # We have run out of nest indices but the data structure is still
+        # nested. We therefore need to emit multiple instructions.
+        if len(row_indices) <= len(column_indices):
+            # Loop over the next set of row indices
             exprs = []
-            nrows, ncols = buffer.nest_shape(row_indices, column_indices)
+            nrows, _ = buffer.nest_shape(zip(row_indices, column_indices, strict=False))
             for ridx in range(nrows):
                 row_label = row_axes.root.components[ridx]
-                row_subaxes = row_axes[row_label]
-                for cidx in range(ncols):
-                    column_label = column_axes.root.components[cidx]
-                    column_subaxes = column_axes[column_label]
-                    subexprs = self._explode_nest(
-                        row_subaxes,
-                        column_subaxes,
-                        row_indices+(ridx,),
-                        column_indices+(cidx,),
-                    )
-                    exprs.extend(subexprs)
+                subexprs = self._explode_nest_inner(
+                    buffer,
+                    row_axes[row_label],
+                    column_axes,
+                    row_indices+(ridx,),
+                    column_indices,
+                )
+                exprs.extend(subexprs)
+            return tuple(exprs)
+        else:
+            # Loop over the next set of column indices
+            exprs = []
+            _, ncols = buffer.nest_shape(zip(row_indices, column_indices, strict=False))
+            for cidx in range(nrows):
+                column_label = row_axes.root.components[ridx]
+                subexprs = self._explode_nest_inner(
+                    buffer,
+                    row_axes,
+                    column_axes[column_label],
+                    row_indices,
+                    column_indices+(cidx,),
+                )
+                exprs.extend(subexprs)
             return tuple(exprs)
 
     @functools.singledispatchmethod
@@ -216,7 +222,14 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
         raise NotImplementedError
 
     @_buffer_expression.register
-    def _(self, buffer: pyop3.buffer.PetscMatBuffer, row_axes, column_axes, row_indices, column_indices):
+    def _(self, buffer: pyop3.buffer.PetscMatBuffer, row_axes, column_axes, nest_indices):
+        nest_indices = tuple(nest_indices)
+        for ri, ci in nest_indices:
+            rl, *_ = row_axes.nest_labels
+            row_axes = row_axes.restrict_nest(rl)
+            cl, *_ = column_axes.nest_labels
+            column_axes = column_axes.restrict_nest(cl)
+
         if buffer.mat.type == PETSc.Mat.Type.PYTHON:
             context = buffer.mat.getPythonContext()
             if context.mode == "row":
@@ -230,13 +243,11 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
                     raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
                 row_layouts = row_axes.leaf_subst_layouts
                 column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
-            ibuffer = pyop3.expr.IndexedBuffer(buffer, (row_indices, column_indices))
+            ibuffer = pyop3.expr.IndexedBuffer(buffer, nest_indices)
             return pyop3.expr.MatArrayBufferExpression(ibuffer, row_layouts, column_layouts)
 
         else:
-            ibuffer = pyop3.expr.IndexedBuffer(
-                buffer, tuple(zip(row_indices, column_indices, strict=True))
-            )
+            ibuffer = pyop3.expr.IndexedBuffer(buffer, nest_indices)
             # Layouts have to be symbolic expressions here (not materialised)
             # because we can use that information to guide later optimisations.
             # In particular when we compress indirections we would like to
@@ -253,7 +264,9 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
             return pyop3.expr.MatPetscMatBufferExpression(ibuffer, row_layout, column_layout)
 
     @_buffer_expression.register
-    def _(self, buffer: pyop3.buffer.AbstractArrayBuffer, row_axes, column_axes, row_indices, column_indices):
+    def _(self, buffer: pyop3.buffer.AbstractArrayBuffer, row_axes, column_axes, nest_indices):
+        if nest_indices:
+            raise NotImplementedError
         row_layouts = row_axes.leaf_subst_layouts
         column_layouts = column_axes.leaf_subst_layouts
         return pyop3.expr.MatArrayBufferExpression(buffer, row_layouts, column_layouts)

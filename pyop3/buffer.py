@@ -231,9 +231,9 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         pass
 
     # NOTE: This is similar in nature to Buffer.data etc
-    @abc.abstractmethod
-    def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
-        """The underlying data structure."""
+    # @abc.abstractmethod
+    # def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
+    #     """The underlying data structure."""
 
 
 @pyop3.record.record()
@@ -432,6 +432,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def handle(self) -> pyop3.types.DeviceArrayT:
+        assert False, "unused?"
         return self._current_device_array
 
     def zero(self) -> None:
@@ -1073,8 +1074,14 @@ class PetscMatBuffer(ConcreteBuffer):
         return self._comm
 
     def nest_shape(self, nest_indices: Iterable[tuple[int, int], ...] = ()):
-        if self.mat.type == PETSc.Mat.Type.NEST:
-            breakpoint()
+        nest_indices = tuple(nest_indices)
+
+        submat = self.mat
+        for ri, ci in nest_indices:
+            submat = submat.getNestSubMatrix(ri, ci)
+
+        if submat.type == PETSc.Mat.Type.NEST:
+            return submat.getNestSize()
         else:
             return None
 
@@ -1172,6 +1179,7 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def handle(self) -> Any:
+        assert False, "unused"
         return self.mat
 
     def zero(self) -> None:

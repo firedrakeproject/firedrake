@@ -13,6 +13,7 @@ import pymbolic as pym
 from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
+import pyop3.buffer
 import pyop3.cache
 import pyop3.config
 import pyop3.constants
@@ -74,12 +75,11 @@ class LoopyCodegenContext(CodegenContext):
 
         self._name_generator = utils.UniqueNameGenerator()
 
-        # buffer name -> name in kernel
-        self._kernel_names = {}
+        # (buffer, nest_indices) -> name in kernel
+        self.kernel_names = {}
 
-        # buffer name -> buffer
-        self.global_buffers = {}
-        self.global_buffer_intents = {}
+        # buffer -> intent
+        self.buffer_intents = {}
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
@@ -179,28 +179,25 @@ class LoopyCodegenContext(CodegenContext):
             assert not buffer_view.nest_indices
             # Note that intent is not important for temporaries
             try:
-                return self._kernel_names[buffer_key]
+                return self.kernel_names[buffer_key]
             except KeyError:
                 shape = self._temporary_shapes.get(buffer, (buffer.size,))
                 assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
                 name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
-                return self._kernel_names.setdefault(buffer_key, name_in_kernel)
+                return self.kernel_names.setdefault(buffer_key, name_in_kernel)
 
         else:
-            if buffer_view.nest_indices:
-                raise NotImplementedError
-
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
-            if buffer_key in self._kernel_names:
-                if intent != self.global_buffer_intents[buffer_key]:
+            if buffer_key in self.kernel_names:
+                if intent != self.buffer_intents[buffer]:
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
-                    self.global_buffer_intents[buffer_key] = RW
-                return self._kernel_names[buffer_key]
+                    self.buffer_intents[buffer] = RW
+                return self.kernel_names[buffer_key]
 
-            if isinstance(buffer.handle, np.ndarray):
+            if isinstance(buffer, pyop3.buffer.ArrayBuffer):
                 # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
                 # that it is correctly included in the cache key).
                 # Inject constant buffer data into the generated code if sufficiently small
@@ -228,15 +225,16 @@ class LoopyCodegenContext(CodegenContext):
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
                 assert isinstance(buffer, PetscMatBuffer)
-                assert buffer.mat_type not in {"nest", "python"}
+                assert buffer.mat_type != "python"
+                if buffer.mat_type == "nest":
+                    assert buffer_view.nest_indices
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
 
-            self.global_buffers[buffer_key] = buffer
-            self.global_buffer_intents[buffer_key] = intent
+            self.buffer_intents[buffer] = intent
             self._arguments.append(loopy_arg)
-            return self._kernel_names.setdefault(buffer_key, name_in_kernel)
+            return self.kernel_names.setdefault(buffer_key, name_in_kernel)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
@@ -264,16 +262,15 @@ class LoopyCodegenContext(CodegenContext):
         return name_in_kernel
 
     def add_opaque(self, opaque: OpaqueTerminal, intent) -> str:
-        if opaque in self._kernel_names:
-            return self._kernel_names[opaque]
+        if opaque in self.kernel_names:
+            return self.kernel_names[opaque]
 
         name_in_kernel = self.unique_name("opaque")
         loopy_arg = lp.ValueArg(name_in_kernel, dtype=opaque.dtype)
 
-        self.global_buffers[opaque] = opaque
-        self.global_buffer_intents[opaque] = intent
+        self.buffer_intents[opaque] = intent
         self._arguments.append(loopy_arg)
-        self._kernel_names[opaque] = name_in_kernel
+        self.kernel_names[opaque] = name_in_kernel
         return name_in_kernel
 
     def add_subkernel(self, subkernel):
@@ -459,7 +456,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    if not context.global_buffers:
+    if not context.buffer_intents:
         raise pyop3.exceptions.EffectlessComputationException(
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
@@ -501,17 +498,21 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
-    buffer_index_map = {}
-    for kernel_arg in entrypoint.args:
-        buffer_key = kernel_to_buffer_names[kernel_arg.name]
-        buffer_ref = context.global_buffers[buffer_key]
-        buffer_index = op.preprocessed_buffers.index(buffer_ref)
-        intent = context.global_buffer_intents[buffer_key]
-        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_key[1], intent)
+    # Extra information needed by the code executor
+    kernel_name_to_buffer_info = utils.invert_mapping(context.kernel_names)
+    buffer_intents = context.buffer_intents
 
-    return translation_unit, buffer_index_map
+    # Replace buffers with their indices, dropping any temporaries. Also
+    # match the calling order for the kernel.
+    kernel_name_to_global_buffer_info = {}
+    global_buffer_intents = {}
+    for kernel_arg in translation_unit.default_entrypoint.args:
+        buffer, nest_indices = kernel_name_to_buffer_info[kernel_arg.name]
+        buffer_index = op.preprocessed_buffers.index(buffer)
+        kernel_name_to_global_buffer_info[kernel_arg.name] = (buffer_index, nest_indices)
+        global_buffer_intents[buffer_index] = buffer_intents[buffer]
 
+    return translation_unit, kernel_name_to_global_buffer_info, global_buffer_intents
 
 
 # put into a class in transform.py?
@@ -718,7 +719,7 @@ def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, context:
 def _compile_petsc_mat(assignment: NonEmptyArrayAssignment, loop_indices, context) -> None:
     # We need to know whether the matrix is the assignee or not because we need
     # to know whether to put MatGetValues or MatSetValues
-    if isinstance(assignment.assignee.buffer, PetscMatBuffer):
+    if isinstance(assignment.assignee.buffer_view.buffer, PetscMatBuffer):
         mat = assignment.assignee
         expr = assignment.expression
         setting_mat_values = True
