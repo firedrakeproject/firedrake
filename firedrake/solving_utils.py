@@ -297,15 +297,19 @@ class _SNESContext(object):
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type
 
-        default_options = {
-            "sub_mat_type": self.sub_mat_type,
-            "sub_pmat_type": self.sub_pmat_type,
-            "appctx": self.appctx,
-            "options_prefix": self.options_prefix,
-            "transfer_manager": self.transfer_manager,
-            "pre_apply_bcs": self.pre_apply_bcs,
-            "marking_callback": self._marking_callback,
-        }
+        default_options = dict(
+            sub_mat_type=self.sub_mat_type,
+            sub_pmat_type=self.sub_pmat_type,
+            appctx=self.appctx,
+            options_prefix=self.options_prefix,
+            transfer_manager=self.transfer_manager,
+            pre_jacobian_callback=self._pre_jacobian_callback,
+            pre_function_callback=self._pre_function_callback,
+            post_jacobian_callback=self._post_jacobian_callback,
+            post_function_callback=self._post_function_callback,
+            pre_apply_bcs=self.pre_apply_bcs,
+            marking_callback=self._marking_callback
+        )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
                 kwargs[k] = v

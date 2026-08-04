@@ -220,9 +220,9 @@ class PMGBase(PCSNESBase):
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
         # Coarsen the problem
-        cproblem = fproblem.reconstruct(function_space=cV,
-                                        form_compiler_parameters=fcp,
-                                        form_transform=_coarsen_form)
+        cproblem = fproblem.rediscretise(function_space=cV,
+                                         form_compiler_parameters=fcp,
+                                         form_transform=_coarsen_form)
         cu = cproblem.u_restrict
         fu = fproblem.u_restrict
         fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
@@ -241,13 +241,7 @@ class PMGBase(PCSNESBase):
 
         # Coarsen the _SNESContext
         cctx = fctx.reconstruct(cproblem, mat_type, pmat_type,
-                                appctx=cappctx,
-                                pre_jacobian_callback=fctx._pre_jacobian_callback,
-                                pre_function_callback=fctx._pre_function_callback,
-                                post_jacobian_callback=fctx._post_jacobian_callback,
-                                post_function_callback=fctx._post_function_callback,
-                                options_prefix=fctx.options_prefix,
-                                marking_callback=fctx._marking_callback)
+                                appctx=cappctx)
 
         # FIXME setting up the _fine attribute triggers gmg injection.
         # cctx._fine = fctx
