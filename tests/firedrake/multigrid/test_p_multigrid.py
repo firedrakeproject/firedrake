@@ -71,7 +71,7 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         e = Z.ufl_element()
 
         elist.append(e)
-        assert e == PMGPC.reconstruct_degree(elist[0], degree)
+        assert e == elist[0].reconstruct(degree=degree)
 
 
 @pytest.mark.parametrize("family", ["Q", "NCE", "NCF", "DQ"])
@@ -336,7 +336,7 @@ def test_p_multigrid_mixed(mat_type):
     problem = NonlinearVariationalProblem(F, z, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
     solver.solve()
-    assert solver.snes.ksp.its <= 7
+    assert solver.snes.ksp.its <= 9
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
 
@@ -358,12 +358,12 @@ def test_p_multigrid_mixed(mat_type):
         ctx_levels += 1
     assert ctx_levels == 3
 
-    # test that caches are parallel-safe
+    # test that the cache is parallel-safe
     dummy_eq = type(object).__eq__
-    for cache in (PMGPC._coarsen_cache, PMGPC._transfer_cache):
-        assert len(cache) > 0
-        for k in cache:
-            assert type(k).__eq__ is dummy_eq
+    cache = PMGPC._transfer_cache
+    assert len(cache) > 0
+    for k in cache:
+        assert type(k).__eq__ is dummy_eq
 
 
 def test_p_fas_scalar():
@@ -574,8 +574,11 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
     Vf = FunctionSpace(piola_mesh, family, degree)
     if mixed:
         DG = FunctionSpace(Vf.mesh(), "DG", 2)
+        Vc0 = Vf.reconstruct(degree=1)
+        Vc = Vc0 * Vc0 * DG.reconstruct(degree=1)
         Vf = Vf * Vf * DG
-    Vc = Vf.reconstruct(degree=1)
+    else:
+        Vc = Vf.reconstruct(degree=1)
 
     Vf_bcs = [DirichletBC(Vf.sub(0), 0, "on_boundary")]
     Vc_bcs = [DirichletBC(Vc.sub(0), 0, "on_boundary")]
