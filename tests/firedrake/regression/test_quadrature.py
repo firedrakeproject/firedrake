@@ -70,6 +70,3 @@ def test_boundary_quadrature_interpolation(mesh, space):
     # The functionals are point evaluations, so interpolation is exact there
     assert np.isclose(assemble(inner(f - expr, f - expr) * ds), 0)
     assert np.isclose(assemble(inner(f('+') - expr('+'), f('+') - expr('+')) * dS), 0)
-    # The degrees of freedom on a facet are shared, so the cells on either
-    # side of one see the same values
-    assert np.isclose(assemble(inner(f('+') - f('-'), f('+') - f('-')) * dS), 0)

@@ -347,9 +347,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     else:
         coordinate_mapping = None
     evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-    # As in assembly, fold zero-valued Literals into symbolic Zero first, so
-    # that the algebraic identities built into gem (Product(_, Zero) -> Zero,
-    # etc.) can propagate them and later steps can prune them.
     evaluation, = constant_fold_zero([evaluation])
 
     # Index splitting cache, shared by every unconcatenate() call below so
@@ -399,10 +396,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # and cancel the pairs that map to different components.
     pairs = [(variable, gem.optimise.contraction(expression))
              for variable, expression in pairs]
-    # As in assembly, drop any pair whose expression collapsed to Zero: a
-    # cross-component block that a Delta has just cancelled above is a real
-    # zero contribution, not merely absent from the sum, and it must not
-    # reach codegen as a temporary.
     impero_c = impero_utils.compile_gem(pairs, return_indices, remove_zeros=True)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
