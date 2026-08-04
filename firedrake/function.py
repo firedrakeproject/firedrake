@@ -367,6 +367,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._match_mesh_topology_version()
         return self._data.dat
 
+    @dat.setter
+    def dat(self, value):
+        if value is self._data.dat:
+            return
+        raise AttributeError("A Function's Dat cannot be replaced directly.")
+
     @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):

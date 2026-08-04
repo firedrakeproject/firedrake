@@ -390,6 +390,9 @@ def test_rebuild_vom_can_produce_empty_vom(parent_mesh):
 
     parallel_assert(nleaves == 0, "The empty swarm point SF has leaves")
 
+    assert vom.coordinates.dat.data_ro.shape[0] == 0
+    assert vom.reference_coordinates.dat.data_ro.shape[0] == 0
+
 
 @pytest.mark.parallel([1, 3])
 def test_rebuild_vom_invalid_absorbed_index_raises_value_error(parent_mesh):
