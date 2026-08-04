@@ -262,7 +262,7 @@ We solve again the same Helmholtz problem as in the previous section. ::
 
     V = FunctionSpace(msh, "CG", 2)
     x, y, z = SpatialCoordinate(msh)
-    u_exact = cos(z/R0) * (1 - x**2 - y**2)    
+    u_exact = cos(z) * (1 - x**2 - y**2)    
     f = u_exact - div(grad(u_exact))
 
     u = TrialFunction(V)
