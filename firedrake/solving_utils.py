@@ -308,7 +308,7 @@ class _SNESContext(object):
             post_jacobian_callback=self._post_jacobian_callback,
             post_function_callback=self._post_function_callback,
             pre_apply_bcs=self.pre_apply_bcs,
-            marking_callback=self._marking_callback
+            marking_callback=self._marking_callback,
         )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
