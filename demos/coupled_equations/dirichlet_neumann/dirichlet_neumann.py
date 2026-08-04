@@ -15,7 +15,7 @@ PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n2_list = [16,16,16,16,16] #[8,8,8,8,8] 
+n2_list = [4,4,4,4,4] #[16,16,16,16,16]
 n1_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -33,7 +33,7 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-def build_problem(mesh1, mesh2, n2):
+def build_problem(mesh1, mesh2):
     p = 4
     p_inner = 2
     w1 = Constant(100.0)/CellDiameter(mesh1)  # Nitsche penalty weight
@@ -85,14 +85,14 @@ def build_problem(mesh1, mesh2, n2):
     B12 = interpolate(u2, Q1, allow_missing_dofs=True)  # W -> Q2
     A12_form = action(M1, B12)
 
-    M1_sym = inner(q1, dot(grad(v1), n1)) * ds1
-    A12_sym_form = action(M1_sym, B12)
+    #M1_sym = inner(q1, dot(grad(v1), n1)) * ds1
+    #A12_sym_form = action(M1_sym, B12)
     
     # RHS
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-    A = A11_form + A22_form + A12_form + A21_form + A22_form + A12_sym_form
-    L = b1 + b2 #+ inner(dot(grad(v2), n2), f2) * ds2
+    A = A11_form + A22_form + A12_form + A21_form + A22_form #+ A12_sym_form
+    L = b1 + b2
 
     # Exact solutions used for further analysis
     u1_exact_func = Function(V1).interpolate(u1_exact)
@@ -117,7 +117,7 @@ def plot(filename, u_1, u_2):
 
 # Solver for the coupled problem for each defined mesh
 for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
-    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2, n2)
+    A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
     
     bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
@@ -181,8 +181,8 @@ if VERBOSE:
 # PETSc.Sys.Print(f"...")
 
     plt.figure(figsize=(8,8))
-    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
-    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
+    #plt.loglog(h2_array, errors_2, "o-", label="Poisson")
+    plt.loglog(h1_array, errors_1, "s-", label="Helmholtz")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
