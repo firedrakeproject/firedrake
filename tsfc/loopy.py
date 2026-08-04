@@ -236,7 +236,10 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     data = list(args)
     for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
         name = "t%d" % i
-        if isinstance(temp, gem.Constant):
+        if isinstance(temp, gem.Zero):
+            initializer = numpy.zeros(temp.shape, dtype=dtype)
+            data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=initializer, address_space=lp.AddressSpace.LOCAL, read_only=True))
+        elif isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
             shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
