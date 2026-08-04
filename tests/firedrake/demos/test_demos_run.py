@@ -51,6 +51,7 @@ SERIAL_DEMOS = [
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
+    Demo(("goal_oriented_adaptivity", "goal_oriented_adaptivity"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
     Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
     Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
