@@ -273,18 +273,19 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        self._mesh_topology = self._function_space.topological.mesh()  # the MeshTopology object
-        self._mesh_geometry = self._function_space.mesh()  # the MeshGeometry object
-
         # Register the mesh topology version at the time the Function was created
         self._mesh_topology_version = self._mesh_topology._topology_version
 
-        # Register the Function if it's defined on a VOM
-        if isinstance(self._mesh_topology, VertexOnlyMeshTopology):
-            self._mesh_topology._live_functions[next(self._mesh_topology._function_counter)] = self
+        # Register the Function on its mesh
+        self._mesh_topology._register_function(self)
 
         if isinstance(function_space, Function):
             self.assign(function_space)
+
+    @property
+    def _mesh_topology(self):
+        """The topology of the mesh on which this Function is defined."""
+        return self._function_space.topological.mesh()
 
     @property
     def topological(self):
@@ -312,13 +313,13 @@ class Function(ufl.Coefficient, FunctionMixin):
             current = super(Function, self).__dir__()
             return list(dict.fromkeys(dir(self._data) + current))
 
-    def _match_mesh_topology_version(self):
-        current_mesh_version = self._mesh_topology._topology_version
+    def _migrate_to_current_topology_version(self, current_version):
+        """Migrate this Function's data to the current topology version if needed."""
+        current_version = self._mesh_topology._topology_version
 
-        if current_mesh_version != self._mesh_topology_version:
-            self._rebuild_function(current_mesh_version)
+        if current_version == self._mesh_topology_version:
+            return
 
-    def _rebuild_function(self, current_version):
         if not isinstance(self._mesh_topology, VertexOnlyMeshTopology):
             raise UnsupportedFunctionMigrationError(
                 "The mesh topology has changed since this Function was created, \
@@ -364,7 +365,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @property
     def dat(self):
-        self._match_mesh_topology_version()
+        self._migrate_to_current_topology_version()
         return self._data.dat
 
     @dat.setter

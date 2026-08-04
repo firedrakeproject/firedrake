@@ -1092,6 +1092,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
 
+    def _register_function(self, function: "Function") -> None:
+        """Register a Function for migration after topology changes."""
+        pass
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -2083,14 +2087,19 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
 
-        # Records when the parent cell assignment changes without yet changing the topology
+        # Records changes to parent cell assignment without yet changing the topology so that the right caches get invalidated
         self._parent_cell_assignment_version = 0
 
-        # Registry of live functions defined on the VOM
+        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+
+        # Define a registry of all Functions defined on this mesh.
+        # `_live_functions` is a dictionary of the form {registration_id: Function} which stores each Function as a weak reference.
+        # This is chosen so that we're able to keep track of which Functions are defined on the mesh at the topology-level (which we expect to mutate)
+        # while still allowing Python's GC to delete a live Function when the last strong reference to it dies.
+        # The keys of this dictionary are integer IDs used to sort registered Functions (deterministically) by their creation order.
         self._live_functions = weakref.WeakValueDictionary()
         self._function_counter = itertools.count()
 
-        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._init_particle_ids()
 
     def _distribute(self):
@@ -2378,32 +2387,24 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
 
-    def _migrate_functions(self, functions_to_migrate=()):
+    def _register_function(self, function):
+            key = next(self._function_counter)
+            self._live_functions[key] = function
+
+    def _migrate_all_functions(self):
         """
-        Migrate Function(s) defined on this topology to the current version.
-
-        If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
+        Migrate all live Functions registered on this mesh to it's current topology version.
         """
-        import gc
-
-        # TODO: do parallel set intersection of the live function keys across all ranks
-        # and migrate only ones in the intersection
-
-        # NOTE: This doesn't collect reference-cycle garbage identically on all ranks
-        gc.collect()
-
-        if len(functions_to_migrate) > 0:
-            for f in functions_to_migrate:
-                f._match_mesh_topology_version()
-                return
-
-        keys = [k for k in sorted(self._live_functions.keys())
-                if self._live_functions.get(k) if not None]
-
-        for k in keys:
-            f = self._live_functions.get(k)
-            if f is not None:
-                f._match_mesh_topology_version()
+        # NOTE: Sorting only affects local key order i.e., it only guarantees that we iterate over Functions
+        # in their creation order on this rank only.
+        # It does not guarantee that this ordering is the same across different MPI ranks which may have a different set of live Functions 
+        # and correspondingly different keys.
+        # Enforcing a consistent collective migration order would require a cross-rank coordination operation
+        # e.g., parallel set intersection of live Function keys?
+        for key in sorted(self._live_functions):
+            function = self._live_functions.get(key)
+            if function is not None:
+                function._migrate_to_current_topology_version()
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -5324,3 +5325,6 @@ class MeshSequenceTopology:
             raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m
+
+    def _register_function(self, function):
+        pass
