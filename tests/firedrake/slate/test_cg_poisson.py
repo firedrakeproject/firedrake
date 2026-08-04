@@ -81,7 +81,7 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant="integral")
     V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
     uh = Function(V)
 
