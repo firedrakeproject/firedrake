@@ -245,24 +245,15 @@ class PMGBase(PCSNESBase):
             pmat_type = self.coarse_pmat_type
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
-        cF = cJ = coefficient_mapping = None
+        cF = None
         if not self.is_snes:
-            # PC-only levels don't assemble their own residual; coarsen J
-            # ourselves and reuse it as action(cJ, cu), instead of coarsening
-            # fproblem.F, which may carry RHS Cofunctions ufl.replace can't handle.
-            fu = fproblem.u_restrict
-            cu = firedrake.Function(cV)
-            coefficient_mapping = {fu: cu,
-                                   test: test.reconstruct(function_space=cV),
-                                   trial: trial.reconstruct(function_space=cV)}
-            cJ = _coarsen_form(fproblem.J, coefficient_mapping)
-            cF = ufl.action(cJ, cu)
+            # PC-only levels don't assemble F, so a placeholder avoids coarsening RHS Cofunctions.
+            cF = ufl.ZeroBaseForm((test.reconstruct(function_space=cV),))
 
         # Coarsen the problem
         homogenize_bcs = not self.is_snes
-        cproblem = fproblem.reconstruct(F=cF, J=cJ,
+        cproblem = fproblem.reconstruct(F=cF,
                                         function_space=cV,
-                                        coefficient_mapping=coefficient_mapping,
                                         form_compiler_parameters=fcp,
                                         form_transform=_coarsen_form,
                                         homogenize_bcs=homogenize_bcs)

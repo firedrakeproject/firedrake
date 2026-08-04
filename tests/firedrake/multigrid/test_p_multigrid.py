@@ -526,7 +526,9 @@ def test_p_fas_nonlinear_scalar():
         while level is not None:
             p = level._problem
             Nq = set()
-            for form in filter(None, (p.F, p.J, p.Jp)):
+            for form in (p.F, p.J, p.Jp):
+                if not isinstance(form, Form):
+                    continue
                 Nq.update(set(f.metadata().get("quadrature_degree", set()) for f in form.integrals()))
             if p.form_compiler_parameters is not None:
                 Nfcp = p.form_compiler_parameters.get("quadrature_degree", None)
