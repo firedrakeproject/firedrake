@@ -313,11 +313,11 @@ class Function(ufl.Coefficient, FunctionMixin):
             current = super(Function, self).__dir__()
             return list(dict.fromkeys(dir(self._data) + current))
 
-    def _migrate_to_current_topology_version(self, current_version):
+    def _migrate_to_current_topology_version(self):
         """Migrate this Function's data to the current topology version if needed."""
-        current_version = self._mesh_topology._topology_version
+        latest_mesh_topology_version = self._mesh_topology._topology_version
 
-        if current_version == self._mesh_topology_version:
+        if latest_mesh_topology_version == self._mesh_topology_version:
             return
 
         if not isinstance(self._mesh_topology, VertexOnlyMeshTopology):
@@ -328,22 +328,22 @@ class Function(ufl.Coefficient, FunctionMixin):
             )
 
         # Get the latest one-step SF point mapping (indexed by current mesh version)
-        latest_topology_step_sf = self._mesh_topology._topology_step_sfs.get(current_version, None)
+        latest_topology_step_sf = self._mesh_topology._topology_step_sfs.get(latest_mesh_topology_version, None)
         if latest_topology_step_sf is None:
             raise FunctionMigrationError(
                 "Failed to migrate Function data because the topology mapping "
-                f"to version {current_version} could not be found."
+                f"to version {latest_mesh_topology_version} could not be found."
             )
 
         # Migrate the Function data using the SF mapping
         # First get the SF mapping from current mesh to the mesh at the time the Function was created
         # Then check if we need to chain multiple one-step SFs (this happens when the Function was created on a VOM topology
         # that's more than one version behind).
-        if current_version - self._mesh_topology_version > 1:
+        if latest_mesh_topology_version - self._mesh_topology_version > 1:
             # Compose multiple one-step SFs
             chained_sf = latest_topology_step_sf  # starts from latest V -> V-1
             # Iterate backwards through the intermediate versions
-            for v in range(current_version-1, self._mesh_topology_version, -1):
+            for v in range(latest_mesh_topology_version-1, self._mesh_topology_version, -1):
                 step_sf = self._mesh_topology._topology_step_sfs.get(v, None)  # maps V-1 -> V-2
                 if step_sf is None:
                     raise FunctionMigrationError(
@@ -361,7 +361,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         self._data = migrate_dg0_dat(self._data, FS_topo, latest_topology_step_sf)
 
         # Update the mesh topology version stored on the function
-        self._mesh_topology_version = current_version
+        self._mesh_topology_version = latest_mesh_topology_version
 
     @property
     def dat(self):
