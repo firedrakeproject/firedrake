@@ -9,7 +9,6 @@ from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
-import cachetools
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
@@ -278,9 +277,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         ufl.Coefficient.__init__(
             self, self.function_space().ufl_function_space(), count=count
         )
-
-        # LRU cache for expressions assembled onto this function
-        self._expression_cache = cachetools.LRUCache(maxsize=50)
 
         if isinstance(function_space, Function):
             self.assign(function_space)
