@@ -1,3 +1,4 @@
+import typing
 from itertools import chain
 
 import numpy
@@ -14,6 +15,9 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
+
+if typing.TYPE_CHECKING:
+    from firedrake.variational_solver import NonlinearVariationalProblem
 
 
 def _make_reasons(reasons):
@@ -291,8 +295,30 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
-        """Reconstruct this _SNESContext instance with new arguments."""
+    def reconstruct(self,
+                    problem: "NonlinearVariationalProblem | None" = None,
+                    mat_type: str | None = None,
+                    pmat_type: str | None = None,
+                    **kwargs) -> "_SNESContext":
+        """Reconstruct this _SNESContext instance with new arguments.
+
+        Parameters
+        ----------
+        problem
+            The new NonlinearVariationalProblem, defaults to the original problem.
+        mat_type
+            The new Jacobian matrix type, defaults to `self.mat_type`.
+        pmat_type
+            The new preconditioner matrix type, defaults to `self.pmat_type`.
+        **kwargs
+            Any other constructor argument accepted by `_SNESContext`, defaulting
+            to the corresponding attribute (or callback) of this instance.
+
+        Returns
+        -------
+        _SNESContext
+            The reconstructed context.
+        """
         problem = problem or self._problem
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type

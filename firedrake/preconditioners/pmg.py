@@ -60,7 +60,7 @@ class PMGBase(PCSNESBase):
     # This is parallel-safe because the keys are ids of a collective objects
     _transfer_cache = weakref.WeakKeyDictionary()
 
-    def coarsen_element(self, ele):
+    def coarsen_element(self, ele: finat.ufl.FiniteElementBase) -> finat.ufl.FiniteElementBase:
         """Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
@@ -71,8 +71,13 @@ class PMGBase(PCSNESBase):
 
         Parameters
         ----------
-        ele :
+        ele
             A :class:`finat.ufl.finiteelement.FiniteElement` to coarsen.
+
+        Returns
+        -------
+        finat.ufl.FiniteElementBase
+            The coarsened element.
         """
         degree = PMGBase.max_degree(ele)
         if degree <= self.coarse_degree:
@@ -171,9 +176,23 @@ class PMGBase(PCSNESBase):
         if hasattr(self, "ppc"):
             self.ppc.destroy()
 
-    def coarsen(self, fdm, comm):
-        # Coarsen the _SNESContext of a DM fdm
-        # return the coarse DM cdm of the coarse _SNESContext
+    def coarsen(self, fdm: PETSc.DM, comm: PETSc.Comm) -> PETSc.DM:
+        """Coarsen the _SNESContext of a DM.
+
+        Parameters
+        ----------
+        fdm
+            The fine-level DM, holding the fine :class:`~.solving_utils._SNESContext`
+            as its application context.
+        comm
+            The communicator for the coarse DM (ignored, PETSc callback signature).
+
+        Returns
+        -------
+        PETSc.DM
+            The coarse DM, holding the coarsened :class:`~.solving_utils._SNESContext`
+            as its application context.
+        """
         fctx = get_appctx(fdm)
         parent = get_parent(fdm)
         assert parent is not None
@@ -220,9 +239,11 @@ class PMGBase(PCSNESBase):
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
         # Coarsen the problem
-        cproblem = fproblem.rediscretise(function_space=cV,
-                                         form_compiler_parameters=fcp,
-                                         form_transform=_coarsen_form)
+        homogenize_bcs = not self.is_snes
+        cproblem = fproblem.reconstruct(function_space=cV,
+                                        form_compiler_parameters=fcp,
+                                        form_transform=_coarsen_form,
+                                        homogenize_bcs=homogenize_bcs)
         cu = cproblem.u_restrict
         fu = fproblem.u_restrict
         fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
@@ -278,9 +299,25 @@ class PMGBase(PCSNESBase):
         return cdm
 
     @staticmethod
-    def coarsen_quadrature(metadata, fdeg, cdeg):
+    def coarsen_quadrature(metadata: dict | None, fdeg: int, cdeg: int) -> dict | None:
         """Coarsen the quadrature degree in a dictionary preserving the ratio of
-           quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1)."""
+        quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1).
+
+        Parameters
+        ----------
+        metadata
+            The fine-level form metadata, possibly containing a ``quadrature_degree`` entry.
+        fdeg
+            The fine-level polynomial degree.
+        cdeg
+            The coarse-level polynomial degree.
+
+        Returns
+        -------
+        dict or None
+            A copy of `metadata` with the coarsened ``quadrature_degree``, or `metadata`
+            unchanged if it does not specify a quadrature degree.
+        """
         try:
             qdeg = metadata["quadrature_degree"]
             coarse_qdeg = max(2*cdeg+1, ((qdeg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
