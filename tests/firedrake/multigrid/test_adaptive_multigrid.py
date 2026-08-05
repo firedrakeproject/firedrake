@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -299,6 +300,38 @@ def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     _assert_adapt_after_uniform_refinement(mh)
 
 
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("refine", [1, 2])
+def test_adapt_before_uniform_refinement(coarse_mesh, refine):
+    """An adaptively refined mesh can be uniformly refined into a hierarchy.
+    Its plex numbers cells by refinement case, so its owned cells are
+    interleaved with its halo cells, which the cell maps must not assume away.
+    """
+    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
+
+    M = FunctionSpace(coarse_mesh, "DG", 0)
+    markers = Function(M)
+    markers.dat.data_wo[:1] = 1
+    mesh = coarse_mesh.refine_marked_elements(markers)
+
+    mh = MeshHierarchy(mesh, refine, netgen_flags=netgen_flags)
+    assert len(mh) == refine + 1
+    assert np.allclose(assemble(1*dx(mh[-1])), assemble(1*dx(coarse_mesh)))
+
+    nref = 2 ** mesh.topological_dimension
+    for level in range(refine):
+        coarse_to_fine = mh.coarse_to_fine_cells[level]
+        fine_to_coarse = mh.fine_to_coarse_cells[level + 1]
+        assert coarse_to_fine.shape == (mh[level].cell_set.size, nref)
+        assert fine_to_coarse.shape == (mh[level + 1].cell_set.size, 1)
+        # Uniform refinement splits every owned coarse cell into nref owned
+        # fine cells, each of which points back at the cell it came from.
+        assert (coarse_to_fine >= 0).all()
+        assert (fine_to_coarse >= 0).all()
+        parents = np.arange(coarse_to_fine.shape[0]).reshape(-1, 1)
+        assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
+
+
 def _representable_expr(mesh, degree):
     """An expression that a space of the given degree holds exactly on any mesh."""
     x = SpatialCoordinate(mesh)
@@ -349,10 +382,6 @@ def test_transfers(mh, family, degree):
     prolong(u_coarse, u_fine)
     assert errornorm(expr_fine, u_fine) <= 1e-12
 
-    u_injected = Function(V_coarse)
-    inject(Function(V_fine).interpolate(expr_fine), u_injected)
-    assert errornorm(expr_coarse, u_injected) <= 1e-12
-
     # Restriction is the transpose of prolongation, which pins the two down
     # together: the nodes prolongation copies are the nodes restriction must
     # not also accumulate through the kernel.
@@ -364,6 +393,16 @@ def test_transfers(mh, family, degree):
         assemble(action(r_fine, u_fine)),
         rtol=1e-12
     )
+
+    # Injection
+    u_fine = Function(V_fine).interpolate(expr_fine)
+    u_injected = Function(V_coarse)
+    if family in {"DG", "DQ"} and complex_mode:
+        with pytest.raises(NotImplementedError):
+            inject(u_fine, u_injected)
+    else:
+        inject(u_fine, u_injected)
+        assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
