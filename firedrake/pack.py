@@ -886,7 +886,7 @@ def check_fuse_enriched(element):
         raise NotImplementedError("Enriched element matrices should be combined at a fuse level")
     return any(fuse), any(matrix), any(apply), None, None
 
-
+@op3.cache.memory_cache(heavy=True, get_comm=lambda spaces: spaces[0].comm)
 def fuse_orientations(spaces: list[WithGeometry]):
     fuse_defined_spaces, fuse_matrix_spaces, fuse_needs_matrices, mat_list, reversed_mat_list = list(zip(*[check_fuse(space.ufl_element()) for space in spaces]))
 
