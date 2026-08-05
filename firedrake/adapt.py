@@ -42,10 +42,9 @@ def _adapt_marked_cells(mesh, cell_marker):
     parameters = {"dm_plex_transform_type": "refine_sbr"}
     try:
         # options_prefix="" is essential
-        with PETSc.Log.Event("AdaptiveRefine: inserted_options"):
-            with petsctools.inserted_options(parameters=parameters, options_prefix=""):
-                with PETSc.Log.Event("AdaptiveRefine: adaptLabel"):
-                    new_dm = dm.adaptLabel(ADAPT_LABEL)
+        with petsctools.inserted_options(parameters=parameters, options_prefix=""):
+            with PETSc.Log.Event("AdaptiveRefine: adaptLabel"):
+                new_dm = dm.adaptLabel(ADAPT_LABEL)
     finally:
         # Ensure the temporary label is removed even if adaptation fails
         dm.removeLabel(ADAPT_LABEL)
