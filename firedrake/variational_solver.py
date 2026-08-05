@@ -154,7 +154,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                     objective: ufl.BaseForm | slate.TensorBase | None = None,
                     form_compiler_parameters: dict | None = None,
                     is_linear: bool | None = None,
-                    function_space: firedrake.functionspaceimpl.WithGeometryBase | None = None,
                     coefficient_mapping: dict | None = None,
                     form_transform: Callable | None = None,
                     homogenize_bcs: bool = False) -> NonlinearVariationalProblem:
@@ -163,9 +162,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         Any explicitly supplied keyword argument is used as-is; every other
         piece of the problem is rebuilt from the original one, replacing
         coefficients according to `coefficient_mapping` and moving the
-        solution, test and trial functions onto `function_space`. The
-        solution is reconstructed as a new zero :class:`.Function` on
-        `function_space` if it is not provided in `coefficient_mapping`.
+        test and trial functions onto `u.function_space()`.
 
         Parameters
         ----------
@@ -184,10 +181,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         form_compiler_parameters
             The new form compiler parameters, defaults to the original parameters.
         is_linear
-            Whether the reconstructed forms are given in 'A == b' style,
+            Whether the reconstructed forms are given in 'a == L' style,
             defaults to the original problem's style.
-        function_space
-            The new function space for the solution.
         coefficient_mapping
             A dict mapping coefficients of the original problem into those
             of the reconstructed problem.
@@ -202,18 +197,18 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         NonlinearVariationalProblem
             The reconstructed problem.
         """
-        if function_space is None:
-            function_space = self.u_restrict.function_space()
-
         if coefficient_mapping is None:
             coefficient_mapping = {}
         else:
             coefficient_mapping = dict(coefficient_mapping)
 
-        if u is None and self.u_restrict not in coefficient_mapping:
-            u = Function(function_space)
+        if u is None:
+            u = self.u_restrict
+            u = coefficient_mapping.get(u, u)
+        else:
             coefficient_mapping[self.u_restrict] = u
 
+        function_space = u.function_space()
         for arg in self.J.arguments():
             coefficient_mapping[arg] = arg.reconstruct(function_space=function_space)
 
@@ -255,7 +250,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             J = _reconstruct_form(self.J)
         if Jp is None:
             Jp = _reconstruct_form(self.Jp)
-        u = coefficient_mapping[self.u_restrict]
 
         return NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, objective=objective,
                                            is_linear=is_linear,

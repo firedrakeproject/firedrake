@@ -245,22 +245,21 @@ class PMGBase(PCSNESBase):
             cF = None
             homogenize_bcs = False
         else:
-            # PC-only levels don't assemble F, so a placeholder avoids coarsening RHS Cofunctions.
+            # PC-only levels don't need to assemble source terms
             cF = ufl.ZeroBaseForm((test.reconstruct(function_space=cV),))
             homogenize_bcs = True
 
         # Coarsen the problem
-        cproblem = fproblem.reconstruct(F=cF,
-                                        function_space=cV,
+        cu = firedrake.Function(cV)
+        cproblem = fproblem.reconstruct(F=cF, u=cu,
                                         form_compiler_parameters=fcp,
                                         form_transform=_coarsen_form,
                                         homogenize_bcs=homogenize_bcs)
-        cu = cproblem.u_restrict
         fu = fproblem.u_restrict
         fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
         fine_to_coarse_map[fu] = cu
 
-        # Coarsen the appctx: the user might want to provide solution-dependant expressions and forms
+        # Coarsen the appctx: the user might want to provide solution-dependent expressions and forms
         cappctx = dict(fctx.appctx)
         for key in cappctx:
             val = cappctx[key]
