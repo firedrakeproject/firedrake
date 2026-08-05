@@ -245,13 +245,15 @@ class PMGBase(PCSNESBase):
             pmat_type = self.coarse_pmat_type
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
-        cF = None
-        if not self.is_snes:
+        if self.is_snes:
+            cF = None
+            homogenize_bcs = False
+        else:
             # PC-only levels don't assemble F, so a placeholder avoids coarsening RHS Cofunctions.
             cF = ufl.ZeroBaseForm((test.reconstruct(function_space=cV),))
+            homogenize_bcs = True
 
         # Coarsen the problem
-        homogenize_bcs = not self.is_snes
         cproblem = fproblem.reconstruct(F=cF,
                                         function_space=cV,
                                         form_compiler_parameters=fcp,
