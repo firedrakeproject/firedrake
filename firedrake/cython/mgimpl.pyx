@@ -309,12 +309,8 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
     child_counts = np.zeros(ncoarse, dtype=IntType)
     cStart, cEnd = fine_dm.getHeightStratum(0)
-    # DMLabelGetValue(point) scans every stratum of the label to find the one
-    # containing that point, which is O(numStrata) per lookup. Since
-    # set_adaptive_parent_label gives every coarse cell its own stratum
-    # value, that lookup is O(ncoarse) here, making a per-fine-cell loop
-    # O(nfine * ncoarse). Walking by stratum instead uses PETSc's value ->
-    # stratum hash map (O(1)) and touches each fine cell exactly once, for
+    # Walking by stratum (coarse cell) resolves each one through PETSc's O(1)
+    # value -> stratum hash map and touches every fine cell exactly once, for
     # O(nfine + ncoarse) overall.
     for parent in range(ncoarse):
         CHKERR(DMLabelGetStratumSize(parent_label, parent, &stratum_size))
