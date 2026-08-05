@@ -42,7 +42,7 @@ def test_solve_with_assembled_matrix(a):
     x, = SpatialCoordinate(V.mesh())
     f = Function(V).interpolate(x)
 
-    A = AssembledMatrix((v, u), bcs=(), petscmat=assemble(a).petscmat)
+    A = AssembledMatrix((v, u), assemble(a).petscmat)
     L = inner(f, v) * dx
 
     solution = Function(V)

@@ -1,6 +1,5 @@
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
@@ -38,6 +37,7 @@ class LinearSolver(LinearVariationalSolver):
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
+        from firedrake.matrix import MatrixBase
         if not isinstance(A, MatrixBase):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
         if P is not None and not isinstance(P, MatrixBase):

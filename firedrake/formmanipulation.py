@@ -15,7 +15,6 @@ from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Coargument
-from firedrake.matrix import AssembledMatrix
 
 
 def subspace(V, indices):
@@ -174,6 +173,8 @@ class ExtractSubBlock(MultiFunction):
 
     def matrix(self, o):
         from firedrake.bcs import DirichletBC, EquationBCSplit
+        from firedrake.matrix import AssembledMatrix
+
         ises = []
         args = []
         argument_indices = []
@@ -223,7 +224,7 @@ class ExtractSubBlock(MultiFunction):
             if bc_temp is not None:
                 bcs.append(bc_temp)
 
-        return AssembledMatrix(form or tuple(args), tuple(bcs), submat)
+        return AssembledMatrix(form or tuple(args), submat, tuple(bcs))
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))

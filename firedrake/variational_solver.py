@@ -23,7 +23,7 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
-def check_pde_args(F, J, Jp):
+def check_pde_args(F, J, Jp, E=None):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
@@ -36,6 +36,11 @@ def check_pde_args(F, J, Jp):
         raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
+    if E is not None:
+        if not isinstance(E, (ufl.BaseForm, slate.slate.TensorBase)):
+            raise TypeError("Provided objective is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+        if len(E.arguments()) != 0:
+            raise ValueError("Provided objective is not a 0-form")
 
 
 def is_form_consistent(is_linear, bcs):
@@ -52,6 +57,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
+                 objective=None,
                  form_compiler_parameters=None,
                  is_linear=False, restrict=False):
         r"""
@@ -62,6 +68,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :param Jp: a form used for preconditioning the linear system,
                  optional, if not supplied then the Jacobian itself
                  will be used.
+        :param objective: a form used for line-search or trust-region methods, optional
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
@@ -82,6 +89,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
+        self.E = objective
         if isinstance(J, MatrixBase):
             if bcs:
                 raise RuntimeError("It is not possible to apply or change boundary conditions to an already assembled Jacobian; pass any necessary boundary conditions to `assemble` when assembling the Jacobian.")
@@ -124,6 +132,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 else:
                     Jp_full = replace(self.Jp, {self.u: u_full})
                     self.Jp = ufl_expr.action(Pstar, ufl_expr.action(Jp_full, P))
+            if self.E:
+                self.E = replace(self.E, {self.u: self.u_restrict})
             self.restricted_space = V_res
         else:
             self.u_restrict = u
@@ -135,7 +145,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.Jp_eq_J = Jp is None
 
         # Argument checking
-        check_pde_args(self.F, self.J, self.Jp)
+        check_pde_args(self.F, self.J, self.Jp, E=self.E)
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
@@ -210,7 +220,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_jacobian_callback=None,
                  pre_function_callback=None,
                  post_function_callback=None,
-                 pre_apply_bcs=True):
+                 pre_apply_bcs=True,
+                 marking_callback=None):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -239,9 +250,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
-        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+        :kwarg pre_apply_bcs: If True, the bcs are applied before the solve.
                Otherwise, the problem is linearised around the initial guess
                before imposing bcs, and the bcs are appended to the nonlinear system.
+        :kwarg marking_callback: An optional callable of the form
+               ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
+               The callback receives the `_SNESContext`
+               and the current Firedrake solution, and must return a DG0
+               :class:`.Function` or :class:`.Cofunction` with positive
+               values on cells to refine.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -287,10 +304,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             if solver_parameters["pmat_type"] != problem.Jp.mat_type:
                 raise ValueError("Cannot change the mat_type of an already assembled matrix.")
 
+        snes_defaults = self.DEFAULT_SNES_PARAMETERS
+        if marking_callback is not None:
+            snes_defaults = dict(snes_defaults)
+            snes_defaults.setdefault("adaptor_criterion", "refine")
+
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
-                                                       snes_defaults=self.DEFAULT_SNES_PARAMETERS)
+                                                       snes_defaults=snes_defaults)
         super().__init__(solver_parameters, options_prefix,
                          default_prefix="firedrake")
         # Now the correct parameters live in self.parameters (via the
@@ -309,17 +331,19 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
+                                         marking_callback=marking_callback,
                                          options_prefix=self.options_prefix,
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
-        self._problem = problem
-
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
+        if marking_callback is not None:
+            self.set_marking_callback(marking_callback)
 
+        ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
@@ -344,6 +368,28 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._transfer_operators = ()
         self._setup = False
 
+    @property
+    def _problem(self):
+        """The :class:`NonlinearVariationalProblem` to solve"""
+        return self._ctx._problem
+
+    def set_marking_callback(self, callback):
+        r"""Set the callback used by PETSc-driven adaptive refinement.
+
+        The callback is called as ``callback(ctx, u)`` when PETSc asks the
+        solution DM to refine, where ``ctx`` is the current
+        `_SNESContext`. It must return a DG0
+        :class:`.Function` or :class:`.Cofunction` on the current solution
+        mesh, with positive values on cells to refine.
+        """
+        if not callable(callback):
+            raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
+        self._ctx._marking_callback = callback
+
+    def get_solution(self):
+        r"""Return the current (possibly adapted) solution."""
+        return self._ctx._problem.u
+
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
         Typically a :class:`~.TransferManager` object.
@@ -359,22 +405,34 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
-        :arg bounds: Optional bounds on the solution (lower, upper).
-            ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s.
+        Parameters
+        ----------
+        bounds : tuple of firedrake.function.Function
+            Optional bounds on the solution, given as ``(lower, upper)``.
+            ``lower`` and ``upper`` must both be :class:`~.Function`\s.
 
-        .. note::
+        Returns
+        -------
+        firedrake.function.Function
+            The (possibly adapted) solution. If the solver performed
+            mesh adaptation during the solve, this is the solution
+            :class:`~.Function` on the adapted mesh, which may differ
+            from the ``u`` that was passed in to the
+            :class:`.NonlinearVariationalProblem`.
 
-           If bounds are provided the ``snes_type`` must be set to
-           ``vinewtonssls`` or ``vinewtonrsls``.
+        Notes
+        -----
+        If bounds are provided the ``snes_type`` must be set to
+        ``vinewtonssls`` or ``vinewtonrsls``.
         """
         # Make sure the DM has this solver's callback functions
+        self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp)
+        forms = (problem.F, problem.J, problem.Jp, problem.E)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
@@ -412,15 +470,21 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-            work.copy(u)
+                # The appctx might have been refined
+                self._ctx = dmhooks.get_appctx(self.snes.getDM())
+        problem = self._ctx._problem
+        solution = self.snes.getSolution()
+        with problem.u_restrict.dat.vec as u:
+            solution.copy(u)
         self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u_restrict.function_space().mesh().comm
+        comm = problem.u_restrict.function_space().mesh().comm
         PETSc.garbage_cleanup(comm)
+        return self.get_solution()
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
