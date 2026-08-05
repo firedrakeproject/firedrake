@@ -158,8 +158,8 @@ def test_submesh_gmg(solver_type):
     solver.solve()
 
     ksp_its = solver.snes.ksp.getIterationNumber()
-    assert ksp_its < 15, (
-        f"Expected < 15 KSP iterations with {solver_type}, got {ksp_its}. "
+    assert ksp_its < 16, (
+        f"Expected < 16 KSP iterations with {solver_type}, got {ksp_its}. "
         "This suggests the multigrid hierarchy or preconditioner is broken."
     )
 

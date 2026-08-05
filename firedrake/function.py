@@ -215,6 +215,24 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             return ufl2unicode(self)
 
+    def __float__(self):
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(self.dat.data_ro.item())
+                else:
+                    # touch to make sure state tracking is consistent
+                    self.dat.data_ro
+                    value = icomm.bcast(None)
+            return float(value)
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
+
+
 
 class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
@@ -541,22 +559,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         Assigner(self, expr, mode=AssignmentMode.IDIV).assign()
         return self
 
-    def __float__(self):
-        if (
-            self.ufl_element().family() == "Real"
-            and self.function_space().shape == ()
-        ):
-            self.dat.assemble()
-            with op3.mpi.temp_internal_comm(self.comm) as icomm:
-                if icomm.rank == 0:
-                    value = icomm.bcast(self.dat.data_ro.item())
-                else:
-                    # touch to make sure state tracking is consistent
-                    self.dat.data_ro
-                    value = icomm.bcast(None)
-            return float(value)
-        else:
-            raise ValueError("Can only cast scalar 'Real' Functions to float.")
+    def __float__(self) -> float:
+        return float(self.topological)
 
     @cached_property
     @PETSc.Log.EventDecorator()

@@ -2,6 +2,7 @@ import functools
 import itertools
 import numbers
 
+import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 

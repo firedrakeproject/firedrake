@@ -1160,7 +1160,7 @@ class CheckpointFile:
             dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             self.require_group(path)
-            self.set_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]), tf.dat.data.item())
+            self.set_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]), float(tf))
         else:
             if isinstance(tmesh, ExtrudedMeshTopology):
                 topology_dm = tmesh._base_mesh.topology_dm

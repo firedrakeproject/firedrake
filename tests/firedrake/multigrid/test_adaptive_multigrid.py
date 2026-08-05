@@ -319,8 +319,8 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     for level in range(refine):
         coarse_to_fine = mh.coarse_to_fine_cells[level]
         fine_to_coarse = mh.fine_to_coarse_cells[level + 1]
-        assert coarse_to_fine.shape == (mh[level].cell_set.size, nref)
-        assert fine_to_coarse.shape == (mh[level + 1].cell_set.size, 1)
+        assert coarse_to_fine.shape == (mh[level].cells.owned.local_size, nref)
+        assert fine_to_coarse.shape == (mh[level + 1].cells.owned.local_size, 1)
         # Uniform refinement splits every owned coarse cell into nref owned
         # fine cells, each of which points back at the cell it came from.
         assert (coarse_to_fine >= 0).all()

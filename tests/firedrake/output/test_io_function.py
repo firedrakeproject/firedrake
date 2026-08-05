@@ -230,7 +230,7 @@ def test_io_function_real(cell_type, tmpdir):
             with CheckpointFile(filename, 'r', comm=comm) as afile:
                 meshB = afile.load_mesh(mesh_name)
                 fB = afile.load_function(meshB, func_name)
-            valueB = fB.dat.data.item()
+            valueB = float(fB)
             assert abs(valueB - valueA) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
