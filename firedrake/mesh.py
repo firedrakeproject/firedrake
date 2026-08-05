@@ -2593,7 +2593,6 @@ values from f.)"""
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
-            self.clear_rtree()
             self._tolerance = value
 
     def clear_rtree(self):
@@ -2601,6 +2600,11 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
+        warnings.warn(
+            "The ``clear_rtree`` method is deprecated and will be removed in a future release. "
+            "There is no need to manually clear the rtree after changing the mesh coordinates;"
+            "the rtree will be automatically rebuilt.", FutureWarning
+        )
         # `cached_property_until` stores the cached rtree in self._rtree_cache
         # setting it to None will force the rtree to be rebuilt on next access.
         self._rtree_cache = None

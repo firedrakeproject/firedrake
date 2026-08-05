@@ -345,7 +345,6 @@ def preserved_points(PETSc.DM coarse_dm,
                      PETSc.Section coarse_cell_numbering,
                      PETSc.DM fine_dm,
                      PETSc.Section fine_cell_numbering,
-                     PetscInt nfine,
                      np.ndarray coarse_to_fine_cells):
     """Pair the points an adaptive refinement left alone with their coarse originals.
 
@@ -359,14 +358,13 @@ def preserved_points(PETSc.DM coarse_dm,
     :arg coarse_cell_numbering: the coarse mesh's cell numbering section.
     :arg fine_dm: the adaptively refined DMPlex.
     :arg fine_cell_numbering: the fine mesh's cell numbering section.
-    :arg nfine: the number of owned fine cells.
     :arg coarse_to_fine_cells: the Firedrake-numbered coarse-to-fine cell map.
     :returns: an array over the chart of ``fine_dm``, holding for each fine
         point the coarse point it was copied from, or -1 if the refinement
         changed it.
     """
     cdef:
-        PetscInt ncoarse, max_children, c, i, off, child
+        PetscInt ncoarse, nfine, max_children, c, i, off, child
         PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
         PetscInt *coarse_closure = NULL
         PetscInt *fine_closure = NULL
@@ -374,8 +372,10 @@ def preserved_points(PETSc.DM coarse_dm,
         PetscInt[:, ::1] coarse_to_fine
 
     coarse_to_fine = coarse_to_fine_cells
-    ncoarse = coarse_to_fine.shape[0]
+    ncoarse = num_owned_cells(coarse_dm)
+    assert ncoarse == coarse_to_fine.shape[0]
     max_children = coarse_to_fine.shape[1]
+    nfine = num_owned_cells(fine_dm)
 
     # Both cell maps are in Firedrake numbering, so invert each mesh's cell
     # numbering section to get back to the plex points the closures live on.
@@ -462,14 +462,44 @@ def preserved_points(PETSc.DM coarse_dm,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
-    """Return a map from (renumbered) cells in a coarse mesh to those
-    in a refined fine mesh.
+    """Map the cells of a coarse mesh to those of its uniform refinement.
 
-    :arg mc: the coarse mesh to create the map from.
-    :arg mf: the fine mesh to map to.
-    :arg clgmaps: coarse lgmaps (non-overlapped and overlapped)
-    :arg flgmaps: fine lgmaps (non-overlapped and overlapped)
-    :returns: Two arrays, one mapping coarse to fine cells, the second fine to coarse cells.
+    Parameters
+    ----------
+    mc : MeshGeometry
+        The coarse mesh.
+    mf : MeshGeometry
+        The fine mesh, obtained by uniformly refining the non-overlapped
+        plex of ``mc``.
+    clgmaps : tuple
+        The coarse ``(non-overlapped, overlapped)`` point local-to-global maps.
+    flgmaps : tuple
+        The fine ``(non-overlapped, overlapped)`` point local-to-global maps.
+
+    Returns
+    -------
+    numpy.ndarray
+        Map from each owned coarse cell to the fine cells it was split into.
+    numpy.ndarray
+        Map from each owned fine cell to the coarse cell it came from.
+
+    Notes
+    -----
+    Three numberings of the same cells meet here:
+
+    1. Firedrake numbering, which lists owned cells before halo cells. The
+       returned maps are indexed by, and contain, these numbers.
+    2. Overlapped plex numbering, that of ``mesh.topology_dm``.
+       `get_entity_renumbering` translates between 1 and 2.
+    3. Non-overlapped plex numbering, that of the halo-free plex that was
+       refined. Only here does the parent relation hold: uniform refinement
+       splits cell ``p`` into cells ``p*nref`` to ``p*nref + nref - 1``.
+
+    Applying an overlapped local-to-global map and then a non-overlapped
+    global-to-local one translates between 2 and 3. Those two numberings are
+    genuinely different orders, not a common prefix plus a halo: a plex built
+    by ``DMPlexTransform`` (an adaptively refined one) numbers its cells by
+    refinement case, so its owned cells are interleaved with its halo cells.
     """
     cdef:
         PETSc.DM cdm, fdm
@@ -477,7 +507,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         PetscInt i, ccell, fcell, nfine
         np.ndarray coarse_to_fine
         np.ndarray fine_to_coarse
-        np.ndarray co2n, fn2o, idx
+        np.ndarray co2n, fn2o, idx, found, permuted
 
     cdm = mc.topology_dm
     fdm = mf.topology_dm
@@ -485,6 +515,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     nref = <PetscInt> 2 ** dim
     ncoarse = mc.cell_set.size
     nfine = mf.cell_set.size
+    # co2n: coarse overlapped plex cell -> coarse Firedrake cell
+    # fn2o: fine Firedrake cell -> fine overlapped plex cell
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
@@ -492,34 +524,38 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     # Walk owned fine cells:
     cStart, cEnd = 0, nfine
 
+    # In serial the overlapped and non-overlapped plexes are the same plex,
+    # so both maps already speak the numbering the parent relation holds in.
     if mc.comm.size > 1:
+        # Cells are the leading points of a plex chart, so these point maps
+        # can be applied to cell numbers directly.
         cno, co = clgmaps
         fno, fo = flgmaps
-        # Compute global numbers of original cell numbers
+        # Rebase fn2o onto the fine non-overlapped plex, one map per arrow:
+        # fine Firedrake cell -> overlapped -> global -> non-overlapped.
         fo.apply(fn2o, result=fn2o)
-        # Compute local numbers of original cells on non-overlapped mesh
         fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
-        # Need to permute order of co2n so it maps from non-overlapped
-        # cells to new cells (these may have changed order).  Need to
-        # map all known cells through.
+        # Rebase co2n the same way, but here it is the *index* that changes
+        # numbering, not the value, so send every local coarse cell through
+        # the translation. MASK gives -1 for cells the non-overlapped plex
+        # does not have.
         idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
-        # LocalToGlobal
         co.apply(idx, result=idx)
-        # GlobalToLocal
-        # Drop values that did not exist on non-overlapped mesh
-        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
-        co2n = co2n[idx]
+        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.MASK)
+        # idx[i] is where overlapped cell i lands, so scatter rather than
+        # slice: the surviving cells need not be the leading ones.
+        found = idx >= 0
+        permuted = np.empty(found.sum(), dtype=PETSc.IntType)
+        permuted[idx[found]] = co2n[found]
+        co2n = permuted
 
     for c in range(cStart, cEnd):
-        # get original (overlapped) cell number
+        # Every owned fine cell exists on the non-overlapped plex.
         fcell = fn2o[c]
-        # The owned cells should map into non-overlapped cell numbers
-        # (due to parallel growth strategy)
         assert 0 <= fcell < cEnd
 
-        # Find original coarse cell (fcell / nref) and then map
-        # forward to renumbered coarse cell (again non-overlapped
-        # cells should map into owned coarse cells)
+        # Uniform refinement numbers the nref children of a cell
+        # consecutively, so integer division recovers the parent.
         ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
         fine_to_coarse[c, 0] = ccell
