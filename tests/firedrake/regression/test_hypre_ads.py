@@ -78,3 +78,40 @@ def test_homogeneous_field_linear_convergence():
         solver = LinearVariationalSolver(problem, solver_parameters=params)
         solver.solve()
         assert solver.snes.ksp.getIterationNumber() == expected
+
+
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
+def test_hypre_ads_fieldsplit():
+    mesh = UnitCubeMesh(6, 6, 6)
+    V = FunctionSpace(mesh, "RT", 1)
+    W = V * V * V
+    sigma_B = TrialFunctions(W)
+    tau_B = TestFunctions(W)
+
+    a = sum([
+        inner(sigma_B[i], tau_B[i])*dx + div(sigma_B[i])*div(tau_B[i])*dx
+        for i in range(3)
+    ])
+    f = Constant([1, 1, 1])
+    L = sum([inner(f, tau_B[i])*dx for i in range(3)])
+    sol = Function(W)
+
+    # Configure fieldsplit with Hypre ADS for each block
+    params = {
+        "mat_type": "nest",
+        "ksp_type": "cg",
+        "ksp_rtol": 1e-8,
+        "ksp_monitor": None,
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+    }
+    for i in range(3):
+        params[f"fieldsplit_{i}_ksp_type"] = "preonly"
+        params[f"fieldsplit_{i}_pc_type"] = "python"
+        params[f"fieldsplit_{i}_pc_python_type"] = "firedrake.HypreADS"
+
+    prob = LinearVariationalProblem(a, L, sol)
+    solver = LinearVariationalSolver(prob, solver_parameters=params)
+    solver.solve()
+    assert solver.snes.ksp.getIterationNumber() == 8
