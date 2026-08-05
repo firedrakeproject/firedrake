@@ -9,6 +9,7 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.netgen import _transfer_high_order_coordinates
+from firedrake.petsc import PETSc
 
 
 # PETSc's DMAdaptFlag value requesting refinement, for the adapt label.
@@ -28,20 +29,23 @@ def _adapt_marked_cells(mesh, cell_marker):
     dm = mesh.topology_dm
     ncoarse = mesh.cell_set.size
 
-    dm.createLabel(ADAPT_LABEL)
-    adapt_label = dm.getLabel(ADAPT_LABEL)
-    adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
-    adapt_indicator[:ncoarse] = cell_marker.dat.data_ro.real > 0
-    dmcommon.mark_points_with_function_array(
-        dm, cell_marker.function_space().dm.getSection(), 0,
-        adapt_indicator, adapt_label, DM_ADAPT_REFINE,
-    )
+    with PETSc.Log.Event("AdaptiveRefine: mark cells"):
+        dm.createLabel(ADAPT_LABEL)
+        adapt_label = dm.getLabel(ADAPT_LABEL)
+        adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
+        adapt_indicator[:ncoarse] = cell_marker.dat.data_ro.real > 0
+        dmcommon.mark_points_with_function_array(
+            dm, cell_marker.function_space().dm.getSection(), 0,
+            adapt_indicator, adapt_label, DM_ADAPT_REFINE,
+        )
 
     parameters = {"dm_plex_transform_type": "refine_sbr"}
     try:
         # options_prefix="" is essential
-        with petsctools.inserted_options(parameters=parameters, options_prefix=""):
-            new_dm = dm.adaptLabel(ADAPT_LABEL)
+        with PETSc.Log.Event("AdaptiveRefine: inserted_options"):
+            with petsctools.inserted_options(parameters=parameters, options_prefix=""):
+                with PETSc.Log.Event("AdaptiveRefine: adaptLabel"):
+                    new_dm = dm.adaptLabel(ADAPT_LABEL)
     finally:
         # Ensure the temporary label is removed even if adaptation fails
         dm.removeLabel(ADAPT_LABEL)
@@ -99,33 +103,37 @@ def refine_marked_elements(mesh, cell_marker):
     num_refinements = max(int(np.rint(num_refinements)), 1)
 
     coarse_dm = mesh.topology_dm
-    impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, PARENT_LABEL)
+    with PETSc.Log.Event("AdaptiveRefine: set_adaptive_parent_label"):
+        impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, PARENT_LABEL)
 
     current_mesh = mesh
     current_mark = cell_marker
     try:
         for ref in range(num_refinements):
             new_dm = _adapt_marked_cells(current_mesh, current_mark)
-            current_mesh = Mesh(
-                new_dm,
-                dim=mesh.geometric_dimension,
-                reorder=False,
-                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-                comm=mesh.comm,
-                tolerance=mesh.tolerance,
-            )
-            coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
-                coarse_dm, new_dm, current_mesh._cell_numbering, PARENT_LABEL
-            )
+            with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
+                current_mesh = Mesh(
+                    new_dm,
+                    dim=mesh.geometric_dimension,
+                    reorder=False,
+                    distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+                    comm=mesh.comm,
+                    tolerance=mesh.tolerance,
+                )
+            with PETSc.Log.Event("AdaptiveRefine: adaptive_parent_child_cell_maps"):
+                coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
+                    coarse_dm, new_dm, current_mesh._cell_numbering, PARENT_LABEL
+                )
             if ref < num_refinements - 1:
-                # A cell asking for n refinements stays marked until n rounds
-                # have happened, so its descendants inherit n minus the number
-                # of rounds so far.
-                ancestor = fine_to_coarse[:, 0]
-                refined = ancestor >= 0
-                current_mark = Function(FunctionSpace(current_mesh, "DG", 0))
-                current_mark.dat.data_wo[refined] = \
-                    cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
+                with PETSc.Log.Event("AdaptiveRefine: re-mark"):
+                    # A cell asking for n refinements stays marked until n rounds
+                    # have happened, so its descendants inherit n minus the number
+                    # of rounds so far.
+                    ancestor = fine_to_coarse[:, 0]
+                    refined = ancestor >= 0
+                    current_mark = Function(FunctionSpace(current_mesh, "DG", 0))
+                    current_mark.dat.data_wo[refined] = \
+                        cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
     finally:
         # Ensure the temporary label is removed even if adaptation fails
         coarse_dm.removeLabel(PARENT_LABEL)
@@ -134,7 +142,8 @@ def refine_marked_elements(mesh, cell_marker):
     if hasattr(mesh, "netgen_mesh"):
         order = mesh.coordinates.function_space().ufl_element().degree()
         if order > 1:
-            final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
+            with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
+                final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
 
     final_mesh.topology_dm.removeLabel(PARENT_LABEL)
     final_mesh.adaptive_parent = mesh
