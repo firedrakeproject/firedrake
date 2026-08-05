@@ -197,7 +197,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
     fine_to_coarse_points = impl.preserved_points(
         coarse_plex, coarse_mesh._cell_numbering,
         fine_plex, fine_mesh._cell_numbering,
-        fine_mesh.cell_set.size, coarse_to_fine,
+        coarse_to_fine,
     )
     leaves, = numpy.nonzero(fine_to_coarse_points >= 0)
     # A uniform refinement preserves nothing, and whether to build the SF at
