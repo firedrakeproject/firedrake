@@ -7,14 +7,25 @@ import pytest
 @pytest.mark.parallel([1, 2])
 def test_netgen_csg_mesh_high_order():
     from netgen.geom2d import Circle, CSG2d
-    geo = CSG2d()
-    geo.Add(Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle"))
-    ngmesh = geo.GenerateMesh(maxh=0.75)
+    if COMM_WORLD.rank == 0:
+        geo = CSG2d()
+        geo.Add(Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle"))
+        ngmesh = geo.GenerateMesh(maxh=0.75)
+    else:
+        ngmesh = None
 
     # Test that setting the degree in netgen_flags produces a high-order mesh
     order = 3
     mesh1 = Mesh(ngmesh, netgen_flags={"degree": order})
     assert mesh1.coordinates.function_space().ufl_element().degree() == order
+    coordinate_fe, _ = mesh1.topology_dm.getCoordinateDM().getField(0)
+    assert coordinate_fe.getBasisSpace().getDegree() == (order, order)
+    coordinate_section = mesh1.topology_dm.getCoordinateSection()
+    edge_start, _ = mesh1.topology_dm.getDepthStratum(1)
+    assert coordinate_section.getDof(edge_start) == (
+        mesh1.geometric_dimension * (order - 1)
+    )
+    assert abs(assemble(1 * dx(domain=mesh1)) - np.pi) < 2.e-4
     dim = mesh1.topological_dimension
     DG0 = FunctionSpace(mesh1, "DG", 0)
     markers = Function(DG0)
@@ -25,6 +36,7 @@ def test_netgen_csg_mesh_high_order():
     assert FunctionSpace(mesh1, "DG", 0).dim() * 2**dim == FunctionSpace(mesh2, "DG", 0).dim()
     # Test that refining a high-order mesh gives a high-order mesh
     assert mesh2.coordinates.function_space().ufl_element().degree() == order
+    assert abs(assemble(1 * dx(domain=mesh2)) - np.pi) < 2.e-4
 
     # Test mesh refinement: 2 refinements
     markers.assign(2)
@@ -32,6 +44,7 @@ def test_netgen_csg_mesh_high_order():
     assert FunctionSpace(mesh1, "DG", 0).dim() * 4**dim == FunctionSpace(mesh3, "DG", 0).dim()
     # Test that refining a high-order mesh gives a high-order mesh
     assert mesh3.coordinates.function_space().ufl_element().degree() == order
+    assert abs(assemble(1 * dx(domain=mesh3)) - np.pi) < 2.e-4
 
 
 def square_geometry(h, L=np.pi):
@@ -215,7 +228,6 @@ def test_netgen_csg_manifold():
     from netgen.csg import CSGeometry, Pnt, Sphere
     from netgen.meshing import MeshingParameters
     from netgen.meshing import MeshingStep
-    import netgen
 
     comm = COMM_WORLD
     if comm.rank == 0:
@@ -224,11 +236,12 @@ def test_netgen_csg_manifold():
         mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
         ngmesh = geo.GenerateMesh(mp=mp)
     else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
+        ngmesh = None
 
-    msh = Mesh(ngmesh)
+    msh = Mesh(ngmesh, netgen_flags={"degree": 2})
     assert msh.topological_dimension == 2
     assert msh.geometric_dimension == 3
+    assert msh.coordinates.ufl_element().degree() == 2
 
     V = FunctionSpace(msh, "CG", 3)
     f = assemble(interpolate(Constant(1), V))
@@ -270,7 +283,6 @@ def test_netgen_occ_manifold():
 @pytest.mark.parallel([1, 2])
 def test_netgen_csg_high_order_integral():
     from netgen.csg import CSGeometry, Pnt, Sphere
-    import netgen
 
     comm = COMM_WORLD
     if comm.rank == 0:
@@ -278,7 +290,7 @@ def test_netgen_csg_high_order_integral():
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
         ngmesh = geo.GenerateMesh(maxh=0.7)
     else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
+        ngmesh = None
 
     homsh = Mesh(ngmesh, netgen_flags={"degree": 2})
     V = FunctionSpace(homsh, "CG", 2)

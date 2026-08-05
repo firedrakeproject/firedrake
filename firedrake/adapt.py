@@ -8,7 +8,6 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
-from firedrake.netgen import _transfer_high_order_coordinates
 
 
 # PETSc's DMAdaptFlag value requesting refinement, for the adapt label.
@@ -63,10 +62,8 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
     target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
     target_mesh._did_reordering = source_mesh._did_reordering
     target_mesh._tolerance = source_mesh.tolerance
-    if hasattr(source_mesh, "netgen_mesh") and not hasattr(target_mesh, "netgen_mesh"):
-        target_mesh.netgen_mesh = source_mesh.netgen_mesh
-    if hasattr(source_mesh, "netgen_flags") and not hasattr(target_mesh, "netgen_flags"):
-        target_mesh.netgen_flags = source_mesh.netgen_flags
+    if target_mesh._geometry_source is None:
+        target_mesh._geometry_source = source_mesh._geometry_source
 
 
 def refine_marked_elements(mesh, cell_marker):
@@ -106,6 +103,8 @@ def refine_marked_elements(mesh, cell_marker):
     try:
         for ref in range(num_refinements):
             new_dm = _adapt_marked_cells(current_mesh, current_mark)
+            if mesh._geometry_source is not None:
+                mesh._geometry_source.snap(new_dm)
             current_mesh = Mesh(
                 new_dm,
                 dim=mesh.geometric_dimension,
@@ -131,10 +130,9 @@ def refine_marked_elements(mesh, cell_marker):
         coarse_dm.removeLabel(PARENT_LABEL)
 
     final_mesh = current_mesh
-    if hasattr(mesh, "netgen_mesh"):
+    if mesh._geometry_source is not None:
         order = mesh.coordinates.function_space().ufl_element().degree()
-        if order > 1:
-            final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
+        final_mesh = mesh._geometry_source.recurve(final_mesh, order)
 
     final_mesh.topology_dm.removeLabel(PARENT_LABEL)
     final_mesh.adaptive_parent = mesh
