@@ -252,10 +252,10 @@ class TensorTransform(pyop3.obj.Object, abc.ABC):
 
     __abstract_record_attrs = ("prev",)
 
-    @property
-    @abc.abstractmethod
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     pass
 
 
 class CallableTensorTransform(TensorTransform):
@@ -282,13 +282,9 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # }}}
 
-    # {{{ interface impls
-
-    @property
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        raise NotImplementedError
-
-    # }}}
+    # @property
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     raise NotImplementedError
 
 
 class IdentityTensorTransform(TensorTransform):
@@ -313,14 +309,10 @@ class ReshapeTensorTransform(IdentityTensorTransform):
 
     # }}}
 
-    # {{{ interface impls
-
-    @cached_property
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(
-            itertools.zip_longest(
-                *(axes.nest_indices for axes in self.axis_trees)
-            )
-        )
-
-    # }}}
+    # @cached_property
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     return tuple(
+    #         itertools.zip_longest(
+    #             *(axes.nest_indices for axes in self.axis_trees)
+    #         )
+    #     )

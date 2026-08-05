@@ -152,70 +152,145 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
 
     @process.register(pyop3.expr.Mat)
     def _(self, mat: pyop3.expr.Mat, /, *, axis_trees) -> pyop3.expr.MatBufferExpression:
-        row_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.row_axes, axis_trees[0])
-        column_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.column_axes, axis_trees[1])
-        return self._explode_nest(
-            mat.buffer, row_axes, column_axes, row_axes.nest_indices, column_axes.nest_indices
-        )
+        row_tree, col_tree = axis_trees
+        row_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.row_axes, row_tree)
+        column_axes = pyop3.axis_tree.tree.matching_axis_tree(mat.column_axes, col_tree)
+        return self._explode_nest(mat.buffer, row_axes, column_axes, nest_indices=())
 
-    def _explode_nest(self, buffer, row_axes, column_axes, row_indices, column_indices):
-        # Explode any nested data structures here. This can happen in two ways:
-        # 1. The nest index is known in advance and so we can emit a single
-        #    instruction using the indexed buffer.
-        # 2. The nest index is not specified. This is equivalent to having an
-        #    aggregate type where an instruction has to be emitted for each
-        #    possible nest index.
+    def _explode_nest(self, buffer, row_axes, column_axes, *, nest_indices):
+        """Explode any nested data structures.
 
-        # First check, do the axes have enough information to un-nest the buffer?
-        if buffer.nest_shape() is None:
-            return (self._buffer_expression(buffer, row_axes, column_axes, ()),)
+        This can happen in two ways:
 
-        nest_indices = []
-        for ri, ci in zip(row_indices, column_indices, strict=False):
-            nest_indices.append((ri, ci))
-            if buffer.nest_shape(nest_indices) is None:
-                # All nesting consumed, emit a single expression
-                return (self._buffer_expression(buffer, row_axes, column_axes, nest_indices),)
+        1. The nest index is known in advance and so we can emit a single
+           instruction using the indexed buffer.
+        2. The nest index is not specified. This is equivalent to having an
+           aggregate type where an instruction has to be emitted for each
+           possible nest index.
 
-        return self._explode_nest_inner(buffer, row_axes, column_axes, row_indices, column_indices)
+        """
+        if buffer.nest_shape(nest_indices) is None:
+            # All nesting consumed, emit a single expression
+            return (self._buffer_expression(buffer, row_axes, column_axes, nest_indices),)
 
-    def _explode_nest_inner(self, buffer, row_axes, column_axes, row_indices, column_indices):
-        if len(row_indices) == len(column_indices):
-            nest_indices = tuple(zip(row_indices, column_indices))
-            if buffer.nest_shape(nest_indices) is None:
-                return (self._buffer_expression(buffer, row_axes, column_axes, nest_indices),)
-        # We have run out of nest indices but the data structure is still
-        # nested. We therefore need to emit multiple instructions.
-        if len(row_indices) <= len(column_indices):
-            # Loop over the next set of row indices
-            exprs = []
-            nrows, _ = buffer.nest_shape(zip(row_indices, column_indices, strict=False))
-            for ridx in range(nrows):
-                row_label = row_axes.root.components[ridx]
-                subexprs = self._explode_nest_inner(
+        def get_nest_index(axes):
+            if axes.nest_labels:
+                (nest_axis, nest_component), *_ = axes.nest_labels
+                root = axes.unindexed.root
+                if nest_axis == root.label:
+                    return nest_component, root.component_labels.index(nest_component)
+            return None, None
+
+        row_nest_label, row_nest_index = get_nest_index(row_axes)
+        col_nest_label, col_nest_index = get_nest_index(column_axes)
+
+        if row_nest_index is not None:
+            if col_nest_index is not None:
+                # Both nest indices identified, no loop needed
+                return self._explode_nest(
                     buffer,
-                    row_axes[row_label],
-                    column_axes,
-                    row_indices+(ridx,),
-                    column_indices,
+                    row_axes.restrict_nest(row_nest_label),
+                    column_axes.restrict_nest(col_nest_label),
+                    nest_indices=nest_indices+((row_nest_index, col_nest_index),),
                 )
-                exprs.extend(subexprs)
-            return tuple(exprs)
+            else:
+                # Row nest index identified but not the column, loop over columns
+                exprs = []
+                if column_axes.is_nested:
+                    _, ncols = buffer.nest_shape(nest_indices)
+                    for cidx in range(ncols):
+                        col_nest_label = column_axes.unindexed.root.component_labels[cidx]
+                        subexprs = self._explode_nest(
+                            buffer,
+                            row_axes.restrict_nest(row_nest_label),
+                            column_axes.restrict_nest(col_nest_label),
+                            nest_indices=nest_indices+((row_nest_index, cidx),),
+                        )
+                        exprs.extend(subexprs)
+                else:
+                    subexprs = self._explode_nest(
+                        buffer,
+                        row_axes.restrict_nest(row_nest_label),
+                        column_axes,
+                        nest_indices=nest_indices+((row_nest_index, 0),),
+                    )
+                    exprs.extend(subexprs)
+                return tuple(exprs)
         else:
-            # Loop over the next set of column indices
-            exprs = []
-            _, ncols = buffer.nest_shape(zip(row_indices, column_indices, strict=False))
-            for cidx in range(nrows):
-                column_label = row_axes.root.components[ridx]
-                subexprs = self._explode_nest_inner(
-                    buffer,
-                    row_axes,
-                    column_axes[column_label],
-                    row_indices,
-                    column_indices+(cidx,),
-                )
-                exprs.extend(subexprs)
-            return tuple(exprs)
+            if col_nest_index is not None:
+                # Column nest index identified but not the row, loop over rows
+                exprs = []
+                nrows, _ = buffer.nest_shape(nest_indices)
+                if row_axes.is_nested:
+                    for ridx in range(nrows):
+                        row_nest_label = row_axes.unindexed.root.component_labels[ridx]
+                        subexprs = self._explode_nest(
+                            buffer,
+                            row_axes.restrict_nest(row_nest_label),
+                            column_axes.restrict_nest(col_nest_label),
+                            nest_indices=nest_indices+((ridx, col_nest_index),),
+                        )
+                        exprs.extend(subexprs)
+                else:
+                    assert nrows == 1
+                    subexprs = self._explode_nest(
+                        buffer,
+                        row_axes,
+                        column_axes.restrict_nest(col_nest_label),
+                        nest_indices=nest_indices+((0, col_nest_index),),
+                    )
+                    exprs.extend(subexprs)
+                return tuple(exprs)
+            else:
+                # Neither nest index identified, loop over rows and columns
+                exprs = []
+                nrows, ncols = buffer.nest_shape(nest_indices)
+                if row_axes.is_nested:
+                    if column_axes.is_nested:
+                        for ridx, cidx in np.ndindex((nrows, ncols)):
+                            row_nest_label = row_axes.unindexed.root.component_labels[ridx]
+                            col_nest_label = column_axes.unindexed.root.component_labels[cidx]
+                            subexprs = self._explode_nest(
+                                buffer,
+                                row_axes.restrict_nest(row_nest_label),
+                                column_axes.restrict_nest(col_nest_label),
+                                nest_indices=nest_indices+((ridx, cidx),),
+                            )
+                            exprs.extend(subexprs)
+                        return tuple(exprs)
+                    else:
+                        assert ncols == 1
+                        for ridx in range(nrows):
+                            row_nest_label = row_axes.unindexed.root.component_labels[ridx]
+                            subexprs = self._explode_nest(
+                                buffer,
+                                row_axes.restrict_nest(row_nest_label),
+                                column_axes,
+                                nest_indices=nest_indices+((ridx, 0),),
+                            )
+                            exprs.extend(subexprs)
+                        return tuple(exprs)
+                else:
+                    assert nrows == 1
+                    if column_axes.is_nested:
+                        for cidx in range(ncols):
+                            col_nest_label = column_axes.unindexed.root.component_labels[cidx]
+                            subexprs = self._explode_nest(
+                                buffer,
+                                row_axes,
+                                column_axes.restrict_nest(col_nest_label),
+                                nest_indices=nest_indices+((0, cidx),),
+                            )
+                            exprs.extend(subexprs)
+                        return tuple(exprs)
+                    else:
+                        assert ncols == 1
+                        return self._explode_nest(
+                            buffer,
+                            row_axes,
+                            column_axes,
+                            nest_indices=nest_indices+((0, 0),),
+                        )
 
     @functools.singledispatchmethod
     def _buffer_expression(self, *args, **kwargs):
@@ -223,13 +298,6 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
 
     @_buffer_expression.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer, row_axes, column_axes, nest_indices):
-        nest_indices = tuple(nest_indices)
-        for ri, ci in nest_indices:
-            rl, *_ = row_axes.nest_labels
-            row_axes = row_axes.restrict_nest(rl)
-            cl, *_ = column_axes.nest_labels
-            column_axes = column_axes.restrict_nest(cl)
-
         if buffer.mat.type == PETSc.Mat.Type.PYTHON:
             context = buffer.mat.getPythonContext()
             if context.mode == "row":

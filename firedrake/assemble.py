@@ -1886,13 +1886,21 @@ class ParloopBuilder:
 
         i, j = indices
         if petscmat.type == PETSc.Mat.Type.NEST:
-            if i is None or j is None:
-                raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
-
-            assert len(row_space) > 1 and len(column_space) > 1
-            row_space = row_space[i]
-            column_space = column_space[j]
-            petscmat = petscmat.getNestSubMatrix(i, j)
+            if is_mixed(row_space):
+                if i is None:
+                    raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
+                row_space = row_space[i]
+                inest = i
+            else:
+                inest = 0
+            if is_mixed(column_space):
+                if j is None:
+                    raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
+                column_space = column_space[j]
+                jnest = j
+            else:
+                jnest = 0
+            petscmat = petscmat.getNestSubMatrix(inest, jnest)
             i = None
             j = None
         if petscmat.type == PETSc.Mat.Type.PYTHON:

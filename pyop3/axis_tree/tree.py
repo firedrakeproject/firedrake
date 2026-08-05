@@ -144,6 +144,11 @@ class LoopContextFreeAxisTreeLike(LoopContextAwareAxisTreeLike, pyop3.labeled_tr
 
     @property
     @abc.abstractmethod
+    def is_nested(self) -> bool:
+        pass
+
+    @property
+    @abc.abstractmethod
     def sf(self) -> StarForest:
         pass
 
@@ -563,6 +568,10 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
     def block_shape(self) -> tuple[int, ...]:
         return ()
 
+    @property
+    def is_nested(self) -> bool:
+        return self.as_tree().is_nested
+
     def buffer_size(self, **kwargs) -> int:
         return self.as_tree().buffer_size(**kwargs)
 
@@ -733,6 +742,8 @@ class AbstractUnitAxisTree(AbstractAxisTree):
     buffer_size = 1
     block_shape = ()
 
+    is_nested = False
+
     # }}}
 
     def __str__(self, /) -> str:
@@ -753,17 +764,10 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     # {{{ abstract methods
 
-    @property
-    @abc.abstractmethod
-    def nest_indices(self) -> tuple[int, ...]:
-        pass
-
-    @abc.abstractmethod
-    def restrict_nest(self, nest_index: int) -> AbstractNonUnitAxisTree:
-        """
-        The idea here is to trim ``orig_axes`` with index such that we can pretend
-        that the axes always looked truncated in that form.
-        """
+    # @property
+    # @abc.abstractmethod
+    # def nest_indices(self) -> tuple[int, ...]:
+    #     pass
 
     @abc.abstractmethod
     def blocked(self, block_shape: Sequence[int, ...]) -> AbstractNonUnitAxisTree:
@@ -804,6 +808,10 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         for merged_region in itertools.product(*mut_excl_region_label_sets):
             merged_regions.append(frozenset().union(*merged_region))
         return tuple(merged_regions)
+
+    @property
+    def is_nested(self) -> bool:
+        return all(c.size == 1 for c in self.root.components)
 
     # }}}
 
@@ -1170,6 +1178,21 @@ class AbstractUnindexedAxisTree(LoopContextFreeAxisTreeLike):
 class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for axis trees that are indexed."""
 
+    __abstract_record_attrs = ("_unindexed", "_targets")
+
+    def restrict_nest(self, nest_label: ComponentLabelT) -> AbstractNonUnitAxisTree:
+        """Restrict an axis tree to a nested piece of it.
+
+        The idea here is to trim ``orig_axes`` with index such that we can pretend
+        that the axes always looked truncated in that form.
+
+        """
+        assert nest_label in self.unindexed.root.component_labels
+        subtree_unindexed = self.unindexed[nest_label].materialize()
+        # remove the nest label from the targets
+        subtree_targets = trim_axis_targets(self.targets, {self.unindexed.root.label})
+        return self.record_new(_unindexed=subtree_unindexed, _targets=subtree_targets)
+
     @cached_property
     def sf(self) -> StarForest:
         petsc_sf = pyop3.sf.filter_petsc_sf(
@@ -1384,13 +1407,6 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
             for path, axis in self.node_map.items()
         }
         return type(self)(node_map)
-
-    @property
-    def nest_indices(self) -> tuple[()]:
-        return ()
-
-    def restrict_nest(self, nest_index: int) -> AxisTree:
-        return self[nest_index].materialize()
 
     def blocked(self, block_shape: Sequence[int, ...] | int) -> AxisTree:
         if len(block_shape) == 0:
@@ -1644,11 +1660,11 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ interface impls
 
+    unindexed = pyop3.record.attr("_unindexed")
+
     @property
     def comm(self):
         return self.unindexed.comm
-
-    unindexed = pyop3.record.attr("_unindexed")
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
@@ -1688,11 +1704,9 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             unindexed=self.unindexed.regionless(),
         )
 
-    # TODO: Should have nest indices and nest labels as separate concepts.
-    # The former is useful for buffers and the latter for trees
-    @cached_property
-    def nest_indices(self):
-        return tuple(index for _, index in self._nest_info)
+    # @cached_property
+    # def nest_indices(self):
+    #     return tuple(index for _, index in self._nest_info)
 
     @cached_property
     def nest_labels(self):
@@ -1717,22 +1731,8 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append((component_label, component_index))
+            nest_indices_.append(((axis.label, component_label), component_index))
         return tuple(nest_indices_)
-
-    def restrict_nest(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
-        """Given an already indexed thing, discard the prescribed nest shape."""
-
-        subtree_unindexed = self.unindexed[nest_label].materialize()
-
-        # remove the nest label from the targets
-        subtree_targets = trim_axis_targets(self.targets, {self.unindexed.root.label})
-
-        return IndexedAxisTree(
-            self.node_map,
-            unindexed=subtree_unindexed,
-            targets=subtree_targets,
-        )
 
     def blocked(self, block_shape: Sequence[int, ...]) -> IndexedAxisTree:
         """
@@ -2052,10 +2052,9 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     def with_context(self, context):
         return self
 
-    # TODO: shared with other index tree
-    @cached_property
-    def nest_indices(self):
-        return tuple(index for _, index in self._nest_info)
+    # @cached_property
+    # def nest_indices(self):
+    #     return tuple(index for _, index in self._nest_info)
 
     @cached_property
     def nest_labels(self):
@@ -2081,19 +2080,8 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append((component_label, component_index))
+            nest_indices_.append(((axis.label, component_label), component_index))
         return tuple(nest_indices_)
-
-    def restrict_nest(self, nest_label: ComponentLabelT) -> UnitIndexedAxisTree:
-        subtree_unindexed = self.unindexed[nest_label].materialize()
-
-        # remove the nest label from the targets
-        subtree_targets = trim_axis_targets(self.targets, {self.unindexed.root.label})
-
-        return UnitIndexedAxisTree(
-            unindexed=subtree_unindexed,
-            targets=subtree_targets,
-        )
 
     # TODO: shared with other index tree
     @cached_property
@@ -2249,6 +2237,10 @@ class AxisForest(LoopContextFreeAxisTreeLike):
             )
 
     @property
+    def is_nested(self) -> bool:
+        return utils.single_valued(t.is_nested for t in self.trees)
+
+    @property
     def is_linear(self) -> bool:
         return utils.single_valued(t.is_linear for t in self.trees)
 
@@ -2320,6 +2312,10 @@ class AxisForest(LoopContextFreeAxisTreeLike):
     def materialize(self) -> AxisForest:
         return type(self)(tree.materialize() for tree in self.trees)
 
+    @property
+    def root(self) -> bool:
+        return utils.single_valued(t.root for t in self.trees)
+
     def template_vec(self, block_shape):
         return self.trees[0].template_vec(block_shape)
 
@@ -2338,13 +2334,13 @@ class AxisForest(LoopContextFreeAxisTreeLike):
     def restrict_nest(self, index):
         return type(self)(tree.restrict_nest(index) for tree in self.trees)
 
-    @property
-    def nest_indices(self):
-        return utils.single_valued(tree.nest_indices for tree in self.trees)
+    # @property
+    # def nest_indices(self):
+    #     return utils.single_valued(tree.nest_indices for tree in self.trees)
 
     @property
     def nest_labels(self):
-        return utils.single_valued(tree.nest_indices for tree in self.trees)
+        return utils.single_valued(tree.nest_labels for tree in self.trees)
 
     @property
     def size(self):
@@ -2360,10 +2356,7 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @property
     def local_max_size(self) -> int:
-        try:
-            return utils.single_valued(tree.local_max_size for tree in self.trees)
-        except:
-            breakpoint()
+        return utils.single_valued(tree.local_max_size for tree in self.trees)
 
     @property
     def global_size(self) -> int:

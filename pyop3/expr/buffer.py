@@ -40,27 +40,19 @@ class IndexedBuffer(pyop3.obj.Object):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __record_post_init(self):
-        assert self.nest_indices is not None, "old API"
-        if self.nest_indices == ((), ()):
-            breakpoint()
-
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     __abstract_record_attrs = ("buffer_view",)
 
-    def __record_post_init(self):
-        assert isinstance(self.buffer_view, IndexedBuffer), "old API"
-
     @property
     def name(self) -> str:
-        return self.buffer_view.name
+        return self.buffer_view.buffer.name
 
     @property
     def dtype(self) -> np.dtype:
-        return self.buffer_view.dtype
+        return self.buffer_view.buffer.dtype
 
     @property
     def handle(self) -> Any:

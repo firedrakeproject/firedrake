@@ -201,36 +201,49 @@ class InstructionExecutionContext:
 
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
-        executor, argument_index_to_buffer_id_map = self._compile()
+        executor, orig_arguments = self._compile()
 
-        # If the returned executor is cached from a previous invocation then we
-        # have to duplicate it with new buffers. For example consider the expressions:
-        #
-        #     dat1.assign(2*dat2)
-        #     dat3.assign(2*dat4)
-        #
-        # Assuming that all the dats have the same axis trees then this will hit
-        # the code executor cache but we will have to replace the buffers 
-        # dat1 -> dat3 and dat2 -> dat4.
-        if not self._has_called_compile:
-            raise NotImplementedError
-            new_buffer_map = dict(executor.buffer_map)
-            for arg_index, buffer_ids in argument_index_to_buffer_id_map.items():
-                arg = self.root_insn.global_arguments[arg_index]
-                buffers = self._extract_buffers(arg)
-                assert len(buffers) > 0
-                breakpoint()
-                for buffer_id, buffer in zip(buffer_ids, buffers, strict=True):
-                    buffer_name_in_kernel = executor._buffer_global_id_to_name_in_kernel_map[buffer_id]
-                    # TODO: ick behaviour with buffer ref...
-                    _, intent = executor.buffer_map[buffer_name_in_kernel]
-                    new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
-            new_buffer_map = idict(new_buffer_map)
+        if (
+            not self._has_called_compile
+            and orig_arguments != self.root_insn.global_arguments
+        ):
+            # If the returned executor is cached from a previous invocation then we
+            # have to duplicate it with new buffers. For example consider the expressions:
+            #
+            #     dat1.assign(2*dat2)
+            #     dat3.assign(2*dat4)
+            #
+            # Assuming that all the dats have the same axis trees then this will hit
+            # the code executor cache but we will have to replace the buffers
+            # dat1 -> dat3 and dat2 -> dat4.
 
-            # can we do this check more eagerly?
-            if new_buffer_map != executor.buffer_map:
-                breakpoint()
-                executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
+            # Build the mapping between buffers from arguments. Note that this
+            # isn't an exhaustive list of buffers: buffers from axis trees etc
+            # are unchanged and will not be replaced.
+            arg_buffer_map = {}
+            for arg_index, orig_arg in enumerate(orig_arguments):
+                new_arg = self.root_insn.global_arguments[arg_index]
+                for orig_buf, new_buf in zip(
+                    self._extract_buffers(orig_arg),
+                    self._extract_buffers(new_arg),
+                    strict=True,
+                ):
+                    arg_buffer_map[orig_buf] = new_buf
+
+            new_kernel_name_to_buffer_info = idict({
+                name: (arg_buffer_map.get(buf, buf), nest_idxs)
+                for name, (buf, nest_idxs) in executor.kernel_name_to_buffer_info.items()
+            })
+            new_buffer_intents = idict({
+                arg_buffer_map.get(buf, buf): intent
+                for buf, intent in executor.buffer_intents.items()
+            })
+            executor = CompiledCodeExecutor(
+                executor.executable,
+                new_kernel_name_to_buffer_info,
+                new_buffer_intents,
+                executor.comm,
+            )
 
         return executor
 
@@ -296,7 +309,7 @@ class InstructionExecutionContext:
         })
         executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_info, buffer_intents, self.comm)
 
-        return executor, self._argument_index_to_buffer_map
+        return executor, self.root_insn.global_arguments
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
@@ -318,14 +331,6 @@ class InstructionExecutionContext:
 
         assert self._preprocessed is not None
         return get_disk_cache_key(self._preprocessed)
-
-
-    @cached_property
-    def _argument_index_to_buffer_map(self) -> idict[int, str]:
-        return idict({
-            i: self._extract_buffers(arg)
-            for i, arg in enumerate(self.root_insn.global_arguments)
-        })
 
     @cached_property
     def _argument_name_to_buffer_map(self) -> dict[str, tuple[AbstractBuffer, ...]]:

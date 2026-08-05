@@ -517,11 +517,16 @@ def iter_space(space: WithGeometry):
 
 @contextlib.contextmanager
 def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
+    if indices is not None:
+        indices = [
+            i if i is not None else 0
+            for i in indices
+        ]
+
     if lgmaps is None:
         yield
         return
 
-    # print(lgmaps[0].indices)
     petscmat = mat.handle
     assert mat.buffer.mat is petscmat
     if petscmat.type == "nest":
@@ -530,6 +535,8 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
     # One cannot set the lgmaps for a MATIS as the mat is defined by the
     # lgmaps and hence changing them will destroy the matrix. Boundary
     # conditions are instead applied as a post-processing step.
+    # TODO: it is clearer to not call this function in that case, rather than
+    # silently doing nothing.
     if petscmat.type == "is":
         yield
         return
