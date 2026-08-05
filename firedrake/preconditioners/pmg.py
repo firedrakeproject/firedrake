@@ -214,7 +214,6 @@ class PMGBase(PCSNESBase):
         fproblem = fctx._problem
         fdeg = PMGBase.max_degree(fV.ufl_element())
         cdeg = PMGBase.max_degree(cV.ufl_element())
-        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
 
         def _coarsen_form(a, coefficient_mapping):
             if isinstance(a, ufl.Form):
@@ -222,10 +221,6 @@ class PMGBase(PCSNESBase):
                 a = ufl.Form([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
                               for f in a.integrals()])
             elif isinstance(a, ufl.BaseForm):
-                # e.g. a residual F = action(J, u) - L with L a Cofunction:
-                # its implicit argument isn't a literal node ufl.replace can
-                # move to the coarse space, so only replace coefficients and
-                # re-pair the result with the coarse test function via interpolation.
                 ctest = coefficient_mapping[test]
                 coeffs = {k: v for k, v in coefficient_mapping.items() if k not in (test, trial)}
                 a = firedrake.interpolate(ctest, ufl.replace(a, coeffs))
@@ -234,6 +229,7 @@ class PMGBase(PCSNESBase):
         # Inherit mat_type from the fine _SNESContext
         mat_type = None
         pmat_type = None
+        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
         # use geometric multigrid for the p-coarse problem
@@ -245,13 +241,15 @@ class PMGBase(PCSNESBase):
             pmat_type = self.coarse_pmat_type
             fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
-        cF = None
-        if not self.is_snes:
+        if self.is_snes:
+            cF = None
+            homogenize_bcs = False
+        else:
             # PC-only levels don't assemble F, so a placeholder avoids coarsening RHS Cofunctions.
             cF = ufl.ZeroBaseForm((test.reconstruct(function_space=cV),))
+            homogenize_bcs = True
 
         # Coarsen the problem
-        homogenize_bcs = not self.is_snes
         cproblem = fproblem.reconstruct(F=cF,
                                         function_space=cV,
                                         form_compiler_parameters=fcp,
