@@ -214,7 +214,6 @@ class PMGBase(PCSNESBase):
         fproblem = fctx._problem
         fdeg = PMGBase.max_degree(fV.ufl_element())
         cdeg = PMGBase.max_degree(cV.ufl_element())
-        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
 
         def _coarsen_form(a, coefficient_mapping):
             if isinstance(a, ufl.Form):
@@ -234,6 +233,7 @@ class PMGBase(PCSNESBase):
         # Inherit mat_type from the fine _SNESContext
         mat_type = None
         pmat_type = None
+        fcp = self.coarsen_quadrature(fproblem.form_compiler_parameters, fdeg, cdeg)
         # If we're the coarsest grid of the p-hierarchy, don't
         # overwrite the coarsen routine; this is so that you can
         # use geometric multigrid for the p-coarse problem
