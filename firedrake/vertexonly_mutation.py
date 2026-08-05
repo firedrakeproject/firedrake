@@ -301,16 +301,16 @@ class VertexOnlyMeshMutator:
                                                 (topology.num_vertices(), gdim))
 
         # Resize the CoordinatelessFunction dat buffer and assign new values
-        self.vom._coordinates.dat = coords_fs.make_dat(val=coords_data, name=self.vom._coordinates.name())  # returns a new op2.Dat
+        self.vom._coordinates._dat = coords_fs.make_dat(val=coords_data, name=self.vom._coordinates.name())  # returns a new op2.Dat
 
         if parent_tdim > 0:
             ref_coords_data = dmcommon.reordered_coords(swarm, ref_coords_fs.dm.getDefaultSection(),
                                                         (topology.num_vertices(), parent_tdim), reference_coord=True)
-            self.vom.reference_coordinates._data.dat = ref_coords_fs.make_dat(val=ref_coords_data, name=self.vom.reference_coordinates.name())  # returns a new op2.Dat
+            self.vom.reference_coordinates._data._dat = ref_coords_fs.make_dat(val=ref_coords_data, name=self.vom.reference_coordinates.name())  # returns a new op2.Dat
         else:
             # This should have been already set to None when the VOM was first constructed
             self.vom.reference_coordinates = None
 
         # Mark that coordinate functions were rebuilt by synchronising their topology versions
-        self.vom.coordinates._mesh_topology_version = topology._topology_version
-        self.vom.reference_coordinates._mesh_topology_version = topology._topology_version
+        self.vom._coordinates._mesh_topology_version = topology._topology_version
+        self.vom.reference_coordinates.topological._mesh_topology_version = topology._topology_version

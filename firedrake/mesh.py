@@ -44,7 +44,7 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
-from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError, FunctionMigrationError
 import gem
 
 try:
@@ -58,7 +58,7 @@ from finat.element_factory import as_fiat_cell
 
 
 if typing.TYPE_CHECKING:
-    from firedrake import CoordinatelessFunction, Function
+    from firedrake import CoordinatelessFunction, Cofunction
 
 
 __all__ = [
@@ -1092,8 +1092,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
 
-    def _register_function(self, function: "Function") -> None:
-        """Register a Function for migration after topology changes."""
+    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
+        """Register a coefficient for topology migration."""
         pass
 
 
@@ -2093,7 +2093,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
 
         # Define a registry of all Functions defined on this mesh.
-        # `_live_functions` is a dictionary of the form {registration_id: Function} which stores each Function as a weak reference.
+        # `_live_functions` is a dictionary of the form {registration_id: Function} which stores each CoordinatelessFunction as a weak reference.
         # This is chosen so that we're able to keep track of which Functions are defined on the mesh at the topology-level (which we expect to mutate)
         # while still allowing Python's GC to delete a live Function when the last strong reference to it dies.
         # The keys of this dictionary are integer IDs used to sort registered Functions (deterministically) by their creation order.
@@ -2388,12 +2388,61 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
 
     def _register_function(self, function):
-            key = next(self._function_counter)
-            self._live_functions[key] = function
+        key = next(self._function_counter)
+        self._live_functions[key] = function
+
+    def _get_migration_sf(self, source_version: int) -> PETSc.SF:
+        """Return the SF mapping the current topology to an older version.
+
+        Parameters
+        ----------
+        source_version
+            Version of the topology on which the Coefficient data is stored.
+
+        Returns
+        -------
+        PETSc.SF
+            SF mapping points in the current topology to points in the topology given by ``source_version``.
+
+        Raises
+        ------
+        FunctionMigrationError
+            If a required one-step topology mapping is unavailable.
+        """
+        target_version = self._topology_version
+
+        if source_version >= target_version:
+            raise ValueError(
+                f"Expected a source version older than {target_version}, "
+                f"got {source_version}."
+            )
+
+        try:
+            migration_sf = self._topology_step_sfs[target_version]
+        except KeyError as exc:
+            raise FunctionMigrationError(
+                "Failed to migrate coefficient data because the topology "
+                f"mapping to version {target_version} could not be found."
+            ) from exc
+
+        for version in range(target_version - 1, source_version, -1):
+            try:
+                step_sf = self._topology_step_sfs[version]
+            except KeyError as exc:
+                raise FunctionMigrationError(
+                    "Failed to migrate coefficient data because the topology "
+                    f"mapping from version {version - 1} to version "
+                    f"{version} could not be found."
+                ) from exc
+
+            migration_sf = step_sf.compose(migration_sf)
+
+        # TODO: Cache composed SFs by source and target topology version?
+        return migration_sf
 
     def _migrate_all_functions(self):
         """
-        Migrate all live Functions registered on this mesh to it's current topology version.
+        Migrate all live Functions registered on this mesh to its current topology version.
         """
         # NOTE: Sorting only affects local key order i.e., it only guarantees that we iterate over Functions
         # in their creation order on this rank only.

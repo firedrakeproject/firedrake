@@ -139,7 +139,7 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs):
     )
 
     # Migrate all live Functions registered on this VOM
-    vom.topology._migrate_functions()
+    vom.topology._migrate_all_functions()
 
     parallel_assert(
         f._mesh_topology_version == new_vom_topo_version
