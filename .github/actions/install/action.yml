@@ -160,8 +160,6 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
-        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/element-reconstruct-degree
-        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/ufl.git@pbrubeck/zero-base-form-holes
         firedrake-clean
         pip list
 
