@@ -2593,7 +2593,6 @@ values from f.)"""
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
-            self.clear_rtree()
             self._tolerance = value
 
     def clear_rtree(self):
@@ -2601,6 +2600,11 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
+        warnings.warn(
+            "The ``clear_rtree`` method is deprecated and will be removed in a future release. "
+            "There is no need to manually clear the rtree after changing the mesh coordinates;"
+            "the rtree will be automatically rebuilt.", FutureWarning
+        )
         # `cached_property_until` stores the cached rtree in self._rtree_cache
         # setting it to None will force the rtree to be rebuilt on next access.
         self._rtree_cache = None
@@ -5215,19 +5219,17 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         tolerance=mesh.tolerance,
     )
     if point_sf is None:
-        # Tag the relabeled mesh with the original distribution parameters
+        # Tag the submesh with the original distribution parameters
         submesh._distribution_parameters = mesh._distribution_parameters
-        return submesh
 
-    if mesh.coordinates.ufl_element() == submesh.coordinates.ufl_element():
-        return submesh
-    # The parent coordinates are not carried by the plex (e.g. the parent is
-    # curved or periodic), so they must be transferred onto the submesh.
-    V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
-    coordinates = function.Function(V).assign(mesh.coordinates)
-    submesh = Mesh(coordinates, name=name)
-    submesh.submesh_parent = mesh
-    submesh.tolerance = mesh.tolerance
+    if mesh.coordinates.ufl_element() != submesh.coordinates.ufl_element():
+        # The parent coordinates are not carried by the plex (e.g. the parent is
+        # curved or periodic), so they must be transferred onto the submesh.
+        V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
+        coordinates = function.Function(V).assign(mesh.coordinates)
+        submesh = Mesh(coordinates, name=name)
+        submesh.submesh_parent = mesh
+        submesh.tolerance = mesh.tolerance
     return submesh
 
 
