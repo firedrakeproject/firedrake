@@ -144,18 +144,18 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def dm(self):
         return self.u_restrict.function_space().dm
 
-    def reconstruct(self,
-                    F: ufl.BaseForm | slate.TensorBase | None = None,
-                    u: Function | None = None,
-                    bcs: list[DirichletBC | EquationBC] | None = None,
-                    J: ufl.BaseForm | slate.TensorBase | None = None,
-                    Jp: ufl.BaseForm | slate.TensorBase | None = None,
-                    objective: ufl.BaseForm | slate.TensorBase | None = None,
-                    form_compiler_parameters: dict | None = None,
-                    is_linear: bool | None = None,
-                    coefficient_mapping: dict | None = None,
-                    form_transform: Callable | None = None,
-                    homogenize_bcs: bool = False) -> NonlinearVariationalProblem:
+    def rediscretise(self,
+                     F: ufl.BaseForm | slate.TensorBase | None = None,
+                     u: Function | None = None,
+                     bcs: list[DirichletBC | EquationBC] | None = None,
+                     J: ufl.BaseForm | slate.TensorBase | None = None,
+                     Jp: ufl.BaseForm | slate.TensorBase | None = None,
+                     objective: ufl.BaseForm | slate.TensorBase | None = None,
+                     form_compiler_parameters: dict | None = None,
+                     is_linear: bool | None = None,
+                     coefficient_mapping: dict | None = None,
+                     form_transform: Callable | None = None,
+                     homogenize_bcs: bool = False) -> NonlinearVariationalProblem:
         r"""Reconstruct this problem, optionally on a new function space.
 
         Any explicitly supplied keyword argument is used as-is; every other

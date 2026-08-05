@@ -251,10 +251,10 @@ class PMGBase(PCSNESBase):
 
         # Coarsen the problem
         cu = firedrake.Function(cV)
-        cproblem = fproblem.reconstruct(F=cF, u=cu,
-                                        form_compiler_parameters=fcp,
-                                        form_transform=_coarsen_form,
-                                        homogenize_bcs=homogenize_bcs)
+        cproblem = fproblem.rediscretise(F=cF, u=cu,
+                                         form_compiler_parameters=fcp,
+                                         form_transform=_coarsen_form,
+                                         homogenize_bcs=homogenize_bcs)
         fu = fproblem.u_restrict
         fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
         fine_to_coarse_map[fu] = cu
