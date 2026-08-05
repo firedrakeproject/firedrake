@@ -390,6 +390,12 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)], cache=concatenate_cache)
+    # Contract each block once the Concatenate nodes are gone.  An H(div) or
+    # H(curl) element selects the component each block maps to with a Delta,
+    # and only here, with the blocks separated, do those Deltas meet pairwise
+    # and cancel the pairs that map to different components.
+    pairs = [(variable, gem.optimise.contraction(expression))
+             for variable, expression in pairs]
     impero_c = impero_utils.compile_gem(pairs, return_indices)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
