@@ -23,10 +23,6 @@ def _replace_arguments(form, *arguments):
     return replace(form, dict(zip(form.arguments(), arguments)))
 
 
-def _homogeneous_bcs(bcs, V):
-    return [bc.reconstruct(V=V, indices=bc._indices, g=0) for bc in bcs]
-
-
 def _both(expr):
     return expr("+") + expr("-")
 
@@ -185,18 +181,17 @@ class DWRMarkingCallback:
             raise RuntimeError("DWR marking callback has not been set up")
 
         dual_low = Function(V, name="dwr_dual_low")
-        direction = TestFunction(V)
-        goal_derivative = derivative(self.goal_functional, current_solution, direction)
-        rhs = assemble(goal_derivative, bcs=_homogeneous_bcs(problem.bcs, V))
+        goal_derivative = derivative(self.goal_functional, current_solution)
+        rhs = assemble(goal_derivative, bcs=problem.bcs)
         ctx.solve_jacobian_transpose(rhs, dual_low)
 
         primal_high = Function(high_space, "dwr_primal_high")
         primal_high.interpolate(current_solution)
         high_problem = problem.rediscretise(u=primal_high)
 
-        nullspace = None if ctx._nullspace is None else ctx._nullspace.reconstruct(high_space)
-        transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.reconstruct(high_space)
-        near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.reconstruct(high_space)
+        nullspace = None if ctx._nullspace is None else ctx._nullspace.rediscretise(high_space)
+        transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.rediscretise(high_space)
+        near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.rediscretise(high_space)
         primal_solver = NonlinearVariationalSolver(
             high_problem,
             options_prefix=_enriched_prefix(prefix),
