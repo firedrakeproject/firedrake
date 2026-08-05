@@ -190,10 +190,10 @@ class DWRMarkingCallback:
         rhs = assemble(goal_derivative, bcs=_homogeneous_bcs(problem.bcs, V))
         ctx.solve_jacobian_transpose(rhs, dual_low)
 
-        high_problem = problem.reconstruct(function_space=high_space)
-        primal_high = high_problem.u_restrict
-        primal_high.rename("dwr_primal_high")
+        primal_high = Function(high_space, "dwr_primal_high")
         primal_high.interpolate(current_solution)
+        high_problem = problem.reconstruct(u=primal_high)
+
         nullspace = None if ctx._nullspace is None else ctx._nullspace.reconstruct(high_space)
         transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.reconstruct(high_space)
         near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.reconstruct(high_space)
