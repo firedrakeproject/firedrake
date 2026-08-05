@@ -359,7 +359,6 @@ def preserved_points(PETSc.DM coarse_dm,
                      PETSc.Section coarse_cell_numbering,
                      PETSc.DM fine_dm,
                      PETSc.Section fine_cell_numbering,
-                     PetscInt nfine,
                      np.ndarray coarse_to_fine_cells):
     """Pair the points an adaptive refinement left alone with their coarse originals.
 
@@ -373,14 +372,13 @@ def preserved_points(PETSc.DM coarse_dm,
     :arg coarse_cell_numbering: the coarse mesh's cell numbering section.
     :arg fine_dm: the adaptively refined DMPlex.
     :arg fine_cell_numbering: the fine mesh's cell numbering section.
-    :arg nfine: the number of owned fine cells.
     :arg coarse_to_fine_cells: the Firedrake-numbered coarse-to-fine cell map.
     :returns: an array over the chart of ``fine_dm``, holding for each fine
         point the coarse point it was copied from, or -1 if the refinement
         changed it.
     """
     cdef:
-        PetscInt ncoarse, max_children, c, i, off, child
+        PetscInt ncoarse, nfine, max_children, c, i, off, child
         PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
         PetscInt *coarse_closure = NULL
         PetscInt *fine_closure = NULL
@@ -388,8 +386,10 @@ def preserved_points(PETSc.DM coarse_dm,
         PetscInt[:, ::1] coarse_to_fine
 
     coarse_to_fine = coarse_to_fine_cells
-    ncoarse = coarse_to_fine.shape[0]
+    ncoarse = num_owned_cells(coarse_dm)
+    assert ncoarse == coarse_to_fine.shape[0]
     max_children = coarse_to_fine.shape[1]
+    nfine = num_owned_cells(fine_dm)
 
     # Both cell maps are in Firedrake numbering, so invert each mesh's cell
     # numbering section to get back to the plex points the closures live on.
