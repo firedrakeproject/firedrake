@@ -1,7 +1,10 @@
 import numpy
 import pytest
 
+import gem
 import tsfc.spectral
+from gem.gem import one
+from gem.refactorise import MonomialSum
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
                  quadrilateral, curl, dot, div, grad, inner)
@@ -9,6 +12,7 @@ from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
 from tsfc import compile_form
+from tsfc.spectral import _sum_factorisation_order
 
 
 def helmholtz(cell, degree):
@@ -206,6 +210,21 @@ def test_shared_physically_mapped_tabulation(
     assert sum(shape == (15,) for shape in optimized_shapes) \
         > sum(shape == (15,) for shape in baseline_shapes)
     assert optimized_source.count(" if ") < baseline_source.count(" if ")
+
+
+def test_sum_factorisation_order() -> None:
+    """Contract the quadrature direction with least argument support first."""
+    i, j, q0, q1 = (gem.Index(extent=4) for _ in range(4))
+    inner = gem.Indexed(gem.Variable("inner", (4, 4)), (i, q0))
+    outer = gem.Indexed(
+        gem.Variable("outer", (4, 4, 4)), (i, j, q1))
+    monomial_sum = MonomialSum()
+    monomial_sum.add((q0, q1), (inner * outer,), one)
+
+    ordering = _sum_factorisation_order(
+        (q1, q0), monomial_sum)
+
+    assert ordering == (q0, q1)
 
 
 if __name__ == "__main__":
