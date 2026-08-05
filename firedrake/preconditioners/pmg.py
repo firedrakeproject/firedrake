@@ -298,7 +298,7 @@ class PMGBase(PCSNESBase):
             add_hook(parent, setup=inject_state, call_setup=True)
 
         def _coarsen_nullspace(fine_nullspace):
-            return None if fine_nullspace is None else fine_nullspace.reconstruct(cV)
+            return None if fine_nullspace is None else fine_nullspace.rediscretise(cV)
 
         cctx._nullspace = _coarsen_nullspace(fctx._nullspace)
         cctx._nullspace_T = _coarsen_nullspace(fctx._nullspace_T)

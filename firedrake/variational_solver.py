@@ -184,7 +184,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             defaults to the original problem's style.
         coefficient_mapping
             A dict mapping coefficients of the original problem into those
-            of the reconstructed problem.
+            of the reconstructed problem. This is used to update a fresh new dict with
+            the replacement rules for the solution and form arguments.
         form_transform
             An optional callable ``form_transform(form, coefficient_mapping)``
             used instead of `ufl.replace` to reconstruct each UFL form.

@@ -100,7 +100,7 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
-    def reconstruct(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> VectorSpaceBasis:
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> VectorSpaceBasis:
         r"""Reconstruct this basis on a new function space.
 
         Parameters
@@ -260,7 +260,7 @@ class MixedVectorSpaceBasis(object):
         self._bases = bases
         self._nullspace = None
 
-    def reconstruct(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> MixedVectorSpaceBasis:
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> MixedVectorSpaceBasis:
         r"""Reconstruct this basis on a new mixed function space.
 
         Parameters
