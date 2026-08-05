@@ -439,6 +439,7 @@ class Function(pyop3.obj.Object):
 
     # }}}
 
+    # TODO: Is this actually true? I think they do have sensible (if very expensive) hashes
     # unfortunately needed because loopy translation units aren't immediately hashable
     def __hash__(self) -> int:
         if not hasattr(self, "_saved_hash"):
