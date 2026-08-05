@@ -276,7 +276,7 @@ class MixedVectorSpaceBasis(object):
         bases = []
         for V_, basis in zip(function_space, self._bases):
             if isinstance(basis, VectorSpaceBasis):
-                bases.append(basis.reconstruct(V_))
+                bases.append(basis.rediscretise(V_))
             else:
                 bases.append(function_space.sub(basis.index))
         return MixedVectorSpaceBasis(function_space, bases)
