@@ -1,10 +1,10 @@
 import pytest
 from firedrake import *
 from firedrake.mesh import plex_from_cell_list
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_facet_corner_case_1():
     #  mesh and ownership:
     #
@@ -133,4 +133,4 @@ def test_submesh_facet_all_facets():
     facet_value = 999
     rmesh = RelabeledMesh(mesh, [facet_function], [facet_value])
     submesh2 = Submesh(rmesh, mesh.topological_dimension - 1, facet_value)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size

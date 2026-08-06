@@ -23,9 +23,9 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
-from pyop2.caching import memory_and_disk_cache
+from pyop3.mpi import COMM_WORLD
+from pyop3.lower import SolveCallable, INVCallable
+from pyop3.cache import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -55,6 +55,10 @@ if COMM_WORLD.rank == 0:
 else:
     BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
     BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
+
+# Strip leading '-l' and '-I's
+BLASLAPACK_LIB = tuple(lib[2:] for lib in BLASLAPACK_LIB.split())
+BLASLAPACK_INCLUDE = tuple(incdir[2:] for incdir in BLASLAPACK_INCLUDE.split())
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -161,10 +165,14 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
-                                                       include_dirs=BLASLAPACK_INCLUDE.split(),
-                                                       ldargs=BLASLAPACK_LIB.split(),
-                                                       events=events+(slate_loopy_event,))
+    # set default_entrypoint
+    loopy_merged = loopy_merged.with_entrypoints(name)
+
+    # loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, name, len(arguments),
+    #                                                    include_dirs=BLASLAPACK_INCLUDE.split(),
+    #                                                    ldargs=BLASLAPACK_LIB.split(),
+    #                                                    events=events+(slate_loopy_event,))
+    loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, len(arguments))
 
     # map the coefficients in the order that PyOP2 needs
     orig_coeffs = orig_expr.coefficients()
@@ -180,7 +188,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     assert len(list(chain(*(map[1] for map in coefficient_numbers)))) == len(coefficients), \
         "KernelInfo must be generated with a coefficient map that maps EXACTLY all coefficients that are in its arguments attribute."
-    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), \
+    assert len(loopy_merged.callables_table[name].subkernel.args) == len(arguments), \
         "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
@@ -198,7 +206,6 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
-                       pass_layer_arg=builder.bag.needs_mesh_layers,
                        arguments=arguments,
                        events=events)
 

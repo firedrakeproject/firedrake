@@ -338,7 +338,23 @@ def statement_return(leaf, ctx):
     rhs = expression(leaf.expression, ctx)
     if ctx.return_increments:
         rhs = lhs + rhs
-    return [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
+
+    insns = [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
+
+    # GCC has a race condition bug for non-increment returns which result
+    # in numerical nonsense. We add a '__sync_synchronize()' call to
+    # prevent it.
+    #
+    # The bug has been observed:
+    # * On an x86 machine with both GCC 15.2 and 16.1
+    # * With -O0
+    # TODO: set this with an attribute: we don't want it for clang
+    if not ctx.return_increments:
+        insns.append(
+            lp.CInstruction((), "__sync_synchronize();", within_inames=ctx.active_inames())
+        )
+
+    return insns
 
 
 @statement.register(imp.ReturnAccumulate)

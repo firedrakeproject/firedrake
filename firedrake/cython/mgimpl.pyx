@@ -6,7 +6,7 @@ import numpy as np
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
-from pyop2.mpi import MPI
+from mpi4py import MPI
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
@@ -17,14 +17,14 @@ include "petschdr.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
+def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
     """
     Given a section numbering a type of topological entity, return the
     renumberings from original plex numbers to new firedrake numbers
     (and vice versa)
 
     :arg plex: The DMPlex object
-    :arg section: The Section defining the renumbering
+    :arg numbering: The renumbering
     :arg entity_type: The type of entity (either ``"cell"`` or
         ``"vertex"``)
     """
@@ -45,11 +45,9 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     new_to_old = np.empty(end - start, dtype=PETSc.IntType)
 
     for p in range(start, end):
-        CHKERR(PetscSectionGetDof(section.sec, p, &ndof))
-        if ndof > 0:
-            CHKERR(PetscSectionGetOffset(section.sec, p, &entity))
-            new_to_old[entity] = p - start
-            old_to_new[p - start] = entity
+        entity = numbering.getOffset(p)
+        new_to_old[entity] = p - start
+        old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
 
@@ -59,64 +57,35 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     cdef:
         np.ndarray fine_map, coarse_map, coarse_to_fine_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, l, m, node, fine, layer
+        PetscInt i, j, k, l, m, node, fine
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
-        PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
-        bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_map_dat.data_ro
+    coarse_map = Vc.cell_node_map_dat.data_ro
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
-    extruded = Vc.extruded
-
-    if extruded:
-        coarse_offset = Vc.offset
-        fine_offset = Vf.offset
-        coarse_layers = Vc.mesh().layers - 1
-        fine_layers = Vf.mesh().layers - 1
-
-        ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
-    coarse_cells = coarse_map.shape[0]
+    coarse_cells = Vc.mesh().cells.owned.local_size
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
 
     ndof = fine_per_cell * fine_cell_per_coarse_cell
-    if extruded:
-        ndof *= ratio
-    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
-                                  ndof),
-                                 -1,
-                                 dtype=IntType)
+    coarse_to_fine_map = np.full(
+        (Vc.axes.local_size//Vc.block_size, ndof),
+        -1,
+        dtype=IntType,
+    )
     for i in range(coarse_cells):
         for j in range(coarse_per_cell):
             node = coarse_map[i, j]
-            if extruded:
-                for coarse_layer in range(coarse_layers):
-                    k = 0
-                    for l in range(fine_cell_per_coarse_cell):
-                        fine = coarse_to_fine_cells[i, l]
-                        if fine < 0:
-                            k += fine_per_cell * ratio
-                            continue
-                        for layer in range(ratio):
-                            fine_layer = coarse_layer * ratio + layer
-                            for m in range(fine_per_cell):
-                                coarse_to_fine_map[node + coarse_offset[j]*coarse_layer, k] = (fine_map[fine, m] +
-                                                                                               fine_offset[m]*fine_layer)
-                                k += 1
-            else:
-                k = 0
-                for l in range(fine_cell_per_coarse_cell):
-                    fine = coarse_to_fine_cells[i, l]
-                    if fine < 0:
-                        k += fine_per_cell
-                        continue
-                    for m in range(fine_per_cell):
-                        coarse_to_fine_map[node, k] = fine_map[fine, m]
-                        k += 1
+            k = 0
+            for l in range(fine_cell_per_coarse_cell):
+                fine = coarse_to_fine_cells[i, l]
+                if fine < 0:
+                    k += fine_per_cell
+                    continue
+                for m in range(fine_per_cell):
+                    coarse_to_fine_map[node, k] = fine_map[fine, m]
+                    k += 1
 
     return coarse_to_fine_map
 
@@ -126,30 +95,17 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
 def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     cdef:
         np.ndarray fine_map, coarse_map, fine_to_coarse_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        PetscInt i, j, k, node
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
-        bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_map_dat.data_ro
+    coarse_map = Vc.cell_node_map_dat.data_ro
 
-    extruded = Vc.extruded
-
-    if extruded:
-        coarse_offset = Vc.offset
-        fine_offset = Vf.offset
-        coarse_layers = Vc.mesh().layers - 1
-        fine_layers = Vf.mesh().layers - 1
-
-        ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
-
-    fine_cells = fine_to_coarse_cells.shape[0]
+    fine_cells = Vf.mesh().cells.owned.local_size
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+    fine_to_coarse_map = np.full((Vf.axes.local_size // Vf.block_size,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)
@@ -160,14 +116,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
                 continue
             for j in range(fine_per_cell):
                 node = fine_map[i, j]
-                if extruded:
-                    for fine_layer in range(fine_layers):
-                        coarse_layer = fine_layer // ratio
-                        for k in range(coarse_per_cell):
-                            fine_to_coarse_map[node + fine_offset[j]*fine_layer, k] = coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_layer
-                else:
-                    for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
+                for k in range(coarse_per_cell):
+                    fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
 
@@ -201,28 +151,10 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
-    """Number of cells this rank owns, i.e. the number of Firedrake cell
-    numbers the DM's cell numbering hands out to non-ghost cells.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        The DMPlex encapsulating the mesh topology, with its PyOP2 entity
-        classes already marked.
-
-    Returns
-    -------
-    PetscInt
-        The number of core plus owned cells.
-
-    """
-    return dmcommon.get_entity_classes(dm)[dm.getDimension(), 1]
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def set_adaptive_parent_label(PETSc.DM coarse_dm,
+                              ncoarse_cells: PetscInt,
                               PETSc.Section coarse_cell_numbering,
                               label_name):
     """Seed each coarse cell's own Firedrake cell number onto a DMPlex label.
@@ -236,6 +168,8 @@ def set_adaptive_parent_label(PETSc.DM coarse_dm,
     ----------
     coarse_dm : PETSc.DM
         The coarse, pre-refinement, mesh DMPlex.
+    ncoarse_cells
+        The number of owned cells in the coarse mesh.
     coarse_cell_numbering : PETSc.Section
         The coarse mesh's cell numbering section.
     label_name : str
@@ -245,7 +179,6 @@ def set_adaptive_parent_label(PETSc.DM coarse_dm,
 
     """
     cdef:
-        PetscInt ncoarse = num_owned_cells(coarse_dm)
         PetscInt cStart, cEnd, c, off
         DMLabel parent_label = NULL
 
@@ -257,14 +190,16 @@ def set_adaptive_parent_label(PETSc.DM coarse_dm,
     cStart, cEnd = coarse_dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
-        if 0 <= off < ncoarse:
+        if 0 <= off < ncoarse_cells:
             CHKERR(DMLabelSetValue(parent_label, c, off))
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
+                                    ncoarse_cells: PetscInt,
                                     PETSc.DM fine_dm,
+                                    nfine_cells: PetscInt,
                                     PETSc.Section fine_cell_numbering,
                                     label_name):
     """Build Firedrake-numbered parent/child cell maps from a DMPlex label.
@@ -276,8 +211,12 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     ----------
     coarse_dm : PETSc.DM
         The coarse, parent, mesh DMPlex.
+    ncoarse_cells
+        The number of owned cells in the coarse mesh.
     fine_dm : PETSc.DM
         The refined, child, mesh DMPlex.
+    nfine_cells
+        The number of owned cells in the fine mesh.
     fine_cell_numbering : PETSc.Section
         The fine mesh's cell numbering section.
     label_name : str
@@ -294,8 +233,6 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
 
     """
     cdef:
-        PetscInt ncoarse = num_owned_cells(coarse_dm)
-        PetscInt nfine = num_owned_cells(fine_dm)
         PetscInt cStart, cEnd, c, off, parent, i, stratum_size, max_children
         DMLabel parent_label = NULL
         PETSc.PetscIS stratum_is = NULL
@@ -306,13 +243,13 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
 
     label_name = label_name.encode()
     CHKERR(DMGetLabel(fine_dm.dm, <const char*>label_name, &parent_label))
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
-    child_counts = np.zeros(ncoarse, dtype=IntType)
+    fine_to_coarse = np.full((nfine_cells, 1), -1, dtype=IntType)
+    child_counts = np.zeros(ncoarse_cells, dtype=IntType)
     cStart, cEnd = fine_dm.getHeightStratum(0)
     # Walking by stratum (coarse cell) resolves each one through PETSc's O(1)
     # value -> stratum hash map and touches every fine cell exactly once, for
     # O(nfine + ncoarse) overall.
-    for parent in range(ncoarse):
+    for parent in range(ncoarse_cells):
         CHKERR(DMLabelGetStratumSize(parent_label, parent, &stratum_size))
         if stratum_size <= 0:
             continue
@@ -323,7 +260,7 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
             if not (cStart <= c < cEnd):
                 continue
             CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
-            if not (0 <= off < nfine):
+            if not (0 <= off < nfine_cells):
                 continue
             fine_to_coarse[off, 0] = parent
             child_counts[parent] += 1
@@ -335,16 +272,16 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     # refined a different number of times, so this varies by process; take
     # the max across all ranks so the array shape agrees everywhere.
     max_children = 0
-    for c in range(ncoarse):
+    for c in range(ncoarse_cells):
         if child_counts[c] > max_children:
             max_children = child_counts[c]
     max_children = fine_dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
+    coarse_to_fine = np.full((ncoarse_cells, max_children), -1, dtype=IntType)
     # Re-walk the fine cells (in Firedrake order this time, via
     # fine_to_coarse) appending each one to its parent's row. child_counts is
     # reused as a per-parent write cursor, reset to zero first.
     child_counts[:] = 0
-    for c in range(nfine):
+    for c in range(nfine_cells):
         parent = fine_to_coarse[c, 0]
         if parent >= 0:
             coarse_to_fine[parent, child_counts[parent]] = c
@@ -442,16 +379,18 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         np.ndarray fine_to_coarse
         np.ndarray co2n, fn2o, idx, found, permuted
 
+    assert mc.extruded == mf.extruded == False
+
     cdm = mc.topology_dm
     fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = <PetscInt> 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
+    ncoarse = mc.cells.owned.local_size
+    nfine = mf.cells.owned.local_size
     # co2n: coarse overlapped plex cell -> coarse Firedrake cell
     # fn2o: fine Firedrake cell -> fine overlapped plex cell
-    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
+    co2n, _ = get_entity_renumbering(cdm, mc._plex_to_entity_numbering_sec("cell"), "cell")
+    _, fn2o = get_entity_renumbering(fdm, mf._plex_to_entity_numbering_sec("cell"), "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
     fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
@@ -472,7 +411,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # numbering, not the value, so send every local coarse cell through
         # the translation. MASK gives -1 for cells the non-overlapped plex
         # does not have.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        idx = np.arange(mc.cells.local_size, dtype=PETSc.IntType)
         co.apply(idx, result=idx)
         idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.MASK)
         # idx[i] is where overlapped cell i lands, so scatter rather than

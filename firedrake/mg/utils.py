@@ -1,8 +1,9 @@
 import numpy
+from immutabledict import immutabledict as idict
 from fractions import Fraction
-from pyop2 import op2
+import pyop3 as op3
 from firedrake.utils import IntType
-from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
@@ -10,6 +11,7 @@ from firedrake.cython import mgimpl as impl
 
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
     mesh = Vf.mesh()
@@ -31,20 +33,29 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
-                                             fine_to_coarse_nodes.shape[1],
-                                             values=fine_to_coarse_nodes))
+
+        src_axis = Vf.nodal_axes.root
+        target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=fine_to_coarse_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            },
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label,
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
     mesh = Vc.mesh()
@@ -66,13 +77,12 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
+
         # Under adaptive refinement, coarse cells have varying numbers of
         # fine descendants, so coarse_to_fine (and hence coarse_to_fine_nodes)
         # is right-padded with -1 up to the busiest coarse cell's count.
@@ -84,23 +94,33 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # candidate matching the coarse node's physical location, so a
         # repeated valid entry is just redundantly (harmlessly) considered.
         valid = coarse_to_fine_nodes >= 0
-        if not valid.all():
-            nonempty = valid.any(axis=1)
-            if not nonempty[:Vc.node_set.size].all():
-                raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
-            replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
-                                      dtype=coarse_to_fine_nodes.dtype)
-            rows = numpy.nonzero(nonempty)[0]
-            replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
-            coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
-                                               replacement[:, None])
-        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             coarse_to_fine_nodes.shape[1],
-                                             values=coarse_to_fine_nodes))
+        nonempty = valid.any(axis=1)
+        if not nonempty[:Vc.axes.buffer_size(include_ghosts=False)].all():
+            raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
+        replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
+                                  dtype=coarse_to_fine_nodes.dtype)
+        rows = numpy.nonzero(nonempty)[0]
+        replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
+        coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
+                                           replacement[:, None])
+
+        src_axis = Vc.nodal_axes.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
@@ -122,37 +142,32 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded:
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cell_set
+        iterset = Vc.mesh().cells.owned
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
-        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().cells.local_size, arity), -1, dtype=IntType)
+        values = numpy.full((iterset.local_size, ncell, fine_per_cell), -1, dtype=IntType)
+        owned_coarse_to_fine = coarse_to_fine[:iterset.local_size, :]
         valid = owned_coarse_to_fine >= 0
-        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
-        values = values.reshape(iterset.size, arity)
+        values[valid, :] = Vf.cell_node_list[owned_coarse_to_fine[valid], :]
+        values = values.reshape(iterset.local_size, arity)
 
-        if Vc.extruded:
-            off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([
-                numpy.where(values >= 0, values + off*i, -1) for i in range(level_ratio)
-            ])
-        else:
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
-        offset = Vf.offset
-        if offset is not None:
-            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
-        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
-                                             offset=offset))
+        coarse_to_fine_nodes[:iterset.local_size, :] = values
+
+        src_axis = iterset.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({src_axis.label: src_axis.component.label}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label
+        )
+        return cache.setdefault(key, node_map)
 
 
 def physical_node_locations(V):
@@ -171,7 +186,9 @@ def physical_node_locations(V):
         Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
+        locations = firedrake.assemble(
+            firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        )
         return cache.setdefault(key, locations)
 
 

@@ -285,7 +285,7 @@ We loop over the Dirichlet boundary conditions, adding the weak
 boundary terms for each marked wall, and separately handle any
 remaining exterior facets with a zero-inflow flux. ::
 
-  exterior_markers = set(mesh.exterior_facets.unique_markers)
+  exterior_markers = set(mesh.facet_markers)
   for bc in bcs:
       g = bc.function_arg
       bid = bc.sub_domain

@@ -10,9 +10,7 @@ conditions is equal to the dimension of the (n-k)th cohomology group
 without boundary conditions.
 """
 import numpy.linalg as linalg
-import numpy
 from firedrake import *
-from firedrake.utils import ScalarType
 import pytest
 
 
@@ -126,16 +124,7 @@ def test_betti1(horiz_complex, vert_complex):
     L = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
                   + inner(div(u), div(v)))*dx)
 
-    dW0 = W0.dof_count
-    dW1 = W1.dof_count
-
-    A = numpy.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A[:dW0, :dW0] = L.M[0, 0].values
-    A[:dW0, dW0:dW0+dW1] = L.M[0, 1].values
-    A[dW0:dW0+dW1, :dW0] = L.M[1, 0].values
-    A[dW0:dW0+dW1, dW0:dW0+dW1] = L.M[1, 1].values
-
-    uvecs, s, vvecs = linalg.svd(A)
+    uvecs, s, vvecs = linalg.svd(L.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 0
@@ -146,13 +135,7 @@ def test_betti1(horiz_complex, vert_complex):
     L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
                    + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
-    A0 = numpy.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A0[:dW0, :dW0] = L0.M[0, 0].values
-    A0[:dW0, dW0:dW0+dW1] = L0.M[0, 1].values
-    A0[dW0:dW0+dW1, :dW0] = L0.M[1, 0].values
-    A0[dW0:dW0+dW1, dW0:dW0+dW1] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
+    u, s, v = linalg.svd(L0.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 0
@@ -195,16 +178,7 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     L = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
                   + inner(div(u), div(v)))*dx)
 
-    dW0 = W0.dof_count
-    dW1 = W1.dof_count
-
-    A = numpy.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A[:dW0, :dW0] = L.M[0, 0].values
-    A[:dW0, dW0:dW0+dW1] = L.M[0, 1].values
-    A[dW0:dW0+dW1, :dW0] = L.M[1, 0].values
-    A[dW0:dW0+dW1, dW0:dW0+dW1] = L.M[1, 1].values
-
-    uvecs, s, vvecs = linalg.svd(A)
+    uvecs, s, vvecs = linalg.svd(L.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
@@ -215,16 +189,13 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
                    + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
-    A0 = numpy.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A0[:dW0, :dW0] = L0.M[0, 0].values
-    A0[:dW0, dW0:dW0+dW1] = L0.M[0, 1].values
-    A0[dW0:dW0+dW1, :dW0] = L0.M[1, 0].values
-    A0[dW0:dW0+dW1, dW0:dW0+dW1] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
+    u, s, v = linalg.svd(L0.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
+
+    import weakref
+    return weakref.proxy(mesh.topology)
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -267,27 +238,12 @@ def test_betti2(horiz_complex, vert_complex):
            for x in [1, 2, "top", "bottom"]]
     L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=bc1)
 
-    dW1 = W1.dof_count
-    dW2 = W2.dof_count
-
-    A = numpy.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A[:dW1, :dW1] = L.M[0, 0].values
-    A[:dW1, dW1:dW1+dW2] = L.M[0, 1].values
-    A[dW1:dW1+dW2, :dW1] = L.M[1, 0].values
-    A[dW1:dW1+dW2, dW1:dW1+dW2] = L.M[1, 1].values
-
-    u, s, v = linalg.svd(A)
+    u, s, v = linalg.svd(L.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 0
 
-    A0 = numpy.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A0[:dW1, :dW1] = L0.M[0, 0].values
-    A0[:dW1, dW1:dW1+dW2] = L0.M[0, 1].values
-    A0[dW1:dW1+dW2, :dW1] = L0.M[1, 0].values
-    A0[dW1:dW1+dW2, dW1:dW1+dW2] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
+    u, s, v = linalg.svd(L0.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
@@ -334,27 +290,12 @@ def test_betti2_periodic(horiz_complex, vert_complex):
            for x in ["top", "bottom"]]
     L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=bc1)
 
-    dW1 = W1.dof_count
-    dW2 = W2.dof_count
-
-    A = numpy.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A[:dW1, :dW1] = L.M[0, 0].values
-    A[:dW1, dW1:dW1+dW2] = L.M[0, 1].values
-    A[dW1:dW1+dW2, :dW1] = L.M[1, 0].values
-    A[dW1:dW1+dW2, dW1:dW1+dW2] = L.M[1, 1].values
-
-    u, s, v = linalg.svd(A)
+    u, s, v = linalg.svd(L.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 0
 
-    A0 = numpy.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A0[:dW1, :dW1] = L0.M[0, 0].values
-    A0[:dW1, dW1:dW1+dW2] = L0.M[0, 1].values
-    A0[dW1:dW1+dW2, :dW1] = L0.M[1, 0].values
-    A0[dW1:dW1+dW2, dW1:dW1+dW2] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
+    u, s, v = linalg.svd(L0.M.values)
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1

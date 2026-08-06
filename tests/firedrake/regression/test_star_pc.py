@@ -117,6 +117,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
+        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
+
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -287,6 +289,8 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
+        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
+
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -397,8 +401,9 @@ def test_asm_extruded_star(base, periodic, family, degree):
         "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_ksp_type": "chebyshev",
         "pmg_mg_levels_pc_type": "python",
-        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMStarPC",
         "pmg_mg_levels_pc_star_construct_dim": patch_dim,
+        "pmg_mg_levels_pc_star_column": 0,
     }
 
     uh = Function(V)

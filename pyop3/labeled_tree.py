@@ -1,0 +1,702 @@
+from __future__ import annotations
+
+import abc
+import functools
+import types
+from collections.abc import Iterable, Mapping, Sequence
+from functools import cached_property
+from itertools import chain
+from typing import Any
+
+from immutabledict import immutabledict as idict
+
+import pyop3.obj
+from pyop3 import utils
+from pyop3.cache import cached_method
+from pyop3.constants import DECIDE
+from pyop3.exceptions import Pyop3Exception
+from pyop3.utils import (
+    Labeled,
+)
+
+
+class NodeNotFoundException(Exception):
+    pass
+
+
+class EmptyTreeException(Exception):
+    pass
+
+
+class InvalidTreeException(ValueError):
+    pass
+
+
+class TreeMutationException(Pyop3Exception):
+    pass
+
+
+# ah crud, this is another node!
+class Node:
+    pass
+
+
+class LabeledNodeComponent(pyop3.obj.Object, abc.ABC):
+
+    __abstract_record_attrs = ("label",)
+
+
+class MultiComponentLabeledNode(Node, Labeled, pyop3.obj.Object):
+
+    __abstract_record_attrs = ("label",)
+
+    def __record_post_init(self) -> None:
+        assert all(cl is not DECIDE for cl in self.component_labels)
+        if not utils.has_unique_entries(self.component_labels):
+            raise ValueError("Duplicate component labels found")
+
+    @property
+    def degree(self) -> int:
+        return len(self.component_labels)
+
+    @property
+    @abc.abstractmethod
+    def component_labels(self) -> tuple:
+        pass
+
+    @property
+    def component_label(self):
+        return utils.just_one(self.component_labels)
+
+
+class AbstractLabeledTreeLike(pyop3.obj.Object):
+
+    @property
+    @abc.abstractmethod
+    def is_linear(self) -> bool:
+        pass
+
+
+
+@functools.singledispatch
+def _as_node_map(obj: Any, /) -> dict:
+    utils.raise_missing_dispatch_handler(obj)
+
+
+@_as_node_map.register
+def _(node_map: dict, /) -> dict:
+    return node_map
+
+
+@_as_node_map.register
+def _(node_map: idict, /) -> dict:
+    return dict(node_map)
+
+
+@_as_node_map.register
+def _(node: Node, /) -> dict:
+    return {idict(): node}
+
+
+@_as_node_map.register
+def _(none: types.NoneType, /) -> dict:
+    return {idict(): None}
+
+
+def _fixup_node_map(*, path: idict, unvisited: dict) -> idict:
+    if path not in unvisited:
+        # at a leaf, attach a 'None'
+        return {path: None}
+
+    node = unvisited.pop(path)
+    if node is None:
+        # at a leaf, attach a 'None'
+        return {path: None}
+
+    if node.label is DECIDE:
+        new_label = f"_node_{type(node).__name__}_{len(path)}"
+        node = node.record_new(label=new_label)
+
+    if node.label in path.keys():
+        raise InvalidTreeException(f"Duplicate label '{node.label}' found along a path")
+
+    node_map = {path: node}
+    for component_label in node.component_labels:
+        path_ = path | {node.label: component_label}
+        node_map |= _fixup_node_map(path=path_, unvisited=unvisited)
+    return node_map
+
+
+class LabeledTree(AbstractLabeledTreeLike):
+
+    __abstract_record_attrs = ("node_map",)
+
+    def __record_post_init(self) -> None:
+        for node in self.nodes:
+            assert node.label is not DECIDE
+            assert all(cl is not DECIDE for cl in node.component_labels)
+
+    # {{{ factory methods
+
+    @classmethod
+    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> LabeledTree:
+        raise NotImplementedError
+
+    @classmethod
+    def _node_map_from_iterable(cls, iterable: Iterable) -> dict:
+        node_map = {}
+        path = idict()
+        for i, node in enumerate(iterable):
+            node = cls._as_node(node)
+            assert node.degree == 1
+            assert node.label is not DECIDE, "old API"
+            node_map.update({path: node})
+            path = path | {node.label: node.component_label}
+        return node_map
+
+    @classmethod
+    def from_nest(cls, nest: Any, *args, **kwargs) -> LabeledTree:
+        raise NotImplementedError
+
+    @classmethod
+    def _node_map_from_nest(
+        cls,
+        nest: Mapping[NodeLike, Sequence[Mapping | NodeLike]] | NodeLike,
+        *,
+        _path: ConcretePathT = idict(),
+    ) -> dict:
+        def as_labeled_node(nodelike):
+            node = cls._as_node(nodelike)
+            assert node.label is not DECIDE, "old API"
+            return node
+
+        if not isinstance(nest, Mapping):
+            node = as_labeled_node(nest)
+            return {_path: node}
+
+        if len(nest) > 1:
+            raise InvalidTreeException(
+                "Nest contains multiple nodes at the same level"
+            )
+
+        node, subnests = utils.just_one(nest.items())
+        node = as_labeled_node(node)
+
+        if isinstance(subnests, Node) and node.degree == 1:
+            subnests = (subnests,)
+
+        node_map = {_path: node}
+        for component_label, subnest in zip(node.component_labels, subnests, strict=True):
+            path_ = _path | {node.label: component_label}
+
+            if isinstance(subnest, Mapping):
+                sub_node_map = cls._node_map_from_nest(nest=subnest, _path=path_)
+            else:
+                sub_node_map = {path_: subnest}
+            node_map |= sub_node_map
+        return node_map
+
+    @classmethod
+    def _prepare_node_map(cls, node_map: Any) -> idict:
+        initial_node_map = _as_node_map(node_map)
+        final_node_map = _fixup_node_map(path=idict(), unvisited=initial_node_map)
+        if initial_node_map:
+            raise InvalidTreeException("There are orphaned entries in the node map")
+        return idict(final_node_map)
+
+    @classmethod
+    def _as_node(cls, nodelike) -> Node:
+        """Convert an object into a tree node."""
+        raise NotImplementedError
+
+    # }}}
+
+
+    def __str__(self) -> str:
+        if self.is_empty:
+            return "<empty>"
+        else:
+            return "\n".join(
+                self._stringify(path=idict(), begin_prefix="", cont_prefix="")
+            )
+
+    def __contains__(self, node) -> bool:
+        return self._as_node(node) in self.nodes
+
+    def __bool__(self) -> bool:
+        """Return `True` if the tree is non-empty."""
+        return not self.is_empty
+
+    @property
+    def root(self) -> Node | None:
+        return self.node_map.get(idict())
+
+    @property
+    def is_empty(self) -> bool:
+        assert len(self.node_map) > 0
+        return self.node_map == idict({idict(): None})
+
+    @property
+    def depth(self) -> int:
+        if self.is_empty:
+            return 0
+        else:
+            return postvisit(self, lambda _, *o: max(o or [0]) + 1)
+
+    @cached_property
+    def child_to_parent(self):
+        child_to_parent_ = {}
+        for parent_id, children in self.node_map.items():
+            parent = self._as_node(parent_id)
+            for i, child in enumerate(children):
+                child_to_parent_[child] = (parent, i)
+        return child_to_parent_
+
+    @cached_property
+    def nodes(self) -> tuple[Node]:
+        return tuple(filter(None, self.node_map.values()))
+
+    def is_leaf(self, node):
+        return self._as_node(node) in self.leaves
+
+    def parent(self, node):
+        node = self._as_node(node)
+        return self.child_to_parent[node]
+
+    def children(self, path: PathT) -> tuple[Node | None]:
+        """"Return the child nodes from a path.
+
+        If the path points to a leaf then the children may include `None`.
+
+        """
+        path = as_path(path)
+
+        children_ = []
+        node = self.node_map[path]
+        for component_label in node.component_labels:
+            child_path = path | {node.label: component_label}
+            child = self.node_map[child_path]
+            children.append(child)
+        return tuple(children)
+
+    def _stringify(
+        self,
+        *,
+        path: ConcretePathT,
+        begin_prefix: str,
+        cont_prefix: str,
+    ) -> tuple[str]:
+        assert not self.is_empty
+
+        node = self.node_map[path]
+        nodestr = [f"{begin_prefix}{node}"]
+        for i, component_label in enumerate(node.component_labels):
+            path_ = path | {node.label: component_label}
+
+            last_child = i == len(node.component_labels) - 1
+            next_begin_prefix = f"{cont_prefix}{'└' if last_child else '├'}──➤ "
+            next_cont_prefix = f"{cont_prefix}{' ' if last_child else '│'}    "
+            if self.node_map[path_]:
+                nodestr += self._stringify(
+                    path=path_, begin_prefix=next_begin_prefix, cont_prefix=next_cont_prefix
+                )
+
+        return tuple(nodestr)
+
+    def _as_node(self, node):
+        if node is None:
+            return None
+        else:
+            return node if isinstance(node, Node) else self.id_to_node[node]
+
+    @cached_property
+    def leaves(self) -> tuple[Node]:
+        return tuple(self.node_map[parent_path(leaf_path)] for leaf_path in self.leaf_paths)
+
+    @property
+    def is_linear(self) -> bool:
+        return len(self.leaf_paths) == 1
+
+    def visited_nodes(self, path: PathT) -> tuple[tuple[Node, ComponentLabelT], ...]:
+        path = as_path(path)
+
+        ordered_path = utils.just_one(
+            path_
+            for path_ in self.node_map
+            if path_ == path
+        )
+
+        nodes = []
+        for path_acc in accumulate_path(ordered_path, skip_last=True):
+            node = self.node_map[path_acc]
+            # NOTE: this is kind of obvious
+            component_label = path[node.label]
+            nodes.append((node, component_label))
+        return tuple(nodes)
+
+    # TODO interface choice about whether we want whole nodes, ids or labels in paths
+    # maybe need to distinguish between paths, ancestors and label-only?
+    @cached_property
+    def _paths_with_nodes(self):
+        def paths_fn(node, component_label, current_path):
+            if current_path is None:
+                current_path = ()
+            new_path = current_path + ((node, component_label),)
+            paths_[node.id, component_label] = new_path
+            return new_path
+
+        paths_ = {}
+        previsit(self, paths_fn)
+        return idict(paths_)
+
+    def ancestors(self, node, component_label):
+        """Return the ancestors of a ``(node_id, component_label)`` 2-tuple."""
+        return idict(
+            {
+                nd: cpt
+                for nd, cpt in self.path(node, component_label).items()
+                if nd != node.label
+            }
+        )
+
+    @cached_property
+    def paths(self) -> tuple[idict, ...]:
+        """Return all possible paths through the tree."""
+        return self.node_map.keys()
+
+    @cached_property
+    def leaf_paths(self) -> tuple[ConcretePathT, ...]:
+        """Return the paths to each leaf of the tree."""
+        return tuple(path for path, node in self.node_map.items() if node is None)
+
+    @property
+    def leaf_path(self) -> idict:
+        return utils.just_one(self.leaf_paths)
+
+    @cached_property
+    def leaf_node_paths(self):
+        return tuple(self.path_with_nodes(*leaf) for leaf in self.leaves)
+
+    @cached_property
+    def ordered_leaf_node_paths(self):
+        return tuple(self.path_with_nodes(*leaf, ordered=True) for leaf in self.leaves)
+
+    def _node_from_path(self, path):
+        if not path:
+            return None
+
+        path_ = dict(path)
+        node = self.root
+        while True:
+            cpt_label = path_.pop(node.label)
+            cpt_index = node.component_labels.index(cpt_label)
+            new_node = self.node_map.get(node.id, [None] * node.degree)[
+                cpt_index
+            ]
+
+            # if we are a leaf then return the final bit
+            if path_:
+                node = new_node
+            else:
+                return node, node.components[cpt_index]
+        assert False, "shouldn't get this far"
+
+    @cached_property
+    def node_labels(self):
+        return frozenset(n.label for n in self.nodes)
+
+    def find_component(self, node_label, cpt_label, also_node=False):
+        """Return the first component in the tree matching the given labels.
+
+        Notes
+        -----
+        This will return the first component matching the labels. Multiple may exist
+        but we assume that they are identical.
+
+        """
+        for node in self.nodes:
+            if node.label == node_label:
+                for cpt in node.components:
+                    if cpt.label == cpt_label:
+                        if also_node:
+                            return node, cpt
+                        else:
+                            return cpt
+        raise ValueError("Matching component not found")
+
+    def _relabel_node_map(self, replace_map: Mapping) -> Mapping:
+        new_node_map = {}
+        for parent_id, children in self.node_map.items():
+            new_children = []
+            for child in children:
+                if child is not None:
+                    new_child = child.copy(label=replace_map.get(child.label, child.label))
+                else:
+                    new_child = None
+                new_children.append(new_child)
+            new_node_map[parent_id] = new_children
+        return new_node_map
+
+    # TODO, could be improved, same as other Tree apart from [None, None, ...] bit
+    @staticmethod
+    def _parse_parent_to_children(node_map) -> idict:
+        if not node_map:
+            return idict()
+
+        if isinstance(node_map, Node):
+            # just passing root
+            node_map = {None: (node_map,)}
+        else:
+            node_map = dict(node_map)
+
+        if None not in node_map:
+            raise ValueError("Root missing from tree")
+        if len(node_map[None]) != 1:
+            raise ValueError("Multiple roots provided, this is not allowed")
+
+        nodes = [
+            node
+            for node in chain.from_iterable(node_map.values())
+            if node is not None
+        ]
+        if any(
+            parent not in nodes
+            for parent in node_map.keys() - {None}
+        ):
+            raise ValueError("Tree is disconnected")
+        for node in nodes:
+            if node not in node_map.keys():
+                node_map[node] = [None] * node.degree
+        return idict(node_map)
+
+    def to_nest(self) -> idict:
+        return self._to_nest_rec(idict())
+
+    def _to_nest_rec(self, path):
+        node = self.node_map[path]
+
+        nest = {node: []}
+        for component_label in node.component_labels:
+            path_ = path | {node.label: component_label}
+            if self.node_map[path_]:
+                subnest = self._to_nest_rec(path_)
+                nest[node].append(subnest)
+            else:
+                nest[node].append(None)
+        return idict(nest)
+
+
+
+class MutableLabeledTreeMixin:
+    def add_node(self, path: PathT | None, node: Node) -> MutableLabeledTreeMixin:
+        """Return a new tree with ``node`` attached at ``path``."""
+        if path is None:
+            path = self.leaf_path
+        else:
+            path = as_path(path)
+
+        if self.node_map[path]:
+            raise TreeMutationException(
+                "A node already exists at this location."
+            )
+
+        new_leaves = {path | {node.label: cl}: None for cl in node.component_labels}
+
+        if self.is_empty:
+            return self.record_new(node_map=idict({idict(): node}) | new_leaves)
+
+        *parent_path, (parent_axis_label, parent_component_label) = path.items()
+        parent_path = as_path(parent_path)
+        try:
+            parent_node = self.node_map[parent_path]
+        except KeyError:
+            raise TreeMutationException("Parent node does not exist")
+        if parent_axis_label != parent_node.label or parent_component_label not in parent_node.component_labels:
+            raise TreeMutationException("Bad parent descriptor")
+
+        return self.record_new(node_map=self.node_map | {path: node} | new_leaves)
+
+    def add_subtree(self, path: PathT | None, subtree: LabeledTree) -> MutableLabeledTreeMixin:
+        """Attach another tree to a leaf of the current tree."""
+        if path is None:
+            path = self.leaf_path
+
+        path = as_path(path)
+
+        if path not in self.leaf_paths:
+            raise TreeMutationException("Can only attach a subtree to an existing leaf")
+
+        if subtree.is_empty:
+            return self
+
+        # TODO: breaks abstraction
+        from pyop3.axis_tree.tree import _UnitAxisTree
+        if isinstance(subtree, _UnitAxisTree):
+            return self
+
+        node_map = dict(self.node_map)
+        for subpath, subnode in subtree.node_map.items():
+            assert not (path.keys() & subpath.keys())
+            node_map[path | subpath] = subnode
+        return self.record_new(node_map=idict(node_map))
+
+    def subtree(self, path: PathT) -> MutableLabeledTreeMixin:
+        """Return the subtree with ``path`` as the root."""
+        path = as_path(path)
+
+        if path not in self.node_map:
+            raise TreeMutationException("Provided path does not exist in the tree")
+
+        if path in self.leaf_paths:
+            return type(self)()
+
+        trimmed_node_map = self._subtree_node_map(path)
+        return self.record_new(node_map=trimmed_node_map)
+
+    @cached_method()
+    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+        trimmed_node_map = {}
+        path_set = set(path.items())
+        for orig_path, node in self.node_map.items():
+            orig_path_set = set(orig_path.items())
+            if path_set <= orig_path_set:
+                trimmed_path = idict(
+                    (axis_label, component_label)
+                    for axis_label, component_label in orig_path.items()
+                    if (axis_label, component_label) not in path.items()
+                )
+                trimmed_node_map[trimmed_path] = node
+        return idict(trimmed_node_map)
+
+    def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabeledTreeMixin:
+        path = as_path(path)
+
+        if path not in self.node_map:
+            raise TreeMutationException("Provided path does not exist in the tree")
+
+        if path in self.leaf_paths:
+            if allow_empty_subtree:
+                return self
+            # ie dropping nothing is probably unexpected behaviour
+            else:
+                assert False
+
+        node_map = {}
+        for orig_path, node in self.node_map.items():
+            if is_subpath(path, orig_path):
+                continue
+            node_map[orig_path] = node
+        return type(self)(node_map)
+
+    def drop_node(self, path: PathT) -> MutableLabeledTreeMixin:
+        path = as_path(path)
+
+        to_drop = self.node_map[path]
+
+        above = self.drop_subtree(path, allow_empty_subtree=True)
+        below = self.subtree(path | {to_drop.label: to_drop.component_label})
+        return above.add_subtree(path, below)
+
+
+def as_component_label(component):
+    if isinstance(component, LabeledNodeComponent):
+        return component.label
+    else:
+        return component
+
+
+def previsit(
+    tree,
+    fn,
+    current_node: Node | None = None,
+    prev=None,
+) -> Any:
+    if tree.is_empty:
+        raise RuntimeError("Cannot traverse an empty tree")
+
+    current_node = current_node or tree.root
+    for cpt_label in current_node.component_labels:
+        next = fn(current_node, cpt_label, prev)
+        if subnode := tree.child(current_node, cpt_label):
+            previsit(tree, fn, subnode, next)
+
+
+def postvisit(tree, fn, path: PathT = idict(), **kwargs) -> Any:
+    """Traverse the tree in postorder.
+
+    # TODO rewrite
+    Parameters
+    ----------
+    tree: Tree
+        The tree to be visited.
+    fn: function(node, *fn_children)
+        A function to be applied at each node. The function should take
+        the node to be visited as its first argument, and the results of
+        visiting its children as any further arguments.
+    """
+    if tree.is_empty:
+        raise RuntimeError("Cannot traverse an empty tree")
+
+    node = tree.node_map[path]
+
+    child_results = []
+    for component_label in node.component_labels:
+        path_ = path | {node.label: component_label}
+
+        if tree.node_map[path_]:
+            child_result = postvisit(tree, fn, path_, **kwargs)
+            child_results.append(child_result)
+
+    return fn(node, *child_results, **kwargs)
+
+
+@functools.singledispatch
+def as_path(obj: Any) -> ConcretePathT:
+    raise TypeError(f"No handler provided for {type(obj).__name__}")
+
+
+@as_path.register(idict)
+def _(path: idict) -> ConcretePathT:
+    return path
+
+
+@as_path.register(Iterable)
+def _(path: Iterable) -> ConcretePathT:
+    return idict(path)
+
+
+def parent_path(path: PathT) -> ConcretePathT:
+    return idict({
+        node_label: component_label
+        for node_label, component_label in list(path.items())[:-1]
+    })
+
+
+def accumulate_path(path: PathT, *, skip_last: bool = False) -> tuple[ConcretePathT, ...]:
+    path_acc = idict()
+    paths = [path_acc]
+    for node_label, component_label in path.items():
+        path_acc = path_acc | {node_label: component_label}
+        paths.append(path_acc)
+
+    if skip_last:
+        paths = paths[:-1]
+
+    return tuple(paths)
+
+
+def filter_path(orig_path: PathT, to_remove: PathT) -> ConcretePathT:
+    orig_path = as_path(orig_path)
+    to_remove = as_path(to_remove)
+
+    filtered_path = {}
+    for node_label, component_label in orig_path.items():
+        if (node_label, component_label) not in to_remove.items():
+            filtered_path[node_label] = component_label
+    return idict(filtered_path)
+
+
+def is_subpath(subpath: PathT, full_path: PathT) -> bool:
+    subpath = as_path(subpath)
+    full_path = as_path(full_path)
+    return subpath.items() <= full_path.items()

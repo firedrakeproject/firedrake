@@ -1,4 +1,5 @@
 from itertools import repeat
+from functools import cached_property
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
@@ -10,15 +11,17 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from functools import cached_property
+from ufl import H1, H2, inner, dx, JacobianDeterminant
+from pyop3.pyop2_utils import as_tuple
+import gem
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
+from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
 from finat.ufl import BrokenElement, TensorElement, VectorElement
-from pyop2.mpi import COMM_SELF
-from pyop2.utils import as_tuple
+from pyop3.mpi import COMM_SELF
+from pyop3.pyop2_utils import as_tuple
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -113,11 +116,11 @@ class BDDCPC(PCBase):
             dir_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         neu_nodes = numpy.setdiff1d(boundary_nodes, dir_nodes)
 
-        dir_nodes = V.dof_dset.lgmap.apply(dir_nodes)
+        dir_nodes = V.lgmap().apply(dir_nodes)
         dir_bndr = PETSc.IS().createGeneral(dir_nodes, comm=pc.comm)
         bddcpc.setBDDCDirichletBoundaries(dir_bndr)
 
-        neu_nodes = V.dof_dset.lgmap.apply(neu_nodes)
+        neu_nodes = V.lgmap().apply(neu_nodes)
         neu_bndr = PETSc.IS().createGeneral(neu_nodes, comm=pc.comm)
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
@@ -240,9 +243,9 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
         sub_domain = list(bc.sub_domain)
         if "on_boundary" in sub_domain:
             sub_domain.remove("on_boundary")
-            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
+            sub_domain.extend(V.mesh().unique().facet_markers)
 
-        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
+        valid_markers = Vsub.mesh().unique().facet_markers
         sub_domain = list(set(sub_domain) & set(valid_markers))
         bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
         if cellwise:
@@ -252,7 +255,7 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
     def local_to_global_map(V, cellwise):
         u = Function(V)
         shp = u.dat.data_ro.shape
-        u.dat.data_wo[...] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange()).reshape(shp)
+        u.dat.data_wo[...] = numpy.arange(*V.template_vec.getOwnershipRange()).reshape(shp)
 
         Vsub = local_space(V, False)
         usub = Function(Vsub).assign(u)
@@ -300,7 +303,7 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
 def get_restricted_dofs(V, domain):
     W = FunctionSpace(V.mesh(), V.ufl_element()[domain])
     indices = get_restriction_indices(V, W)
-    indices = V.dof_dset.lgmap.apply(indices)
+    indices = V.lgmap().apply(indices)
     return PETSc.IS().createGeneral(indices, comm=V.comm)
 
 
@@ -367,7 +370,7 @@ def get_primal_indices(V, primal_markers):
         else:
             raise ValueError(f"Expecting markers in either {V.ufl_element()} or DG(0).")
         primal_indices = numpy.flatnonzero(markers.dat.data >= 1E-12)
-        primal_indices += V.dof_dset.layout_vec.getOwnershipRange()[0]
+        primal_indices += V.template_vec.getOwnershipRange()[0]
     else:
         primal_indices = numpy.asarray(primal_markers, dtype=PETSc.IntType)
     return primal_indices

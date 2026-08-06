@@ -1,6 +1,6 @@
 from finat.element_factory import create_base_element
 import numpy as np
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 try:
     import vtkmodules.vtkCommonDataModel

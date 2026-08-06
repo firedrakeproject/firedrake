@@ -8,7 +8,7 @@ import itertools
 import ufl
 import finat.ufl
 
-from pyop2.utils import flatten
+from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
@@ -56,6 +56,9 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     if isinstance(family, finat.ufl.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
+    if family in {"Real", "R"} and degree is None:
+        degree = 0
+
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
@@ -77,7 +80,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, quad_scheme=None):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, _labels=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -112,7 +115,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels)
 
 
 @PETSc.Log.EventDecorator()
@@ -263,7 +266,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -306,23 +309,26 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
+    unmixed_spaces = []
     for space in spaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace, impl.RestrictedFunctionSpace):
-            continue
+            unmixed_space = space
         elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
             if space.component is not None:
                 raise ValueError("Can't make mixed space with %s" % space)
-            continue
+            unmixed_space = space.parent._orig_spaces[space.index]
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
+        unmixed_spaces.append(unmixed_space)
+
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
-    new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
+    new = impl.MixedFunctionSpace(unmixed_spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)
     return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
+def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters

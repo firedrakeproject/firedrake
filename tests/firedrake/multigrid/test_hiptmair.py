@@ -16,8 +16,9 @@ def gmg_parameters(V, mat_type, max_it):
         relax = {
             "ksp_type": "preonly",
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_construct_dim": formdegree,
+            "pc_star_column": 0,
             "pc_star_sub_sub_ksp_type": "preonly",
             "pc_star_sub_sub_pc_type": "jacobi",
         }
@@ -60,8 +61,9 @@ def asm(k):
     return {
         "ksp_type": "preonly",
         "pc_type": "python",
-        "pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pc_python_type": "firedrake.ASMStarPC",
         "pc_star_construct_dim": k,
+        "pc_star_column": 0,
     }
 
 
