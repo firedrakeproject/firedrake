@@ -683,6 +683,7 @@ class FuseMatrixApplyBuilder(object):
         var_list = []
         args = []
         string = []
+        pre_string = []
         string += f"a{idx} = iden; \n "
         string += "\nswitch (dim) { \n"
 
@@ -886,7 +887,7 @@ def check_fuse_enriched(element):
         raise NotImplementedError("Enriched element matrices should be combined at a fuse level")
     return any(fuse), any(matrix), any(apply), None, None
 
-@op3.cache.memory_cache(heavy=True, get_comm=lambda spaces: spaces[0].comm)
+@op3.cache.memory_cache(heavy=True, get_comm=lambda ss: ss[0].comm)
 def fuse_orientations(spaces: list[WithGeometry]):
     fuse_defined_spaces, fuse_matrix_spaces, fuse_needs_matrices, mat_list, reversed_mat_list = list(zip(*[check_fuse(space.ufl_element()) for space in spaces]))
 
@@ -926,6 +927,7 @@ def fuse_orientations(spaces: list[WithGeometry]):
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
         transform_in = op3.Function(in_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
         transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+        breakpoint()
 
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
