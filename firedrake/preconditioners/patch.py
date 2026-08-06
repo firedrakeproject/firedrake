@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import textwrap
 import typing
+from firedrake.adapt import mark_refined_entities
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
@@ -947,6 +948,9 @@ class PatchBase(PCSNESBase):
                                          ghost_bc_nodes,
                                          global_bc_nodes)
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
+        if opts.getBool(f"{petsc_prefix}adaptive", default=False):
+            # Only relax the entities whose star meets the refined region
+            patch.setPatchConstructLabel(mark_refined_entities(mesh_unique), 1)
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=obj)
         patch.setFromOptions()

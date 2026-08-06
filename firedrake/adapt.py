@@ -22,6 +22,8 @@ PARENT_LABEL = "_adaptive_dmplex_parent"
 
 ADAPT_LABEL = "_adaptive_dmplex_adapt"
 
+REFINED_LABEL = "adaptive_refined"
+
 
 def _adapt_marked_cells(mesh, cell_marker):
     """Refine the cells of ``mesh`` marked by ``cell_marker`` and return the refined DMPlex."""
@@ -141,3 +143,67 @@ def refine_marked_elements(mesh, cell_marker):
     final_mesh.adaptive_cell_maps = (coarse_to_fine, fine_to_coarse)
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
+
+
+def mark_refined_entities(mesh, name: str = REFINED_LABEL, value: int = 1):
+    """Label the mesh entities whose star contains a genuinely refined cell.
+
+    A cell of ``mesh`` counts as genuinely refined when the cell of
+    `~firedrake.mesh.MeshGeometry.adaptive_parent` it descends from was split
+    into more than one cell. The label holds those cells and their closure,
+    which is exactly the set of entities whose star meets the refined region.
+
+    This is the set of entities a local smoother on an adaptively refined
+    level wants to build patches around: pass the label's name to
+    ``pc_star_construct_label`` (`~firedrake.preconditioners.asm.ASMStarPC`)
+    or to ``patch_pc_patch_construct_label``
+    (`~firedrake.preconditioners.patch.PatchPC`).
+
+    Parameters
+    ----------
+    mesh
+        A mesh produced by `refine_marked_elements`.
+    name
+        The name to give the label on ``mesh.topology_dm``. An existing label
+        of that name is overwritten.
+    value
+        The stratum to mark the entities with.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        The label, which is also left on ``mesh.topology_dm``.
+
+    Raises
+    ------
+    ValueError
+        If ``mesh`` did not come from `refine_marked_elements`, so that its
+        refined cells are not known.
+
+    """
+    if mesh.adaptive_cell_maps is None:
+        raise ValueError("The mesh does not come from refine_marked_elements, "
+                         "so its refined cells are not known")
+    coarse_to_fine, fine_to_coarse = mesh.adaptive_cell_maps
+
+    # A fine cell was genuinely split if its parent has more than one child.
+    # Conformity fixups mean that this is not the same as the cells that were
+    # marked for refinement.
+    parent = fine_to_coarse[:, 0]
+    refined = parent >= 0
+    refined[refined] = np.count_nonzero(coarse_to_fine[parent[refined]] >= 0, axis=1) > 1
+
+    V = FunctionSpace(mesh, "DG", 0)
+    indicator = np.zeros(V.dof_dset.total_size, dtype=IntType)
+    indicator[:mesh.cell_set.size] = refined[:mesh.cell_set.size]
+
+    dm = mesh.topology_dm
+    if dm.hasLabel(name):
+        dm.removeLabel(name)
+    dm.createLabel(name)
+    label = dm.getLabel(name)
+    dmcommon.mark_points_with_function_array(dm, V.dm.getSection(), 0, indicator, label, value)
+    # The closure of the refined cells is precisely the entities whose star
+    # contains one of them
+    dm.labelComplete(label)
+    return label
