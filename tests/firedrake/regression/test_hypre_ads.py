@@ -86,8 +86,8 @@ def test_hypre_ads_fieldsplit():
     mesh = UnitCubeMesh(6, 6, 6)
     V = FunctionSpace(mesh, "RT", 1)
     W = V * V * V
-    sigma = TrialFunctions(W)
-    tau = TestFunctions(W)
+    sigma = as_vector(TrialFunctions(W))
+    tau = as_vector(TestFunctions(W))
 
     a = inner(sigma, tau) * dx + inner(div(sigma), div(tau)) * dx
     rg = RandomGenerator(PCG64(seed=0))
@@ -99,22 +99,18 @@ def test_hypre_ads_fieldsplit():
         "mat_type": "nest",
         "ksp_type": "cg",
         "ksp_rtol": 1e-8,
-        "ksp_monitor": None,
+        "ksp_view_singularvalues": None,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "additive",
         "fieldsplit_ksp_type": "preonly",
         "fieldsplit_pc_type": "python",
         "fieldsplit_pc_python_type": "firedrake.HypreADS",
     }
-
     prob = LinearVariationalProblem(a, L, sol)
     solver = LinearVariationalSolver(prob, solver_parameters=params)
     solver.solve()
 
     # Check the condition number
-    # ew = solver.snes.ksp.computeEigenvalues().real
-    # kappa = 1.0
-    # if len(ew):
-    #     assert np.isclose(min(ew), 1.0, rtol=1.e-2)
-    #     kappa = max(abs(ew)) / min(abs(ew))
-    # return kappa ** 0.5
+    ew = solver.snes.ksp.computeEigenvalues().real
+    condition_number = (max(abs(ew)) / min(abs(ew))) ** 0.5
+    assert condition_number < 2  # current value is 1.3 and without preconditioner > 66
