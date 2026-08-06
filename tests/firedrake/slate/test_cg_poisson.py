@@ -36,9 +36,7 @@ fieldsplit_params = {
     "pc_fieldsplit_type": "schur",
     "pc_fieldsplit_schur_factorization_type": "full",
     "pc_fieldsplit_schur_precondition": "a11",
-    # Build the block sweep from the true operator, but keep the
-    # field-1 MG solve on the preconditioning block S via pc_use_amat=False.
-    "pc_fieldsplit_diag_use_amat": False,
+    "pc_fieldsplit_diag_use_amat": True,
     "pc_fieldsplit_off_diag_use_amat": True,
     "fieldsplit_ksp_type": "preonly",
     "fieldsplit_0_pc_type": "cholesky",
