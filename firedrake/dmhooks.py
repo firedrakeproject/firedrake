@@ -53,6 +53,13 @@ def get_function_space(dm):
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
     """
+    mystr, V = dm.getAttr("__fs_info__")
+    try:
+        V.collapse
+        return V
+    except ReferenceError:
+        print("can't find", mystr)
+        assert False, "should exist!"
     return dm.getAttr("__fs_info__")
     info = dm.getAttr("__fs_info__")
     meshref_tuple, element, indices, (name, names), boundary_sets = info
@@ -85,7 +92,11 @@ def set_function_space(dm, V):
        This stores the information necessary to make a function space given a DM.
 
     """
-    dm.setAttr("__fs_info__", V.collapse())
+    # dm.setAttr("__fs_info__", V.collapse())
+    # if V.index == 0:
+    #     breakpoint()
+    mystr = str(V)
+    dm.setAttr("__fs_info__", (mystr, weakref.proxy(V)))
     return
     indices = []
     names = []
@@ -389,7 +400,13 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        if not hasattr(W, "mystash"):
+            W.mystash = {}
+        try:
+            subspace = W.mystash[tuple(fields)]
+        except KeyError:
+            subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+            W.mystash[tuple(fields)] = subspace
 
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)

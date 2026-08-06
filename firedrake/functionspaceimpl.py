@@ -480,6 +480,10 @@ class WithGeometryBase:
 class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 
     def dual(self):
+        return self._dual_property
+
+    @cached_property
+    def _dual_property(self):
         parent = None if self.parent is None else self.parent.dual()
         return FiredrakeDualSpace(self.topological, self.mesh(), parent=parent)
 
@@ -494,6 +498,10 @@ class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
     def dual(self):
+        return self._dual_property
+
+    @cached_property
+    def _dual_property(self):
         parent = None if self.parent is None else self.parent.dual()
         return WithGeometry(self.topological, self.mesh(), parent=parent)
 
