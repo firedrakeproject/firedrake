@@ -139,9 +139,12 @@ class SetupHooks(object):
 
     You probably don't want to use this directly, instead see
     :class:`~add_hooks` or :func:`add_hook`."""
-    def __init__(self):
+    def __init__(self, appctx=None):
         self._setup = []
         self._teardown = []
+        # The hooks close over this appctx and its DMs, so they may only be
+        # replayed for it.
+        self.appctx = appctx
 
     def add_setup(self, f):
         self._setup.append(f)
@@ -220,7 +223,10 @@ class add_hooks(object):
     def __init__(self, dm, obj, *, save=True, appctx=None):
         self.dm = dm
         self.obj = obj
-        self.first_time = not hasattr(obj, "setup_hooks")
+        # Saved hooks close over the appctx they were built with, so they may
+        # only be replayed for it: adapting the mesh replaces both.
+        self.first_time = (not hasattr(obj, "setup_hooks")
+                           or obj.setup_hooks.appctx is not appctx)
         self.save = save
         self.appctx = appctx
         if not (self.save or self.first_time):
@@ -234,7 +240,7 @@ class add_hooks(object):
             hooks.setup()
         else:
             # Not yet seen, let's save the relevant information.
-            hooks = SetupHooks()
+            hooks = SetupHooks(self.appctx)
             if self.save:
                 # Remember it for later
                 self.obj.setup_hooks = hooks
@@ -466,7 +472,8 @@ def _refine_adaptive(dm):
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    solution_mesh = current_solution.function_space().mesh()
+    mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)
     if hierarchy is None:
         hierarchy = MeshHierarchy(mesh)
@@ -490,10 +497,17 @@ def _refine_adaptive(dm):
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+    if isinstance(solution_mesh, MeshSequenceGeometry):
+        solution_mesh.set_hierarchy()
+
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
+    # The SNES's own ksp does not change across adaptive refinement, only the
+    # DM underneath it does; carry the composed ksp forward onto the refined
+    # DM(s) so solve_jacobian_transpose can still find it there.
+    ksp = dm.getAttr("_ksp")
     # Get all DMs from the refined problem
     dms = [refined_ctx._problem.u_restrict.function_space().dm]
     for value in coefficient_mapping.values():
@@ -503,6 +517,8 @@ def _refine_adaptive(dm):
                 dms.append(value_dm)
     # Attach refined context
     for refined_dm in dms:
+        if ksp is not None:
+            refined_dm.setAttr("_ksp", ksp)
         add_hook(parent, setup=partial(push_parent, refined_dm, parent),
                  teardown=partial(pop_parent, refined_dm, parent),
                  call_setup=True)

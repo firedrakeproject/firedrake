@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 from firedrake import *
 from firedrake import dmhooks
@@ -18,6 +21,170 @@ def test_marking_callback_configures_refine_adaptor():
 
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
+    assert solver._ctx._problem.dm.getAttr("_ksp") is solver.ksp
+
+
+def test_solve_accepts_marking_callback():
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.mesh(), "DG", 0)
+        return Function(M).assign(1)
+
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+
+    result = solve((u - 1.0)*v*dx == 0, u, marking_callback=mark_cells)
+
+    assert result is u
+
+
+# Make sure that we don't segfault when collecting the adapted-away mesh. That
+# kills the interpreter rather than raising, so it has to run in a subprocess.
+_COLLECT_AFTER_ADAPT = """
+import gc
+from firedrake import *
+
+def mark_cells(ctx, current_solution):
+    M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+    return Function(M).assign(1)
+
+mesh = UnitSquareMesh(2, 2)
+V = FunctionSpace(mesh, "CG", 1)
+u = Function(V)
+v = TestFunction(V)
+problem = NonlinearVariationalProblem(inner(grad(u), grad(v))*dx - inner(1, v)*dx,
+                                      u, bcs=DirichletBC(V, 0, "on_boundary"))
+solver = NonlinearVariationalSolver(
+    problem, marking_callback=mark_cells,
+    solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
+                       "snes_adapt_sequence": 1, "adaptor_criterion": "refine"})
+solver.solve()
+del solver, problem, u, v, V, mesh
+gc.collect()
+"""
+
+
+def test_collect_mesh_after_adaptive_solve():
+    subprocess.run([sys.executable, "-c", _COLLECT_AFTER_ADAPT], check=True)
+
+
+def _dwr_poisson_solver_parameters(adapt_option, criterion, num_refinements):
+    direct = {"ksp_type": "preonly", "pc_type": "lu"}
+    dwr_local = {
+        "dwr_cell_ksp_type": "preonly",
+        "dwr_cell_pc_type": "jacobi",
+        "dwr_facet_ksp_type": "preonly",
+        "dwr_facet_pc_type": "jacobi",
+    }
+    return {
+        **direct,
+        **dwr_local,
+        adapt_option: num_refinements,
+        "adaptor_criterion": criterion,
+    }
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize(
+    ("adapt_option", "criterion"),
+    # ("snes_adapt_multigrid", "none") requires
+    # https://gitlab.com/petsc/petsc/-/merge_requests/9447
+    (("snes_adapt_sequence", "refine"),),
+)
+def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    old_dim = V.dim()
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - v*dx
+    goal = u*dx
+    callback = DWRMarkingCallback(goal)
+
+    problem = NonlinearVariationalProblem(
+        F, u, bcs=DirichletBC(V, 0, "on_boundary")
+    )
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters=_dwr_poisson_solver_parameters(adapt_option, criterion, 1),
+        marking_callback=callback,
+    )
+    result = solver.solve()
+
+    assert result.function_space().mesh() is not mesh
+    assert result.function_space().dim() > old_dim
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 1
+    assert hierarchy[0] is mesh
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_marking_callback_multiple_levels():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    old_dim = V.dim()
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - v*dx
+    goal = u*dx
+    callback = DWRMarkingCallback(goal)
+
+    problem = NonlinearVariationalProblem(
+        F, u, bcs=DirichletBC(V, 0, "on_boundary")
+    )
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters=_dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 3),
+        marking_callback=callback,
+    )
+    result = solver.solve()
+
+    assert result.function_space().dim() > old_dim
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 3
+    assert len(hierarchy) == 4
+    assert hierarchy[0] is mesh
+    adapted_goal = solver.get_goal_functional()
+    assert adapted_goal.arguments() == ()
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_marking_callback_solver_reuse():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    old_dim = V.dim()
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - v*dx
+    goal = u*dx
+    callback = DWRMarkingCallback(goal)
+
+    problem = NonlinearVariationalProblem(
+        F, u, bcs=DirichletBC(V, 0, "on_boundary")
+    )
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters=_dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 1),
+        marking_callback=callback,
+    )
+
+    first_result = solver.solve()
+    hierarchy, first_level = get_level(first_result.function_space().mesh())
+    assert first_level == 1
+    first_dim = first_result.function_space().dim()
+    first_goal = assemble(solver.get_goal_functional())
+
+    second_result = solver.solve()
+    hierarchy, second_level = get_level(second_result.function_space().mesh())
+    assert second_level == 2
+    assert hierarchy[1] is first_result.function_space().mesh()
+    assert second_result.function_space().dim() > first_dim
+    second_goal = assemble(solver.get_goal_functional())
+
+    assert first_dim > old_dim
+    assert isinstance(first_goal, float)
+    assert isinstance(second_goal, float)
 
 
 @pytest.mark.skipnetgen

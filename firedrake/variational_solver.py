@@ -432,9 +432,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        # A fresh Python wrapper is returned on every getKSP() call, so
+        # solve_jacobian_transpose could not otherwise find this ksp again
+        # later. Composing it directly on the problem's DM, exactly as
+        # _SNESContext.create_operators does for inner multigrid levels,
+        # keeps this specific wrapper alive for as long as the DM is.
+        self.ksp = self.snes.getKSP()
+        problem.dm.setAttr("_ksp", self.ksp)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -480,11 +486,24 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
+        from firedrake.dwr import DWRMarkingCallback
+        if isinstance(callback, DWRMarkingCallback):
+            with self.inserted_options():
+                callback.setup(self._ctx._problem.u, self.options_prefix)
         self._ctx._marking_callback = callback
 
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u
+
+    def get_goal_functional(self) -> ufl.BaseForm:
+        r"""Return the goal functional of the attached :class:`.DWRMarkingCallback`,
+        reconstructed on the current (possibly adapted) solution mesh."""
+        from firedrake.dwr import DWRMarkingCallback
+        callback = self._ctx._marking_callback
+        if not isinstance(callback, DWRMarkingCallback):
+            raise AttributeError("This solver has no DWRMarkingCallback attached")
+        return callback.goal_functional
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
@@ -555,7 +574,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        # The problem may have been reconstructed on an adapted mesh since
+        # the last solve, so this cannot be cached across calls.
+        work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
@@ -566,6 +587,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                if self.snes.getDM() != solution_dm:
+                    # DMAdaptorAdapt() consumed a reference to work, which the
+                    # adapted-away DM keeps as its template global vector.
+                    work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem
