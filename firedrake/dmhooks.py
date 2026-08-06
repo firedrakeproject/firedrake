@@ -92,13 +92,9 @@ def set_function_space(dm, V):
        This stores the information necessary to make a function space given a DM.
 
     """
-    # dm.setAttr("__fs_info__", V.collapse())
-    # if V.index == 0:
-    #     breakpoint()
     if not isinstance(V, weakref.ProxyType):
         V = weakref.proxy(V)
-    # mystr = str(V)
-    dm.setAttr("__fs_info__", ("", V))
+    dm.setAttr("__fs_info__", ("anything", V))
     return
     indices = []
     names = []
