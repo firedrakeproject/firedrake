@@ -109,7 +109,7 @@ def test_poisson_inverse_conductivity(num_points):
     J_hat = ReducedFunctional(J, q_hat)
 
     # Estimate q using Newton-CG which evaluates the hessian action
-    minimize(J_hat, method='Newton-CG', options={'maxiter': 10, 'xtol': 1e-1, 'disp': True})
+    minimize(J_hat, method='Newton-CG', options={'maxiter': 2, 'xtol': 1e-1, 'disp': True})
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done

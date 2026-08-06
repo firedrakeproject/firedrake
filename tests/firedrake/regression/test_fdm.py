@@ -119,7 +119,7 @@ def solve_riesz_map(problem, solver_parameters):
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def mesh(request):
-    nx = 4
+    nx = 2
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
     if request.param == 3:

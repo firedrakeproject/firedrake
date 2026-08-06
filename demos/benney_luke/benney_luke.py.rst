@@ -100,6 +100,12 @@ Now we move on to defining parameters::
   mu = 0.01
   epsilon = 0.01
 
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      T = 0.025
+      Nx = 20
+
   m = UnitIntervalMesh(Nx)
   mesh = ExtrudedMesh(m, layers=Ny)
   coords = mesh.coordinates

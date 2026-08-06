@@ -35,6 +35,12 @@ Nx = 8
 Nref = 2
 degree = 2
 
+# Setup for faster test execution.
+import os
+if os.getenv("FIREDRAKE_CI") == "1":
+    Nx = 2
+    Nref = 1
+
 # %% [markdown]
 # These three parameters determine the total number of degrees of freedom (DOFs) in our problem:
 # - `Nx` defines our coarse grid in the mesh hierarchy, it is used to construct a coarse cube mesh.
