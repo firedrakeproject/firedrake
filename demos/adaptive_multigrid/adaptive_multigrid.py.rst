@@ -153,6 +153,12 @@ With these helper functions complete, we can solve the system iteratively. In th
 
    theta = 0.5
    refinements = 15
+
+   # Setup for faster test execution.
+   import os
+   if os.getenv("FIREDRAKE_CI") == "1":
+       refinements = 3
+
    est_errors = []
    sqrt_dofs = []
    mg_iterations = []
