@@ -285,8 +285,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
             rdm.removeLabel("temp_label")
             cdm.removeLabel("temp_label")
 
-        dms.append(rdm)
-        cdm = rdm
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
