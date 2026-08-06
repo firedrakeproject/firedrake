@@ -95,8 +95,10 @@ def set_function_space(dm, V):
     # dm.setAttr("__fs_info__", V.collapse())
     # if V.index == 0:
     #     breakpoint()
-    mystr = str(V)
-    dm.setAttr("__fs_info__", (mystr, weakref.proxy(V)))
+    if not isinstance(V, weakref.ProxyType):
+        V = weakref.proxy(V)
+    # mystr = str(V)
+    dm.setAttr("__fs_info__", ("", V))
     return
     indices = []
     names = []
