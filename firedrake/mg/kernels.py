@@ -345,7 +345,7 @@ def restrict_kernel(Vf, Vc):
 
 
 def inject_kernel(Vf, Vc):
-    if Vc.finat_element.is_dg():
+    if Vc.finat_element.is_dg() and Vf.ufl_element() == Vc.ufl_element():
         hierarchy, level = utils.get_level(Vc.mesh())
         if Vf.extruded:
             assert Vc.extruded

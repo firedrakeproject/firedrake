@@ -193,6 +193,13 @@ def reconstruct_form(form, self, coefficient_mapping=None):
     return form
 
 
+@_reconstruct.register(ufl.Interpolate)
+def reconstruct_interpolate(interp, self, coefficient_mapping=None):
+    dual_arg, operand = interp.argument_slots()
+    return interp._ufl_expr_reconstruct_(self(operand, self, coefficient_mapping=coefficient_mapping),
+                                         self(dual_arg, self, coefficient_mapping=coefficient_mapping))
+
+
 @_reconstruct.register(ufl.FormSum)
 def reconstruct_formsum(form, self, coefficient_mapping=None):
     return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
