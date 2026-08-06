@@ -73,7 +73,8 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
     """
 
     # Set up problem domain
-    mesh = UnitSquareMesh(2, 2, quadrilateral=quads)
+    dp = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quads, distribution_parameters=dp)
     mh = MeshHierarchy(mesh, r-1, coarse_facet_label=999)
     mesh = mh[-1]
     x = SpatialCoordinate(mesh)
@@ -81,7 +82,7 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant="integral")
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
     V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
     uh = Function(V)
 
