@@ -215,7 +215,7 @@ Identifications are declared on the geometry, before meshing, with the OCC
    )
 
 where ``transformation`` is the rigid motion (typically a translation) that maps ``shape_a`` onto ``shape_b``.
-Netgen then meshes the two boundaries compatibly and records the vertex pairs; Firedrake consumes them
+Netgen then meshes the two boundaries compatibly and records the vertex pairs. Firedrake consumes them
 automatically -- no extra flag on the ``Mesh`` constructor is required.
 
 To construct a periodic cylinder of length :math:`2\pi` we identify the two end caps of the cylinder by a translation of :math:`2\pi` along ``z``. :: 
