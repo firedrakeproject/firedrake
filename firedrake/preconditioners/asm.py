@@ -1,5 +1,4 @@
 import abc
-import petsctools
 
 from pyop2.datatypes import IntType
 from firedrake.cython import patchimpl
@@ -192,7 +191,7 @@ class ASMStarPC(ASMPatchPC):
 
         # Take the star of every seed point, one patch at a time
         seeds, seed_offsets = get_seeds(mesh_dm, use_coloring, depth, 1, label, value)
-        points, star_offsets, patch_offsets = patchimpl.create_star_points(mesh_dm, seeds, seed_offsets)
+        points, star_offsets, patch_offsets, _ = patchimpl.create_star_points(mesh_dm, seeds, seed_offsets)
         if ordering != "natural":
             # Each star is reordered on its own, since it is a patch of its own
             # unless a coloring grouped it with others
@@ -204,8 +203,9 @@ class ASMStarPC(ASMPatchPC):
         # so we need to cache these for efficiency
         V_local_ises_indices = get_local_ises_indices(V)
 
-        # Build index sets for the patches
-        return patchimpl.create_patch_ises(points, star_offsets[patch_offsets],
+        # Build index sets for the patches, every subspace reading the same points
+        return patchimpl.create_patch_ises([points] * len(V),
+                                           [star_offsets[patch_offsets]] * len(V),
                                            [W.dm.getLocalSection() for W in V],
                                            [W.block_size for W in V],
                                            V_local_ises_indices)
@@ -222,6 +222,19 @@ class ASMVankaPC(ASMPatchPC):
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
     `pc_vanka_use_coloring`.
+
+    The mesh entities that get a patch may be restricted to those marked
+    by a `PETSc.DMLabel` on the mesh's DMPlex, named by the option
+    `pc_vanka_construct_label` and holding them in the stratum
+    `pc_vanka_construct_label_value`. The option `pc_vanka_adaptive` builds
+    that label with `~firedrake.adapt.mark_refined_entities`, so that a
+    smoother on an adaptively refined level only relaxes the entities whose
+    patch meets the refined region. The coloring, if requested, then colors
+    only the marked entities.
+
+    The subspaces listed in `pc_vanka_exclude_subspaces` contribute only the
+    DoFs on the star of the mesh entity, or on the entity alone when
+    `pc_vanka_include_type` is `entity` rather than the default `star`.
 
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
@@ -250,29 +263,41 @@ class ASMVankaPC(ASMPatchPC):
         validate_overlap(mesh, depth, "vanka")
 
         exclude_subspaces = opts.getIntArray("exclude_subspaces", default=[])
-        include_subspaces = [i for i in range(len(V)) if i not in exclude_subspaces]
         include_type = opts.getString("include_type", default="star").lower()
         if include_type not in ["star", "entity"]:
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
-        include_star = include_type == "star"
 
         use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
+        label, value = get_construct_label(mesh, self.prefix)
 
-        def splitting(V):
-            return (tuple(V[i] for i in include_subspaces), tuple(V[i] for i in exclude_subspaces))
+        # Take the closure of the star of every seed point, one patch at a time
+        seeds, seed_offsets = get_seeds(mesh_dm, use_coloring, depth, 3, label, value)
+        star, star_offsets, patch_offsets, seeds = patchimpl.create_star_points(mesh_dm, seeds, seed_offsets)
+        if ordering != "natural":
+            # Each star is reordered on its own, since it is a patch of its own
+            # unless a coloring grouped it with others, and the closure follows it
+            for s in range(len(star_offsets) - 1):
+                points = slice(star_offsets[s], star_offsets[s+1])
+                star[points] = order_points(mesh_dm, star[points], ordering, self.prefix)
+        closure, closure_offsets = patchimpl.create_closure_points(mesh_dm, star, star_offsets)
 
-        Z = splitting(V)
+        # The included subspaces span the closure of the star, the excluded ones
+        # only the star, or the entity it was built around
+        included = (closure, closure_offsets[patch_offsets])
+        excluded = (star, star_offsets[patch_offsets]) if include_type == "star" else (seeds, patch_offsets)
+        groups = [excluded if i in exclude_subspaces else included for i in range(len(V))]
+
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = get_local_ises_indices(V)
-        Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
-        colors = get_colors(mesh_dm, use_coloring, depth, distance=3)
-        ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
-                                    include_star, color) for color in colors]
-        return ises
+        return patchimpl.create_patch_ises([points for points, _ in groups],
+                                           [offsets for _, offsets in groups],
+                                           [W.dm.getLocalSection() for W in V],
+                                           [W.block_size for W in V],
+                                           V_local_ises_indices)
 
 
 class ASMLinesmoothPC(ASMPatchPC):
@@ -623,7 +648,8 @@ def get_colors(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: 
     depth
         The topological dimension of the entities.
     distance
-        The coloring distance.
+        How far through the mesh an entity reaches, 1 to separate star patches
+        and 3 to separate Vanka patches.
     label
         A label selecting the entities, or `None` for all of them.
     value
@@ -636,14 +662,10 @@ def get_colors(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: 
 
     """
     if use_coloring:
-        # Greedy, the default, only supports distances 1 and 2
-        parameters = {"mat_coloring_type": "power" if distance > 2 else "greedy"}
-        with petsctools.inserted_options(parameters=parameters,
-                                         options_prefix="dm_plex_coloring_"):
-            # Colors the subgraph the selected entities induce, so restricting
-            # them can only merge colors, never split one
-            colors = mesh_dm.createColoringLabel(depth=depth, distance=distance,
-                                                 label=label, value=value)
+        # Colors the subgraph the selected entities induce, so restricting
+        # them can only merge colors, never split one
+        colors = mesh_dm.createColoringLabel(depth=depth, distance=distance,
+                                             label=label, value=value)
     elif label is None:
         colors = range(*mesh_dm.getDepthStratum(depth))
     else:
@@ -671,7 +693,8 @@ def get_seeds(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: i
     depth
         The topological dimension of the entities.
     distance
-        The coloring distance.
+        How far through the mesh an entity reaches, 1 to separate star patches
+        and 3 to separate Vanka patches.
     label
         A label selecting the entities, or `None` for all of them.
     value
@@ -696,29 +719,6 @@ def get_seeds(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: i
     else:
         seeds = numpy.asarray(colors, dtype=IntType)
     return seeds, numpy.arange(len(seeds) + 1, dtype=IntType)
-
-
-def get_entity_dofs(V, V_local_ises_indices, points):
-    """Return degrees of freedom associated with mesh entities (points of the DMPlex).
-
-    :arg V: the FunctionSpace to extract DOFs from
-    :arg V_local_ises_indices: V.local_ises.indices
-    :points: an iterable of mesh entities
-
-    :returns: a list with the DOFs of V associated with the mesh entities
-    """
-    indices = []
-    for (i, W) in enumerate(V):
-        section = W.dm.getLocalSection()
-        for p in points:
-            dof = section.getDof(p)
-            if dof <= 0:
-                continue
-            off = section.getOffset(p)
-            # Local indices within W
-            W_slice = slice(off*W.block_size, W.block_size * (off + dof))
-            indices.extend(V_local_ises_indices[i][W_slice])
-    return indices
 
 
 def get_star_points(mesh_dm, ordering, prefix, seed_points):
@@ -746,51 +746,3 @@ def get_star_points(mesh_dm, ordering, prefix, seed_points):
         star = order_points(mesh_dm, star[::-1], ordering, prefix)
         points.extend(star)
     return points
-
-
-def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
-    """Return DOFs in the Vanka patches constructed at each point in seed_points.
-
-    :arg Z: a tuple of the included/excluded FunctionSpaces to extract DOFs from
-    :arg Z_local_ises_indices: (Z[0].local_ises.indices, Z[1].local_ises.indices)
-    :arg mesh_dm: the DMPlex
-    :arg ordering: a Mat.OrderingType indicating the ordering type
-    :arg prefix: the PETSc.Options prefix to further specify the ordering
-    :arg include_star: whether to include DOFs of Z[1] in the star or just the entity
-    :seed_points: an iterable of point indices to construct the Vanka patches
-
-    :returns: A PETSc.IS with the degrees of freedom in the Vanka patches
-    """
-    if isinstance(seed_points, PETSc.IS):
-        seed_points = seed_points.indices
-    elif numpy.isscalar(seed_points):
-        seed_points = (seed_points,)
-    indices = []
-    for seed in seed_points:
-        V_points = []
-        Q_points = []
-        # Only build patches over owned DoFs
-        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-            continue
-        # Create point list from mesh DM, by decreasing topological dimension
-        # (interiors, faces, edges, vertices)
-        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-        star = order_points(mesh_dm, star[::-1], ordering, prefix)
-        if include_star:
-            Q_points.extend(star)
-        else:
-            Q_points.append(seed)
-        closure = []
-        for s in reversed(star):
-            cs, _ = mesh_dm.getTransitiveClosure(s, useCone=True)
-            closure.extend(cs)
-        # Grab unique points with stable ordering
-        closure = reversed(dict.fromkeys(closure))
-        V_points.extend(closure)
-        indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
-        indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
-
-    indices = numpy.array(indices, dtype=PETSc.IntType)
-    indices = indices[indices >= 0]
-    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-    return iset

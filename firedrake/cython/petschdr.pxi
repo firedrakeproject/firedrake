@@ -29,6 +29,7 @@ cdef extern from "petsc.h":
 cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscMalloc1(PetscInt,void*)
     PetscErrorCode PetscMalloc2(PetscInt,void*,PetscInt,void*)
+    PetscErrorCode PetscCalloc1(PetscInt,void*)
     PetscErrorCode PetscFree(void*)
     PetscErrorCode PetscFree2(void*,void*)
     PetscErrorCode PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
