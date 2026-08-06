@@ -43,6 +43,7 @@ SERIAL_DEMOS = [
     Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
+    Demo(("periodic_meshes", "periodic_meshes"), ["netgen", "vtk"]),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
