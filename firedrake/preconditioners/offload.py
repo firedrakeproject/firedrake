@@ -10,7 +10,10 @@ __all__ = ("OffloadPC",)
 _device_vector_impls = {
     "CUDA": {
         "createWithArrays": "createCUDAWithArrays",
-    }
+    },
+    "HIP": {
+        "createWithArrays": "createHIPWithArrays",
+    },
 }
 
 

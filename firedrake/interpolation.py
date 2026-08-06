@@ -172,6 +172,8 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
+            if has_mixed_arguments or len(self.target_space) > 1:
+                return MixedInterpolator(self)
             raise NotImplementedError(
                 "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
             )
@@ -188,19 +190,19 @@ class Interpolate(UFLInterpolate):
             and target_mesh.topological_dimension == source_mesh.topological_dimension
         )
         if target_mesh is source_mesh or submesh_interp_implemented:
-            return SameMeshInterpolator(self)
+            return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
             if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-                return VomOntoVomInterpolator(self)
+                return VomOntoVomInterpolator(self, source_mesh, target_mesh)
             if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
-            return SameMeshInterpolator(self)
+            return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if has_mixed_arguments or len(self.target_space) > 1:
             return MixedInterpolator(self)
 
-        return CrossMeshInterpolator(self)
+        return CrossMeshInterpolator(self, source_mesh, target_mesh)
 
 
 @PETSc.Log.EventDecorator()
@@ -250,16 +252,6 @@ class Interpolator(abc.ABC):
         """The dual argument slot of the Interpolate expression."""
         self.target_space = dual_arg.function_space().dual()
         """The primal space we are interpolating into."""
-        # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
-        self.target_mesh = self.target_space.mesh()
-        """The domain we are interpolating into."""
-
-        try:
-            source_mesh = extract_unique_domain(operand)
-        except ValueError:
-            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
-        self.source_mesh = source_mesh or self.target_mesh
-        """The domain we are interpolating from."""
 
         # Interpolation options
         self.subset = expr.options.subset
@@ -423,8 +415,11 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
     @no_annotations
-    def __init__(self, expr: Interpolate):
+    def __init__(self, expr: Interpolate, source_mesh, target_mesh):
         super().__init__(expr)
+        self.source_mesh = source_mesh
+        self.target_mesh = target_mesh
+
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -678,8 +673,11 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr):
+    def __init__(self, expr, source_mesh, target_mesh):
         super().__init__(expr)
+        self.source_mesh = source_mesh
+        self.target_mesh = target_mesh
+
         subset = self.subset
         if subset is None:
             target = self.target_mesh.unique().topology
@@ -834,8 +832,9 @@ class SameMeshInterpolator(Interpolator):
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    def __init__(self, expr: Interpolate):
-        super().__init__(expr)
+    def __init__(self, expr: Interpolate, source_mesh, target_mesh):
+        super().__init__(expr, source_mesh, target_mesh)
+
         if self.source_mesh.input_ordering is self.target_mesh:
             # The forward interpolation is a star forest reduction
             self.forward_reduce = True
@@ -941,8 +940,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
@@ -1623,15 +1623,6 @@ class VomOntoVomMatContext:
 
 class MixedInterpolator(Interpolator):
     """Interpolator between MixedFunctionSpaces."""
-    def __init__(self, expr: Interpolate):
-        """Initialise MixedInterpolator. Should not be called directly; use `get_interpolator`.
-
-        Parameters
-        ----------
-        expr : Interpolate
-            Symbolic Interpolate expression.
-        """
-        super().__init__(expr)
 
     def _get_sub_interpolators(
             self, bcs: Iterable[DirichletBC] | None = None
@@ -1683,11 +1674,13 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
             blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        isrows, iscols = (V.dof_dset.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,

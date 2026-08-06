@@ -315,6 +315,26 @@ def test_two_nonlinear_solves():
 
 
 @pytest.mark.skipcomplex
+def test_real_solve(rg):
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    u = TrialFunction(R)
+    v = TestFunction(R)
+    m = Function(V).assign(1.0)
+
+    def J(m):
+        a = u * v * dx
+        L = m * v * dx
+        solution = Function(R)
+        solve(a == L, solution)
+        return assemble(solution**2 * dx)
+
+    _test_adjoint(J, m, rg)
+
+
+@pytest.mark.skipcomplex
 def test_multiple_meshes(rg):
     mesh1 = UnitSquareMesh(4, 4)
     mesh2 = RectangleMesh(nx=4, ny=4, Lx=3, Ly=1, originX=2, originY=0)

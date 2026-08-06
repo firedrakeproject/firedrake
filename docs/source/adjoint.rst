@@ -287,7 +287,7 @@ A PDF visualisation of the tape can be constructed by calling the
 :program:`pip` but the latter depends on the external :program:`graphviz` package.
 Installation instructions for both :mod:`!pygraphviz` and :program:`graphviz`
 are to be found on `the pygraphviz website
-<https://pygraphviz.github.io/documentation/stable/install.html#recommended>`__.
+<https://pygraphviz.github.io/documentation/stable/install.html>`__.
 
 .. _fig-tape:
 

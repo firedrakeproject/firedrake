@@ -33,7 +33,8 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==3.25.0",
-  "petsctools>=2026.0",
+  # TODO RELEASE
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2026.4.0",
@@ -74,7 +75,11 @@ check = [
 ]
 docs = [
   "bibtexparser",
+  "ipykernel",  # kernel for executing the tutorial notebooks
+  "ipympl",  # %matplotlib widget backend used by the tutorial notebooks
+  "jupytext",  # convert the .py tutorial notebooks to .ipynb
   "matplotlib",  # needed to resolve API
+  "nbsphinx",  # execute and render the tutorial notebooks
   "numpydoc",
   "pylit",
   "sphinx",
@@ -108,6 +113,7 @@ vtk = [
 ci = [
   "ipympl",  # needed for notebook testing
   "jax",
+  "jupytext",  # convert the .py tutorial notebooks to .ipynb for testing
   "matplotlib",
   "mpi-pytest>=2026.0",
   "nbval",
@@ -129,6 +135,7 @@ ci = [
 ]
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
+  "jupytext",  # convert the .py tutorial notebooks to .ipynb for testing
   "matplotlib",
   "mpi-pytest>=2026.0",
   "nbval",
