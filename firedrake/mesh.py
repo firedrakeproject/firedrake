@@ -2447,7 +2447,7 @@ values from f.)"""
 
         raise AttributeError(message)
 
-    @cached_property
+    @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     def cell_sizes(self):
         """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
 
@@ -2463,10 +2463,11 @@ values from f.)"""
 
         Use this if you move the mesh.
         """
-        try:
-            del self.cell_size
-        except AttributeError:
-            pass
+        warnings.warn(
+            "`clear_cell_sizes` is deprecated and will be removed in a future release. "
+            "The `cell_sizes` attribute is cleared automatically when mesh coordinates change. ",
+            FutureWarning,
+        )
 
     @property
     def tolerance(self):
