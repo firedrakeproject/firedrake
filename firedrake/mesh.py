@@ -2109,9 +2109,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 swarm.field(cell_id_name) as swarm_parent_cell_nums,
                 swarm.field("globalindex") as swarm_global_indices,
             ):
-                parent_order = parent_renum_inv[swarm_parent_cell_nums - pStart]
+                parent_order = parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart]
                 # sort by parent cell order, with ties broken by point global index
-                perm = np.lexsort((swarm_global_indices, parent_order)).astype(IntType)
+                perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
@@ -2636,7 +2636,7 @@ values from f.)"""
 
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         if self.topological_dimension < self.geometric_dimension:
-            # Immersed manifold case: Change min and max to refer to an n-hypercube, 
+            # Immersed manifold case: Change min and max to refer to an n-hypercube,
             # where n is the geometric dimension of the mesh, centred on the midpoint of the
             # bounding box. Its side length is the L1 diameter of the bounding box.
             # This aids point evaluation where points may be just off the mesh but should be evaluated.
@@ -2658,7 +2658,7 @@ values from f.)"""
     def bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
         side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
         return np.prod(side_lengths, axis=1).sum()
-    
+
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
     def _box_ratio_heuristic(self):
@@ -2698,7 +2698,7 @@ values from f.)"""
         """Build a global Rtree from all ranks' partition bounding boxes.
 
         Each rank contributes bounding boxes chosen by `box_ratio_heuristic`.
-        The boxes are gathered from all ranks and a single Rtree is built 
+        The boxes are gathered from all ranks and a single Rtree is built
         on every rank. The owning MPI rank is stored as the id of each leaf,
         so querying the tree with a point will return a list of candidate ranks
         who may have a cell containing that point.
@@ -2732,7 +2732,6 @@ values from f.)"""
         ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
 
         return rtree.build_from_aabb(regions_lo, regions_hi, ids)
-
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -4478,7 +4477,7 @@ def _parent_mesh_embedding(
     ----------
     parent_mesh : Mesh
         The parent mesh to embed in.
-    coords : np.ndarray 
+    coords : np.ndarray
         The array coordinates to embed, of shape `(npoints, dim)`.
         For ``redundant=True`` only rank 0's coordinates are used.
     tolerance : float
@@ -4519,8 +4518,8 @@ def _parent_mesh_embedding(
         An array of shape `(nroots,)` containing the global indices of each point.
     n_missing_points : int
         The number of points not found in any mesh cell.
-    parent_cell_nums_leaves : np.ndarray 
-        An array of shape `(nleaves,)`, containing the local Firedrake cell 
+    parent_cell_nums_leaves : np.ndarray
+        An array of shape `(nleaves,)`, containing the local Firedrake cell
         numbers as seen on this rank for each received candidate point.
     reference_coords_leaves : np.ndarray
         An array of shape `(nleaves, ref_dim)`, containing the reference coordinates
@@ -4528,12 +4527,12 @@ def _parent_mesh_embedding(
     leaf_is_winner : np.ndarray
         An array of shape `(nleaves,)`, containing True for the single leaf that is
         the winner for its root, and False otherwise.
-    is_min_candidate : ``np.ndarray`` 
+    is_min_candidate : ``np.ndarray``
         An array of shape `(nleaves,)`, containing True for leaves achieving the
         global minimum distance, and False otherwise.
     winner_ranks_on_leaves : ``np.ndarray``
         An array of shape `(nleaves,)`, containing the winner rank broadcast back to each leaf.
-    coords_recv : ``np.ndarray`` 
+    coords_recv : ``np.ndarray``
         An array of shape `(nleaves, gdim)`, containing the coordinates that were
         broadcast to this rank's leaf candidates.
     """
@@ -4544,7 +4543,7 @@ def _parent_mesh_embedding(
 
     def _locate_cells(xs: np.ndarray, cells_ignore=None):
         # Given an array of coordinates, returns the cell numbers, reference coordinates,
-        # and L1 distances to the reference cell for each coodinate. 
+        # and L1 distances to the reference cell for each coodinate.
         cell_nums, ref_coords, ref_dists_l1 = parent_mesh.locate_cells_ref_coords_and_dists(
             xs, tolerance, cells_ignore=cells_ignore
         )
@@ -4552,7 +4551,7 @@ def _parent_mesh_embedding(
             # We have an extra dimension we can safely drop.
             ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
         return cell_nums, ref_coords, ref_dists_l1
-    
+
     def _owning_ranks(cell_nums: np.ndarray, visible_ranks: np.ndarray) -> np.ndarray:
         # Given an array of cell numbers, returns the owning rank for each cell,
         # or -1 if not visible on this rank.
@@ -4582,7 +4581,7 @@ def _parent_mesh_embedding(
     # If redundant then only rank 0's coordinates are embedded.
     if redundant and comm.rank != 0:
         coords = np.empty((0, gdim), dtype=RealType)
-    
+
     # The roots of the embedding SF are the input coordinates
     nroots = coords.shape[0]
 
@@ -4690,7 +4689,7 @@ def _parent_mesh_embedding(
             keep_retry = keep_candidate & has_different_owner
             if not np.any(keep_retry):
                 break
-            
+
             # Update the list of retrying leaves and the cells to ignore for the next iteration.
             retry_cells_ignore = np.hstack(
                 (retry_cells_ignore[keep_retry], retry_cells[keep_retry].reshape((-1, 1)))
@@ -4713,7 +4712,7 @@ def _parent_mesh_embedding(
     # Missing roots are those that have no winning candidate leaves.
     missing_roots = winner_ranks == -1
     if not remove_missing_points:
-        # Set winning ranks for missing roots to a value larger than 
+        # Set winning ranks for missing roots to a value larger than
         # any valid rank so they can be identified on leaves
         winner_ranks[missing_roots] = comm.size + 1
         # pick leaves for missing roots that belong to the input rank
@@ -4728,7 +4727,7 @@ def _parent_mesh_embedding(
     embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
     # Reduce winner cell and reference coords back to roots.
-    # We are okay to use the embedded_sf since we reduce arrays 
+    # We are okay to use the embedded_sf since we reduce arrays
     # that are masked by leaf_is_winner.
     ref_dim = reference_coords.shape[1]
     winner_cells_leaves = np.where(leaf_is_winner, parent_cell_nums, -1)
