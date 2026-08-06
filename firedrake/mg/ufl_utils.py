@@ -321,7 +321,7 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    u = coefficient_mapping[problem.u_restrict]
+    u = self(problem.u_restrict, self, coefficient_mapping=coefficient_mapping)
 
     new_problem = firedrake.NonlinearVariationalProblem(
         F, u, bcs=bcs, J=J, Jp=Jp, objective=E, is_linear=problem.is_linear,
