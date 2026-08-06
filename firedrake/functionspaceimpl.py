@@ -185,12 +185,6 @@ class WithGeometryBase:
         data = self.subspaces if mixed else self._components
         return data[i]
 
-    @cached_property
-    def dm(self):
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
     @property
     def num_work_functions(self):
         r"""The number of checked out work functions."""
@@ -489,12 +483,25 @@ class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
         parent = None if self.parent is None else self.parent.dual()
         return FiredrakeDualSpace(self.topological, self.mesh(), parent=parent)
 
+    @cached_property
+    def dm(self):
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
     def dual(self):
         parent = None if self.parent is None else self.parent.dual()
         return WithGeometry(self.topological, self.mesh(), parent=parent)
+
+    @cached_property
+    def dm(self):
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self.dual())
+        return dm
 
 
 class FunctionSpace:
