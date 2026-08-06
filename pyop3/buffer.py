@@ -230,10 +230,10 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def zero(self) -> None:
         pass
 
-    # NOTE: This is similar in nature to Buffer.data etc
-    # @abc.abstractmethod
-    # def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
-    #     """The underlying data structure."""
+    @property
+    @abc.abstractmethod
+    def handle(self) -> Any:
+        """The underlying data structure."""
 
 
 @pyop3.record.record()
@@ -432,7 +432,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def handle(self) -> pyop3.types.DeviceArrayT:
-        assert False, "unused?"
         return self._current_device_array
 
     def zero(self) -> None:
@@ -1179,7 +1178,6 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def handle(self) -> Any:
-        assert False, "unused"
         return self.mat
 
     def zero(self) -> None:

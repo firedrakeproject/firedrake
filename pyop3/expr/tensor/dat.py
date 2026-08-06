@@ -591,17 +591,6 @@ class Dat(Tensor):
 
         return self._lazy_work_vec
 
-    def assign(self, other, **kwargs):
-        # shortcuts to avoid code generation where possible
-        if isinstance(self.buffer, pyop3.buffer.ArrayBuffer):
-            if isinstance(other, numbers.Number):
-                self.data_wo[...] = other
-            elif isinstance(other, type(self)) and other.axes == self.axes:
-                self.data_wo[...] = other.data_ro
-
-        return super().assign(other, **kwargs)
-
-
     @property
     def norm(self) -> numbers.Real:
         """Compute the l2 norm of this `Dat`.

@@ -173,9 +173,9 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     if not skip_in_bounds_checks:
         assert vm.num_cells() == vm._fiat_cell_closures.shape[0] == vm.cells.local_size
         assert vm.cells.owned.local_size == len(inputvertexcoords[in_bounds])
-    assert vm.num_facets == 0
-    assert vm.num_faces == vm.num_entities(2) == 0
-    assert vm.num_edges == vm.num_entities(1) == 0
+    assert vm.num_facets() == 0
+    assert vm.num_faces() == vm.num_entities(2) == 0
+    assert vm.num_edges() == vm.num_entities(1) == 0
     assert vm.num_vertices() == vm.num_entities(0) == vm.num_cells()
     # Correct parent cell numbers
     stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))

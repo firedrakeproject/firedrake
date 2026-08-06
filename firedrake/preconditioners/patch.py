@@ -330,7 +330,6 @@ for (int32_t k=0; k<{arity}; k++)
                     pack_insns.append(pack_insn)
 
             else:
-                assert isinstance(arg, op3.Scalar)
                 local_kernel_args.append(self._names[arg])
 
         # optional state, can be any of the coefficients
@@ -972,6 +971,7 @@ class PatchBase(PCSNESBase):
             # The answer is to use 'field_ises' for the mixed DM and such to convert
             # the field-local sections into 'global' offsets.
             # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
+            # NOTE: we might be OK if we set offsets and block sizes to zero
             raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
         if any(Vsub.boundary_set for Vsub in V):
             # same reasoning as above but for restricted function spaces

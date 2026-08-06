@@ -278,7 +278,7 @@ class FDMPC(PCBase):
                 own = Vrow.template_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 if assemble_sparsity:
-                    Vrow._lgmap.apply(bdofs, result=bdofs)
+                    Vrow.lgmap().apply(bdofs, result=bdofs)
                     assembly_callables.append(P.assemble)
                     assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
                 else:
@@ -685,8 +685,8 @@ class FDMPC(PCBase):
     @cached_property
     def assembly_lgmaps(self):
         if self.mat_type != "is":
-            return {Vsub: Vsub._lgmap for Vsub in self.V}
-        return {Vsub: unghosted_lgmap(Vsub, Vsub._lgmap, self.allow_repeated) for Vsub in self.V}
+            return {Vsub: Vsub.lgmap() for Vsub in self.V}
+        return {Vsub: unghosted_lgmap(Vsub, Vsub.lgmap(), self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
         """Preallocate the auxiliary sparse operator."""

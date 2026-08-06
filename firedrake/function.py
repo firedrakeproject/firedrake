@@ -233,7 +233,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
 
-
 class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
     domain defined by the underlying :func:`.Mesh`. Functions are

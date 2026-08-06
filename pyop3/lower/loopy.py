@@ -11,6 +11,7 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
 
 import pyop3.axis_tree
 import pyop3.buffer
@@ -190,6 +191,25 @@ class LoopyCodegenContext(CodegenContext):
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
+            # Inject constant buffer data into the generated code if sufficiently small
+            # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
+            # that it is correctly included in the cache key).
+            # if isinstance(handle, pyop3.buffer.ArrayBuffer):
+            #     that it is correctly included in the cache key).
+            #     Inject constant buffer data into the generated code if sufficiently small
+            #     if (
+            #         buffer.rank_equal
+            #         and isinstance(buffer.size, numbers.Integral)
+            #         and buffer.size < CONFIG.max_static_array_size
+            #     ):
+            #         return self.add_temporary(
+            #             "t",
+            #             buffer.dtype,
+            #             initializer=buffer.data_ro,
+            #             shape=buffer.data_ro.shape,
+            #             read_only=True,
+            #         )
+
             if buffer_key in self.kernel_names:
                 if intent != self.buffer_intents[buffer]:
                     # We are accessing a buffer with different intents so have to
@@ -197,38 +217,31 @@ class LoopyCodegenContext(CodegenContext):
                     self.buffer_intents[buffer] = RW
                 return self.kernel_names[buffer_key]
 
-            if isinstance(buffer, pyop3.buffer.ArrayBuffer):
-                # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
-                # that it is correctly included in the cache key).
-                # Inject constant buffer data into the generated code if sufficiently small
-                # if (
-                #     buffer.rank_equal
-                #     and isinstance(buffer.size, numbers.Integral)
-                #     and buffer.size < CONFIG.max_static_array_size
-                # ):
-                #     return self.add_temporary(
-                #         "t",
-                #         buffer.dtype,
-                #         initializer=buffer.data_ro,
-                #         shape=buffer.data_ro.shape,
-                #         read_only=True,
-                #     )
+            # Extract the underlying data as that is what we need to generate code
+            handle = buffer.handle
+            if isinstance(handle, np.ndarray):
+                assert not buffer_view.nest_indices
+            elif isinstance(handle, PETSc.Mat):
+                for ri, ci in buffer_view.nest_indices:
+                    handle = handle.getNestSubMatrix(ri, ci)
+                assert handle.type != "nest"
 
-                if isinstance(buffer.dtype, np.dtypes.IntDType):
+                if handle.type == "python":
+                    handle = handle.getPythonContext().buffer.handle
+
+            if isinstance(handle, np.ndarray):
+                if isinstance(handle.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
                 else:
                     name_in_kernel = self.unique_name("dat")
 
                 # If the buffer is being passed straight through to a function then we
                 # have to make sure that the shapes match
-                shape = self._temporary_shapes.get(buffer, None)
-                loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
+                shape = self._temporary_shapes.get(buffer, None)  # TODO: should be handle not buffer here?
+                loopy_arg = lp.GlobalArg(name_in_kernel, dtype=handle.dtype, shape=shape)
             else:
-                assert isinstance(buffer, PetscMatBuffer)
-                assert buffer.mat_type != "python"
-                if buffer.mat_type == "nest":
-                    assert buffer_view.nest_indices
-
+                assert isinstance(handle, PETSc.Mat)
+                assert handle.type not in {"nest", "python"}
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
 
@@ -1129,6 +1142,12 @@ def lower_buffer_access(
 ) -> pym.Expression:
     name_in_kernel = context.add_buffer(buffer_view, intent)
 
+    buffer = buffer_view.buffer
+    if isinstance(buffer, PetscMatBuffer):
+        mat = buffer_view.buffer.mat
+        assert mat.type == "python"
+        buffer = mat.getPythonContext().buffer
+
     # At this point we know how to address each axis of the underlying buffer.
     # This is sufficient to address a flat buffer, but for a buffer with more
     # dimensions (i.e. a matrix) we have to do more work. As an example
@@ -1142,7 +1161,7 @@ def lower_buffer_access(
     offset_expr = sum(
         stride * lower_expr(layout, [iname_map], loop_indices, context)
         for stride, layout, iname_map in zip(
-            utils.strides(buffer_view.buffer.shape),
+            utils.strides(buffer.shape),
             layouts,
             iname_maps,
             strict=True

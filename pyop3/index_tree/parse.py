@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from types import EllipsisType
 from typing import Any
 
+import numpy as np
 from immutabledict import immutabledict as idict
 
 import pyop3.exceptions

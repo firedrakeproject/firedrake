@@ -464,13 +464,6 @@ class WithGeometryBase:
         key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
         return self.get_facet_closure_nodes(self.mesh(), key)
 
-    @utils.deprecated("lgmap")
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-        assert False, "FIXME"
-        if lgmap is None:
-            lgmap = self._lgmap
-        return mask_lgmap(self, self.axes, lgmap, bcs, self.block_shape)
-
     @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key)
     def get_facet_closure_nodes(self, mesh, key):
         """Function space nodes in the closure of facets with a given
@@ -663,6 +656,7 @@ class AbstractFunctionSpace:
 
     @property
     def nodes(self) -> op3.Axis:
+        # FIXME: For a mixed thing this gives us back the wrong thing!
         return self.nodal_axes.root
 
     @cached_property
@@ -1842,7 +1836,7 @@ class FunctionSpace(AbstractFunctionSpace):
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
         if self.block_size == 1:
-            return self._lgmap
+            return self.lgmap()
         else:
             indices = self.axes.global_numbering
             return PETSc.LGMap().create(indices.copy(), bsize=1, comm=self.comm)

@@ -368,6 +368,23 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return self
         return NotImplemented
 
+    def __float__(self) -> float:
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(self.dat.data_ro.item())
+                else:
+                    # touch to make sure state tracking is consistent
+                    self.dat.data_ro
+                    value = icomm.bcast(None)
+            return float(value)
+        else:
+            raise ValueError("Can only cast scalar 'Real' cofunctions to float.")
+
     @PETSc.Log.EventDecorator()
     def interpolate(self,
                     expression: ufl.BaseForm,

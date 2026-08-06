@@ -811,7 +811,13 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     @property
     def is_nested(self) -> bool:
-        return all(c.size == 1 for c in self.root.components)
+        # This is quite a hacky way of seeing if we have nested things. The idea
+        # is to look for outer axes with 1-sized components. We have to add a
+        # further check to unindexed because we can sometimes get 1-sized components
+        # during indexing.
+        # It would be nicer to actually declare an axis as being a 'nest axis'
+        # so we can more easily infer this.
+        return self.root in self.unindexed.node_map and all(c.size == 1 for c in self.root.components)
 
     # }}}
 
@@ -822,6 +828,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def getitem(self, indices, *, strict=False) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.index_tree import index_axes
         from pyop3.index_tree.parse import as_index_forests
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
         if utils.is_ellipsis_type(indices):
             return self
@@ -869,7 +876,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
                 else:
                     indexed_axes = just_one(indexed_axess)
                     axis_tree_context_map[loop_context] = indexed_axes
-            return ContextSensitiveAxisTree(axis_tree_context_map)
+            return LoopContextSensitiveAxisTreeLike(axis_tree_context_map)
 
     def as_axis(self) -> Axis:
         return utils.just_one(self.axes)

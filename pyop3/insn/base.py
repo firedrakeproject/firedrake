@@ -439,23 +439,6 @@ class Function(pyop3.obj.Object):
 
     # }}}
 
-    # TODO: Is this actually true? I think they do have sensible (if very expensive) hashes
-    # unfortunately needed because loopy translation units aren't immediately hashable
-    def __hash__(self) -> int:
-        if not hasattr(self, "_saved_hash"):
-            kb = lp.tools.LoopyKeyBuilder()
-            hash_ = hash((
-                type(self),
-                kb(self.code),
-                self._access_descrs,
-            ))
-            object.__setattr__(self, "_saved_hash", hash_)
-        return self._saved_hash
-
-    # unfortunately needed because loopy translation units aren't immediately hashable
-    def __eq__(self, other, /) -> bool:
-        return type(other) is type(self) and other.code == self.code and other._access_descrs == self._access_descrs
-
     def __call__(self, *args):
         # if not all(isinstance(a, FunctionArgument) for a in args):
         #     raise TypeError("invalid kernel argument type")

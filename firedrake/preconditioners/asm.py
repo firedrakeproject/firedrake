@@ -72,13 +72,13 @@ class ASMPatchPC(PCBase):
                 ordering = opts.getString("mat_ordering_type", default=sentinel)
                 asmpc.setASMSortIndices(ordering is sentinel)
 
-            lgmap = V._lgmap
+            lgmap = V.lgmap()
             # Translate to global numbers
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
             asmpc.setASMLocalSubdomains(len(ises), ises)
         elif backend == "tinyasm":
             _, P = asmpc.getOperators()
-            lgmap = V._lgmap
+            lgmap = V.lgmap()
             P.setLGMap(rmap=lgmap, cmap=lgmap)
 
             asmpc.setType("tinyasm")
@@ -219,6 +219,8 @@ class ASMVankaPC(ASMPatchPC):
         except NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
 
+        opts = PETSc.Options(self.prefix)
+
         if _get_columns_option(opts, mesh):
             mesh_dm = mesh._base_mesh.topology_dm
             sections = [Vsub._base_mesh_section for Vsub in V]
@@ -227,7 +229,6 @@ class ASMVankaPC(ASMPatchPC):
             sections = [Vsub.local_section for Vsub in V]
 
         # Obtain the topological entities to use to construct the stars
-        opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=-1)
         height = opts.getInt("construct_codim", default=-1)
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
@@ -249,7 +250,7 @@ class ASMVankaPC(ASMPatchPC):
         def splitting(V):
             return (tuple(V[i] for i in include_subspaces), tuple(V[i] for i in exclude_subspaces))
 
-        Z = splitting(V)
+        sections = splitting(sections)
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -618,8 +619,8 @@ def build_vanka_indices(Z_sections, Z_local_ises_indices, mesh_dm, ordering, pre
         # Grab unique points with stable ordering
         closure = reversed(dict.fromkeys(closure))
         V_points.extend(closure)
-        indices.extend(get_entity_dofs([Z_sections[0]], Z_local_ises_indices[0], V_points))
-        indices.extend(get_entity_dofs([Z_sections[1]], Z_local_ises_indices[1], Q_points))
+        indices.extend(get_entity_dofs(Z_sections[0], Z_local_ises_indices[0], V_points))
+        indices.extend(get_entity_dofs(Z_sections[1], Z_local_ises_indices[1], Q_points))
 
     indices = numpy.array(indices, dtype=PETSc.IntType)
     indices = indices[indices >= 0]

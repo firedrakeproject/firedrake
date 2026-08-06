@@ -15,7 +15,7 @@ import firedrake.mesh
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
-from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed
+from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex
 
@@ -396,7 +396,17 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
     return axes.record_new(_targets=new_targets)
 
 
-@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+def myhashkey(space, dim):
+    edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
+    eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    return (edofs_key, eperms_key, dim)
+
+
+@op3.cache.memory_cache(
+    # hashkey=lambda s, d: (s.finat_element, d),
+    hashkey=myhashkey,
+    get_comm=lambda s, d: s.comm,
+)
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = _prepare_entity_permutations(space.finat_element, dim_label)
     perms_array = np.concatenate(perms, dtype=utils.IntType)

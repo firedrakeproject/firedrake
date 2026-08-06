@@ -250,7 +250,7 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     # At this point the individual subkernels are no longer callable, we
     # only want to access the generated code via the wrapper.
-    slate_wrapper = slate_wrapper.with_entrypoints({name})
+    slate_wrapper = slate_wrapper.with_entrypoints(name)
 
     for tsfc_loopy in tsfc_kernels:
         for name in tsfc_loopy.callables_table:
