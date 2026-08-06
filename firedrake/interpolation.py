@@ -662,7 +662,7 @@ class CrossMeshInterpolator(Interpolator):
         if self.ufl_interpolate.is_adjoint:
             point_eval_mat.hermitianTranspose()
 
-        interpolator = VomOntoVomInterpolator(point_eval_input_ordering)
+        interpolator = get_interpolator(point_eval_input_ordering)
         sf = interpolator.original_vom.input_ordering_without_halos_sf
         block_size = interpolator.target_space.block_size
         nroots, leaves, _ = sf.getGraph()
