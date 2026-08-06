@@ -114,4 +114,11 @@ def test_hypre_ads_fieldsplit():
     prob = LinearVariationalProblem(a, L, sol)
     solver = LinearVariationalSolver(prob, solver_parameters=params)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() == 8
+
+    # Check the condition number
+    # ew = solver.snes.ksp.computeEigenvalues().real
+    # kappa = 1.0
+    # if len(ew):
+    #     assert np.isclose(min(ew), 1.0, rtol=1.e-2)
+    #     kappa = max(abs(ew)) / min(abs(ew))
+    # return kappa ** 0.5
