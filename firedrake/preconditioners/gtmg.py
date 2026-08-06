@@ -114,6 +114,8 @@ class GTMGPC(PCBase):
         if fine_transpose_nullspace.handle != 0:
             fine_petscmat.setTransposeNullSpace(fine_transpose_nullspace)
 
+        fine_space = ctx.J.arguments()[0].function_space()
+
         # Handle the coarse operator
         coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
@@ -123,6 +125,11 @@ class GTMGPC(PCBase):
         if not get_coarse_space:
             raise ValueError("Need to provide a callback which provides the coarse space.")
         coarse_space = get_coarse_space()
+
+        # make sure dont die
+        if not hasattr(fine_space, "mycoarsestash"):
+            fine_space.mycoarsestash = []
+        fine_space.mycoarsestash.append(coarse_space)
 
         get_coarse_operator = appctx.get("get_coarse_operator", None)
         if not get_coarse_operator:
@@ -153,7 +160,6 @@ class GTMGPC(PCBase):
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:
             # Create interpolation matrix from coarse space to fine space
-            fine_space = ctx.J.arguments()[0].function_space()
             coarse_test, coarse_trial = coarse_operator.arguments()
             interp = assemble(interpolate(coarse_trial, fine_space))
             interp_petscmat = interp.petscmat

@@ -19,11 +19,21 @@ from firedrake.ufl_expr import Coargument
 
 def subspace(V, indices):
     """Construct a collapsed subspace using components from V."""
+    if not hasattr(V, "mystash"):
+        V.mystash = {}
+
+    try:
+        return V.mystash[indices]
+    except KeyError:
+        pass
+
     if len(indices) == 1:
         W = V[indices[0]]
     else:
         W = MixedFunctionSpace([V[i] for i in indices])
-    return W.collapse()
+    W = W.collapse()
+    V.mystash[indices] = W
+    return W
 
 
 class ExtractSubBlock(MultiFunction):
