@@ -1,5 +1,5 @@
 from functools import partial
-from ufl import H1
+from ufl import H1, replace
 from finat.ufl import FiniteElement, NodalEnrichedElement, TensorElement
 
 from firedrake import dmhooks
@@ -272,7 +272,7 @@ class CoarsePatchTransferManager(RobustTransferManager):
             bcs = [DirichletBC(V_patch.sub(i), 0, V_.boundary_set)
                    for i, V_ in enumerate(V_patch) if len(V_.boundary_set) > 0]
 
-        a = form(test, trial)
+        a = replace(form, dict(zip(form.arguments(), (test, trial))))
         problem = LinearVariationalProblem(a, r_patch, u_patch, bcs=bcs, constant_jacobian=True)
         solver = LinearVariationalSolver(problem,
                                          solver_parameters=DEFAULT_PATCH_PARAMETERS,
