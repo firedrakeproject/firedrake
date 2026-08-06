@@ -1473,7 +1473,7 @@ def as_slate(F):
     """
     if isinstance(F, TensorBase):
         return F
-    elif isinstance(F, Form):
+    elif isinstance(F, (Form, ZeroBaseForm)):
         return Tensor(F)
     elif isinstance(F, (Function, Cofunction)):
         return AssembledVector(F)
