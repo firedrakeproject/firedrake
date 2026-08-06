@@ -414,9 +414,10 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
 # NOTE: Some of this code is not specific to loopy, could be refactored
 # This is generally a bit nasty and abstraction breaking because it relies on attrs
 # of the InstructionExecutionContext
-@pyop3.cache.memory_and_disk_cache(
+@pyop3.cache.memory_cache(
     hashkey=_compile_static_hashkey,
     get_comm=lambda op, *a, **kw: op.comm,
+    heavy=True
 )
 def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
