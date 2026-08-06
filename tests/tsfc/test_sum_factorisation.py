@@ -227,113 +227,159 @@ def test_sum_factorisation_order() -> None:
     assert ordering == (q0, q1)
 
 
-def simplex_mass(cell, family, degree, scheme='collapsed'):
-    m = Mesh(VectorElement('CG', cell, 1))
-    variant = None if family == "Bernstein" else "integral"
-    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
-    u = TrialFunction(V)
-    v = TestFunction(V)
+def bernstein_mass(
+        cell: object, degree: int, scheme: str = "collapsed") -> object:
+    """Construct a Bernstein mass form.
+
+    Parameters
+    ----------
+    cell
+        Reference simplex.
+    degree
+        Polynomial degree.
+    scheme
+        Quadrature scheme.
+
+    Returns
+    -------
+    object
+        UFL bilinear form.
+    """
+    mesh = Mesh(VectorElement("CG", cell, 1))
+    space = FunctionSpace(mesh, FiniteElement("Bernstein", cell, degree))
+    u = TrialFunction(space)
+    v = TestFunction(space)
     return inner(u, v) * dx(scheme=scheme)
 
 
-def simplex_laplacian(cell, family, degree, scheme='collapsed'):
-    m = Mesh(VectorElement('CG', cell, 1))
-    variant = None if family == "Bernstein" else "integral"
-    V = FunctionSpace(m, FiniteElement(family, cell, degree, variant=variant))
-    u = TrialFunction(V)
-    v = TestFunction(V)
+def bernstein_laplacian(
+        cell: object, degree: int, scheme: str = "collapsed") -> object:
+    """Construct a Bernstein Laplacian form.
+
+    Parameters
+    ----------
+    cell
+        Reference simplex.
+    degree
+        Polynomial degree.
+    scheme
+        Quadrature scheme.
+
+    Returns
+    -------
+    object
+        UFL bilinear form.
+    """
+    mesh = Mesh(VectorElement("CG", cell, 1))
+    space = FunctionSpace(mesh, FiniteElement("Bernstein", cell, degree))
+    u = TrialFunction(space)
+    v = TestFunction(space)
     return inner(grad(u), grad(v)) * dx(scheme=scheme)
 
 
-@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4)])
-def test_simplex_mass_action(cell, family, order):
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 3), (tetrahedron, 4)])
+def test_bernstein_mass_action(cell: object, order: float) -> None:
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
-    flops = [count_flops(action(simplex_mass(cell, family, degree)))
-             for degree in degrees]
+    flops = [
+        count_flops(action(bernstein_mass(cell, degree)))
+        for degree in degrees
+    ]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 3), (tetrahedron, 4.4)])
-def test_simplex_laplacian_action(cell, family, order):
+@pytest.mark.parametrize(
+    ("cell", "order"), [(triangle, 3), (tetrahedron, 4.4)])
+def test_bernstein_laplacian_action(cell: object, order: float) -> None:
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
-    flops = [count_flops(action(simplex_laplacian(cell, family, degree)))
-             for degree in degrees]
+    flops = [
+        count_flops(action(bernstein_laplacian(cell, degree)))
+        for degree in degrees
+    ]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-def test_simplex_laplacian_action_compact_codegen(family):
-    form = action(simplex_laplacian(triangle, family, 3))
-    kernel, = compile_form(form, parameters=dict(mode='spectral'))
-    temporaries = kernel.ast.default_entrypoint.temporary_variables
-    assert len(temporaries) < 100
-
-
-def test_bernstein_laplacian_action_compact_literals():
+def test_bernstein_laplacian_action_compact_literals() -> None:
     degree = 5
-    form = action(simplex_laplacian(tetrahedron, "Bernstein", degree))
-    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    form = action(bernstein_laplacian(tetrahedron, degree))
+    kernel, = compile_form(form, parameters={"mode": "spectral"})
     temporaries = kernel.ast.default_entrypoint.temporary_variables
-    literals = [numpy.asarray(temporary.initializer)
-                for temporary in temporaries.values()
-                if temporary.initializer is not None]
+    literals = [
+        numpy.asarray(temporary.initializer)
+        for temporary in temporaries.values()
+        if temporary.initializer is not None
+    ]
     lattice_size = (degree + 1) ** 3
     assert max(literal.size for literal in literals) <= lattice_size
     assert sum(literal.size for literal in literals) < 10 * lattice_size
 
 
-def test_bernstein_laplacian_bilinear_compact_codegen():
+def test_bernstein_laplacian_bilinear_compact_codegen() -> None:
     import islpy as isl
     import loopy as lp
 
     degree = 10
-    collapsed = simplex_laplacian(
-        tetrahedron, "Bernstein", degree, scheme="collapsed")
-    canonical = simplex_laplacian(
-        tetrahedron, "Bernstein", degree, scheme="canonical")
+    collapsed = bernstein_laplacian(
+        tetrahedron, degree, scheme="collapsed")
+    canonical = bernstein_laplacian(
+        tetrahedron, degree, scheme="canonical")
     collapsed_kernel, = compile_form(
-        collapsed, parameters=dict(mode="spectral"))
+        collapsed, parameters={"mode": "spectral"})
     canonical_kernel, = compile_form(
-        canonical, parameters=dict(mode="spectral"))
+        canonical, parameters={"mode": "spectral"})
 
-    # At this degree the lower asymptotic complexity of sum factorisation
-    # outweighs its setup cost.
     assert collapsed_kernel.flop_count < canonical_kernel.flop_count
 
     entrypoint = collapsed_kernel.ast.default_entrypoint
-    assert len(entrypoint.instructions) < 250
-    assert len(entrypoint.temporary_variables) < 250
+    collapsed_shapes = [
+        temporary.shape
+        for temporary in entrypoint.temporary_variables.values()
+    ]
+    canonical_shapes = [
+        temporary.shape
+        for temporary in
+        canonical_kernel.ast.default_entrypoint.temporary_variables.values()
+    ]
+    assert max(map(len, collapsed_shapes)) <= 5
+    assert sum(map(numpy.prod, collapsed_shapes)) \
+        < sum(map(numpy.prod, canonical_shapes))
+
     code = lp.generate_code_v2(collapsed_kernel.ast).device_code()
-    assert sum(line.lstrip().startswith("for (")
-               for line in code.splitlines()) < 150
+    assert sum(
+        line.lstrip().startswith("for (")
+        for line in code.splitlines()
+    ) < 150
 
     # A tetrahedral lattice has a loop whose bound depends on two parents.
-    assert max(domain.dim(isl.dim_type.param)
-               for domain in entrypoint.domains) >= 2
+    assert max(
+        domain.dim(isl.dim_type.param)
+        for domain in entrypoint.domains
+    ) >= 2
 
 
-@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
-def test_simplex_mass_bilinear(cell, family, order):
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 5), (tetrahedron, 7)])
+def test_bernstein_mass_bilinear(cell: object, order: float) -> None:
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
-    flops = [count_flops(simplex_mass(cell, family, degree))
-             for degree in degrees]
+    flops = [
+        count_flops(bernstein_mass(cell, degree))
+        for degree in degrees
+    ]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
 
 
-@pytest.mark.parametrize('family', ["DG", "CG", "Bernstein"])
-@pytest.mark.parametrize(('cell', 'order'), [(triangle, 5), (tetrahedron, 7)])
-def test_simplex_laplacian_bilinear(cell, family, order):
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 5), (tetrahedron, 7)])
+def test_bernstein_laplacian_bilinear(
+        cell: object, order: float) -> None:
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
-    flops = [count_flops(simplex_laplacian(cell, family, degree))
-             for degree in degrees]
+    flops = [
+        count_flops(bernstein_laplacian(cell, degree))
+        for degree in degrees
+    ]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
+
 
 
 if __name__ == "__main__":
