@@ -17,8 +17,9 @@ from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import replace, Form
+from ufl import as_ufl, replace, Form
 from functools import cached_property
+from collections.abc import Callable
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -159,6 +160,117 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             return op3.collections.OrderedFrozenSet([d.topology for d in extract_domains(self.F)])
         except:
             return ()
+
+    def rediscretise(self,
+                     F: ufl.BaseForm | slate.TensorBase | None = None,
+                     u: Function | None = None,
+                     bcs: list[DirichletBC | EquationBC] | None = None,
+                     J: ufl.BaseForm | slate.TensorBase | None = None,
+                     Jp: ufl.BaseForm | slate.TensorBase | None = None,
+                     objective: ufl.BaseForm | slate.TensorBase | None = None,
+                     form_compiler_parameters: dict | None = None,
+                     is_linear: bool | None = None,
+                     coefficient_mapping: dict | None = None,
+                     form_transform: Callable | None = None,
+                     homogenize_bcs: bool = False) -> NonlinearVariationalProblem:
+        r"""Reconstruct this problem, optionally on a new function space.
+
+        Any explicitly supplied keyword argument is used as-is; every other
+        piece of the problem is rebuilt from the original one, replacing
+        coefficients according to `coefficient_mapping` and moving the
+        test and trial functions onto `u.function_space()`.
+
+        Parameters
+        ----------
+        F
+            The new residual form, defaults to the reconstructed original residual.
+        u
+            The new solution :class:`.Function`, defaults to the mapped original solution.
+        bcs
+            The new boundary conditions, defaults to the reconstructed original bcs.
+        J
+            The new Jacobian, defaults to the reconstructed original Jacobian.
+        Jp
+            The new preconditioning form, defaults to the reconstructed original one.
+        objective
+            The new objective form, defaults to the reconstructed original objective.
+        form_compiler_parameters
+            The new form compiler parameters, defaults to the original parameters.
+        is_linear
+            Whether the reconstructed forms are given in 'a == L' style,
+            defaults to the original problem's style.
+        coefficient_mapping
+            A dict mapping coefficients of the original problem into those
+            of the reconstructed problem. This is used to update a fresh new dict with
+            the replacement rules for the solution and form arguments.
+        form_transform
+            An optional callable ``form_transform(form, coefficient_mapping)``
+            used instead of `ufl.replace` to reconstruct each UFL form.
+        homogenize_bcs
+            Whether to homogenize the :class:`~.DirichletBC` values.
+
+        Returns
+        -------
+        NonlinearVariationalProblem
+            The reconstructed problem.
+        """
+        if coefficient_mapping is None:
+            coefficient_mapping = {}
+        else:
+            coefficient_mapping = dict(coefficient_mapping)
+
+        if u is None:
+            u = self.u_restrict
+            u = coefficient_mapping.get(u, u)
+        else:
+            coefficient_mapping[self.u_restrict] = u
+
+        function_space = u.function_space()
+        for arg in self.J.arguments():
+            coefficient_mapping[arg] = arg.reconstruct(function_space=function_space)
+
+        if form_transform is None:
+            form_transform = replace
+
+        def _reconstruct_form(form):
+            if isinstance(form, ufl.BaseForm):
+                return form_transform(form, coefficient_mapping)
+            return form
+
+        def _reconstruct_bc(bc):
+            if isinstance(bc, DirichletBC):
+                g = 0 if homogenize_bcs else replace(as_ufl(bc._original_arg), coefficient_mapping)
+                return bc.reconstruct(V=function_space, indices=bc._indices, g=g)
+            elif isinstance(bc, EquationBC):
+                sub_domain = bc._F.sub_domain
+                J = _reconstruct_form(bc._J.f)
+                Jp = _reconstruct_form(bc._Jp.f)
+                bcs = [_reconstruct_bc(bc) for bc in bc.dirichlet_bcs()]
+                lhs = _reconstruct_form(bc.lhs)
+                rhs = _reconstruct_form(bc.rhs)
+                u = coefficient_mapping[bc._F.u]
+                return type(bc)(lhs == rhs, u, sub_domain, V=function_space, bcs=bcs, J=J, Jp=Jp)
+            else:
+                raise TypeError(f"Not expecting a BC of type {type(bc).__name__}")
+
+        if is_linear is None:
+            is_linear = self.is_linear
+        if form_compiler_parameters is None:
+            form_compiler_parameters = self.form_compiler_parameters
+        if bcs is None:
+            bcs = [_reconstruct_bc(bc) for bc in self.bcs]
+        if objective is None:
+            objective = _reconstruct_form(self.E)
+        if F is None:
+            F = _reconstruct_form(self.F)
+        if J is None:
+            J = _reconstruct_form(self.J)
+        if Jp is None:
+            Jp = _reconstruct_form(self.Jp)
+
+        return NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, objective=objective,
+                                           is_linear=is_linear,
+                                           form_compiler_parameters=form_compiler_parameters)
 
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
