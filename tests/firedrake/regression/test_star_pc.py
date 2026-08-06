@@ -4,7 +4,11 @@ import numpy
 import petsctools
 from firedrake import *
 from firedrake.adapt import mark_refined_entities, REFINED_LABEL
+from firedrake.functionspaceimpl import WithGeometry
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.variational_solver import LinearVariationalSolver
+from ufl.core.expr import Expr
 
 
 @pytest.fixture(params=["scalar",
@@ -542,6 +546,15 @@ def test_vanka_coloring():
     assert its[True] == its[False]
 
 
+def _refined_corner_mesh(base: MeshGeometry) -> MeshGeometry:
+    """Refine the corner of ``base`` where the coordinates sum to less than
+    one half, so that most of the mesh is untouched."""
+    x = SpatialCoordinate(base)
+    marker = Function(FunctionSpace(base, "DG", 0))
+    marker.interpolate(conditional(sum(x) < 0.5, 1, 0))
+    return base.refine_marked_elements(marker)
+
+
 @pytest.fixture(params=["square", "cube"])
 def adaptive_mesh(request):
     """A mesh with a single refined corner, so that most of it is untouched."""
@@ -550,11 +563,18 @@ def adaptive_mesh(request):
         base = UnitSquareMesh(6, 6, distribution_parameters=dparams)
     else:
         base = UnitCubeMesh(3, 3, 3, distribution_parameters=dparams)
+    return _refined_corner_mesh(base)
 
-    x = SpatialCoordinate(base)
-    marker = Function(FunctionSpace(base, "DG", 0))
-    marker.interpolate(conditional(sum(x) < 0.5, 1, 0))
-    return base.refine_marked_elements(marker)
+
+@pytest.fixture(params=["square", "cube"])
+def adaptive_vanka_mesh(request):
+    """Like ``adaptive_mesh``, but with the extra overlap Vanka patches need."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
+    if request.param == "square":
+        base = UnitSquareMesh(6, 6, distribution_parameters=dparams)
+    else:
+        base = UnitCubeMesh(3, 3, 3, distribution_parameters=dparams)
+    return _refined_corner_mesh(base)
 
 
 def adaptive_solver(V, parameters):
@@ -612,6 +632,83 @@ def adaptive_patch_parameters(**kwargs):
             "patch_sub_ksp_type": "preonly",
             "patch_sub_pc_type": "lu",
             **{f"patch_pc_patch_{k}": v for k, v in kwargs.items()}}
+
+
+def adaptive_vanka_parameters(**kwargs: object) -> dict:
+    """Parameters driving ASMVankaPC, with ``pc_vanka_`` prefixing every keyword."""
+    return {"mat_type": "aij",
+            "ksp_type": "gmres",
+            "ksp_rtol": 1E-8,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMVankaPC",
+            "pc_vanka_construct_dim": 0,
+            "pc_vanka_exclude_subspaces": "1",
+            **{f"pc_vanka_{k}": v for k, v in kwargs.items()}}
+
+
+def adaptive_vanka_patch_parameters(**kwargs: object) -> dict:
+    """Parameters driving PatchPC with vanka patches, with ``patch_pc_patch_`` prefixing every keyword."""
+    return {"mat_type": "matfree",
+            "ksp_type": "gmres",
+            "ksp_rtol": 1E-8,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_save_operators": True,
+            "patch_pc_patch_construct_type": "vanka",
+            "patch_pc_patch_construct_dim": 0,
+            "patch_pc_patch_exclude_subspaces": "1",
+            "patch_pc_patch_sub_mat_type": "seqdense",
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            **{f"patch_pc_patch_{k}": v for k, v in kwargs.items()}}
+
+
+def taylor_hood_space(mesh: MeshGeometry) -> WithGeometry:
+    """A Taylor-Hood (CG2, CG1) mixed velocity-pressure space on ``mesh``."""
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    return V * Q
+
+
+def stokes_manufactured_solution(mesh: MeshGeometry) -> tuple[Expr, Expr]:
+    """A divergence-free velocity, built as the curl of a potential that
+    vanishes on the boundary, paired with a linear pressure."""
+    gdim = mesh.geometric_dimension
+    x = SpatialCoordinate(mesh)
+    if gdim == 2:
+        psi = x[0]*(1-x[0]) * x[1]*(1-x[1])
+    else:
+        bubble = x[0]*(1-x[0]) * x[1]*(1-x[1]) * x[2]*(1-x[2])
+        psi = as_vector([bubble, bubble, bubble])
+    uexact = curl(psi)
+    pexact = x[0]
+    return uexact, pexact
+
+
+def adaptive_stokes_solver(Z: WithGeometry, parameters: dict) -> LinearVariationalSolver:
+    """Solve a manufactured Stokes problem on the Taylor-Hood space ``Z``,
+    returning the solver so that its iteration count and its patches can be
+    inspected."""
+    mesh = Z.mesh()
+    gdim = mesh.geometric_dimension
+    uexact, pexact = stokes_manufactured_solution(mesh)
+
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+    a = (inner(grad(u), grad(v)) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx)
+    test, trial = a.arguments()
+    L = a(test, as_vector([uexact[i] for i in range(gdim)] + [pexact]))
+    bcs = DirichletBC(Z.sub(0), uexact, "on_boundary")
+
+    zh = Function(Z)
+    problem = LinearVariationalProblem(a, L, zh, bcs=bcs)
+    nsp = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters,
+                                     nullspace=nsp, transpose_nullspace=nsp)
+    solver.solve()
+    return solver
 
 
 def num_asm_patches(solver):
@@ -681,6 +778,42 @@ def test_adaptive_star_is_restricted(adaptive_mesh):
     V = FunctionSpace(adaptive_mesh, "CG", 2)
     every = adaptive_solver(V, adaptive_star_parameters())
     restricted = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    assert 0 < num_asm_patches(restricted) < num_asm_patches(every)
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_vanka_equivalence(adaptive_vanka_mesh):
+    Z = taylor_hood_space(adaptive_vanka_mesh)
+    vanka = adaptive_stokes_solver(Z, adaptive_vanka_parameters(adaptive=True))
+    patch = adaptive_stokes_solver(Z, adaptive_vanka_patch_parameters(adaptive=True))
+    assert vanka.snes.getLinearSolveIterations() == patch.snes.getLinearSolveIterations()
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_vanka_coloring(adaptive_vanka_mesh):
+    Z = taylor_hood_space(adaptive_vanka_mesh)
+    plain = adaptive_stokes_solver(Z, adaptive_vanka_parameters(adaptive=True))
+    colored = adaptive_stokes_solver(Z, adaptive_vanka_parameters(adaptive=True, use_coloring=True))
+    assert plain.snes.getLinearSolveIterations() == colored.snes.getLinearSolveIterations()
+
+    dm = adaptive_vanka_mesh.topology_dm
+    label = dm.getLabel(REFINED_LABEL)
+    vstart, vend = dm.getDepthStratum(0)
+    marked = label.getStratumIS(1).indices
+    vertices = marked[(marked >= vstart) & (marked < vend)]
+    assert num_asm_patches(plain) == len(vertices)
+
+    # Coloring groups the same seeds into fewer, larger patches
+    colors = dm.createColoringLabel(depth=0, distance=3, label=label, value=1)
+    assert num_asm_patches(colored) == len(colors)
+    assert sum(len(color.indices) for color in colors) <= len(vertices)
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_vanka_is_restricted(adaptive_vanka_mesh):
+    Z = taylor_hood_space(adaptive_vanka_mesh)
+    every = adaptive_stokes_solver(Z, adaptive_vanka_parameters())
+    restricted = adaptive_stokes_solver(Z, adaptive_vanka_parameters(adaptive=True))
     assert 0 < num_asm_patches(restricted) < num_asm_patches(every)
 
 
