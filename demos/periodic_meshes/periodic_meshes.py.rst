@@ -173,11 +173,7 @@ The two important arguments are ``layers`` and ``layer_height``, which tell Fire
 
     bc = DirichletBC(V, 0.0, "on_boundary")
 
-    solve(
-        a == L,
-        uh,
-        bcs=bc,
-    )
+    solve(a == L, uh, bcs=bc)
 
     print(f"L2 error = {errornorm(u_exact, uh, norm_type='L2'):.3e}")
     VTKFile("output/cylinder_fd_Helmholtz.pvd").write(uh)
