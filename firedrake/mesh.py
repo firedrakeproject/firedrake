@@ -282,8 +282,8 @@ class _Facets(object):
             with temp_internal_comm(self.mesh.comm) as icomm:
                 num_global_indices = icomm.reduce(len(indices), MPI.SUM, root=0)
                 if num_global_indices == 0 and icomm.rank == 0:
-                    logger.warn(f"Subdomain {markers} is empty. This is likely an error. "
-                                "Did you choose the right label?")
+                    logger.warning(f"Subdomain {markers} is empty. This is likely an error. "
+                                   "Did you choose the right label?")
 
             return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
