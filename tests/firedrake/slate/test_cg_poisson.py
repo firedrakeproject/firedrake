@@ -74,7 +74,7 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
 
     # Set up problem domain
     mesh = UnitSquareMesh(2, 2, quadrilateral=quads)
-    mh = MeshHierarchy(mesh, r-1)
+    mh = MeshHierarchy(mesh, r-1, coarse_facet_label=999)
     mesh = mh[-1]
     x = SpatialCoordinate(mesh)
     u_exact = sin(x[0]*pi)*sin(x[1]*pi)
@@ -109,6 +109,7 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs, aP=aP)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.set_transfer_manager(CoarsePatchTransferManager())
     solver.snes.ksp.setErrorIfNotConverged(True)
     solver.solve()
 
