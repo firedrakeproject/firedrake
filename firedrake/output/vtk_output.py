@@ -11,12 +11,12 @@ from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
-
 from .paraview_reordering import *
 
-__all__ = ("VTKFile", )
+__all__ = ("VTKFile",)
 
 
+VTK_VERTEX = 1
 VTK_INTERVAL = 3
 VTK_TRIANGLE = 5
 VTK_QUADRILATERAL = 9
@@ -32,13 +32,11 @@ VTK_LAGRANGE_HEXAHEDRON = 72
 VTK_LAGRANGE_WEDGE = 73
 
 
-ufl_quad = ufl.TensorProductCell(ufl.Cell("interval"),
-                                 ufl.Cell("interval"))
-ufl_wedge = ufl.TensorProductCell(ufl.Cell("triangle"),
-                                  ufl.Cell("interval"))
-ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"),
-                                ufl.Cell("interval"))
+ufl_quad = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
+ufl_wedge = ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval"))
+ufl_hex = ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval"))
 cells = {
+    (ufl.Cell("vertex"), False): VTK_VERTEX,
     (ufl.Cell("interval"), False): VTK_INTERVAL,
     (ufl.Cell("interval"), True): VTK_LAGRANGE_CURVE,
     (ufl.Cell("triangle"), False): VTK_TRIANGLE,
@@ -101,7 +99,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     :returns: A ufl element containing all elements.
     """
     try:
-        cell, = set(e.cell for e in elements)
+        (cell,) = set(e.cell for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
@@ -113,8 +111,11 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
         else:
             family = "DQ"
     return finat.ufl.FiniteElement(
-        family, cell=cell, degree=degree if max_degree is None else max_degree,
-        variant="equispaced")
+        family,
+        cell=cell,
+        degree=degree if max_degree is None else max_degree,
+        variant="equispaced",
+    )
 
 
 @PETSc.Log.EventDecorator()
@@ -184,6 +185,8 @@ def get_topology(coordinates):
     elif cells[cell, nonLinear] == VTK_LAGRANGE_WEDGE:
         perm = vtk_lagrange_wedge_reorder(V.ufl_element())
         values = values[:, perm]
+    elif cells[cell, nonLinear] == VTK_VERTEX:
+        pass
     elif cells.get((cell, nonLinear)) is None:
         # Never reached, but let's be safe.
         raise ValueError("Unhandled cell type %r" % cell)
@@ -201,8 +204,10 @@ def get_topology(coordinates):
             cell_layers = layers[:, 1] - layers[:, 0] - 1
 
             def vrange(cell_layers):
-                return numpy.repeat(cell_layers - cell_layers.cumsum(),
-                                    cell_layers) + numpy.arange(cell_layers.sum())
+                return numpy.repeat(
+                    cell_layers - cell_layers.cumsum(), cell_layers
+                ) + numpy.arange(cell_layers.sum())
+
             offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
             num_cells = cell_layers.sum()
         else:
@@ -215,41 +220,47 @@ def get_topology(coordinates):
     con = connectivity + offsets
     connectivity = con.flatten()
     if not nonLinear:
-        offsets_into_con = numpy.arange(start=cell.num_vertices,
-                                        stop=cell.num_vertices * (num_cells + 1),
-                                        step=cell.num_vertices,
-                                        dtype=IntType)
+        offsets_into_con = numpy.arange(
+            start=cell.num_vertices,
+            stop=cell.num_vertices * (num_cells + 1),
+            step=cell.num_vertices,
+            dtype=IntType,
+        )
     else:
-        offsets_into_con = numpy.arange(start=basis_dim,
-                                        stop=basis_dim * (num_cells + 1),
-                                        step=basis_dim,
-                                        dtype=IntType)
+        offsets_into_con = numpy.arange(
+            start=basis_dim,
+            stop=basis_dim * (num_cells + 1),
+            step=basis_dim,
+            dtype=IntType,
+        )
     cell_types = numpy.full(num_cells, cells[cell, nonLinear], dtype="uint8")
-    return (OFunction(connectivity, "connectivity", None),
-            OFunction(offsets_into_con, "offsets", None),
-            OFunction(cell_types, "types", None))
+    return (
+        OFunction(connectivity, "connectivity", None),
+        OFunction(offsets_into_con, "offsets", None),
+        OFunction(cell_types, "types", None),
+    )
 
 
 def get_byte_order(dtype):
     import sys
+
     native = {"little": "LittleEndian", "big": "BigEndian"}[sys.byteorder]
-    return {"=": native,
-            "|": "LittleEndian",
-            "<": "LittleEndian",
-            ">": "BigEndian"}[dtype.byteorder]
+    return {"=": native, "|": "LittleEndian", "<": "LittleEndian", ">": "BigEndian"}[
+        dtype.byteorder
+    ]
 
 
 def prepare_ofunction(ofunction, real):
     array, name, _ = ofunction
     if array.dtype.kind == "c":
         if real:
-            arrays = (array.real, )
-            names = (name, )
+            arrays = (array.real,)
+            names = (name,)
         else:
             arrays = (array.real, array.imag)
             names = (name + " (real part)", name + " (imaginary part)")
     else:
-        arrays = (array, )
+        arrays = (array,)
         names = (name,)
     return arrays, names
 
@@ -268,33 +279,41 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False
     nbytes = 0
     for array, name in zip(arrays, names):
         shape = array.shape[1:]
-        ncmp = {0: "",
-                1: "3",
-                2: "9"}[len(shape)]
-        typ = {numpy.dtype("float32"): "Float32",
-               numpy.dtype("float64"): "Float64",
-               numpy.dtype("int32"): "Int32",
-               numpy.dtype("int64"): "Int64",
-               numpy.dtype("uint8"): "UInt8"}[array.dtype]
+        ncmp = {0: "", 1: "3", 2: "9"}[len(shape)]
+        typ = {
+            numpy.dtype("float32"): "Float32",
+            numpy.dtype("float64"): "Float64",
+            numpy.dtype("int32"): "Int32",
+            numpy.dtype("int64"): "Int64",
+            numpy.dtype("uint8"): "UInt8",
+        }[array.dtype]
         if parallel:
-            f.write(('<PDataArray Name="%s" type="%s" '
-                     'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
+            f.write(
+                (
+                    '<PDataArray Name="%s" type="%s" '
+                    'NumberOfComponents="%s" />' % (name, typ, ncmp)
+                ).encode("ascii")
+            )
         else:
             if offset is None:
                 raise ValueError("Must provide offset")
             offset += nbytes
-            nbytes += (4 + array.nbytes)  # 4 is for the array size (uint32)
-            f.write(('<DataArray Name="%s" type="%s" '
-                     'NumberOfComponents="%s" '
-                     'format="appended" '
-                     'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
+            nbytes += 4 + array.nbytes  # 4 is for the array size (uint32)
+            f.write(
+                (
+                    '<DataArray Name="%s" type="%s" '
+                    'NumberOfComponents="%s" '
+                    'format="appended" '
+                    'offset="%d" />\n' % (name, typ, ncmp, offset)
+                ).encode("ascii")
+            )
     return nbytes
 
 
 def active_field_attributes(ofunctions):
     # select first function of each rank present as "active field"
     # and return the corresponding attributes for the (P)PointData element
-    s = ''
+    s = ""
     ranks = set()
     for ofunction in ofunctions:
         array, name, _ = ofunction
@@ -308,7 +327,7 @@ def active_field_attributes(ofunctions):
             s += ' Vectors="%s"' % name
         elif rank == 2:
             s += ' Tensors="%s"' % name
-    return s.encode('ascii')
+    return s.encode("ascii")
 
 
 def get_vtu_name(basename, rank, size):
@@ -332,31 +351,44 @@ def get_array(function):
         pass
     elif len(shape) == 1:
         # Vectors must be padded to three components
-        reshape = (-1, ) + shape
-        if shape != (3, ):
-            array = numpy.pad(array.reshape(reshape), ((0, 0), (0, 3 - shape[0])),
-                              mode="constant")
+        reshape = (-1,) + shape
+        if shape != (3,):
+            array = numpy.pad(
+                array.reshape(reshape), ((0, 0), (0, 3 - shape[0])), mode="constant"
+            )
     elif len(shape) == 2:
         # Tensors must be padded to 3x3.
-        reshape = (-1, ) + shape
+        reshape = (-1,) + shape
         if shape != (3, 3):
-            array = numpy.pad(array.reshape(reshape), ((0, 0), (0, 3 - shape[0]), (0, 3 - shape[1])),
-                              mode="constant")
+            array = numpy.pad(
+                array.reshape(reshape),
+                ((0, 0), (0, 3 - shape[0]), (0, 3 - shape[1])),
+                mode="constant",
+            )
     else:
-        raise ValueError("Can't write data with shape %s" % (shape, ))
+        raise ValueError("Can't write data with shape %s" % (shape,))
     return array
 
 
 class VTKFile:
-    _header = (b'<?xml version="1.0" ?>\n'
-               b'<VTKFile type="Collection" version="0.1" '
-               b'byte_order="LittleEndian">\n'
-               b'<Collection>\n')
-    _footer = (b'</Collection>\n'
-               b'</VTKFile>\n')
+    _header = (
+        b'<?xml version="1.0" ?>\n'
+        b'<VTKFile type="Collection" version="0.1" '
+        b'byte_order="LittleEndian">\n'
+        b"<Collection>\n"
+    )
+    _footer = b"</Collection>\n" b"</VTKFile>\n"
 
-    def __init__(self, filename, project_output=False, comm=None, mode="w",
-                 target_degree=None, target_continuity=None, adaptive=False):
+    def __init__(
+        self,
+        filename,
+        project_output=False,
+        comm=None,
+        mode="w",
+        target_degree=None,
+        target_continuity=None,
+        adaptive=False,
+    ):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -384,7 +416,7 @@ class VTKFile:
         """
         filename = os.path.abspath(filename)
         basename, ext = os.path.splitext(filename)
-        if ext not in (".pvd", ):
+        if ext not in (".pvd",):
             raise ValueError("Only output to PVD is supported")
 
         if mode not in ["w", "a"]:
@@ -429,6 +461,7 @@ class VTKFile:
                 f.write(self._footer)
         elif self.comm.rank == 0 and mode == "a":
             import xml.etree.ElementTree as ElTree
+
             tree = ElTree.parse(os.path.abspath(filename))
             # Count how many the file already has
             for parent in tree.iter():
@@ -451,15 +484,19 @@ class VTKFile:
 
     @no_annotations
     def _prepare_output(self, function, max_elem):
-        from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function, Cofunction
+        from firedrake import (
+            FunctionSpace,
+            VectorFunctionSpace,
+            TensorFunctionSpace,
+            Function,
+            Cofunction,
+        )
 
         name = function.name()
         # Need to project/interpolate?
         # If space is not the max element, we must do so.
         if function.function_space().ufl_element() == max_elem:
-            return OFunction(array=get_array(function),
-                             name=name, function=function)
+            return OFunction(array=get_array(function), name=name, function=function)
         #  OK, let's go and do it.
         # Build appropriate space for output function.
         shape = function.ufl_shape
@@ -468,15 +505,17 @@ class VTKFile:
         elif len(shape) == 1:
             if numpy.prod(shape) > 3:
                 raise ValueError("Can't write vectors with more than 3 components")
-            V = VectorFunctionSpace(extract_unique_domain(function), max_elem,
-                                    dim=shape[0])
+            V = VectorFunctionSpace(
+                extract_unique_domain(function), max_elem, dim=shape[0]
+            )
         elif len(shape) == 2:
             if numpy.prod(shape) > 9:
                 raise ValueError("Can't write tensors with more than 9 components")
-            V = TensorFunctionSpace(extract_unique_domain(function), max_elem,
-                                    shape=shape)
+            V = TensorFunctionSpace(
+                extract_unique_domain(function), max_elem, shape=shape
+            )
         else:
-            raise ValueError("Unsupported shape %s" % (shape, ))
+            raise ValueError("Unsupported shape %s" % (shape,))
         if isinstance(function, Function):
             output = Function(V)
         else:
@@ -498,18 +537,25 @@ class VTKFile:
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
             from firedrake.functionspace import FunctionSpace
+
             mesh = functions[0]
-            V = FunctionSpace(mesh, "CG", 1)
+            if mesh.topological_dimension > 0:
+                V = FunctionSpace(mesh, "CG", 1)
+            else:
+                V = FunctionSpace(mesh, "DG", 0)
             functions = [Function(V)]
 
         for f in functions:
             if not isinstance(f, (Function, Cofunction)):
-                raise ValueError(f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}")
+                raise ValueError(
+                    f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}"
+                )
         meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
 
         mesh = meshes[0]
+
         cell = mesh.topology.ufl_cell()
         if (cell, True) not in cells and (cell, False) not in cells:
             raise ValueError("Unhandled cell type %r" % cell)
@@ -519,25 +565,45 @@ class VTKFile:
                 raise ValueError("Writing different set of functions")
         else:
             self._fnames = tuple(f.name() for f in functions)
-        continuous = all(is_cg(f.function_space()) for f in functions) and \
-            is_cg(mesh.coordinates.function_space())
-        if self.target_continuity is not None:
-            continuous = self.target_continuity == ufl.H1
-        # Since Points define nodes for both the mesh and function, we must
-        # interpolate/project ALL involved elements onto a single larger
-        # finite element.
-        mesh_elem = mesh.coordinates.ufl_element()
-        max_elem = get_sup_element(mesh_elem, *(f.ufl_element()
-                                                for f in functions),
-                                   continuous=continuous,
-                                   max_degree=self.target_degree)
-        coordinates = self._prepare_output(mesh.coordinates, max_elem)
 
-        functions = tuple(self._prepare_output(f, max_elem)
-                          for f in functions)
+        if mesh.topological_dimension == 0:
+            coordinates = OFunction(
+                array=get_array(mesh.coordinates),
+                name=mesh.coordinates.name(),
+                function=mesh.coordinates,
+            )
+            functions = tuple(
+                OFunction(array=get_array(f), name=f.name(), function=f)
+                for f in functions
+            )
 
-        if self._topology is None or self._adaptive:
+            # Write the persistent particle ID
+            pids = mesh._particle_ids
+            functions += (OFunction(array=get_array(pids), name=pids.name(), function=pids),)
+
             self._topology = get_topology(coordinates.function)
+        else:
+            continuous = all(is_cg(f.function_space()) for f in functions) and is_cg(
+                mesh.coordinates.function_space()
+            )
+            if self.target_continuity is not None:
+                continuous = self.target_continuity == ufl.H1
+            # Since Points define nodes for both the mesh and function, we must
+            # interpolate/project ALL involved elements onto a single larger
+            # finite element.
+            mesh_elem = mesh.coordinates.ufl_element()
+            max_elem = get_sup_element(
+                mesh_elem,
+                *(f.ufl_element() for f in functions),
+                continuous=continuous,
+                max_degree=self.target_degree,
+            )
+            coordinates = self._prepare_output(mesh.coordinates, max_elem)
+
+            functions = tuple(self._prepare_output(f, max_elem) for f in functions)
+
+            if self._topology is None or self._adaptive:
+                self._topology = get_topology(coordinates.function)
 
         basename = f"{self.vtu_basename}_{next(self.counter)}"
 
@@ -548,9 +614,7 @@ class VTKFile:
 
         return vtu
 
-    def _write_single_vtu(self, basename,
-                          coordinates,
-                          *functions):
+    def _write_single_vtu(self, basename, coordinates, *functions):
         connectivity, offsets, types = self._topology
         num_points = coordinates.array.shape[0]
         num_cells = types.array.shape[0]
@@ -559,83 +623,91 @@ class VTKFile:
             # Running offset for appended data
             offset = 0
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="UnstructuredGrid" version="2.2" '
-                    b'byte_order="LittleEndian" '
-                    b'header_type="UInt32">\n')
-            f.write(b'<UnstructuredGrid>\n')
+            f.write(
+                b'<VTKFile type="UnstructuredGrid" version="2.2" '
+                b'byte_order="LittleEndian" '
+                b'header_type="UInt32">\n'
+            )
+            f.write(b"<UnstructuredGrid>\n")
 
-            f.write(('<Piece NumberOfPoints="%d" '
-                     'NumberOfCells="%d">\n' % (num_points, num_cells)).encode('ascii'))
-            f.write(b'<Points>\n')
+            f.write(
+                (
+                    '<Piece NumberOfPoints="%d" '
+                    'NumberOfCells="%d">\n' % (num_points, num_cells)
+                ).encode("ascii")
+            )
+            f.write(b"<Points>\n")
             # Vertex coordinates
             offset += write_array_descriptor(f, coordinates, offset=offset, real=True)
-            f.write(b'</Points>\n')
+            f.write(b"</Points>\n")
 
-            f.write(b'<Cells>\n')
+            f.write(b"<Cells>\n")
             offset += write_array_descriptor(f, connectivity, offset=offset)
             offset += write_array_descriptor(f, offsets, offset=offset)
             offset += write_array_descriptor(f, types, offset=offset)
-            f.write(b'</Cells>\n')
+            f.write(b"</Cells>\n")
 
-            f.write(b'<PointData%s>\n' % active_field_attributes(functions))
+            f.write(b"<PointData%s>\n" % active_field_attributes(functions))
             for function in functions:
                 offset += write_array_descriptor(f, function, offset=offset)
-            f.write(b'</PointData>\n')
+            f.write(b"</PointData>\n")
 
-            f.write(b'</Piece>\n')
-            f.write(b'</UnstructuredGrid>\n')
+            f.write(b"</Piece>\n")
+            f.write(b"</UnstructuredGrid>\n")
 
             f.write(b'<AppendedData encoding="raw">\n')
             # Appended data must start with "_", separating whitespace
             # from data
-            f.write(b'_')
+            f.write(b"_")
             write_array(f, coordinates, real=True)
             write_array(f, connectivity)
             write_array(f, offsets)
             write_array(f, types)
             for function in functions:
                 write_array(f, function)
-            f.write(b'\n</AppendedData>\n')
+            f.write(b"\n</AppendedData>\n")
 
-            f.write(b'</VTKFile>\n')
+            f.write(b"</VTKFile>\n")
         return fname
 
-    def _write_single_pvtu(self, basename,
-                           coordinates,
-                           *functions):
+    def _write_single_pvtu(self, basename, coordinates, *functions):
         connectivity, offsets, types = self._topology
         fname = get_pvtu_name(basename)
         with open(fname, "wb") as f:
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="PUnstructuredGrid" version="2.2" '
-                    b'byte_order="LittleEndian">\n')
-            f.write(b'<PUnstructuredGrid>\n')
+            f.write(
+                b'<VTKFile type="PUnstructuredGrid" version="2.2" '
+                b'byte_order="LittleEndian">\n'
+            )
+            f.write(b"<PUnstructuredGrid>\n")
 
-            f.write(b'<PPoints>\n')
+            f.write(b"<PPoints>\n")
             # Vertex coordinates
             write_array_descriptor(f, coordinates, parallel=True, real=True)
-            f.write(b'</PPoints>\n')
+            f.write(b"</PPoints>\n")
 
-            f.write(b'<PCells>\n')
+            f.write(b"<PCells>\n")
             write_array_descriptor(f, connectivity, parallel=True)
             write_array_descriptor(f, offsets, parallel=True)
             write_array_descriptor(f, types, parallel=True)
-            f.write(b'</PCells>\n')
+            f.write(b"</PCells>\n")
 
-            f.write(b'<PPointData%s>\n' % active_field_attributes(functions))
+            f.write(b"<PPointData%s>\n" % active_field_attributes(functions))
             for function in functions:
                 write_array_descriptor(f, function, parallel=True)
-            f.write(b'</PPointData>\n')
+            f.write(b"</PPointData>\n")
 
             size = self.comm.size
             for rank in range(size):
                 # need a relative path so files can be moved around:
-                vtu_name = os.path.relpath(get_vtu_name(basename, rank, size),
-                                           os.path.dirname(self.vtu_basename))
-                f.write(('<Piece Source="%s" />\n' % vtu_name).encode('ascii'))
+                vtu_name = os.path.relpath(
+                    get_vtu_name(basename, rank, size),
+                    os.path.dirname(self.vtu_basename),
+                )
+                f.write(('<Piece Source="%s" />\n' % vtu_name).encode("ascii"))
 
-            f.write(b'</PUnstructuredGrid>\n')
-            f.write(b'</VTKFile>\n')
+            f.write(b"</PUnstructuredGrid>\n")
+            f.write(b"</VTKFile>\n")
         return fname
 
     @PETSc.Log.EventDecorator()
@@ -662,7 +734,10 @@ class VTKFile:
                 # Seek backwards from end to beginning of footer
                 f.seek(-len(self._footer), 2)
                 # Write new dataset name
-                f.write(('<DataSet timestep="%s" '
-                         'file="%s" />\n' % (time, vtu)).encode('ascii'))
+                f.write(
+                    ('<DataSet timestep="%s" ' 'file="%s" />\n' % (time, vtu)).encode(
+                        "ascii"
+                    )
+                )
                 # And add footer again, so that the file is valid
                 f.write(self._footer)
