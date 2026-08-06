@@ -32,6 +32,7 @@ from itertools import chain, count
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.replace import replace
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
@@ -654,29 +655,103 @@ class Block(TensorBase):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only extract blocks of Slate tensors.")
 
+        indices = tuple(map(as_tuple, indices))
+
         if len(indices) != tensor.rank:
             raise ValueError("Length of indices must be equal to the tensor rank.")
 
         if not all(0 <= i < len(arg.function_space())
-                   for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
+                   for arg, idx in zip(tensor.arguments(), indices) for i in idx):
             raise ValueError("Indices out of range.")
 
         if not tensor.is_mixed:
             return tensor
 
+        # Eagerly push the block selection through operations that
+        # commute with it, so that a Block always sits directly on a
+        # terminal Tensor/AssembledVector, or else on the innermost
+        # sub-expression that block-selection cannot be pushed through
+        # (e.g. Inverse, Solve, Factorization). This keeps a single
+        # Block from ever wrapping an entire, unrelated composite
+        # expression (which would leave `.form` inaccessible and any
+        # UFL substitution keyed off `.arguments()` unable to match
+        # anything actually inside the wrapped expression).
+        if isinstance(tensor, Block):
+            wrapped, = tensor.operands
+            composed = tuple(tuple(i for i in own if i in req)
+                             for req, own in zip(indices, tensor._indices))
+            return Block(wrapped, composed)
+
+        if not tensor.terminal:
+            if isinstance(tensor, Add):
+                A, B = tensor.operands
+                return Block(A, indices) + Block(B, indices)
+            if isinstance(tensor, Negative):
+                A, = tensor.operands
+                return -Block(A, indices)
+            if isinstance(tensor, Transpose):
+                A, = tensor.operands
+                return Block(A, indices[::-1]).T
+            if isinstance(tensor, Mul) and len(indices) == 2 and tensor.operands[0].rank == 2 and tensor.operands[1].rank == 2:
+                A, B = tensor.operands
+                row, col = indices
+                full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+                full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+                return Block(A, (row, full_col_A)) * Block(B, (full_row_B, col))
+
         return super().__new__(cls)
 
     def __init__(self, tensor, indices):
         """Constructor for the Block class."""
+        if self._initialised:
+            # __new__ may have shortcut by eagerly pushing the block
+            # selection down (e.g. composing with an existing Block, or
+            # recursing through Add/Mul/...), returning an already
+            # constructed, already-initialised Block. Python then
+            # re-invokes __init__ on that pre-existing object with the
+            # original, unsimplified arguments; skip re-running the
+            # constructor so we don't clobber it back to that state.
+            return
         super(Block, self).__init__()
         indices = tuple(map(as_tuple, indices))
         self.operands = (tensor,)
         self._blocks = dict(enumerate(indices))
         self._indices = indices
+        self._initialised = True
 
     def reconstruct(self, tensor, indices=None):
         """Reconstructs this TensorBase with new operands."""
         return Block(tensor, indices=indices or self._indices)
+
+    @cached_property
+    def _has_ufl_form(self):
+        """Whether `.form` is a genuine UFL Form on which UFL DAG
+        algorithms (such as `ufl.replace`) can operate directly."""
+        tensor, = self.operands
+        return tensor.terminal and not tensor.assembled
+
+    @property
+    def ufl_operands(self):
+        # A Block on a Tensor is terminal in the Slate DAG (its
+        # `operands` is the whole, unsplit wrapped tensor), but for
+        # generic UFL DAG algorithms it must expose exactly the
+        # Arguments/Coefficients that appear in its already-split
+        # `.form`, since that is what any substitution mapping keyed by
+        # `self.arguments()` will be built from.
+        if self._has_ufl_form:
+            form = self.form
+            return form.arguments() + form.coefficients()
+        return self.operands
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        if self._has_ufl_form:
+            mapping = {old: new for old, new in zip(self.ufl_operands, operands) if old is not new}
+            if not mapping:
+                return self
+            return as_slate(replace(self.form, mapping))
+        if len(operands) == 0:
+            return self
+        return self.reconstruct(*operands)
 
     @cached_property
     def terminal(self):
@@ -703,6 +778,8 @@ class Block(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
+        if self._has_ufl_form:
+            return self.form.arguments()
         return self._split_arguments
 
     @cached_property
@@ -919,6 +996,20 @@ class Tensor(TensorBase):
     def reconstruct(self, form, diagonal=None):
         """Reconstructs this TensorBase with new operands."""
         return Tensor(form, diagonal=diagonal or self.diagonal)
+
+    @property
+    def ufl_operands(self):
+        # A Tensor is terminal in the Slate DAG (its `operands` are
+        # empty), but it wraps a UFL Form whose Arguments/Coefficients
+        # must still be visible to generic UFL DAG algorithms such as
+        # `ufl.replace`.
+        return self.form.arguments() + self.form.coefficients()
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        mapping = {old: new for old, new in zip(self.ufl_operands, operands) if old is not new}
+        if not mapping:
+            return self
+        return self.reconstruct(replace(self.form, mapping))
 
     @cached_property
     def arg_function_spaces(self):
