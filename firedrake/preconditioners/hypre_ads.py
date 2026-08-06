@@ -37,9 +37,12 @@ class HypreADS(PCBase):
             NC1_element = TensorElement(NC1_element, shape=V.shape)
             P1_element = TensorElement(P1_element, shape=V.shape)
 
-        NC1 = V.collapse().reconstruct(element=NC1_element)
-        P1 = V.collapse().reconstruct(element=P1_element)
-        VectorP1 = V.collapse().reconstruct(element=coords_element)
+        # NC1 = V.collapse().reconstruct(element=NC1_element)
+        # P1 = V.collapse().reconstruct(element=P1_element)
+        # VectorP1 = V.collapse().reconstruct(element=coords_element)
+        NC1 = V.reconstruct(element=NC1_element)
+        P1 = V.reconstruct(element=P1_element)
+        VectorP1 = V.reconstruct(element=coords_element)
 
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:

@@ -53,6 +53,7 @@ def get_function_space(dm):
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
     """
+    return dm.getAttr("__fs_info__")
     info = dm.getAttr("__fs_info__")
     meshref_tuple, element, indices, (name, names), boundary_sets = info
     if len(meshref_tuple) == 1:
@@ -84,6 +85,8 @@ def set_function_space(dm, V):
        This stores the information necessary to make a function space given a DM.
 
     """
+    dm.setAttr("__fs_info__", V.collapse())
+    return
     indices = []
     names = []
     while V.parent is not None:
