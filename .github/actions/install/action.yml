@@ -85,7 +85,11 @@ runs:
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          : # DROP BEFORE MERGE: petsc/petsc!9481, the tip of the stack !9480 -> !9414 -> !9481,
+          : # which adds -pc_patch_construct_label and DMPlexTransformCreateSplitCellLabel()
+          git clone --depth 1 \
+            --branch pbrubeck/plex-transform-split-cells \
+            https://gitlab.com/petsc/petsc.git
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
             --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \

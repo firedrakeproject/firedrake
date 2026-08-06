@@ -1,7 +1,10 @@
 import pytest
 import warnings
+import numpy
+import petsctools
 from firedrake import *
-from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
+from firedrake.adapt import mark_refined_entities, REFINED_LABEL
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
@@ -526,8 +529,10 @@ def test_vanka_coloring():
 
         if color:
             plex = mesh.topology_dm
-            PETSc.Options().setValue("mat_coloring_type", "power")
-            colors = plex.createColoring(depth=0, distance=3)
+            parameters = {"mat_coloring_type": "power"}
+            with petsctools.inserted_options(parameters=parameters,
+                                             options_prefix="dm_plex_coloring_"):
+                colors = plex.createColoring(depth=0, distance=3)
             expected = len(colors)
         else:
             pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()
@@ -535,3 +540,159 @@ def test_vanka_coloring():
         assert npatches == expected
 
     assert its[True] == its[False]
+
+
+@pytest.fixture(params=["square", "cube"])
+def adaptive_mesh(request):
+    """A mesh with a single refined corner, so that most of it is untouched."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    if request.param == "square":
+        base = UnitSquareMesh(6, 6, distribution_parameters=dparams)
+    else:
+        base = UnitCubeMesh(3, 3, 3, distribution_parameters=dparams)
+
+    x = SpatialCoordinate(base)
+    marker = Function(FunctionSpace(base, "DG", 0))
+    marker.interpolate(conditional(sum(x) < 0.5, 1, 0))
+    return base.refine_marked_elements(marker)
+
+
+def adaptive_solver(V, parameters):
+    """Solve a Poisson problem, returning the solver so that its iteration
+    count and its patches can be inspected.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.FunctionSpace
+        The space to solve in.
+    parameters : dict
+        The solver parameters.
+
+    Returns
+    -------
+    firedrake.variational_solver.LinearVariationalSolver
+        The solver, after the solve.
+
+    """
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(1), v) * dx
+    bcs = DirichletBC(V, zero(), "on_boundary")
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    solver.solve()
+    return solver
+
+
+def adaptive_star_parameters(**kwargs):
+    """Parameters driving ASMStarPC, with ``pc_star_`` prefixing every keyword."""
+    return {"mat_type": "aij",
+            "ksp_type": "cg",
+            "ksp_rtol": 1E-8,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.ASMStarPC",
+            "pc_star_construct_dim": 0,
+            **{f"pc_star_{k}": v for k, v in kwargs.items()}}
+
+
+def adaptive_patch_parameters(**kwargs):
+    """Parameters driving PatchPC, with ``patch_pc_patch_`` prefixing every keyword."""
+    return {"mat_type": "matfree",
+            "ksp_type": "cg",
+            "ksp_rtol": 1E-8,
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_save_operators": True,
+            "patch_pc_patch_construct_type": "star",
+            "patch_pc_patch_construct_dim": 0,
+            "patch_pc_patch_sub_mat_type": "seqdense",
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            **{f"patch_pc_patch_{k}": v for k, v in kwargs.items()}}
+
+
+def num_asm_patches(solver):
+    """The number of patches the ASM preconditioner of a solver holds."""
+    return len(solver.snes.ksp.pc.getPythonContext().asmpc.getASMSubKSP())
+
+
+def test_adaptive_marked_entities(adaptive_mesh):
+    dm = adaptive_mesh.topology_dm
+    label = mark_refined_entities(adaptive_mesh)
+    assert dm.hasLabel(REFINED_LABEL)
+
+    # A cell is genuinely split when its parent has more than one child
+    coarse_to_fine, fine_to_coarse = adaptive_mesh.adaptive_cell_maps
+    nchildren = numpy.count_nonzero(coarse_to_fine >= 0, axis=1)
+    parent = fine_to_coarse[:, 0]
+    split = parent >= 0
+    split[split] = nchildren[parent[split]] > 1
+    # Only a corner was refined, so this must be a proper, nonempty subset
+    assert 0 < numpy.count_nonzero(split) < len(split)
+
+    marked = label.getStratumIS(1).indices
+    cstart, cend = dm.getHeightStratum(0)
+    cells = marked[(marked >= cstart) & (marked < cend)]
+    assert len(cells) == numpy.count_nonzero(split[:adaptive_mesh.cell_set.size])
+
+    vstart, vend = dm.getDepthStratum(0)
+    vertices = marked[(marked >= vstart) & (marked < vend)]
+    assert 0 < len(vertices) < vend - vstart
+
+    # The marked points are already closed under taking the closure
+    size = label.getStratumSize(1)
+    dm.labelComplete(label)
+    assert label.getStratumSize(1) == size
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_star_equivalence(adaptive_mesh):
+    V = FunctionSpace(adaptive_mesh, "CG", 2)
+    star = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    patch = adaptive_solver(V, adaptive_patch_parameters(adaptive=True))
+    assert star.snes.getLinearSolveIterations() == patch.snes.getLinearSolveIterations()
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_star_coloring(adaptive_mesh):
+    V = FunctionSpace(adaptive_mesh, "CG", 2)
+    plain = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    colored = adaptive_solver(V, adaptive_star_parameters(adaptive=True, use_coloring=True))
+    assert plain.snes.getLinearSolveIterations() == colored.snes.getLinearSolveIterations()
+
+    dm = adaptive_mesh.topology_dm
+    label = dm.getLabel(REFINED_LABEL)
+    vstart, vend = dm.getDepthStratum(0)
+    marked = label.getStratumIS(1).indices
+    vertices = marked[(marked >= vstart) & (marked < vend)]
+    assert num_asm_patches(plain) == len(vertices)
+
+    # Coloring groups the same seeds into fewer, larger patches
+    colors = dm.createColoringLabel(depth=0, distance=1, label=label, value=1)
+    assert num_asm_patches(colored) == len(colors)
+    assert sum(len(color.indices) for color in colors) <= len(vertices)
+
+
+@pytest.mark.parallel([1, 3])
+def test_adaptive_star_is_restricted(adaptive_mesh):
+    V = FunctionSpace(adaptive_mesh, "CG", 2)
+    every = adaptive_solver(V, adaptive_star_parameters())
+    restricted = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    assert 0 < num_asm_patches(restricted) < num_asm_patches(every)
+
+
+def test_uniform_mesh_has_no_refined_region():
+    # A mesh with no adaptive parent, such as the coarsest mesh of a hierarchy or a
+    # uniformly refined level, has no refined region to single out
+    mesh = UnitSquareMesh(3, 3)
+    assert mark_refined_entities(mesh) is None
+
+    # so a smoother restricted to that region must relax everywhere instead
+    V = FunctionSpace(mesh, "CG", 2)
+    every = adaptive_solver(V, adaptive_star_parameters())
+    adaptive = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    assert num_asm_patches(adaptive) == num_asm_patches(every)
+    assert every.snes.getLinearSolveIterations() == adaptive.snes.getLinearSolveIterations()
