@@ -7,9 +7,8 @@ from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
-import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
 from numbers import Number
 from functools import partial, cached_property
@@ -37,7 +36,7 @@ __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", as_ctypes(IntType)),
-                ("extruded", c_int),
+                ("extruded", c_bool),
                 ("n_layers", as_ctypes(IntType)),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
@@ -273,9 +272,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         ufl.Coefficient.__init__(
             self, self.function_space().ufl_function_space(), count=count
         )
-
-        # LRU cache for expressions assembled onto this function
-        self._expression_cache = cachetools.LRUCache(maxsize=50)
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -653,6 +649,10 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+            elif err == -2:
+                raise RuntimeError("Rtree query failed.")
+            elif err != 0:
+                raise RuntimeError(f"C point evaluator failed with error code {err}")
 
         if not len(arg.shape) <= 2:
             raise ValueError("Function.at expects point or array of points.")

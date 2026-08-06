@@ -35,12 +35,32 @@ def test_netgen_csg_mesh_high_order():
     assert mesh3.coordinates.function_space().ufl_element().degree() == order
 
 
-def square_geometry(h):
+def square_geometry(h, L=np.pi):
     from netgen.geom2d import SplineGeometry
     geo = SplineGeometry()
-    geo.AddRectangle((0, 0), (np.pi, np.pi), bc="rect")
+    geo.AddRectangle((0, 0), (L, L), bc="rect")
     ngmesh = geo.GenerateMesh(maxh=h)
     return ngmesh
+
+
+def circle_geometry(h, R=1.0):
+    from netgen.geom2d import SplineGeometry
+    geo = SplineGeometry()
+    geo.AddCircle((0, 0), R, bc="circ")
+    ngmesh = geo.GenerateMesh(maxh=h)
+    return ngmesh
+
+
+@pytest.mark.parametrize("scale", (1E-5, 1E5))
+def test_high_order(scale):
+    # Test scale independence of high-order geometry
+    expected = np.pi * scale * scale
+    ngmesh = circle_geometry(h=scale/4, R=scale)
+
+    degree = 3
+    msh = Mesh(ngmesh, netgen_flags={"degree": degree})
+    assert msh.coordinates.function_space().ufl_element().degree() == degree
+    assert np.isclose(assemble(1*dx(domain=msh)), expected)
 
 
 def poisson(h, degree=2):

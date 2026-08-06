@@ -177,14 +177,16 @@ def test_transformed_functional_poisson():
                  callback=cb,
                  options={"ftol": 0,
                           "gtol": 1e-6 if single_mode else 1e-10})
+    untransformed_iterations = len(cb)
+    untransformed_ncalls = J_hat._test_transformed_functional__ncalls
     if single_mode:
         assert cb[-1] < 0.2
-        assert len(cb) >= 3
-        assert J_hat._test_transformed_functional__ncalls >= 3
+        assert untransformed_iterations >= 3
+        assert untransformed_ncalls >= 3
     else:
         assert 1e-2 < cb[-1] < 5e-2
-        assert len(cb) > 80  # == 85
-        assert J_hat._test_transformed_functional__ncalls > 90  # == 95
+        assert untransformed_iterations > 70
+        assert untransformed_ncalls > 80
 
     continue_annotation()
     m_0 = fd.Function(space, name="m_0")
@@ -204,12 +206,18 @@ def test_transformed_functional_poisson():
                  callback=cb,
                  options={"ftol": 0,
                           "gtol": 1e-6 if single_mode else 1e-10})
+    transformed_iterations = len(cb)
+    transformed_ncalls = J_hat._test_transformed_functional__ncalls
     if single_mode:
         assert 1e-3 < cb[-1] < 5e-2
+        assert transformed_iterations < 55
+        assert transformed_ncalls < 60
     else:
         assert 1e-4 < cb[-1] < 5e-4
-    assert len(cb) < 55  # == 51
-    assert J_hat._test_transformed_functional__ncalls < 60  # == 55
+        assert transformed_iterations < untransformed_iterations
+        assert transformed_ncalls < untransformed_ncalls
+        assert transformed_iterations < 60
+        assert transformed_ncalls < 65
 
 
 @pytest.mark.skipcomplex

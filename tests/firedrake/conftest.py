@@ -181,8 +181,10 @@ def pytest_collection_modifyitems(session, config, items):
 
     for item in items:
         if complex_mode:
-            if item.get_closest_marker("skipcomplex") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
+            skipcomplex_marker = item.get_closest_marker("skipcomplex")
+            if skipcomplex_marker is not None:
+                reason = skipcomplex_marker.kwargs.get("reason", "Test makes no sense in complex mode")
+                item.add_marker(pytest.mark.skip(reason=reason))
             if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
                 item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
         else:

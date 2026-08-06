@@ -1,5 +1,5 @@
 import loopy as lp
-from firedrake.utils import IntType, RealType_c, as_cstr
+from firedrake.utils import IntType, as_cstr
 
 from finat.element_factory import as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -161,7 +161,7 @@ def compile_element(expression, coordinates, parameters=None):
         "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
-        "real_type": RealType_c,
+        "real_type": utils.RealType_c,
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
@@ -182,7 +182,24 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
     %(IntType)s cells_ignore[1] = {-1};
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
+    RTreeError err;
+    int64_t *ids = NULL;
+    size_t nids = 0;
+    err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
+    if (err != Success) {
+        fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
+        rtree_free_ids(ids, nids);
+        return -2;
+    }
+    %(IntType)s cell;
+    PetscErrorCode locate_err = locate_cell_from_candidates(
+            f, x, &to_reference_coords, &to_reference_coords_xtr,
+            &temp_reference_coords, &found_reference_coords,
+            &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
+    rtree_free_ids(ids, nids);
+    if (locate_err != PETSC_SUCCESS) {
+        return locate_err;
+    }
     if (cell == -1) {
         return -1;
     }
