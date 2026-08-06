@@ -175,7 +175,7 @@ class RobustTransferManager(TransferManager):
                     return partial(R.assemble, tensor=dest)
 
             v_aux, = r_aux.arguments()
-            residual = get_assembler(replace(form, dict(zip(form.arguments(), (u_patch, v_aux)))))
+            residual = get_assembler(replace(form, dict(zip(form.arguments(), (v_aux, u_patch)))))
             callables = (
                 copy_callable(rf, r_aux),
                 copy_callable(rf, r_patch),
