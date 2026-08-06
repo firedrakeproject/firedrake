@@ -6,6 +6,7 @@ import dataclasses
 import functools
 import numbers
 from collections.abc import Hashable, Iterable, Mapping
+from functools import cached_property
 from typing import Any, ClassVar
 
 import numpy as np
@@ -230,11 +231,6 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def zero(self) -> None:
         pass
 
-    @property
-    @abc.abstractmethod
-    def handle(self) -> Any:
-        """The underlying data structure."""
-
 
 @pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
@@ -429,10 +425,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         )
 
     is_nested: ClassVar[bool] = False
-
-    @property
-    def handle(self) -> pyop3.types.DeviceArrayT:
-        return self._current_device_array
 
     def zero(self) -> None:
         self.data_wo[...] = 0
@@ -1176,10 +1168,6 @@ class PetscMatBuffer(ConcreteBuffer):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
-    @property
-    def handle(self) -> Any:
-        return self.mat
-
     def zero(self) -> None:
         self.mat.zeroEntries()
 
@@ -1475,3 +1463,75 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
+
+
+@functools.singledispatch
+def _denest(buffer: AbstractBuffer, nest_indices: tuple):
+    utils.raise_missing_dispatch_handler(buffer)
+
+
+@_denest.register
+def _(mat_buf: PetscMatBuffer, nest_indices):
+    mat = mat_buf.mat
+    for ri, ci in nest_indices:
+        mat = mat.getNestSubMatrix(ri, ci)
+    return mat
+
+
+@_denest.register
+def _(array_buf: ArrayBuffer, nest_indices):
+    assert not nest_indices
+    return array_buf._current_device_array
+
+
+@functools.singledispatch
+def _extract_handle(data: Any):
+    utils.raise_missing_dispatch_handler(data)
+
+
+@_extract_handle.register
+def _(mat: PETSc.Mat, /):
+    if mat.type == PETSc.Mat.Type.PYTHON:
+        return mat.getPythonContext().buffer._current_device_array
+    else:
+        return mat
+
+
+@_extract_handle.register
+def _(array: np.ndarray, /) -> np.ndarray:
+    return array
+
+
+@pyop3.record.frozenrecord()
+class IndexedBuffer(pyop3.obj.Object):
+    """Class collecting buffer and nest information.
+
+    This class is important during code generation because we want to emit
+    code that matches the wrapped, non-nested types, but we still want to
+    be able to refer to the actual buffer data structure.
+
+    """
+    buffer: AbstractBuffer
+    nest_indices: tuple[tuple[int, ...], ...]
+
+    def collect_buffers(self, visitor):
+        return visitor(self.buffer)
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor(self.buffer), self.nest_indices)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+    @property
+    def denested(self):
+        return _denest(self.buffer, self.nest_indices)
+
+    @property
+    def handle(self):
+        """Return the underlying data structure.
+
+        This method will introspect the buffer and pull out the object needed
+        by the compiler/executor.
+
+        """
+        return _extract_handle(self.denested)

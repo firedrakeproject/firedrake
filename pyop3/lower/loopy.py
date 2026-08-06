@@ -152,7 +152,7 @@ class LoopyCodegenContext(CodegenContext):
 
     def add_buffer(
         self,
-        buffer_view: pyop3.expr.IndexedBuffer,
+        buffer_view: pyop3.buffer.IndexedBuffer,
         intent: pyop3.constants.Intent | None = None,
     ) -> str:
         # TODO: This should check to make sure that we do not encounter any
@@ -172,20 +172,16 @@ class LoopyCodegenContext(CodegenContext):
         # is not.
 
         buffer = buffer_view.buffer
-        # If we have a nested data structure then we will have a different
-        # data structure for each part of the nesting
-        buffer_key = (buffer, buffer_view.nest_indices)
-
         if isinstance(buffer, NullBuffer):
             assert not buffer_view.nest_indices
             # Note that intent is not important for temporaries
             try:
-                return self.kernel_names[buffer_key]
+                return self.kernel_names[buffer_view]
             except KeyError:
                 shape = self._temporary_shapes.get(buffer, (buffer.size,))
                 assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
                 name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
-                return self.kernel_names.setdefault(buffer_key, name_in_kernel)
+                return self.kernel_names.setdefault(buffer_view, name_in_kernel)
 
         else:
             if intent is None:
@@ -210,25 +206,15 @@ class LoopyCodegenContext(CodegenContext):
             #             read_only=True,
             #         )
 
-            if buffer_key in self.kernel_names:
+            if buffer_view in self.kernel_names:
                 if intent != self.buffer_intents[buffer]:
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
                     self.buffer_intents[buffer] = RW
-                return self.kernel_names[buffer_key]
+                return self.kernel_names[buffer_view]
 
             # Extract the underlying data as that is what we need to generate code
-            handle = buffer.handle
-            if isinstance(handle, np.ndarray):
-                assert not buffer_view.nest_indices
-            elif isinstance(handle, PETSc.Mat):
-                for ri, ci in buffer_view.nest_indices:
-                    handle = handle.getNestSubMatrix(ri, ci)
-                assert handle.type != "nest"
-
-                if handle.type == "python":
-                    handle = handle.getPythonContext().buffer.handle
-
+            handle = buffer_view.handle
             if isinstance(handle, np.ndarray):
                 if isinstance(handle.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
@@ -247,7 +233,7 @@ class LoopyCodegenContext(CodegenContext):
 
             self.buffer_intents[buffer] = intent
             self._arguments.append(loopy_arg)
-            return self.kernel_names.setdefault(buffer_key, name_in_kernel)
+            return self.kernel_names.setdefault(buffer_view, name_in_kernel)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
@@ -520,10 +506,10 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     kernel_name_to_global_buffer_info = {}
     global_buffer_intents = {}
     for kernel_arg in translation_unit.default_entrypoint.args:
-        buffer, nest_indices = kernel_name_to_buffer_info[kernel_arg.name]
-        buffer_index = op.preprocessed_buffers.index(buffer)
-        kernel_name_to_global_buffer_info[kernel_arg.name] = (buffer_index, nest_indices)
-        global_buffer_intents[buffer_index] = buffer_intents[buffer]
+        buf_view = kernel_name_to_buffer_info[kernel_arg.name]
+        buf_index = op.preprocessed_buffers.index(buf_view.buffer)
+        kernel_name_to_global_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
+        global_buffer_intents[buf_index] = buffer_intents[buf_view.buffer]
 
     return translation_unit, kernel_name_to_global_buffer_info, global_buffer_intents
 
@@ -1132,7 +1118,7 @@ def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, co
 
 
 def lower_buffer_access(
-    buffer_view: pyop3.expr.IndexedBuffer,
+    buffer_view: pyop3.buffer.IndexedBuffer,
     layouts,
     iname_maps,
     loop_indices,
@@ -1144,9 +1130,7 @@ def lower_buffer_access(
 
     buffer = buffer_view.buffer
     if isinstance(buffer, PetscMatBuffer):
-        mat = buffer_view.buffer.mat
-        assert mat.type == "python"
-        buffer = mat.getPythonContext().buffer
+        buffer = buffer_view.denested.getPythonContext().buffer
 
     # At this point we know how to address each axis of the underlying buffer.
     # This is sufficient to address a flat buffer, but for a buffer with more

@@ -15,6 +15,7 @@ from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake.functionspaceimpl import WithGeometry
+from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
@@ -230,6 +231,8 @@ class Pyop3NoiseBackend(NoiseBackendBase):
                 ("coords", "double", op3.READ),
             ],
             preambles=[("20_preamble", preamble)],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
         )
 
     def sample(self, *, rng=None,

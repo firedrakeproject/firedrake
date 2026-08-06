@@ -299,24 +299,13 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
 
     @_buffer_expression.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer, row_axes, column_axes, nest_indices):
-        if buffer.mat.type == PETSc.Mat.Type.PYTHON:
-            context = buffer.mat.getPythonContext()
-            if context.mode == "row":
-                if row_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
-                row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
-                column_layouts = column_axes.leaf_subst_layouts
-            else:
-                assert context.mode == "column"
-                if column_axes.size != 1:
-                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
-                row_layouts = row_axes.leaf_subst_layouts
-                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
-            ibuffer = pyop3.expr.IndexedBuffer(buffer, nest_indices)
-            return pyop3.expr.MatArrayBufferExpression(ibuffer, row_layouts, column_layouts)
+        ibuffer = pyop3.buffer.IndexedBuffer(buffer, nest_indices)
 
-        else:
-            ibuffer = pyop3.expr.IndexedBuffer(buffer, nest_indices)
+        if isinstance(ibuffer.handle, PETSc.Mat):
+            assert (
+                ibuffer.handle.type
+                not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
+            )
             # Layouts have to be symbolic expressions here (not materialised)
             # because we can use that information to guide later optimisations.
             # In particular when we compress indirections we would like to
@@ -331,6 +320,24 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
                 layouts.append(layout)
             row_layout, column_layout = layouts
             return pyop3.expr.MatPetscMatBufferExpression(ibuffer, row_layout, column_layout)
+
+        else:
+            # MATPYTHON
+            assert isinstance(ibuffer.handle, np.ndarray)
+            ctx = ibuffer.denested.getPythonContext()
+            if ctx.mode == "row":
+                if row_axes.size != 1:
+                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
+                row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
+                column_layouts = column_axes.leaf_subst_layouts
+            else:
+                assert ctx.mode == "column"
+                if column_axes.size != 1:
+                    raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
+                row_layouts = row_axes.leaf_subst_layouts
+                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
+            ibuffer = pyop3.buffer.IndexedBuffer(buffer, nest_indices)
+            return pyop3.expr.MatArrayBufferExpression(ibuffer, row_layouts, column_layouts)
 
     @_buffer_expression.register
     def _(self, buffer: pyop3.buffer.AbstractArrayBuffer, row_axes, column_axes, nest_indices):

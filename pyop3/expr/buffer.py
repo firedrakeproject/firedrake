@@ -20,27 +20,6 @@ from .base import Expression, as_str
 from .tensor import CompositeDat, Dat, Scalar
 
 
-@pyop3.record.frozenrecord()
-class IndexedBuffer(pyop3.obj.Object):
-    """Class collecting buffer and nest information.
-
-    This class is important during code generation because we want to emit
-    code that matches the wrapped, non-nested types, but we still want to
-    be able to refer to the actual buffer data structure.
-
-    """
-    buffer: AbstractBuffer
-    nest_indices: tuple[tuple[int, ...], ...]
-
-    def collect_buffers(self, visitor):
-        return visitor(self.buffer)
-
-    def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self.buffer), self.nest_indices)
-
-    get_instruction_executor_cache_key = get_disk_cache_key
-
-
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
@@ -53,12 +32,6 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     @property
     def dtype(self) -> np.dtype:
         return self.buffer_view.buffer.dtype
-
-    @property
-    def handle(self) -> Any:
-        assert False, "unused?"
-        # is this used?
-        return self.buffer_view.handle(nest_indices=self.buffer_view.nest_indices)
 
     def assign(self, other) -> ArrayAssignment:
         from pyop3.insn import Assignment
@@ -82,7 +55,7 @@ class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
 
-    buffer_view: IndexedBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
 
     def collect_buffers(self, visitor):
         return visitor(self.buffer_view)
@@ -92,10 +65,10 @@ class ScalarBufferExpression(BufferExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, buffer_view: AbstractBuffer | IndexedBuffer) -> None:
+    def __init__(self, buffer_view: AbstractBuffer | pyop3.buffer.IndexedBuffer) -> None:
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, ())
+            buffer_view = pyop3.buffer.IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
 
     # }}}
@@ -179,7 +152,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
-    buffer_view: IndexedBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
     layout: Any
 
     def collect_buffers(self, visitor):
@@ -201,7 +174,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def __init__(self, buffer_view, layout):
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, ())
+            buffer_view = pyop3.buffer.IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "layout", layout)
 
@@ -242,7 +215,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     """
     # {{{ instance attrs
 
-    buffer_view: IndexedBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
     layouts: idict
 
     def get_disk_cache_key(self, visitor) -> Hashable:
@@ -258,7 +231,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     def __init__(self, buffer_view, layouts) -> None:
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, ())
+            buffer_view = pyop3.buffer.IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "layouts", layouts)
 
@@ -321,7 +294,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
-    buffer_view: IndexedBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
     row_layout: ExprT
     column_layout: ExprT
 
@@ -362,7 +335,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 
-    buffer_view: IndexedBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
     row_layouts: idict
     column_layouts: idict
 
@@ -386,7 +359,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     def __init__(self, buffer_view, row_layouts, column_layouts):
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
             assert buffer_view.nest_shape() is None
-            buffer_view = IndexedBuffer(buffer_view, ())
+            buffer_view = pyop3.buffer.IndexedBuffer(buffer_view, ())
         object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "row_layouts", row_layouts)
         object.__setattr__(self, "column_layouts", column_layouts)
@@ -442,7 +415,7 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         # FIXME, merge?
         axes = axes.trees[-1]
 
-    ibuffer = IndexedBuffer(dat.buffer, ())
+    ibuffer = pyop3.buffer.IndexedBuffer(dat.buffer, ())
     layout = utils.just_one(axes.leaf_subst_layouts.values())
     return LinearDatBufferExpression(ibuffer, layout)
 

@@ -853,6 +853,10 @@ class PointEvaluator:
         f_at_points_io.interpolate(f_at_points)
         result = f_at_points_io.dat.data_ro.copy()
 
+        # We treat 1D vector spaces like scalar spaces
+        if shape == (1,):
+            result = result.reshape(result.shape[:-1])
+
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
