@@ -289,7 +289,7 @@ jobs:
             fi
           fi
           if [ ${{ inputs.test_single }} == 'true' ]; then
-            arch='{"scalar_type": "single", "gpu": "none"}'
+            arch='{"scalar_type": "single", "int_type": "int32", "gpu": "none"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else
