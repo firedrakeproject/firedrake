@@ -86,15 +86,12 @@ def test_hypre_ads_fieldsplit():
     mesh = UnitCubeMesh(6, 6, 6)
     V = FunctionSpace(mesh, "RT", 1)
     W = V * V * V
-    sigma_B = TrialFunctions(W)
-    tau_B = TestFunctions(W)
+    sigma = TrialFunctions(W)
+    tau = TestFunctions(W)
 
-    a = sum([
-        inner(sigma_B[i], tau_B[i])*dx + div(sigma_B[i])*div(tau_B[i])*dx
-        for i in range(3)
-    ])
-    f = Constant([1, 1, 1])
-    L = sum([inner(f, tau_B[i])*dx for i in range(3)])
+    a = inner(sigma, tau) * dx + inner(div(sigma), div(tau)) * dx
+    rg = RandomGenerator(PCG64(seed=0))
+    L = rg.uniform(W.dual())
     sol = Function(W)
 
     # Configure fieldsplit with Hypre ADS for each block
@@ -105,11 +102,10 @@ def test_hypre_ads_fieldsplit():
         "ksp_monitor": None,
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "additive",
+        "fieldsplit_ksp_type": "preonly",
+        "fieldsplit_pc_type": "python",
+        "fieldsplit_pc_python_type": "firedrake.HypreADS",
     }
-    for i in range(3):
-        params[f"fieldsplit_{i}_ksp_type"] = "preonly"
-        params[f"fieldsplit_{i}_pc_type"] = "python"
-        params[f"fieldsplit_{i}_pc_python_type"] = "firedrake.HypreADS"
 
     prob = LinearVariationalProblem(a, L, sol)
     solver = LinearVariationalSolver(prob, solver_parameters=params)
