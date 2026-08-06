@@ -682,3 +682,17 @@ def test_adaptive_star_is_restricted(adaptive_mesh):
     every = adaptive_solver(V, adaptive_star_parameters())
     restricted = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
     assert 0 < num_asm_patches(restricted) < num_asm_patches(every)
+
+
+def test_uniform_mesh_has_no_refined_region():
+    # A mesh with no adaptive parent, such as the coarsest mesh of a hierarchy or a
+    # uniformly refined level, has no refined region to single out
+    mesh = UnitSquareMesh(3, 3)
+    assert mark_refined_entities(mesh) is None
+
+    # so a smoother restricted to that region must relax everywhere instead
+    V = FunctionSpace(mesh, "CG", 2)
+    every = adaptive_solver(V, adaptive_star_parameters())
+    adaptive = adaptive_solver(V, adaptive_star_parameters(adaptive=True))
+    assert num_asm_patches(adaptive) == num_asm_patches(every)
+    assert every.snes.getLinearSolveIterations() == adaptive.snes.getLinearSolveIterations()

@@ -171,19 +171,20 @@ def mark_refined_entities(mesh, name: str = REFINED_LABEL, value: int = 1):
 
     Returns
     -------
-    PETSc.DMLabel
-        The label, which is also left on ``mesh.topology_dm``.
+    PETSc.DMLabel or None
+        The label, which is also left on ``mesh.topology_dm``, or `None` if
+        ``mesh`` has no `~firedrake.mesh.MeshGeometry.adaptive_parent`.
 
-    Raises
-    ------
-    ValueError
-        If ``mesh`` did not come from `refine_marked_elements`, so that its
-        refined cells are not known.
+    Notes
+    -----
+    A mesh with no adaptive parent, such as the coarsest mesh of a hierarchy or
+    a uniformly refined level, has no refined region to single out, so this
+    returns `None` rather than a label. A smoother reads that as relaxing
+    everywhere, which is what a level that is uniformly new needs.
 
     """
     if mesh.adaptive_cell_maps is None:
-        raise ValueError("The mesh does not come from refine_marked_elements, "
-                         "so its refined cells are not known")
+        return None
     coarse_to_fine, fine_to_coarse = mesh.adaptive_cell_maps
 
     # A fine cell was genuinely split if its parent has more than one child.
