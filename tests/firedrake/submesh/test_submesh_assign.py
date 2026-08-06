@@ -307,3 +307,70 @@ def test_submesh_assign_cofunction_3_quads_2_processes():
     cof_ = Cofunction(V_r.dual()).assign(cof)
     subset_indices = np.where(coords_r.dat.data_ro_with_halos[:, 0] > 1.999)
     assert np.allclose(cof_.dat.data_ro_with_halos[subset_indices], cof_r.dat.data_ro_with_halos[subset_indices])
+
+
+@pytest.mark.parametrize("mesh_type,family,degree", [
+    ("simplex", "CG", 3),
+    ("simplex", "RT", 2),
+    ("simplex", "N1curl", 1),
+    ("quadrilateral", "CG", 2),
+    ("quadrilateral", "RTCF", 1),
+])
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_assign_function_redistributed(mesh_type, family, degree):
+    # A redistributed submesh holds the same mesh as its parent, so assigning
+    # between the two must be exact for every element, including those whose
+    # DoFs depend on the orientation of the entity they live on.
+    mesh = UnitSquareMesh(4, 4, quadrilateral=(mesh_type == "quadrilateral"))
+    submesh = Submesh(mesh, redistribute=True)
+    assert submesh.topology.submesh_parent is mesh.topology
+    assert submesh.topology.submesh_point_sf is not None
+
+    V = FunctionSpace(mesh, family, degree)
+    V_sub = FunctionSpace(submesh, family, degree)
+    x, y = SpatialCoordinate(mesh)
+    x_sub, y_sub = SpatialCoordinate(submesh)
+    if V.value_size == 1:
+        expr, expr_sub = sin(x) * cos(3 * y), sin(x_sub) * cos(3 * y_sub)
+    else:
+        expr = as_vector([sin(x), cos(3 * y)])
+        expr_sub = as_vector([sin(x_sub), cos(3 * y_sub)])
+    f = Function(V).interpolate(expr)
+    # -- mesh -> submesh
+    f_sub = Function(V_sub).assign(f)
+    assert np.allclose(norm(f_sub - Function(V_sub).interpolate(expr_sub)), 0)
+    # -- submesh -> mesh
+    assert np.allclose(norm(Function(V).assign(f_sub) - f), 0)
+    # -- the dual assignment preserves the action
+    cof_sub = assemble(inner(expr_sub, TestFunction(V_sub)) * dx)
+    cof = Cofunction(V.dual()).assign(cof_sub)
+    assert np.isclose(assemble(action(cof, f)), assemble(action(cof_sub, f_sub)))
+
+
+@pytest.mark.parametrize("family,degree", [("CG", 2), ("RT", 1)])
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_assign_function_redistributed_subdomain(family, degree):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    mesh.mark_entities(Function(DG0).interpolate(conditional(x < 0.5, 1, 0)), 111)
+    submesh = Submesh(mesh, subdomain_id=111, redistribute=True)
+
+    V = FunctionSpace(mesh, family, degree)
+    V_sub = FunctionSpace(submesh, family, degree)
+    x_sub, y_sub = SpatialCoordinate(submesh)
+    if V.value_size == 1:
+        expr, expr_sub = sin(x) * cos(3 * y), sin(x_sub) * cos(3 * y_sub)
+    else:
+        expr = as_vector([sin(x), cos(3 * y)])
+        expr_sub = as_vector([sin(x_sub), cos(3 * y_sub)])
+    f = Function(V).interpolate(expr)
+    # -- mesh -> submesh
+    f_sub = Function(V_sub).assign(f)
+    assert np.allclose(norm(f_sub - Function(V_sub).interpolate(expr_sub)), 0)
+    # -- submesh -> mesh: the parent has nodes outside the subdomain
+    with pytest.raises(ValueError):
+        Function(V).assign(f_sub)
+    g = Function(V).interpolate(expr)
+    g.assign(f_sub, allow_missing_dofs=True)
+    assert np.allclose(norm(g - f), 0)

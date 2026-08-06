@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.mg.utils import transfer_mesh
 from firedrake.utils import complex_mode
 
 
@@ -78,7 +79,7 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     fine_to_coarse = mh.fine_to_coarse_cells[1]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert fine_to_coarse.shape == (transfer_mesh(refined_mesh).cell_set.size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -239,7 +240,7 @@ def _assert_adapt_after_uniform_refinement(mh):
     fine_to_coarse = mh.fine_to_coarse_cells[level]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert fine_to_coarse.shape == (transfer_mesh(refined_mesh).cell_set.size, 1)
     # A rank may legitimately own zero local cells (e.g. more ranks than
     # coarse cells), leaving these arrays empty on that rank alone, so the
     # "some entry is valid" check must be collective, not per-rank.
@@ -349,14 +350,10 @@ def _copied_nodes(mh, V):
     copied = 0
     for level in range(len(mh) - 1):
         V_coarse = V.reconstruct(mesh=mh[level])
-        V_fine = V.reconstruct(mesh=mh[level + 1])
+        V_fine = V.reconstruct(mesh=transfer_mesh(mh[level + 1]))
         subset = transfer_node_subset(V_coarse, V_fine)
-        # A Subset's indices only ever span the owned range like node_set.size
-        # does, but transfer_node_subset falls back to the fine node_set
-        # itself (whose .indices spans the larger owned+halo total_size) when
-        # nothing is preserved, so cap at node_set.size before differencing.
-        visited = min(len(subset.indices), V_fine.node_set.size)
-        copied += V_fine.node_set.size - visited
+        if subset is not None:
+            copied += V_fine.node_set.size - len(subset.indices)
     return mh[0].comm.allreduce(copied, MPI.SUM)
 
 
