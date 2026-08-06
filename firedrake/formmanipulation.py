@@ -20,21 +20,11 @@ from firedrake.matrix import AssembledMatrix
 
 def subspace(V, indices):
     """Construct a collapsed subspace using components from V."""
-    if not hasattr(V, "mystash"):
-        V.mystash = {}
-
-    try:
-        return V.mystash[indices]
-    except KeyError:
-        pass
-
     if len(indices) == 1:
         W = V[indices[0]]
     else:
         W = MixedFunctionSpace([V[i] for i in indices])
-    W = W.collapse()
-    V.mystash[indices] = W
-    return W
+    return W.collapse()
 
 
 class ExtractSubBlock(MultiFunction):
