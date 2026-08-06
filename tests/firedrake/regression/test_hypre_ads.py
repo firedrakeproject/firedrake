@@ -85,7 +85,7 @@ def test_homogeneous_field_linear_convergence():
 def test_hypre_ads_fieldsplit():
     mesh = UnitCubeMesh(6, 6, 6)
     V = FunctionSpace(mesh, "RT", 1)
-    W = V * V * V
+    W = V * V
     sigma = as_vector(TrialFunctions(W))
     tau = as_vector(TestFunctions(W))
 
@@ -112,5 +112,5 @@ def test_hypre_ads_fieldsplit():
 
     # Check the condition number
     ew = solver.snes.ksp.computeEigenvalues().real
-    condition_number = (max(abs(ew)) / min(abs(ew))) ** 0.5
+    condition_number = max(abs(ew)) / min(abs(ew))
     assert condition_number < 2  # current value is 1.3 and without preconditioner > 66
