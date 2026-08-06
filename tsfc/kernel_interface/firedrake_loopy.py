@@ -293,6 +293,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.local_tensor = None
         self.coefficient_number_index_map = OrderedDict()
         self.integral_data_info = integral_data_info
+        self.coefficient_split = integral_data_info.coefficient_split
         self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
         self.set_arguments()
 

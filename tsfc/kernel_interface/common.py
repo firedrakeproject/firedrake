@@ -5,9 +5,12 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
+from ufl.classes import Cofunction
 from ufl.utils.sequences import max_degree
 from ufl.domain import extract_unique_domain
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
+import finat
 import gem
 import gem.impero_utils as impero_utils
 import petsctools
@@ -41,6 +44,7 @@ class KernelBuilderBase(KernelInterface):
 
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
+        self.coefficient_split = {}
 
         # Constants
         self.constant_map = collections.OrderedDict()
@@ -62,6 +66,16 @@ class KernelBuilderBase(KernelInterface):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
+
+    def coefficient_components(self, ufl_coefficient, restriction):
+        """Return GEM expressions for a coefficient's stored components."""
+        coefficients = self.coefficient_split.get(
+            ufl_coefficient, (ufl_coefficient,)
+        )
+        return tuple(
+            self.coefficient(coefficient, restriction)
+            for coefficient in coefficients
+        )
 
     def constant(self, const):
         return self.constant_map[const]
@@ -135,6 +149,51 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
+
+    def compile_interpolate(self, expression, params, ctx):
+        """Compile UFL interpolate.
+
+        :arg expression: UFL interpolate.
+        :arg params: a dict containing "quadrature_rule".
+        :arg ctx: context created with :meth:`create_context` method.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        expression = CoefficientSplitter(self.coefficient_split)(
+            expression
+        )
+        target_element = self.create_element(expression.ufl_element())
+        config = self.fem_config()
+        config.update(
+            argument_multiindices=self.argument_multiindices,
+            index_cache=ctx["index_cache"],
+        )
+        if isinstance(target_element, finat.QuadratureElement):
+            config["quadrature_rule"] = target_element._rule
+        evaluation, basis_indices = fem.dual_evaluate(
+            expression, target_element, config
+        )
+        dual_arg, _ = expression.argument_slots()
+        if not isinstance(dual_arg, Cofunction):
+            arguments = expression.arguments()
+            argument_number = arguments.index(dual_arg)
+            output_indices = self.argument_multiindices[argument_number]
+            if basis_indices != output_indices:
+                if tuple(i.extent for i in basis_indices) != tuple(
+                    i.extent for i in output_indices
+                ):
+                    raise ValueError("Interpolation output index shape mismatch")
+                mapper = gem.node.MemoizerArg(
+                    gem.optimise.filtered_replace_indices
+                )
+                evaluation = mapper(
+                    evaluation, tuple(zip(basis_indices, output_indices))
+                )
+
+        mode = pick_mode(params["mode"])
+        return mode.Integrals(
+            [evaluation], (), self.argument_multiindices, params
+        )
 
     def compile_integrand(self, integrand, params, ctx):
         """Compile UFL integrand.
@@ -577,7 +636,8 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
     c_shape = copy.deepcopy(u_shape)
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):
-        integral_type = domain_integral_type_map[extract_unique_domain(arg)]
+        domain = arg.ufl_function_space().ufl_domain()
+        integral_type = domain_integral_type_map[domain]
         if integral_type is None:
             raise RuntimeError(f"Can not determine integral_type on {arg}")
         if integral_type.startswith("interior_facet"):

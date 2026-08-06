@@ -84,6 +84,7 @@ class TSFCKernel:
         coefficient_numbers,
         constant_numbers,
         dont_split_numbers,
+        access=op2.INC,
         diagonal=False
     ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -131,6 +132,7 @@ class TSFCKernel:
             events = (kernel.event,)
             pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
                                                  len(kernel.arguments),
+                                                 access=access,
                                                  flop_count=kernel.flop_count,
                                                  events=events)
             kernels.append(KernelInfo(kernel=pyop2_kernel,
@@ -150,7 +152,8 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(),
+                          diagonal=False, access=op2.INC):
     return (
         form.signature(),
         name,
@@ -158,6 +161,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
         split,
         _make_dont_split_numbers(dont_split, form),
         diagonal,
+        access,
     )
 
 
@@ -168,7 +172,8 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def compile_form(form, name, parameters=None, split=True, dont_split=(),
+                 diagonal=False, access=op2.INC):
     """Compile a form using TSFC.
 
     Parameters
@@ -188,6 +193,8 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
+    access : pyop2.Access
+        Access mode for the output tensor.
 
     Returns
     -------
@@ -207,7 +214,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, Form):
+    if not isinstance(form, (Form, ufl.Interpolate)):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     if parameters is None:
@@ -230,12 +237,12 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
-        f = _real_mangle(f)
         if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
             continue
+        f = _real_mangle(f)
         # Map local domain/coefficient/constant numbers (as seen inside the
         # compiler) to the global coefficient/constant numbers
         meshes = extract_domains(f)
@@ -256,6 +263,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             coefficient_numbers,
             constant_numbers,
             dont_split_numbers,
+            access,
             diagonal,
         )
         for kinfo in tsfc_kernel.kernels:

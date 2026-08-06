@@ -2,7 +2,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
 from itertools import chain, zip_longest
 
-from gem.gem import Delta, Indexed, Sum, index_sum, one
+from gem.gem import Delta, FlexiblyIndexed, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
@@ -129,7 +129,7 @@ def classify(argument_indices, expression, delta_inside):
     if n == 0:
         return OTHER
     elif n == 1:
-        if isinstance(expression, (Delta, Indexed)) and not delta_inside(expression):
+        if isinstance(expression, (Delta, FlexiblyIndexed, Indexed)) and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND

@@ -22,9 +22,10 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
+from firedrake.mesh import VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import get_interpolator
+from firedrake.interpolation import get_interp_node_map, get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -170,7 +171,26 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
+    base_form_operands = BaseFormAssembler.base_form_operands(form)
+    can_compile = not base_form_operands
+    if isinstance(form, ufl.form.Form):
+        can_compile = True
+        for integral in form.integrals():
+            valid_domains = set(integral.extra_domain_integral_type_map())
+            valid_domains.add(integral.ufl_domain())
+            for op in ufl.algorithms.extract_base_form_operators(
+                integral.integrand()
+            ):
+                if (
+                    not isinstance(op, ufl.Interpolate)
+                    or not set(extract_domains(op)) <= valid_domains
+                ):
+                    can_compile = False
+                    break
+            if not can_compile:
+                break
+
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
@@ -893,8 +913,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
-        # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
-        if isinstance(original_expr, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+        # to transmit the cache. Both objects must support the assembler cache.
+        if isinstance(original_expr, (ufl.form.Form, ufl.Interpolate)) and isinstance(expr, (ufl.form.Form, ufl.Interpolate)):
             expr._cache = original_expr._cache
         return expr
 
@@ -949,8 +969,8 @@ class FormAssembler(AbstractFormAssembler):
 
     def __new__(cls, *args, **kwargs):
         form = args[0]
-        if not isinstance(form, (ufl.Form, slate.TensorBase)):
-            raise TypeError(f"The first positional argument must be of ufl.Form or slate.TensorBase: got {type(form)} ({form})")
+        if not isinstance(form, (ufl.Form, ufl.Interpolate, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.Form, ufl.Interpolate, or slate.TensorBase: got {type(form)} ({form})")
         # It is expensive to construct new assemblers because extracting the data
         # from the form is slow. Since all of the data structures in the assembler
         # are persistent apart from the output tensor, we stash the assembler on the
@@ -971,9 +991,10 @@ class FormAssembler(AbstractFormAssembler):
         self = super().__new__(cls)
         self._initialised = False
         self.__init__(*args, **kwargs)
-        if _FORM_CACHE_KEY not in form._cache:
-            form._cache[_FORM_CACHE_KEY] = {}
-        form._cache[_FORM_CACHE_KEY][key] = self
+        if key is not None:
+            if _FORM_CACHE_KEY not in form._cache:
+                form._cache[_FORM_CACHE_KEY] = {}
+            form._cache[_FORM_CACHE_KEY][key] = self
         return self
 
     @classmethod
@@ -1012,9 +1033,11 @@ class ParloopFormAssembler(FormAssembler):
         Should ``tensor`` be zeroed before assembling?
 
     """
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None,
+                 needs_zeroing=True, access=op2.INC):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
+        self._access = access
 
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
@@ -1106,10 +1129,11 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        if isinstance(self._form, ufl.Form):
+        if isinstance(self._form, (ufl.Form, ufl.Interpolate)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
-                parameters=self._form_compiler_params
+                parameters=self._form_compiler_params,
+                access=self._access,
             )
         elif isinstance(self._form, slate.TensorBase):
             kernels = slac.compile_expression(
@@ -1210,14 +1234,21 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=True, diagonal=False, weight=1.0):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
+        return (tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing,
+                zero_bc_nodes, diagonal, weight, access)
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=True, diagonal=False, weight=1.0):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+                 zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
+        super().__init__(
+            form,
+            bcs=bcs,
+            form_compiler_parameters=form_compiler_parameters,
+            needs_zeroing=needs_zeroing,
+            access=access,
+        )
         self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
@@ -1279,6 +1310,11 @@ class OneFormAssembler(ParloopFormAssembler):
             return tensor.dat
 
     def execute_parloops(self, tensor):
+        if self._access is not op2.INC:
+            for parloop in self.parloops(tensor):
+                parloop()
+            return
+
         # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
         # can be skipped.
         with tensor.dat.frozen_halo(op2.INC):
@@ -1294,7 +1330,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
 
 def TwoFormAssembler(form, *args, **kwargs):
-    assert isinstance(form, (ufl.form.Form, slate.TensorBase))
+    assert isinstance(form, (ufl.form.Form, ufl.Interpolate, slate.TensorBase))
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
@@ -1365,8 +1401,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+                 allocation_integral_types=None, access=op2.INC):
+        super().__init__(
+            form,
+            bcs=bcs,
+            form_compiler_parameters=form_compiler_parameters,
+            needs_zeroing=needs_zeroing,
+            access=access,
+        )
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
@@ -1431,8 +1473,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
-                    cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    rmap_ = _get_entity_node_map(
+                        mesh, test.function_space()[i],
+                        integral_type, subdomain_id, all_subdomain_ids,
+                    )
+                    cmap_ = _get_entity_node_map(
+                        mesh, trial.function_space()[j],
+                        integral_type, subdomain_id, all_subdomain_ids,
+                    )
                     region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
@@ -1451,8 +1499,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, Vrow in enumerate(test.function_space()):
                 for j, Vcol in enumerate(trial.function_space()):
                     mesh = Vrow.mesh()
-                    rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
-                    cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    rmap_ = _get_entity_node_map(
+                        mesh, Vrow, integral_type, None, None
+                    )
+                    cmap_ = _get_entity_node_map(
+                        mesh, Vcol, integral_type, None, None
+                    )
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1492,7 +1544,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if not any(space == fs for fs in spaces):
+            if not any(bc.function_space_match(fs) for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
             if spaces[0] != spaces[1]:
                 # Not on a diagonal block, we cannot set diagonal entries
@@ -1617,7 +1669,7 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
     all_meshes = extract_domains(form)
     domain_ids = tuple(mesh.ufl_id() for mesh in all_meshes)
 
-    if isinstance(form, ufl.Form):
+    if isinstance(form, (ufl.Form, ufl.Interpolate)):
         sig = form.signature()
     elif isinstance(form, slate.TensorBase):
         sig = form.expression_hash
@@ -1646,6 +1698,18 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
 @cachetools.cached(cache={}, key=_global_kernel_cache_key)
 def _make_global_kernel(*args, **kwargs):
     return _GlobalKernelBuilder(*args, **kwargs).build()
+
+
+def _get_entity_node_map(
+    mesh, function_space, integral_type, subdomain_id,
+    all_integer_subdomain_ids,
+):
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        return get_interp_node_map(function_space.mesh(), mesh, function_space)
+    return function_space.topological.entity_node_map(
+        mesh.topology, integral_type, subdomain_id,
+        all_integer_subdomain_ids,
+    )
 
 
 class _GlobalKernelBuilder:
@@ -1763,7 +1827,11 @@ class _GlobalKernelBuilder:
 
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_arg = V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
+        map_ = _get_entity_node_map(
+            self._mesh, V, self._integral_type,
+            self._subdomain_id, self._all_integer_subdomain_ids,
+        )
+        map_arg = map_._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1781,7 +1849,14 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
+            rmap, cmap = (
+                _get_entity_node_map(
+                    self._mesh, V, self._integral_type,
+                    self._subdomain_id, self._all_integer_subdomain_ids,
+                )
+                for V in (Vrow, Vcol)
+            )
+            rmap_arg, cmap_arg = rmap._global_kernel_arg, cmap._global_kernel_arg
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1881,6 +1956,18 @@ def _as_global_kernel_arg_constant(_, self):
     const = next(self._constants)
     value_size = numpy.prod(const.ufl_shape, dtype=int)
     return op2.GlobalKernelArg((value_size,))
+
+
+@_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
+def _as_global_kernel_arg_tabulation(arg, self):
+    if (
+        arg.loopy_arg.name != "rt_X"
+        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
+    ):
+        raise NotImplementedError("Unknown runtime tabulation argument")
+    return self._make_dat_global_kernel_arg(
+        self._mesh.reference_coordinates.function_space()
+    )
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -2041,18 +2128,22 @@ class ParloopBuilder:
 
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
-        if len(self.test_function_space) > 1:
-            bcrow = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == row)
-        else:
-            bcrow = self._bcs
 
-        if len(self.trial_function_space) > 1:
-            bccol = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == col
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
+        test_space = self.test_function_space
+        if len(test_space) > 1:
+            test_space = test_space[row]
+        bcrow = tuple(
+            bc for bc in self._bcs if bc.function_space_match(test_space)
+        )
+
+        trial_space = self.trial_function_space
+        if len(trial_space) > 1:
+            trial_space = trial_space[col]
+        bccol = tuple(
+            bc for bc in self._bcs
+            if isinstance(bc, DirichletBC)
+            and bc.function_space_match(trial_space)
+        )
         return bcrow, bccol
 
     def needs_unrolling(self):
@@ -2153,7 +2244,10 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        return _get_entity_node_map(
+            self._mesh, V, self._integral_type,
+            self._subdomain_id, self._all_integer_subdomain_ids,
+        )
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
@@ -2231,6 +2325,18 @@ def _as_parloop_arg_coefficient(arg, self):
 def _as_parloop_arg_constant(arg, self):
     const = next(self._constants)
     return op2.GlobalParloopArg(const.dat)
+
+
+@_as_parloop_arg.register(kernel_args.TabulationKernelArg)
+def _as_parloop_arg_tabulation(arg, self):
+    if (
+        arg.loopy_arg.name != "rt_X"
+        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
+    ):
+        raise NotImplementedError("Unknown runtime tabulation argument")
+    reference_coordinates = self._mesh.reference_coordinates
+    map_ = self._get_map(reference_coordinates.function_space())
+    return op2.DatParloopArg(reference_coordinates.dat, map_)
 
 
 @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
