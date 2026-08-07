@@ -3832,6 +3832,30 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     return vmesh_out
 
 
+class VertexOnlyMeshSF:
+    """A PETSc.SF to use for VertexOnlyMesh"""
+
+    def __init__(self, sf: PETSc.SF) -> None:
+        if not isinstance(sf, PETSc.SF):
+            raise TypeError(f"`sf` must be a `PETSc.SF`, not a {type(sf).__name__}")
+
+        nroots, leaf_indices, remote = sf.getGraph()
+
+        leaf_indices.setflags(write=False)
+        remote.setflags(write=False)
+
+        self.sf = sf
+        self.nroots = nroots
+        self.nleaves = len(self.leaf_indices)
+        self.leaf_indices = leaf_indices
+        self.remote = remote
+        self.input_ranks = remote[:, 0]
+        self.input_indices = remote[:, 1]
+        self.leaf_buffer_size = (
+            0 if len(leaf_indices) == 0 else int(leaf_indices.max()) + 1
+        )
+
+
 class FiredrakeDMSwarm(PETSc.DMSwarm):
     """A DMSwarm with a saved list of added fields"""
 
