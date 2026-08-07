@@ -1,13 +1,18 @@
 import numpy
 import pytest
 
+import gem
+import tsfc.spectral
+from gem.gem import one
+from gem.refactorise import MonomialSum
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad)
+                 quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
 from tsfc import compile_form
+from tsfc.spectral import _sum_factorisation_order
 
 
 def helmholtz(cell, degree):
@@ -166,6 +171,60 @@ def test_vector_laplace_action(cell, order):
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
+
+
+def test_shared_physically_mapped_tabulation(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check that a mapped tabulation is shared by both argument axes.
+
+    Parameters
+    ----------
+    monkeypatch
+        Pytest fixture used to disable the sharing pass for comparison.
+    """
+    mesh = Mesh(VectorElement("CG", triangle, 1))
+    element = FiniteElement("Johnson-Mercier", triangle, 1)
+    space = FunctionSpace(mesh, element)
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    form = (inner(u, v) + inner(div(u), div(v))) * dx
+
+    optimized, = compile_form(form, parameters={"mode": "spectral"})
+    monkeypatch.setattr(
+        tsfc.spectral, "hoist_linear_index",
+        lambda expression, indices: expression)
+    baseline, = compile_form(form, parameters={"mode": "spectral"})
+
+    optimized_source = str(optimized.ast)
+    baseline_source = str(baseline.ast)
+    optimized_shapes = [
+        temporary.shape for temporary in
+        optimized.ast.default_entrypoint.temporary_variables.values()]
+    baseline_shapes = [
+        temporary.shape for temporary in
+        baseline.ast.default_entrypoint.temporary_variables.values()]
+
+    assert optimized.flop_count < baseline.flop_count
+    assert sum(not shape for shape in optimized_shapes) \
+        < sum(not shape for shape in baseline_shapes)
+    assert sum(shape == (15,) for shape in optimized_shapes) \
+        > sum(shape == (15,) for shape in baseline_shapes)
+    assert optimized_source.count(" if ") < baseline_source.count(" if ")
+
+
+def test_sum_factorisation_order() -> None:
+    """Contract the quadrature direction with least argument support first."""
+    i, j, q0, q1 = (gem.Index(extent=4) for _ in range(4))
+    inner = gem.Indexed(gem.Variable("inner", (4, 4)), (i, q0))
+    outer = gem.Indexed(
+        gem.Variable("outer", (4, 4, 4)), (i, j, q1))
+    monomial_sum = MonomialSum()
+    monomial_sum.add((q0, q1), (inner * outer,), one)
+
+    ordering = _sum_factorisation_order(
+        (q1, q0), monomial_sum)
+
+    assert ordering == (q0, q1)
 
 
 if __name__ == "__main__":
