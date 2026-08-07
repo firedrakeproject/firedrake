@@ -3,6 +3,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -104,7 +105,7 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     w = Function(W2)
     solve(a == L, w, solver_parameters=parms)
     maxcoeff = max(abs(w.dat.data))
-    assert maxcoeff < 1e-11
+    assert maxcoeff < (1e-4 if single_mode else 1e-11)
 
     # TEST DIV(CURL(v)) = 0, for v in W1
 
@@ -124,7 +125,7 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     y = Function(W3)
     solve(a == L, y, solver_parameters=parms)
     maxcoeff = max(abs(y.dat.data))
-    assert maxcoeff < 1e-11
+    assert maxcoeff < (1e-4 if single_mode else 1e-11)
 
     # TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3
 
@@ -145,7 +146,7 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     v = Function(W1)
     solve(a == L, v, solver_parameters=parms)
     maxcoeff = max(abs(v.dat.data))
-    assert maxcoeff < 1e-11
+    assert maxcoeff < (1e-4 if single_mode else 1e-11)
 
     # TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2
 
@@ -165,4 +166,4 @@ def run_feec(mesh, U0, U1, U2, V0, V1):
     u = Function(W0)
     solve(a == L, u, solver_parameters=parms)
     maxcoeff = max(abs(u.dat.data))
-    assert maxcoeff < 3e-11
+    assert maxcoeff < (1e-3 if single_mode else 3e-11)

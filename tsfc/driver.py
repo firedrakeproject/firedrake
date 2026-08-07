@@ -268,9 +268,10 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         # Delayed import, loopy is a runtime dependency
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
+    real_dtype = numpy.finfo(parameters["scalar_type"]).dtype
     builder = interface(parameters["scalar_type"])
     arguments = expression.arguments()
-    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
+    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element(), dtype=real_dtype).get_indices()
                              for arg in arguments}
     assert len(argument_multiindices) == len(arguments)
 
@@ -313,7 +314,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
-                      integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
+                      integration_dim=as_fiat_cell(domain.ufl_cell(), dtype=real_dtype).get_dimension(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
                       argument_multiindices=argument_multiindices,
@@ -322,7 +323,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
 
     # Create the finat element for the target space
     try:
-        to_element = builder.create_element(ufl_element)
+        to_element = builder.create_element(ufl_element, dtype=real_dtype)
     except KeyError:
         # FInAT only elements
         raise NotImplementedError(f"Don't know how to create FIAT element for {ufl_element}")

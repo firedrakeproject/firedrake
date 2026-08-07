@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 
 from firedrake import *
+from firedrake.utils import single_mode
 # Must come after firedrake import (that loads MPI)
 try:
     import gmshpy
@@ -460,7 +461,7 @@ def test_periodic_unit_cube_hex_cell():
     expr = (1 - x) * x + (1 - y) * y + z
     f = Function(V).interpolate(expr)
     error = assemble((f - expr) ** 2 * dx)
-    assert error < 1.e-30
+    assert error < (1e-12 if single_mode else 1.e-30)
 
 
 @pytest.mark.parallel(4)
@@ -468,7 +469,7 @@ def test_periodic_unit_cube_hex_facet():
     mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, False, False], hexahedral=True)
     for subdomain_id in [3, 4, 5, 6]:
         area = assemble(Constant(1.) * ds(domain=mesh, subdomain_id=subdomain_id))
-        assert abs(area - 1.0) < 1.e-15
+        assert abs(area - 1.0) < (1e-6 if single_mode else 1.e-15)
 
 
 @pytest.mark.parallel(nprocs=4)

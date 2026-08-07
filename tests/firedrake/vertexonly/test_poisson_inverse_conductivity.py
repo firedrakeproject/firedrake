@@ -67,8 +67,11 @@ def test_poisson_inverse_conductivity(num_points):
     # we set redundant to False to ensure that we put points on all ranks
     point_cloud = VertexOnlyMesh(m, xs, redundant=False)
 
-    # Check the point cloud coordinates are correct
-    assert (point_cloud.input_ordering.coordinates.dat.data_ro == xs).all()
+    # Check the point cloud coordinates are correct (input ordering stores
+    # coordinates in the mesh dtype, so compare against the input truncated to
+    # that dtype, which is a no-op in double precision).
+    _coords = point_cloud.input_ordering.coordinates.dat.data_ro
+    assert (_coords == xs.astype(_coords.dtype)).all()
 
     # Generate "observed" data
     generator = np.random.default_rng(0)

@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
+from firedrake.utils import single_mode
 from functools import singledispatch
 
 
@@ -67,7 +68,7 @@ def test_sphere_mg():
     mg_params = {"mat_type": "matfree",
                  "snes_type": "ksponly",
                  "ksp_type": "gmres",
-                 "ksp_rtol": 1.0e-8,
+                 "ksp_rtol": 1e-4 if single_mode else 1.0e-8,
                  "ksp_atol": 0.0,
                  "ksp_max_it": 1000,
                  "ksp_monitor": None,

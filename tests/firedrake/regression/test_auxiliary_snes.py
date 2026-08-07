@@ -1,4 +1,5 @@
 import firedrake as fd
+from firedrake.utils import single_mode
 
 
 def f(u, v, w=0.):
@@ -85,7 +86,7 @@ def test_auxiliary_snes():
 
     # Custom monitor to compare residuals at each aux operator iteration
     def comparison_monitor(snes, its, rnorm):
-        assert abs(rnorm - res[its]) < 1e-14
+        assert abs(rnorm - res[its]) < (1e-6 if single_mode else 1e-14)
 
     solver_aux.snes.setMonitor(comparison_monitor)
 

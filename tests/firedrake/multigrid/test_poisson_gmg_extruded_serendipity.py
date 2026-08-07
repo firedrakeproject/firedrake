@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -37,4 +38,4 @@ def test_poisson_gmg(mh, family, degree):
     L = action(a, uex)
 
     solve(a == L, uh, bcs=bcs, solver_parameters=test_params)
-    assert errornorm(uex, uh) / norm(uex) < 1E-8
+    assert errornorm(uex, uh) / norm(uex) < (1e-4 if single_mode else 1E-8)

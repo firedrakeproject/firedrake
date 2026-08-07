@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_vector_valued_test(x, degree=1, family='RT'):
@@ -218,14 +219,14 @@ def test_projector(mat_type, quadrature_degree):
         assert ctx.fc_params.get("quadrature_degree") == quadrature_degree
 
     mass2 = assemble(vo*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
 
 @pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
@@ -251,7 +252,7 @@ def test_mixed_projector(mat_type):
     P.project()
 
     mass2 = assemble(sum(split(vo))*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
     v0.interpolate(xs[1] + exp(xs[0]+xs[1]))
     v1.interpolate(xs[0] + exp(xs[0]+xs[1]))
@@ -259,7 +260,7 @@ def test_mixed_projector(mat_type):
 
     P.project()
     mass2 = assemble(sum(split(vo))*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
 
 def test_trivial_projector():
@@ -276,14 +277,14 @@ def test_trivial_projector():
     P.project()
 
     mass2 = assemble(vo*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert np.abs(mass1-mass2) < 1.0e-10
+    assert np.abs(mass1-mass2) < (1e-5 if single_mode else 1.0e-10)
 
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
@@ -337,7 +338,7 @@ def test_projector_bcs(tensor, same_fspace):
     solve(a == L, ref, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                    "pc_type": "lu"})
 
-    assert errornorm(ret, ref) < 1.0e-10
+    assert errornorm(ret, ref) < (1e-5 if single_mode else 1.0e-10)
 
 
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
@@ -405,7 +406,7 @@ def test_project_scalar_boundary_quadrature():
     err = w - f
     err2 = inner(err, err)
     error = sqrt(assemble(err2 * ds + err2('+') * dS))
-    assert error < 1E-8
+    assert error < (1e-4 if single_mode else 1E-8)
 
 
 def test_project_vector_boundary_quadrature():
@@ -419,4 +420,4 @@ def test_project_vector_boundary_quadrature():
     err = w - n
     err2 = inner(err, err)
     error = sqrt(assemble(err2 * ds))
-    assert error < 1E-8
+    assert error < (1e-4 if single_mode else 1E-8)

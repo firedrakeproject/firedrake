@@ -4,6 +4,7 @@ import numpy as np
 from ufl.algorithms.ad import expand_derivatives
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture
@@ -16,8 +17,10 @@ try:
     import jax
     import jax.numpy as jnp
 
-    # Enable 64-bit precision
-    jax.config.update("jax_enable_x64", True)
+    # Match JAX precision to Firedrake's: 64-bit for fp64, 32-bit for fp32
+    # (a float64 JAX model vs float32 Firedrake data makes the VJP cotangent
+    # dtype mismatch).
+    jax.config.update("jax_enable_x64", not single_mode)
 
     key = jax.random.PRNGKey(0)
 

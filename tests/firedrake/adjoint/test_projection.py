@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +78,7 @@ def test_project_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V).assign(1.)
+    h = Function(V).assign(100.0 if single_mode else 1.)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
@@ -178,4 +179,4 @@ def test_project_to_function_space():
     w = project((u+c)*u, W)
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, Function(R, val=1.), Constant(0.1)) > 1.9
+    assert taylor_test(rf, Function(R, val=1.), Constant(10.0 if single_mode else 0.1)) > 1.9

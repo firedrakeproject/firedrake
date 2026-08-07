@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -21,7 +22,8 @@ def test_horiz_facet_interior_jump(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_horiz_facet_interior_avg(mesh):
@@ -35,7 +37,8 @@ def test_horiz_facet_interior_avg(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_vert_facet_interior_jump(mesh):
@@ -50,7 +53,8 @@ def test_vert_facet_interior_jump(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_vert_facet_interior_avg(mesh):
@@ -64,7 +68,8 @@ def test_vert_facet_interior_avg(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_top_facet_exterior(mesh):
@@ -79,7 +84,8 @@ def test_top_facet_exterior(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_bottom_facet_exterior(mesh):
@@ -94,7 +100,8 @@ def test_bottom_facet_exterior(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_vert_facet_exterior(mesh):
@@ -109,7 +116,8 @@ def test_vert_facet_exterior(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_total_interior_avg(mesh):
@@ -123,7 +131,8 @@ def test_total_interior_avg(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_total_facet(mesh):
@@ -143,7 +152,8 @@ def test_total_facet(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_no_horiz_jump():

@@ -14,7 +14,7 @@ inputs:
     type: string
     required: true
   scalar_type:
-    description: Scalar type ('default' or 'complex')
+    description: Scalar type ('default', 'complex', or 'single')
     type: string
     default: default
   int_type:

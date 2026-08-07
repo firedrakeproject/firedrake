@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 import pytest
 
@@ -10,7 +11,8 @@ def test_circumference(i):
     f = Constant(1.0)
     # 2 * radius * sin(pi/i) * number of sides
     circumference = 2*i*i*np.sin(np.pi/i)*i
-    assert np.abs(assemble(f*dx(domain=mesh)) - circumference) < eps
+    # fp32: absolute round-off scales with the (large) circumference, so use a relative tolerance
+    assert np.abs(assemble(f*dx(domain=mesh)) - circumference) < (1e-5 * circumference if single_mode else eps)
 
 
 def test_pi():

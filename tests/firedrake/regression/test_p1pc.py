@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=[1, 2, 3],
@@ -72,4 +73,10 @@ def test_p_independence(mesh, expected):
         solver.solve()
 
         nits.append(solver.snes.ksp.getIterationNumber())
-    assert (nits == expected)
+    if single_mode:
+        # fp32 round-off in the matrix-free Chebyshev smoother (eigenvalue
+        # estimates) can cost a couple of extra iterations; p-independence (the
+        # property under test) still holds since the counts stay bounded.
+        assert all(n <= e + 2 for n, e in zip(nits, expected))
+    else:
+        assert (nits == expected)

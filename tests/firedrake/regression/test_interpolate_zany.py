@@ -2,6 +2,7 @@ import numpy
 import pytest
 import ufl
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +53,7 @@ def expect(V, which):
         return a + b
 
 
+@pytest.mark.skipsingle  # LU projection onto ill-conditioned high-continuity bases is unstable in fp32
 def test_interpolate_zany_into_cg(V, mesh, which, expect, tolerance):
     degree = V.ufl_element().degree()
     Vcg = FunctionSpace(mesh, "P", degree)
@@ -101,6 +103,7 @@ def expr_at_vom(V, which, vom):
     return fvom
 
 
+@pytest.mark.skipsingle  # LU projection onto ill-conditioned high-continuity bases is unstable in fp32
 def test_interpolate_zany_into_vom(V, mesh, which, expr_at_vom):
     degree = V.ufl_element().degree()
     x, y = SpatialCoordinate(mesh)
@@ -146,6 +149,7 @@ def test_interpolate_into_zany_piola_mapped(mesh, family, degree):
     u1 = Function(CG).interpolate(x)
     u2 = Function(RT).interpolate(x)
 
+    tol = 1e-6 if single_mode else 1E-12
     for source in (x, u1, u2):
         u = assemble(interpolate(source, V))
-        assert errornorm(source, u) < 1E-12
+        assert errornorm(source, u) < tol

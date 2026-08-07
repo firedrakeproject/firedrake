@@ -7,6 +7,7 @@ from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 from finat.element_factory import create_element
+from firedrake.utils import RealType
 from .utils import get_level
 
 __all__ = ("TransferManager",)
@@ -67,7 +68,7 @@ class TransferManager(object):
         if tdim != gdim and element.mapping() != "identity":
             return False
 
-        finat_element = create_element(element)
+        finat_element = create_element(element, dtype=RealType)
         try:
             finat_element.dual_basis
         except NotImplementedError:

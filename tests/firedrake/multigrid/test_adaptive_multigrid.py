@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -206,8 +207,8 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
     assert np.allclose(
         assemble(action(r_coarse, u_coarse)),
         assemble(action(r_fine, u_fine)),
-        rtol=1e-12,
-        atol=1e-12,
+        rtol=1e-5 if single_mode else 1e-12,
+        atol=1e-5 if single_mode else 1e-12,
     )
 
 
@@ -400,7 +401,7 @@ def test_restrict_CG1(mh):
     assert np.allclose(
         assemble(action(rc, u_coarse)),
         assemble(action(rf, u_fine)),
-        rtol=1e-12
+        rtol=1e-5 if single_mode else 1e-12
     )
 
 
@@ -423,7 +424,7 @@ def test_restrict_DG0(mh):
     assert np.allclose(
         assemble(action(rc, u_coarse)),
         assemble(action(rf, u_fine)),
-        rtol=1e-12
+        rtol=1e-5 if single_mode else 1e-12
     )
 
 
@@ -457,7 +458,7 @@ def test_mg_jacobi(mh):
     problem = NonlinearVariationalProblem(F, u, bc)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
-    assert errornorm(u_ex, u) <= 1e-8
+    assert errornorm(u_ex, u) <= (1e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel([1, 2])
@@ -540,7 +541,7 @@ def test_mg_patch(mh, backend):
     pc = solver.snes.ksp.pc
     assert pc.getType() == "mg"
     assert pc.getMGLevels() == len(mh)
-    assert errornorm(u_ex, u) <= 1e-8
+    assert errornorm(u_ex, u) <= (2e-6 if single_mode else 1e-8)
 
 
 def test_deprecated_adaptive_aliases():

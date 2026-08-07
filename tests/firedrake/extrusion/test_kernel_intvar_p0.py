@@ -1,6 +1,6 @@
 import numpy as np
 from firedrake import *
-from firedrake.utils import RealType
+from firedrake.utils import RealType, single_mode
 
 
 def integrate_var_p0(family, degree):
@@ -43,4 +43,4 @@ def test_firedrake_extrusion_var_p0():
     family = "DG"
     degree = 0
 
-    assert integrate_var_p0(family, degree) < 1.0e-13
+    assert integrate_var_p0(family, degree) < (1e-4 if single_mode else 1.0e-13)

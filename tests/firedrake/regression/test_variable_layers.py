@@ -1,6 +1,11 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy as np
 from math import ceil, sqrt
+
+# Surface-length integrals accumulate fp32 round-off, so loosen the relative
+# tolerance of the comparisons in single precision.
+_rtol = 1e-3 if single_mode else 1e-7
 
 
 def test_variable_layers_exterior_integrals(b1=0):
@@ -31,7 +36,7 @@ def test_variable_layers_exterior_integrals(b1=0):
     mesh.coordinates.dat.data[:, 1] = np.minimum(H1 + x/L * (H2-H1), y)
 
     # check for correct lenghts of four sides:
-    np.testing.assert_allclose(assemble(Constant(1.0)*ds_b(domain=mesh)), L)
-    np.testing.assert_allclose(assemble(Constant(1.0)*ds_t(domain=mesh)), sqrt(L**2+(H2-H1)**2))
-    np.testing.assert_allclose(assemble(Constant(1.0)*ds_v(1, domain=mesh)), H1)
-    np.testing.assert_allclose(assemble(Constant(1.0)*ds_v(2, domain=mesh)), H2)
+    np.testing.assert_allclose(assemble(Constant(1.0)*ds_b(domain=mesh)), L, rtol=_rtol)
+    np.testing.assert_allclose(assemble(Constant(1.0)*ds_t(domain=mesh)), sqrt(L**2+(H2-H1)**2), rtol=_rtol)
+    np.testing.assert_allclose(assemble(Constant(1.0)*ds_v(1, domain=mesh)), H1, rtol=_rtol)
+    np.testing.assert_allclose(assemble(Constant(1.0)*ds_v(2, domain=mesh)), H2, rtol=_rtol)

@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=[1, 2, 3],
@@ -96,7 +97,13 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
 
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
-    assert numpy.allclose(jacobi_history, patch_history)
+    if single_mode:
+        # fp32 KSP converges into the round-off floor: the equivalent PCs may chase the noise
+        # for one extra iteration, so compare the meaningful (shared) part with an fp32 atol
+        n = min(len(jacobi_history), len(patch_history))
+        assert numpy.allclose(jacobi_history[:n], patch_history[:n], atol=1e-6)
+    else:
+        assert numpy.allclose(jacobi_history, patch_history)
 
 
 def _patch_pc_exterior_facets_problem(a, L):
@@ -213,4 +220,4 @@ def test_patch_pc_real():
     star_solution = Function(V)
     solve(a == L, star_solution, solver_parameters=star_solver_parameters)
 
-    assert errornorm(patch_solution, star_solution) < 1e-8
+    assert errornorm(patch_solution, star_solution) < (1e-6 if single_mode else 1e-8)

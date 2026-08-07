@@ -329,7 +329,7 @@ def OneElementThickMesh(
     right = np.roll(left, -1)
     cells = np.array([left, left, right, right]).T
     dx = Lx / ncells
-    X = np.arange(1.0 * ncells, dtype=np.double) * dx
+    X = np.arange(1.0 * ncells, dtype=PETSc.RealType) * dx
     Y = 0.0 * X
     coords = np.array([X, Y]).T
 
@@ -1177,8 +1177,8 @@ def CircleManifoldMesh(
 
     vertices = radius * np.column_stack(
         (
-            np.cos(np.arange(ncells, dtype=np.double) * (2 * np.pi / ncells)),
-            np.sin(np.arange(ncells, dtype=np.double) * (2 * np.pi / ncells)),
+            np.cos(np.arange(ncells, dtype=PETSc.RealType) * (2 * np.pi / ncells)),
+            np.sin(np.arange(ncells, dtype=PETSc.RealType) * (2 * np.pi / ncells)),
         )
     )
 
@@ -1247,7 +1247,7 @@ def UnitDiskMesh(
     """
     vertices = np.array(
         [[0, 0], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]],
-        dtype=np.double,
+        dtype=PETSc.RealType,
     )
 
     cells = np.array(
@@ -1335,7 +1335,7 @@ def UnitBallMesh(
             [0, -1, 0],
             [0, 0, -1],
         ],
-        dtype=np.double,
+        dtype=PETSc.RealType,
     )
 
     cells = np.array(
@@ -1635,9 +1635,9 @@ def BoxMesh(
             comm=comm,
         )
     else:
-        xcoords = np.linspace(0, Lx, nx + 1, dtype=np.double)
-        ycoords = np.linspace(0, Ly, ny + 1, dtype=np.double)
-        zcoords = np.linspace(0, Lz, nz + 1, dtype=np.double)
+        xcoords = np.linspace(0, Lx, nx + 1, dtype=PETSc.RealType)
+        ycoords = np.linspace(0, Ly, ny + 1, dtype=PETSc.RealType)
+        zcoords = np.linspace(0, Lz, nz + 1, dtype=PETSc.RealType)
         return TensorBoxMesh(
             xcoords,
             ycoords,
@@ -1864,9 +1864,9 @@ def PeriodicBoxMesh(
         # TODO: When hexahedra -> simplex refinement is implemented this can go away.
         if tuple(directions) != (True, True, True):
             raise NotImplementedError("Can only specify directions with hexahedral = True")
-        xcoords = np.arange(0.0, Lx, Lx / nx, dtype=np.double)
-        ycoords = np.arange(0.0, Ly, Ly / ny, dtype=np.double)
-        zcoords = np.arange(0.0, Lz, Lz / nz, dtype=np.double)
+        xcoords = np.arange(0.0, Lx, Lx / nx, dtype=PETSc.RealType)
+        ycoords = np.arange(0.0, Ly, Ly / ny, dtype=PETSc.RealType)
+        zcoords = np.arange(0.0, Lz, Lz / nz, dtype=PETSc.RealType)
         coords = (
             np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
         )
@@ -2085,7 +2085,7 @@ def IcosahedralSphereMesh(
             [-phi, 0, -1],
             [-phi, 0, 1],
         ],
-        dtype=np.double,
+        dtype=PETSc.RealType,
     )
     # faces of the base icosahedron
     faces = np.array(
@@ -2412,7 +2412,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     # transformation
     dtheta = 2 ** (-refinement_level + 1) * np.arctan(1.0)
     a = 3.0 ** (-0.5) * radius
-    theta = np.arange(np.arctan(-1.0), np.arctan(1.0) + dtheta, dtheta, dtype=np.double)
+    theta = np.arange(np.arctan(-1.0), np.arctan(1.0) + dtheta, dtheta, dtype=PETSc.RealType)
     x = a * np.tan(theta)
     Nx = x.size
 
@@ -2498,7 +2498,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
     # Set up an array for all of the mesh coordinates
     Npoints = panel_numbering.max() + 1
-    coords = np.zeros((Npoints, 3), dtype=np.double)
+    coords = np.zeros((Npoints, 3), dtype=PETSc.RealType)
     lX, lY = np.meshgrid(x, x)
     lX.shape = (Nx**2,)
     lY.shape = (Nx**2,)
@@ -2703,7 +2703,7 @@ def TorusMesh(
                 r * np.sin(idx_temp[:, 1] * (2 * np.pi / nr)),
             )
         ),
-        dtype=np.double,
+        dtype=PETSc.RealType,
     )
 
     # cell vertices
@@ -2905,7 +2905,7 @@ def CylinderMesh(
         np.column_stack(
             (np.tile(coord_xy, (nl + 1, 1)), np.tile(coord_z, (1, nr)).reshape(-1, 1))
         ),
-        dtype=np.double,
+        dtype=PETSc.RealType,
     )
 
     # intervals on circumference
@@ -2921,7 +2921,7 @@ def CylinderMesh(
     if not quadrilateral and diagonal == "crossed":
         dxy = np.pi / nr
         Lxy = 2 * np.pi
-        extra_uv = np.linspace(dxy, Lxy - dxy, nr, dtype=np.double)
+        extra_uv = np.linspace(dxy, Lxy - dxy, nr, dtype=PETSc.RealType)
         extra_xy = radius * np.column_stack((np.cos(extra_uv), np.sin(extra_uv)))
         dz = 1 * 0.5 / nl
         extra_z = depth * np.linspace(dz, 1 - dz, nl).reshape(-1, 1)
@@ -2929,7 +2929,7 @@ def CylinderMesh(
             np.column_stack(
                 (np.tile(extra_xy, (nl, 1)), np.tile(extra_z, (1, nr)).reshape(-1, 1))
             ),
-            dtype=np.double,
+            dtype=PETSc.RealType,
         )
         origvertices = vertices
         vertices = np.vstack([vertices, extras])
@@ -2966,10 +2966,10 @@ def CylinderMesh(
             cells = cells[:, idx].reshape(-1, 3)
 
     if longitudinal_direction == "x":
-        rotation = np.asarray([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], dtype=np.double)
+        rotation = np.asarray([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], dtype=PETSc.RealType)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction == "y":
-        rotation = np.asarray([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.double)
+        rotation = np.asarray([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=PETSc.RealType)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)

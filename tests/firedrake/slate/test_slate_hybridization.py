@@ -23,6 +23,9 @@ which appears in the variational form as the term: -<42*tau, n>
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 @pytest.fixture(scope="module")
@@ -113,7 +116,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'schur',
                              'ksp_type': 'cg',
-                             'ksp_rtol': 1e-14,
+                             'ksp_rtol': 1e-5 if single_mode else 1e-14,
                              'pc_fieldsplit_schur_fact_type': 'FULL',
                              'fieldsplit_0_ksp_type': 'cg',
                              'fieldsplit_1_ksp_type': 'cg'})
@@ -123,8 +126,8 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < (1e-3 if single_mode else 1e-11)
+    assert u_err < (1e-3 if single_mode else 1e-11)
 
 
 def test_slate_hybridization_wrong_option(setup_poisson, petsc_raises):
@@ -185,8 +188,8 @@ def test_slate_hybridization_nested_schur(setup_poisson):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < (1e-6 if single_mode else 1e-11)
+    assert u_err < (1e-6 if single_mode else 1e-11)
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
@@ -228,7 +231,7 @@ def test_mixed_poisson_approximated_schur(setup_poisson):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-8,
+                                'ksp_rtol': 1e-5 if single_mode else 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
@@ -259,7 +262,7 @@ def test_mixed_poisson_approximated_schur(setup_poisson):
                   'pc_python_type': 'firedrake.HybridizationPC',
                   'hybridization': {'ksp_type': 'cg',
                                     'pc_type': 'none',
-                                    'ksp_rtol': 1e-9,
+                                    'ksp_rtol': 1e-5 if single_mode else 1e-9,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
     _sigma, _u = w2.subfunctions
@@ -268,8 +271,8 @@ def test_mixed_poisson_approximated_schur(setup_poisson):
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-6 if single_mode else 1e-8)
+    assert u_err < (2e-6 if single_mode else 1e-8)
 
 
 def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
@@ -292,7 +295,7 @@ def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-12,
+                                'ksp_rtol': 1e-5 if single_mode else 1e-12,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
@@ -323,15 +326,15 @@ def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-9,
+                                               'ksp_rtol': 1e-5 if single_mode else 1e-9,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-5 if single_mode else 1e-8)
+    assert u_err < (2e-5 if single_mode else 1e-8)
 
 
 def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
@@ -355,7 +358,7 @@ def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-12,
+                                'ksp_rtol': 1e-5 if single_mode else 1e-12,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
@@ -385,7 +388,7 @@ def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-9,
+                                               'ksp_rtol': 1e-5 if single_mode else 1e-9,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.subfunctions
 
@@ -393,8 +396,8 @@ def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-5 if single_mode else 1e-8)
+    assert u_err < (2e-5 if single_mode else 1e-8)
 
 
 def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
@@ -414,7 +417,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'cg',
                                 'pc_type': 'none',
-                                'ksp_rtol': 1e-8,
+                                'ksp_rtol': 1e-5 if single_mode else 1e-8,
                                 'mat_type': 'matfree',
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
@@ -448,7 +451,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
                   'pc_python_type': 'firedrake.HybridizationPC',
                   'hybridization': {'ksp_type': 'cg',
                                     'pc_type': 'none',
-                                    'ksp_rtol': 1e-8,
+                                    'ksp_rtol': 1e-5 if single_mode else 1e-8,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
     _sigma, _u = w2.subfunctions
@@ -457,8 +460,8 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (2e-6 if single_mode else 1e-8)
+    assert u_err < (2e-6 if single_mode else 1e-8)
 
 
 @pytest.mark.parametrize('counts', [(10001, 10002), (10002, 10001)])

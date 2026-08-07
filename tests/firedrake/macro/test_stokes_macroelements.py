@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=("square", "cube"))
@@ -42,7 +43,7 @@ def test_stokes_complex(mesh, space):
     for k in range(len(u.dat.data)):
         u.dat.data_wo[k] = 1
         p.interpolate(div(u))
-        assert norm(div(u) - p) < 1E-10
+        assert norm(div(u) - p) < (1e-6 if single_mode else 1E-10)
         u.dat.data_wo[k] = 0
 
 

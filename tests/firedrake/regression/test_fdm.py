@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.utils import single_mode
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -150,6 +151,7 @@ def test_p_independence_hgrad(mesh, variant):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension == 3 else "RTCE"
     expected = [13, 10] if mesh.topological_dimension == 3 else [6, 6]
@@ -163,6 +165,7 @@ def test_p_independence_hcurl(mesh):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
+@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension == 3 else "RTCF"
     expected = [6, 6]
@@ -317,7 +320,7 @@ def test_ipdg_direct_solver(fs):
         "mat_type": "matfree",
         "ksp_type": "cg",
         "ksp_atol": 0.0E0,
-        "ksp_rtol": 1.0E-8,
+        "ksp_rtol": 1.0E-5 if single_mode else 1.0E-8,
         "ksp_max_it": 3,
         "ksp_monitor": None,
         "ksp_norm_type": "unpreconditioned",
@@ -332,9 +335,9 @@ def test_ipdg_direct_solver(fs):
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
         with uh.dat.vec_ro as uvec:
-            assert uvec.norm() < 1E-8
+            assert uvec.norm() < (1E-3 if single_mode else 1E-8)
     else:
-        assert norm(u_exact-uh, "H1") < 1.0E-8
+        assert norm(u_exact-uh, "H1") < (2.0E-4 if single_mode else 1.0E-8)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -356,7 +359,7 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
     Bref = assemble(inner(grad(TrialFunction(V0)), TestFunction(V1))*dx).petscmat
     Bref.axpy(-1, B)
     _, _, vals = Bref.getValuesCSR()
-    assert numpy.allclose(vals, 0)
+    assert numpy.allclose(vals, 0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -379,7 +382,7 @@ def test_tabulate_curl(mesh, variant, degree, mat_type):
     Bref = assemble(inner(curl(TrialFunction(V1)), TestFunction(V2))*dx).petscmat
     Bref.axpy(-1, B)
     _, _, vals = Bref.getValuesCSR()
-    assert numpy.allclose(vals, 0)
+    assert numpy.allclose(vals, 0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=2)

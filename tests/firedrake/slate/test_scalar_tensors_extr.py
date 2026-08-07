@@ -2,6 +2,7 @@ import numpy as np
 from math import ceil
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def test_constant_one_tensor():
@@ -49,7 +50,10 @@ def test_mass_matrix_variable_layers_extrusion():
     A3 = assemble(Tensor(v*u*dx).inv).M.values
 
     # check A1==A2
-    assert np.allclose(A1, A2, rtol=1e-12)
+    assert np.allclose(A1, A2, rtol=1e-5 if single_mode else 1e-12,
+                       atol=1e-6 if single_mode else 1e-8)
 
     # check A2*A3==Identity
-    assert np.allclose(np.matmul(A2, A3), np.eye(*A2.shape), rtol=1e-12)
+    assert np.allclose(np.matmul(A2, A3), np.eye(*A2.shape),
+                       rtol=1e-5 if single_mode else 1e-12,
+                       atol=1e-5 if single_mode else 1e-8)

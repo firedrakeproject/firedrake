@@ -16,6 +16,7 @@ This has the analytical solution
 
 """
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test(layers, quadrilateral):
@@ -44,9 +45,9 @@ def run_test(layers, quadrilateral):
 
 def test_extrusion_poisson_strong_bcs():
     for layers in [1, 2, 10]:
-        assert (run_test(layers, quadrilateral=False) < 1.e-6)
+        assert (run_test(layers, quadrilateral=False) < (1e-4 if single_mode else 1.e-6))
 
 
 def test_extrusion_poisson_strong_bcs_quadrilateral():
     for layers in [1, 2, 10]:
-        assert (run_test(layers, quadrilateral=True) < 1.e-6)
+        assert (run_test(layers, quadrilateral=True) < (1e-4 if single_mode else 1.e-6))

@@ -54,7 +54,7 @@ def test_spectral_mass_lumping(mesh, degree):
 
     # Test that the matrix is diagonal
     indices = numpy.arange(*Adiag.getOwnershipRange(), dtype=PETSc.IntType)[:, None]
-    values = numpy.zeros(indices.shape)
+    values = numpy.zeros(indices.shape, dtype=PETSc.ScalarType)
     A.setValuesRCV(indices, indices, values)
     A.assemble()
     indptr, indices, values = A.getValuesCSR()

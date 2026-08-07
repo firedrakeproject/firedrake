@@ -15,6 +15,7 @@ from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 from tsfc import kernel_args
 from finat.element_factory import create_element
+from firedrake.utils import RealType
 from tsfc.loopy import create_domains, assign_dtypes
 
 from pytools import UniqueNameGenerator
@@ -117,7 +118,7 @@ class LocalLoopyKernelBuilder:
             if element.family() == "Real":
                 return (argument.dat.cdim, )
             else:
-                return (create_element(element).space_dimension(), )
+                return (create_element(element, dtype=RealType).space_dimension(), )
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,

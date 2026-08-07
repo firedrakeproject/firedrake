@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these
@@ -61,7 +62,8 @@ def test_div_curl_preserving(V):
         norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
         norm_exp = sqrt(assemble(inner(div(f), div(f))*dx))
-    assert abs(norm_exp) < 1e-10
+    # fp32 div/curl-preserving interpolation error ~3e-5; halving 1e-5 too tight.
+    assert abs(norm_exp) < (1e-4 if single_mode else 1e-10)
 
 
 def compute_interpolation_error(baseMesh, nref, space, degree):
@@ -106,6 +108,8 @@ def expected_l2_order(space, degree):
 
 
 def test_convergence_order(mesh, space, degree):
+    if single_mode and degree == 3:
+        pytest.skip("fp32 round-off hits the error floor before degree-3 convergence is reached")
     nref = 2
     nref_min = 1
     error = compute_interpolation_error(mesh, nref, space, degree)

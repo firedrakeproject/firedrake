@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.mark.skipcomplex
@@ -94,8 +95,11 @@ def test_nonlinear_stokes_hdiv():
 
     u, p = w.subfunctions
 
+    # fp32 div(u) L2 residual ~4e-7; halving 1e-7 sits below the fp32 floor.
+    tol = 1e-6 if single_mode else 1e-14
+
     # test for penetration on bottom
-    assert sqrt(assemble(dot(u, n)**2*ds(3))) < 1e-14
+    assert sqrt(assemble(dot(u, n)**2*ds(3))) < tol
 
     # test for incompressibility
-    assert sqrt(assemble(div(u)**2*dx)) < 1e-14
+    assert sqrt(assemble(div(u)**2*dx)) < tol

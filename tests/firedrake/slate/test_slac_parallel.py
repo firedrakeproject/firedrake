@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -44,4 +45,4 @@ def test_parallel_kernel_on_sphere():
     x = Function(U)
     solve(A, x, b)
 
-    assert errornorm(x, expr) < 1e-10
+    assert errornorm(x, expr) < (1e-6 if single_mode else 1e-10)

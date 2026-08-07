@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -22,7 +23,8 @@ def test_facet_interior_jump(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_facet_interior_avg(mesh):
@@ -37,7 +39,8 @@ def test_facet_interior_avg(mesh):
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
-    assert np.allclose(A, ref, rtol=1e-14)
+    assert np.allclose(A, ref, rtol=1e-5 if single_mode else 1e-14,
+                       atol=1e-6 if single_mode else 1e-8)
 
 
 def test_facet_exterior(mesh):

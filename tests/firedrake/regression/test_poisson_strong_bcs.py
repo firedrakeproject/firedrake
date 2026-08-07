@@ -16,6 +16,7 @@ This has the analytical solution
 """
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test(r, degree, parameters, quadrilateral=False):
@@ -72,7 +73,7 @@ def run_test_linear(r, degree, parameters, quadrilateral=False):
                           for d in (1, 2)
                           for q in [False, True]])
 def test_poisson_analytic(params, degree, quadrilateral):
-    assert (run_test(2, degree, parameters=params, quadrilateral=quadrilateral) < 1.e-9)
+    assert (run_test(2, degree, parameters=params, quadrilateral=quadrilateral) < (1.e-4 if single_mode else 1.e-9))
 
 
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
@@ -81,7 +82,7 @@ def test_poisson_analytic(params, degree, quadrilateral):
                           for d in (1, 2)
                           for q in [False, True]])
 def test_poisson_analytic_linear(params, degree, quadrilateral):
-    assert (run_test_linear(2, degree, parameters=params, quadrilateral=quadrilateral) < 5.e-6)
+    assert (run_test_linear(2, degree, parameters=params, quadrilateral=quadrilateral) < (1.e-4 if single_mode else 5.e-6))
 
 
 @pytest.mark.parallel(nprocs=2)

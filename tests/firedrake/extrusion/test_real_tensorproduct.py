@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["scalar", "vector", "tensor"])
@@ -51,7 +52,7 @@ def solution(variant, fs_kind):
 
 @pytest.fixture
 def tolerance(variant):
-    return {"linear": 2e-15, "sin": 1e-5}[variant]
+    return {"linear": 1e-6 if single_mode else 2e-15, "sin": 1e-5}[variant]
 
 
 def test_vertical_average(V, expr, solution, tolerance):
@@ -73,7 +74,7 @@ def quadrilateral(request):
 
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
-    tolerance = 2e-14
+    tolerance = 1e-5 if single_mode else 2e-14
     mesh2d = RectangleMesh(5, 1, 5, 1, quadrilateral=quadrilateral)
 
     # construct number of levels
@@ -102,9 +103,9 @@ def test_vertical_average_variable(quadrilateral):
 
 
 @pytest.mark.parametrize(('testcase', 'tolerance'),
-                         [(("CG", 1), 2e-7),
-                          (("CG", 2), 1e-7),
-                          (("CG", 3), 2e-7)],
+                         [(("CG", 1), 1e-4 if single_mode else 2e-7),
+                          (("CG", 2), 1e-4 if single_mode else 1e-7),
+                          (("CG", 3), 1e-4 if single_mode else 2e-7)],
                          ids=["CG1", "CG2", "CG3"])
 def test_helmholtz(extmesh, quadrilateral, testcase, tolerance):
     """Solve depth-independent H. problem on Pn x Pn and Pn x Real spaces"""

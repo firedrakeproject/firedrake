@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module',
@@ -42,4 +43,4 @@ def test_dg_integral_orthogonality(mesh, degree):
         "pc_type": "jacobi",
         "mat_type": "matfree",
     })
-    assert errornorm(u, u_exact) < 1E-13
+    assert errornorm(u, u_exact) < (1e-6 if single_mode else 1E-13)

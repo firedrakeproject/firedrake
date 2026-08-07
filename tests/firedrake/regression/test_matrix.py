@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.matrix import Matrix, AssembledMatrix
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -48,4 +49,4 @@ def test_solve_with_assembled_matrix(a):
     solution = Function(V)
     solve(A == L, solution)
 
-    assert norm(assemble(f - solution)) < 1e-15
+    assert norm(assemble(f - solution)) < (1e-7 if single_mode else 1e-15)

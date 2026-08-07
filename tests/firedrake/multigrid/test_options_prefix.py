@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -54,7 +55,7 @@ def test_fieldsplit_mg_options_prefix(named):
     problem = LinearVariationalProblem(a, L, z, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
-    assert errornorm(z_exact, z) / norm(z_exact) < 1E-12
+    assert errornorm(z_exact, z) / norm(z_exact) < (1e-6 if single_mode else 1E-12)
 
     assert solver.snes.ksp.pc.getOperators()[0].getType() == "python"
     fsplit = solver.snes.ksp.pc.getFieldSplitSubKSP()

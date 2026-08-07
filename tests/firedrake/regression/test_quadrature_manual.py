@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 
@@ -38,4 +39,4 @@ def test_quadrature_space(mesh, quad_scheme):
     f = sum(SpatialCoordinate(mesh)) ** 2
     q = Function(Q).interpolate(f)
 
-    assert norm(q - f) < 1E-12
+    assert norm(q - f) < (1E-6 if single_mode else 1E-12)

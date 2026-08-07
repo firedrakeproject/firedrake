@@ -2,7 +2,7 @@ import numpy
 import string
 from pyop2 import op2
 from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS, single_mode
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
@@ -34,6 +34,10 @@ from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 from firedrake.pointeval_utils import runtime_quadrature_element
 
+# fp32 Newton iterate error is bounded by ~sqrt(eps_fp32) ≈ 3.45e-4, not just the
+# convergence tolerance (1e-6); inside-cell check must be larger than that error.
+TRANSFER_INSIDE_CELL_EPS = 5e-4 if single_mode else 1e-8
+
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     if parameters is None:
@@ -44,20 +48,21 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = create_element(ufl_coordinate_element)
+    element = create_element(ufl_coordinate_element, dtype=RealType)
     gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 
     code = {
         "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension,
-        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype=RealType),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 20,
-        "convergence_epsilon": 1e-12,
+        "convergence_epsilon": REFERENCE_COORD_CONVERGENCE_EPS,
         "dX_norm_square": dX_norm_square(cell.topological_dimension),
         "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
+        "RealType": RealType_c,
     }
 
     evaluate_template_c = """#include <math.h>
@@ -66,7 +71,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
+static inline void to_reference_coords_kernel(%(RealType)s *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
 
@@ -78,7 +83,7 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        double dX[%(topological_dimension)d] = { 0.0 };
+        PetscReal dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -181,8 +186,8 @@ def prolong_kernel(expression, Vf):
         kernel = dual_evaluation_kernel(expression, ufl.TestFunction(Vf.dual()))
         evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
+        coords_element = create_element(coordinates.ufl_element(), dtype=RealType)
+        element = create_element(expression.ufl_element(), dtype=RealType)
         num_verts = len(element.cell.get_vertices())
 
         kernel_code = """#include <petsc.h>
@@ -192,13 +197,13 @@ def prolong_kernel(expression, Vf):
         static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc
                                          %(cell_orient)s%(cell_sizes)s)
         {
-            PetscScalar Xref[%(tdim)d];
+            PetscReal Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
-            double bestdist = 1e10;
+            PetscReal bestdist = PETSC_MAX_REAL;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
+                PetscReal celldist = PETSC_MAX_REAL;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -241,7 +246,7 @@ def prolong_kernel(expression, Vf):
                "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "inside_cell": inside_check(element.cell, eps=TRANSFER_INSIDE_CELL_EPS, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
@@ -272,8 +277,8 @@ def restrict_kernel(Vf, Vc):
         kernel = dual_evaluation_kernel(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
         evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(Vc.ufl_element())
+        coords_element = create_element(coordinates.ufl_element(), dtype=RealType)
+        element = create_element(Vc.ufl_element(), dtype=RealType)
         num_verts = len(element.cell.get_vertices())
 
         kernel_code = """#include <petsc.h>
@@ -284,13 +289,13 @@ def restrict_kernel(Vf, Vc):
         static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc
                                           %(cell_orient)s%(cell_sizes)s)
         {
-            PetscScalar Xref[%(tdim)d];
+            PetscReal Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
-            double bestdist = 1e10;
+            PetscReal bestdist = PETSC_MAX_REAL;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
+                PetscReal celldist = PETSC_MAX_REAL;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -332,7 +337,7 @@ def restrict_kernel(Vf, Vc):
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
                "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "inside_cell": inside_check(element.cell, eps=TRANSFER_INSIDE_CELL_EPS, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
@@ -404,7 +409,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def _coefficient(self, coefficient, name):
         """Register a coefficient as a macro-cell kernel argument and return its GEM expression."""
-        element = create_element(coefficient.ufl_element())
+        element = create_element(coefficient.ufl_element(), dtype=RealType)
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
         funarg = lp.GlobalArg(name, dtype=ScalarType, shape=(size,))
@@ -426,7 +431,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
 
-    Vfe = create_element(Vf.ufl_element())
+    Vfe = create_element(Vf.ufl_element(), dtype=RealType)
     ref_complex = Vfe.complex
     variant = Vf.ufl_element().variant() or "default"
     if "alfeld" in variant.lower():
@@ -452,7 +457,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                            complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
-    Vce = create_element(Vc.ufl_element())
+    Vce = create_element(Vc.ufl_element(), dtype=RealType)
 
     info = TSFCIntegralDataInfo(domain=Vc.mesh(),
                                 integral_type="cell",

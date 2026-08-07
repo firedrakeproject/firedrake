@@ -29,7 +29,7 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
 
     *cell_out = -1;
     for (size_t i = 0; i < nids; ++i) {
-        /* Check that casting the ids from int64 to PetscInt is safe (for 32 bit petsc builds). 
+        /* Check that casting the ids from int64 to PetscInt is safe (for 32 bit petsc builds).
         Since the ids are mesh cell ids this *should* always be safe, but better to check
         and return an error if something goes wrong. */
         if (ids[i] > (int64_t)PETSC_MAX_INT) {

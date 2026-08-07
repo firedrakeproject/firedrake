@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, single_mode
 from firedrake.matrix import MatrixBase
 import ufl
 
@@ -156,7 +156,7 @@ def test_assemble_interp_rank0(V1, V2, f1):
     b = assemble(interpolate(f1, V2))
     with b.dat.vec_ro as x, u2.dat.vec_ro as y:
         res = x.dot(y)
-    assert np.abs(a - res) < 1e-9
+    assert np.abs(a - res) < (1e-7 if single_mode else 1e-9)
 
 
 def test_assemble_base_form_operator_expressions(mesh):

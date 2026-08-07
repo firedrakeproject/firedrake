@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_AMG_PC
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -103,6 +104,6 @@ def test_nested_split_multigrid(parameters):
     solver.solve()
     u, p, s = w.subfunctions
 
-    assert norm(assemble(u_expect - u)) < 5e-5
-    assert norm(assemble(p_expect - p)) < 1e-6
-    assert norm(assemble(s_expect - s)) < 1e-10
+    assert norm(assemble(u_expect - u)) < (2e-3 if single_mode else 5e-5)
+    assert norm(assemble(p_expect - p)) < (1e-3 if single_mode else 1e-6)
+    assert norm(assemble(s_expect - s)) < (1e-4 if single_mode else 1e-10)

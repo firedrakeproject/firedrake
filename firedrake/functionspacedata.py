@@ -23,7 +23,7 @@ from functools import partial
 from finat.element_factory import create_element as _create_element
 
 from pyop2 import op2
-from firedrake.utils import IntType
+from firedrake.utils import IntType, RealType
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
@@ -39,7 +39,7 @@ __all__ = ("get_shared_data", )
 
 @PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
-    finat_element = _create_element(ufl_element)
+    finat_element = _create_element(ufl_element, dtype=RealType)
     if isinstance(finat_element, finat.TensorFiniteElement):
         # Retrieve scalar element
         finat_element = finat_element.base_element

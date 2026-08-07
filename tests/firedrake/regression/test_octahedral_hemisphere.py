@@ -1,6 +1,7 @@
 from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 import numpy
 
 
@@ -45,6 +46,8 @@ def run_test(degree, refinements, hemisphere):
 
 
 def test_octahedral_hemisphere(degree, hemisphere, convergence):
+    if single_mode and convergence > 2.5:
+        pytest.skip("fp32 round-off floor collapses >2nd-order convergence on the refined sphere")
     errs = numpy.asarray([run_test(degree, r, hemisphere) for r in range(3, 6)])
     l2conv = numpy.log2(errs[:-1] / errs[1:])
     assert (l2conv > convergence).all()

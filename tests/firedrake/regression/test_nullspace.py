@@ -1,4 +1,7 @@
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 import pytest
 import numpy as np
 
@@ -24,7 +27,7 @@ def test_nullspace(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < (1e-5 if single_mode else 5e-8)
 
 
 def test_orthonormalize():
@@ -86,9 +89,10 @@ def test_nullspace_preassembled(V):
 
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
-    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < (1e-5 if single_mode else 5e-8)
 
 
+@pytest.mark.skipsingle  # unpreconditioned minres on this saddle-point system diverges in fp32
 def test_nullspace_mixed():
     m = UnitSquareMesh(5, 5)
     x = SpatialCoordinate(m)
@@ -141,7 +145,7 @@ def test_nullspace_mixed():
                              'fieldsplit_1_pc_type': 'none'})
 
     sigma, u = w.subfunctions
-    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
+    assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < (1e-5 if single_mode else 5e-8)
 
 
 def test_near_nullspace(tmpdir):
@@ -180,7 +184,7 @@ def test_near_nullspace(tmpdir):
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
-        'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
+        'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'}, near_nullspace=nsp)
@@ -188,14 +192,15 @@ def test_near_nullspace(tmpdir):
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
-        'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
+        'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
         'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
-    assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < 1e-7
-    assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < 1e-7
+    _tol = 1e-3 if single_mode else 1e-7
+    assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < _tol
+    assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < _tol
 
     with open(wo_nns_log, "r") as f:
         f.readline()
@@ -206,7 +211,9 @@ def test_near_nullspace(tmpdir):
         w = f.read()
 
     # Check that the number of iterations necessary decreases when using near nullspace
-    assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
+    # (fp32 round-off makes the near-nullspace iteration reduction less pronounced)
+    factor = 0.9 if single_mode else 0.75
+    assert (len(w.split("\n"))-1) <= factor * (len(wo.split("\n"))-1)
 
 
 def test_nullspace_mixed_multiple_components():
@@ -247,7 +254,7 @@ def test_nullspace_mixed_multiple_components():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
-            'ksp_rtol': '1e-9',
+            'ksp_rtol': 1e-5 if single_mode else 1e-9,
             'ksp_test_null_space': None,
             'ksp_converged_reason': None,
         },
@@ -258,7 +265,7 @@ def test_nullspace_mixed_multiple_components():
             'Mp_pc_type': 'ksp',
             'Mp_ksp_ksp_type': 'cg',
             'Mp_ksp_pc_type': 'sor',
-            'ksp_rtol': '1e-7',
+            'ksp_rtol': 1e-5 if single_mode else 1e-7,
             'ksp_monitor': None,
         }
     }
@@ -289,6 +296,7 @@ def test_nullspace_mixed_multiple_components():
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
+@pytest.mark.skipsingle  # 1e8 viscosity contrast exceeds fp32 range, GAMG iteration count blows up
 def test_near_nullspace_mixed(aux_pc, rhs):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036

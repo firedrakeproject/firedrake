@@ -75,9 +75,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                     layer_height(op2.READ),
                     pass_layer_arg=True).compute()
         return
-    ext_fe = create_element(ext_coords.ufl_element())
+    ext_fe = create_element(ext_coords.ufl_element(), dtype=RealType)
     ext_shape = ext_fe.index_shape
-    base_fe = create_element(base_coords.ufl_element())
+    base_fe = create_element(base_coords.ufl_element(), dtype=RealType)
     base_shape = base_fe.index_shape
     data = []
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))

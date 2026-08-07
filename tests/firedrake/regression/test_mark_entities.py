@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -33,18 +34,19 @@ def test_mark_entities_mark_points_with_function_array():
                          [f0, f1],
                          [my_cell_label, my_facet_label])
     # Check integrals.
+    tol = 1e-5 if single_mode else 1.e-10
     v = assemble(Constant(1) * dx(domain=mesh))
-    assert abs(v - 1.0) < 1.e-10
+    assert abs(v - 1.0) < tol
     v = assemble(Constant(1) * dx(my_cell_label, domain=mesh))
-    assert abs(v - .25) < 1.e-10
+    assert abs(v - .25) < tol
     v = assemble(Constant(1) * dS(domain=mesh))
-    assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
+    assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < tol
     v = assemble(Constant(1) * dS(my_facet_label, domain=mesh))
-    assert abs(v - (1 * .5 + 1 * .5 * sqrt(2))) < 1.e-10
+    assert abs(v - (1 * .5 + 1 * .5 * sqrt(2))) < tol
     v = assemble(Constant(1) * dS(UNMARKED, domain=mesh))
-    assert abs(v - (3 * .5 + 3 * .5 * sqrt(2))) < 1.e-10
+    assert abs(v - (3 * .5 + 3 * .5 * sqrt(2))) < tol
     v = assemble(Constant(1) * dS((my_facet_label, UNMARKED), domain=mesh))
-    assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
+    assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < tol
 
 
 @pytest.mark.parallel(nprocs=7)

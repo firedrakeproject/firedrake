@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 from os.path import abspath, dirname, join
 
 
@@ -18,7 +19,7 @@ def test_integral_hex_exterior_facet(mesh_from_file, family):
     V = FunctionSpace(mesh, family, 3)
     x, y, z = SpatialCoordinate(mesh)
     f = Function(V).interpolate(2 * x + 3 * y * y + 4 * z * z * z)
-    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
+    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < (1e-5 if single_mode else 1.e-10)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -32,7 +33,8 @@ def test_integral_hex_interior_facet(mesh_from_file, family):
     V = FunctionSpace(mesh, family, 3)
     x, y, z = SpatialCoordinate(mesh)
     f = Function(V).interpolate(2 * x + 3 * y * y + 4 * z * z * z)
-    assert assemble((f('+') - f('-'))**2 * dS)**0.5 < 1.e-14
+    # fp32 facet-jump L2 norm ~1e-6; halving 1e-7 sits below the fp32 floor.
+    assert assemble((f('+') - f('-'))**2 * dS)**0.5 < (1e-5 if single_mode else 1.e-14)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -53,7 +55,8 @@ def test_integral_hex_interior_facet_solve(mesh_from_file):
     sol = Function(V)
     solve(a == L, sol, bcs=[bc])
     err = assemble((sol - f)**2 * dx)**0.5
-    assert err < 1.e-14
+    # fp32 solve L2 error ~2e-7; halving 1e-7 sits just below the fp32 floor.
+    assert err < (1e-6 if single_mode else 1.e-14)
 
 
 def make_nonuniform_box_mesh():
@@ -83,16 +86,17 @@ def test_integral_hex_interior_facet_geometric_quantities(GQ_expected):
 
 
 def test_integral_hex_interior_facet_facet_avg():
+    tol = 1e-7 if single_mode else 1.e-14
     mesh = make_nonuniform_box_mesh()
     x, y, z = SpatialCoordinate(mesh)
     e = y('+') * z('-')**2
     E = assemble(e * dS)
-    assert abs(E - 1. / 6.) < 1.e-14
+    assert abs(E - 1. / 6.) < tol
     a = facet_avg(y('-')**3 * z('+')**4)
     A = assemble(a * dS)
-    assert abs(A - 1. / 20.) < 1.e-14
+    assert abs(A - 1. / 20.) < tol
     EA = assemble(e * a * dS)
-    assert abs(EA - E * A) < 1.e-14
+    assert abs(EA - E * A) < tol
 
 
 def test_integral_hex_interior_facet_issue4653():

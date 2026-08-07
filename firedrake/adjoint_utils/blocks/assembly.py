@@ -1,3 +1,4 @@
+import numbers
 import ufl
 import firedrake
 from ufl.domain import extract_domains
@@ -136,7 +137,7 @@ class AssembleBlock(Block):
             else:
                 dform += firedrake.action(firedrake.derivative(form, c_rep),
                                           tlm_value)
-        if not isinstance(dform, float):
+        if not isinstance(dform, numbers.Real):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = firedrake.assemble(dform)
         return dform
@@ -184,7 +185,7 @@ class AssembleBlock(Block):
             else:
                 ddform += firedrake.derivative(dform, c2_rep, tlm_input)
 
-        if not isinstance(ddform, float):
+        if not isinstance(ddform, numbers.Real):
             ddform = ufl.algorithms.expand_derivatives(ddform)
             if not (isinstance(ddform, ufl.ZeroBaseForm)
                     or (isinstance(ddform, ufl.Form) and ddform.empty())):
@@ -200,6 +201,8 @@ class AssembleBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         form = prepared
         output = firedrake.assemble(form)
+        if isinstance(output, numbers.Real) and not isinstance(output, float):
+            output = float(output)
         output = create_overloaded_object(output)
         if isinstance(output, firedrake.Function):
             return maybe_disk_checkpoint(output)

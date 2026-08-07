@@ -9,6 +9,7 @@ on the other 2, opposite, sides.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -37,7 +38,7 @@ def test_bottom(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)
 
 
 def test_top(P2):
@@ -59,7 +60,7 @@ def test_top(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)
 
 
 def test_topbottom(P2):
@@ -81,4 +82,4 @@ def test_topbottom(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < (1e-4 if single_mode else 1.0e-6)

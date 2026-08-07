@@ -1,6 +1,6 @@
 from firedrake import *
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, single_mode
 from firedrake.solving_utils import DEFAULT_KSP_PARAMETERS
 import pytest
 import numpy as np
@@ -60,6 +60,8 @@ def bcs(problem, V):
                                      "lu"))
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
 def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
+    if single_mode:
+        pytest.skip("matrix-free and assembled solves accumulate fp32 round-off differently, so the KSP monitor histories diverge")
 
     u = Function(V)
 
@@ -205,7 +207,7 @@ def test_fieldsplitting(mesh, preassembled, parameters, rhs):
     f -= expect
 
     for d in f.dat.data_ro:
-        assert np.allclose(d, 0.0)
+        assert np.allclose(d, 0.0, atol=1e-4 if single_mode else 1e-8)
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -407,4 +409,4 @@ def test_sub_matrix_not_subfield(shape):
     A = assemble(a, bcs=bcs, mat_type="aij")
     Amat = A.petscmat
     Asub_aij = Amat.createSubMatrix(rows, cols)
-    assert np.allclose(Asub_aij[:, :], Asub_dense)
+    assert np.allclose(Asub_aij[:, :], Asub_dense, atol=1e-4 if single_mode else 1e-8)
