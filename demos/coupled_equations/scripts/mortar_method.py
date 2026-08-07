@@ -76,8 +76,7 @@ def build_problem(mesh1, mesh2):
     # Helmholtz on mesh_2
     A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
                 + w2 * inner(v2, u2) * ds2 \
-                + inner(dot(grad(u2), n2), v2) * ds2 \
-                + inner(dot(grad(v2), n2), u2) * ds2
+                + inner(dot(grad(u2), n2), v2) * ds2
     
     # A12: row v1, column u2
     q1 = TrialFunction(Q1)
@@ -100,7 +99,7 @@ def build_problem(mesh1, mesh2):
     # RHS
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-    A = A11_form + A22_form + A12_w + A12_trace + A21_w + A21_trace
+    A = A11_form + A22_form + A12_w + A12_trace + A21_w
     L = b1 + b2
 
     # Exact solutions used for further analysis
