@@ -48,7 +48,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = create_element(ufl_coordinate_element)
+    element = create_element(ufl_coordinate_element, dtype=RealType)
     gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 
@@ -186,8 +186,8 @@ def prolong_kernel(expression, Vf):
         kernel = dual_evaluation_kernel(expression, ufl.TestFunction(Vf.dual()))
         evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
+        coords_element = create_element(coordinates.ufl_element(), dtype=RealType)
+        element = create_element(expression.ufl_element(), dtype=RealType)
         num_verts = len(element.cell.get_vertices())
 
         kernel_code = """#include <petsc.h>
@@ -277,8 +277,8 @@ def restrict_kernel(Vf, Vc):
         kernel = dual_evaluation_kernel(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
         evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(Vc.ufl_element())
+        coords_element = create_element(coordinates.ufl_element(), dtype=RealType)
+        element = create_element(Vc.ufl_element(), dtype=RealType)
         num_verts = len(element.cell.get_vertices())
 
         kernel_code = """#include <petsc.h>
@@ -409,7 +409,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def _coefficient(self, coefficient, name):
         """Register a coefficient as a macro-cell kernel argument and return its GEM expression."""
-        element = create_element(coefficient.ufl_element())
+        element = create_element(coefficient.ufl_element(), dtype=RealType)
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
         funarg = lp.GlobalArg(name, dtype=ScalarType, shape=(size,))
@@ -431,7 +431,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
 
-    Vfe = create_element(Vf.ufl_element())
+    Vfe = create_element(Vf.ufl_element(), dtype=RealType)
     ref_complex = Vfe.complex
     variant = Vf.ufl_element().variant() or "default"
     if "alfeld" in variant.lower():
@@ -457,7 +457,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                            complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
-    Vce = create_element(Vc.ufl_element())
+    Vce = create_element(Vc.ufl_element(), dtype=RealType)
 
     info = TSFCIntegralDataInfo(domain=Vc.mesh(),
                                 integral_type="cell",

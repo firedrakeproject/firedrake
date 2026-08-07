@@ -9,7 +9,7 @@ from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS
 
 import ufl
 import finat.ufl
@@ -223,7 +223,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
 
     ufl_coordinate_element = mesh.ufl_coordinate_element()
     # Create FInAT element
-    element = finat.element_factory.create_element(ufl_coordinate_element)
+    element = finat.element_factory.create_element(ufl_coordinate_element, dtype=RealType)
 
     code = {
         "geometric_dimension": mesh.geometric_dimension,

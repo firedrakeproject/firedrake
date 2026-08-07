@@ -148,7 +148,7 @@ class KernelBuilderMixin(object):
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
-        set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions)
+        set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions, self.fem_scalar_type)
         quad_rule = params["quadrature_rule"]
         config = self.fem_config()
         config['argument_multiindices'] = self.argument_multiindices
@@ -248,7 +248,7 @@ class KernelBuilderMixin(object):
         info = self.integral_data_info
         integral_type = info.integral_type
         cell = info.domain.ufl_cell()
-        fiat_cell = as_fiat_cell(cell)
+        fiat_cell = as_fiat_cell(cell, dtype=numpy.finfo(self.fem_scalar_type).dtype)
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         return dict(interface=self,
                     ufl_cell=cell,
@@ -302,7 +302,7 @@ class KernelBuilderMixin(object):
                 'mode_irs': collections.OrderedDict()}
 
 
-def set_quad_rule(params, cell, integral_type, functions):
+def set_quad_rule(params, cell, integral_type, functions, scalar_type):
     # Check if the integral has a quad degree or quad element attached,
     # otherwise use the estimated polynomial degree attached by compute_form_data
     quad_rule = params.get("quadrature_rule", "default")
@@ -342,8 +342,9 @@ def set_quad_rule(params, cell, integral_type, functions):
 
     if isinstance(quad_rule, str):
         scheme = quad_rule
-        fiat_cell = as_fiat_cell(cell)
-        finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
+        real_dtype = numpy.finfo(scalar_type).dtype
+        fiat_cell = as_fiat_cell(cell, dtype=real_dtype)
+        finat_elements = set(create_element(e, dtype=real_dtype) for e in elements if e.family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         if any(c.is_macrocell() for c in fiat_cells):
             if len(set(c.get_spatial_dimension() for c in fiat_cells)) > 1:
@@ -487,7 +488,7 @@ def prepare_constant(constant, number):
                        constant.ufl_shape)
 
 
-def prepare_coefficient(coefficient, name, domain_integral_type_map):
+def prepare_coefficient(coefficient, name, domain_integral_type_map, scalar_type):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -506,7 +507,7 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
         GEM expression referring to the Coefficient values.
 
     """
-    finat_element = create_element(coefficient.ufl_element())
+    finat_element = create_element(coefficient.ufl_element(), dtype=numpy.finfo(scalar_type).dtype)
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
     domain = extract_unique_domain(coefficient)
@@ -525,7 +526,7 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
     return expression
 
 
-def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagonal=False):
+def prepare_arguments(arguments, multiindices, domain_integral_type_map, scalar_type, diagonal=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -554,7 +555,7 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
         expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
         return (expression, )
 
-    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    elements = tuple(create_element(arg.ufl_element(), dtype=numpy.finfo(scalar_type).dtype) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
 
     if diagonal:

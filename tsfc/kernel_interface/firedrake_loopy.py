@@ -94,7 +94,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: GEM expression representing the coefficient
         """
-        expr = prepare_coefficient(coefficient, name, self._domain_integral_type_map)
+        expr = prepare_coefficient(coefficient, name, self._domain_integral_type_map, self.scalar_type)
         self.coefficient_map[coefficient] = expr
         return expr
 
@@ -162,7 +162,7 @@ class KernelBuilderBase(_KernelBuilderBase):
                 # topological_dimension is 0 and the concept of "cell size"
                 # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-                expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
+                expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map, self.scalar_type)
                 self._cell_sizes[domain] = expr
 
     def create_element(self, element, **kwargs):
@@ -299,7 +299,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     def set_arguments(self):
         """Process arguments."""
         arguments = self.integral_data_info.arguments
-        argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+        real_dtype = numpy.finfo(self.scalar_type).dtype
+        argument_multiindices = tuple(create_element(arg.ufl_element(), dtype=real_dtype).get_indices()
                                       for arg in arguments)
         if self.diagonal:
             # Error checking occurs in the builder constructor.
@@ -310,6 +311,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         return_variables = prepare_arguments(arguments,
                                              argument_multiindices,
                                              self.integral_data_info.domain_integral_type_map,
+                                             self.scalar_type,
                                              diagonal=self.diagonal)
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
@@ -326,7 +328,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self._entity_numbers = {}
         self._entity_ids = {}
         for i, domain in enumerate(domains):
-            fiat_cell = as_fiat_cell(domain.ufl_cell())
+            fiat_cell = as_fiat_cell(domain.ufl_cell(), dtype=numpy.finfo(self.scalar_type).dtype)
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
             if integral_type is None:
                 # Set placeholder for unused domain.

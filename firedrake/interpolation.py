@@ -25,7 +25,7 @@ from finat.element_factory import create_element
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
-from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
+from firedrake.utils import IntType, RealType, ScalarType, known_pyop2_safe, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
@@ -1054,7 +1054,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, Cofunction) and not create_element(target_element).is_dg():
+    if isinstance(dual_arg, Cofunction) and not create_element(target_element, dtype=RealType).is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)

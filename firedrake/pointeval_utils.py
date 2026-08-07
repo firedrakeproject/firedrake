@@ -45,7 +45,7 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
     cell = domain.ufl_cell()
     point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
     point_set = UnknownPointSet(point_expr)
-    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell, dtype=utils.RealType))
 
     shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
     rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)

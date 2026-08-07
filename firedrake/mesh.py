@@ -311,7 +311,7 @@ class _Facets(object):
         """Dat for the local facet orientations."""
         dtype = gem.uint_type
         # Make a map from cell to facet orientations.
-        fiat_cell = as_fiat_cell(self.mesh.ufl_cell())
+        fiat_cell = as_fiat_cell(self.mesh.ufl_cell(), dtype=RealType)
         topo = fiat_cell.topology
         num_entities = [0]
         for d in range(len(topo)):

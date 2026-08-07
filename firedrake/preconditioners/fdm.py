@@ -25,6 +25,7 @@ from pyop2.utils import as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
+from firedrake.utils import single_mode
 
 import firedrake.dmhooks as dmhooks
 import petsctools
@@ -1475,8 +1476,13 @@ def is_restricted(finat_element):
     return is_interior, is_facet
 
 
-def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
+def petsc_sparse(A_numpy, rtol=None, comm=None):
     """Convert dense numpy matrix into a sparse PETSc matrix"""
+    if rtol is None:
+        # fp32: reference-cell geometry feeding into A_numpy is only accurate to
+        # float32 round-off (~1e-7), even though A_numpy itself is float64, so
+        # entries that should be exactly zero can leak in above the fp64 tolerance.
+        rtol = 1E-5 if single_mode else 1E-10
     atol = rtol * abs(max(A_numpy.min(), A_numpy.max(), key=abs))
     sparsity = abs(A_numpy) > atol
     nnz = numpy.count_nonzero(sparsity, axis=1).astype(PETSc.IntType)
@@ -1722,8 +1728,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
         if any(is_restricted(ec)) or any(is_restricted(ef)):
             scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
-            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element())), dtype=PETSc.RealType))
+            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element())), dtype=PETSc.RealType))
             temp = Dhat
             fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
             cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
