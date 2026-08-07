@@ -35,13 +35,14 @@ for n1,n2 in zip(n1_list, n2_list):
 
 def build_problem(mesh1, mesh2):
     p = 3
-    p_inner = 2
+    p_inner = 3
+    w1 = Constant(100.0)/CellDiameter(mesh1)
     w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1*(1-x1)*sin(pi*y1)
-    u2_exact = x2*(1-x2)*sin(pi*y2)
+    u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
+    u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
@@ -58,7 +59,7 @@ def build_problem(mesh1, mesh2):
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
     # Intermediate spaces
-    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
+    Q1 = FunctionSpace(mesh1, "CG", p_inner)
     Q2 = FunctionSpace(mesh2, "CG", p_inner)
 
     W = V1 * V2
@@ -67,26 +68,29 @@ def build_problem(mesh1, mesh2):
     v1, v2 = TestFunctions(W)
 
     # Poisson on mesh_1
-    A11_form = inner(grad(u1), grad(v1)) * dx1
+    A11_form = inner(grad(u1), grad(v1)) * dx1 \
+                - inner(dot(grad(u1), n1), v1) * ds1 \
+                - inner(dot(grad(v1), n1), u1) * ds1 \
+                + w1 * inner(u1, v1) * ds1
 
-    # Helmholtz on mesh_2
-    A22_form = (inner(grad(u2), grad(v2))) * dx2 \
+    # Poisson on mesh_2
+    A22_form = inner(grad(u2), grad(v2)) * dx2 \
                 - inner(dot(grad(u2), n2), v2) * ds2 \
+                - inner(dot(grad(v2), n2), u2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
-    
+
     # A12: row v1, column u2
-    # W --B12--> Q1v --M1--> W^*
-    # inner(dot(grad(u2), n1), v1) * ds1
-    q1v = TrialFunction(Q1v)
-    M1 = -inner(dot(q1v, n1), v1) * ds1  # Q1v -> W^*
-    B12 = interpolate(grad(u2), Q1v, allow_missing_dofs=True)  # W -> Q1v
+    q1 = TrialFunction(Q1)
+    M1 = - w1 * inner(q1, v1) * ds1 \
+        + inner(dot(grad(v1), n1), q1) * ds1 
+    B12 = interpolate(u2, Q1, allow_missing_dofs=True)
     A12_form = action(M1, B12)
 
-    # A21: row v2, column u1.
-    # W --B21--> Q2 --M2--> W^*
+    # A21: row v2, column u1
     q2 = TrialFunction(Q2)
-    M2 = -w2 * inner(q2, v2) * ds2  # Q2 -> W^*
-    B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
+    M2 = - w2 * inner(q2, v2) * ds2 \
+        + inner(dot(grad(v2), n2), q2) * ds2   
+    B21 = interpolate(u1, Q2, allow_missing_dofs=True)
     A21_form = action(M2, B21)
 
     # RHS
@@ -111,8 +115,8 @@ def plot(filename, u_1, u_2):
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
     trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    ax.view_init(elev=35, azim=-110)
-    ax.set_aspect("equalxz")
+    #ax.view_init(elev=35, azim=-110)
+    #ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
@@ -120,9 +124,10 @@ def plot(filename, u_1, u_2):
 for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
-    
-    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
-    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
+
+    bc1 = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    bc2 = DirichletBC(W.sub(1), 0, [2, 3, 4])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=[bc1,bc2])
     params = {
         "mat_type": "aij",
         "ksp_type": "preonly",

@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = False
+PLOT = True
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n_list = [2,5,17,21,41]
+n_list = [2,4,8,16,32]
 mesh_list = []
 h_array = []
 errors = []
@@ -30,7 +30,7 @@ def build_problem(mesh):
     w = Constant(100.0)/CellDiameter(mesh)
 
     x, y = SpatialCoordinate(mesh)
-    u_exact = x*(1-x)*sin(pi*y)
+    u_exact = x*(0.5-x)*(1-x)*sin(pi*y)
 
     # RHS functions
     f = -div(grad(u_exact))
