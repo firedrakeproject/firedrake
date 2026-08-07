@@ -5158,33 +5158,92 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         m, = set(self._meshes)
         return m
 
+    def refine_marked_elements(self, mark):
+        """Adaptively refine each distinct root component mesh using a DG0
+        marking function, rebuilding any submesh component from its refined
+        ancestor.
+
+        A component is a "root" if it is not itself a submesh of another
+        component present in ``self``; every other component is a submesh
+        (possibly of a submesh, ...) of some root and is rebuilt with
+        `~firedrake.mesh.Submesh` from that root's refined mesh, using the
+        construction parameters recorded by the `~firedrake.mg.mesh.SubmeshHierarchy`
+        the component was built with.
+
+        Parameters
+        ----------
+        mark
+            A `~firedrake.function.Function` on a mixed space over the
+            distinct root components of ``self``: for each root, cells with
+            a positive value ``n`` are refined ``n`` times.
+
+        Returns
+        -------
+        MeshSequenceGeometry
+            The adaptively refined mesh sequence.
+
+        """
+        from firedrake.mg.utils import get_level
+
+        by_id = {id(m): m for m in self._meshes}
+
+        def root_of(m):
+            while m.submesh_parent is not None and id(m.submesh_parent) in by_id:
+                m = m.submesh_parent
+            return m
+
+        roots = []
+        seen_roots = set()
+        for m in self._meshes:
+            r = root_of(m)
+            if id(r) not in seen_roots:
+                seen_roots.add(id(r))
+                roots.append(r)
+
+        marks = mark.subfunctions
+        if len(marks) != len(roots):
+            raise ValueError(f"mark must have {len(roots)} components (one per root mesh), got {len(marks)}")
+        mark_of = {id(r): mk for r, mk in zip(roots, marks)}
+
+        refined = {}
+
+        def refine(m):
+            if id(m) not in refined:
+                if m.submesh_parent is not None and id(m.submesh_parent) in by_id:
+                    new_parent = refine(m.submesh_parent)
+                    hierarchy, _ = get_level(m)
+                    if hierarchy is None or not hasattr(hierarchy, "_submesh_kwargs"):
+                        raise ValueError(
+                            f"{m} is a submesh with no existing SubmeshHierarchy; "
+                            "build one explicitly with SubmeshHierarchy first"
+                        )
+                    refined[id(m)] = Submesh(new_parent, **hierarchy._submesh_kwargs)
+                else:
+                    refined[id(m)] = m.refine_marked_elements(mark_of[id(m)])
+            return refined[id(m)]
+
+        return MeshSequenceGeometry([refine(m) for m in self._meshes], set_hierarchy=False)
+
     def set_hierarchy(self):
         """Set mesh hierarchy if needed."""
+        from firedrake.mg.mesh import MeshSequenceHierarchy
         from firedrake.mg.utils import set_level, get_level, has_level
 
-        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
         if all(not has_level(m) for m in self._meshes):
             return
-        else:
-            if not all(has_level(m) for m in self._meshes):
-                raise RuntimeError("Found inconsistent component meshes")
-        hierarchy_list = []
-        level_list = []
-        for m in self:
-            hierarchy, level = get_level(m)
-            hierarchy_list.append(hierarchy)
-            level_list.append(level)
-        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
-        level, = set(level_list)
-        result = []
-        for ilevel in range(nlevels):
-            if ilevel == level:
-                result.append(self)
-            else:
-                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
-        result = tuple(result)
-        for i, m in enumerate(result):
-            set_level(m, result, i)
+        if not all(has_level(m) for m in self._meshes):
+            raise RuntimeError("Found inconsistent component meshes")
+        level, = {get_level(m)[1] for m in self._meshes}
+        if level != int(level):
+            # A component between two multigrid levels of a
+            # refinements_per_level > 1 hierarchy: not a level of any
+            # MeshSequenceHierarchy, so there is nothing to tag self with.
+            return
+        level = int(level)
+        result = MeshSequenceHierarchy.from_components(self._meshes)
+        result.meshes[level] = self
+        result._meshes[level] = self
+        set_level(self, result, level)
 
 
 class MeshSequenceTopology:

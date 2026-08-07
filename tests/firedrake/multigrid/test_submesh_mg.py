@@ -105,6 +105,54 @@ def test_submesh_hierarchy_construction():
     assert tuple(Z.mesh()) == (mesh, smesh)
 
 
+def test_mesh_hierarchy_rejects_submesh_with_its_parent():
+    """A MeshSequenceGeometry combining a submesh and its own submesh_parent as
+    separate components cannot be dispatched into independent sub-hierarchies.
+    """
+    from firedrake.mesh import MeshSequenceGeometry
+
+    base = UnitSquareMesh(4, 4)
+    submesh = Submesh(base, subdim=1, subdomain_id=3)
+    seq = MeshSequenceGeometry([base, submesh], set_hierarchy=False)
+
+    with pytest.raises(ValueError):
+        MeshHierarchy(seq, 1)
+
+
+def test_submesh_hierarchy_add_mesh():
+    """The hierarchy tagged onto a MixedFunctionSpace's MeshSequenceGeometry
+    (mesh + Submesh) supports adaptive growth via add_mesh:
+    MeshSequenceGeometry.refine_marked_elements() refines the parent mesh and
+    rebuilds the submesh from the refined parent, keeping the two
+    geometrically consistent.
+    """
+    base = UnitSquareMesh(4, 4)
+    mh = MeshHierarchy(base, 1)
+    smh = SubmeshHierarchy(mh, subdim=1, subdomain_id=3)
+
+    mesh = mh[-1]
+    smesh = smh[-1]
+    V = FunctionSpace(mesh, "DG", 0)
+    sV = FunctionSpace(smesh, "DG", 0)
+    Z = MixedFunctionSpace([V, sV])
+    seq = Z.mesh()
+
+    hierarchy, level = get_level(seq)
+    assert level == 1
+    assert len(hierarchy) == 2
+
+    # A marker is only needed for the root (non-submesh) component; the
+    # submesh is rebuilt from the refined root.
+    mark = Function(FunctionSpace(mesh, "DG", 0)).assign(1)
+    refined = seq.refine_marked_elements(mark)
+    grown = hierarchy.add_mesh(refined)
+
+    assert len(hierarchy) == 3
+    assert grown[0].num_cells() > mesh.num_cells()
+    assert grown[1].num_cells() > smesh.num_cells()
+    assert grown[1].submesh_parent is grown[0]
+
+
 # ---------------------------------------------------------------------------
 # Stages 2 & 3: GMG solver tests
 # ---------------------------------------------------------------------------
