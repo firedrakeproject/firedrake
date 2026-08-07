@@ -667,15 +667,8 @@ class Block(TensorBase):
         if not tensor.is_mixed:
             return tensor
 
-        # Eagerly push the block selection through operations that
-        # commute with it, so that a Block always sits directly on a
-        # terminal Tensor/AssembledVector, or else on the innermost
-        # sub-expression that block-selection cannot be pushed through
-        # (e.g. Inverse, Solve, Factorization). This keeps a single
-        # Block from ever wrapping an entire, unrelated composite
-        # expression (which would leave `.form` inaccessible and any
-        # UFL substitution keyed off `.arguments()` unable to match
-        # anything actually inside the wrapped expression).
+        # Push the block selection down to a terminal, composing with
+        # any existing Block rather than nesting.
         if isinstance(tensor, Block):
             wrapped, = tensor.operands
             composed = tuple(tuple(i for i in own if i in req)
@@ -704,13 +697,7 @@ class Block(TensorBase):
     def __init__(self, tensor, indices):
         """Constructor for the Block class."""
         if self._initialised:
-            # __new__ may have shortcut by eagerly pushing the block
-            # selection down (e.g. composing with an existing Block, or
-            # recursing through Add/Mul/...), returning an already
-            # constructed, already-initialised Block. Python then
-            # re-invokes __init__ on that pre-existing object with the
-            # original, unsimplified arguments; skip re-running the
-            # constructor so we don't clobber it back to that state.
+            # __new__ may have returned an already-initialised Block.
             return
         super(Block, self).__init__()
         indices = tuple(map(as_tuple, indices))
@@ -732,12 +719,6 @@ class Block(TensorBase):
 
     @property
     def ufl_operands(self):
-        # A Block on a Tensor is terminal in the Slate DAG (its
-        # `operands` is the whole, unsplit wrapped tensor), but for
-        # generic UFL DAG algorithms it must expose exactly the
-        # Arguments/Coefficients that appear in its already-split
-        # `.form`, since that is what any substitution mapping keyed by
-        # `self.arguments()` will be built from.
         if self._has_ufl_form:
             form = self.form
             return form.arguments() + form.coefficients()
@@ -788,7 +769,7 @@ class Block(TensorBase):
         assert tensor.terminal
         if not tensor.assembled:
             # turns a Block on a Tensor into an indexed ufl form
-            return ExtractSubBlock().split(tensor.form, self._indices)
+            return tensor.block(self._indices)
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
@@ -997,12 +978,29 @@ class Tensor(TensorBase):
         """Reconstructs this TensorBase with new operands."""
         return Tensor(form, diagonal=diagonal or self.diagonal)
 
+    @cached_property
+    def _block_cache(self):
+        """Cache of `ExtractSubBlock`-split forms, keyed by the requested
+        argument indices. Shared by every `Block` wrapping this Tensor, so
+        that independently-constructed `Block`s selecting the same indices
+        (e.g. via `Block.__new__`'s pushdown through `Mul`/`Add`, or via
+        repeated reconstruction across MG coarsening levels) always resolve
+        to the identical split Form/Arguments, rather than each minting its
+        own via a fresh `ExtractSubBlock().split()`/`.collapse()` call."""
+        return {}
+
+    def block(self, indices):
+        """Returns the `ExtractSubBlock`-split form for `indices`, memoized
+        on this Tensor so repeated requests for the same indices are
+        identical, not merely equal."""
+        cache = self._block_cache
+        try:
+            return cache[indices]
+        except KeyError:
+            return cache.setdefault(indices, ExtractSubBlock().split(self.form, indices))
+
     @property
     def ufl_operands(self):
-        # A Tensor is terminal in the Slate DAG (its `operands` are
-        # empty), but it wraps a UFL Form whose Arguments/Coefficients
-        # must still be visible to generic UFL DAG algorithms such as
-        # `ufl.replace`.
         return self.form.arguments() + self.form.coefficients()
 
     def _ufl_expr_reconstruct_(self, *operands):
@@ -1396,6 +1394,8 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
+        if self._initialised:
+            return
         if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
