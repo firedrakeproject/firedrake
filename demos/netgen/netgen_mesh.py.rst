@@ -452,7 +452,7 @@ and identify the two end caps by a translation of :math:`2\pi` along ``Z``::
                              gp_Trsf.Translation(gp_Vec(0, 0, 2 * PI)))
    ngmsh = OCCGeometry(cyl).GenerateMesh(maxh=0.4)
    msh = Mesh(ngmsh)
-   VTKFile("output/Tokamak.pvd").write(msh)
+   VTKFile("output/PeriodicCylinder.pvd").write(msh)
 
 
 .. warning::
@@ -499,14 +499,104 @@ Poisson example above) and manufacture the right-hand side :math:`f = u_{\text{e
 
    sol = Function(V)
    solve(a == L, sol, bcs=bc)
-   VTKFile("output/TokamakSolution.pvd").write(sol)
+   VTKFile("output/PeriodicCylinderSolution.pvd").write(sol)
 
 
    error = sqrt(assemble(inner(sol - uex, sol - uex) * dx))
    PETSc.Sys.Print(f"L2 error: {error:.2e}")
 
-The recovered solution is continuous across the identified ends: opening ``output/TokamakSolution.pvd`` in
+The recovered solution is continuous across the identified ends: opening ``output/PeriodicCylinderSolution.pvd`` in
 ParaView, the field wraps seamlessly from the top cap back to the bottom, exactly as a toroidal mode should.
 Had the ends *not* been identified, the same computation would leave an artificial jump at the seam and the
 manufactured solution would not be recovered.
 
+We can also solve a Helmholtz problem on a realistic tokamak geometry, although we no longer have an analytical solution to test against.
+We now work in cylindrical coordinate space (R, phi, Z) where we construct a cross-section in the (R,Z) plane with the appropriate tokamak shape and then extrude in phi by :math:`2\pi`.
+
+   from firedrake import *
+   from netgen.occ import (
+      OCCGeometry, WorkPlane, Axes, Pnt, Z, X,
+      gp_Trsf, gp_Vec
+   )
+   from netgen.meshing import IdentificationType
+   from math import pi as PI
+   import math
+
+   # Geometry parameters - large aspect ratio tokamak
+   R0 = 3.0
+   a = 1.0
+   kappa = 2.0
+   delta = 0.3
+
+   n_boundary = 40
+   mesh_size = 0.5
+
+   # Build a tokamak cross section and extrude periodically
+
+   alpha = math.asin(delta)
+
+   boundary_points = []
+   for i in range(n_boundary):
+      theta = 2.0 * math.pi * i / n_boundary
+      R = R0 + a * math.cos(theta + alpha * math.sin(theta))
+      Zc = kappa * a * math.sin(theta)
+      boundary_points.append((R, Zc))
+
+   wp = WorkPlane(Axes((0, 0, 0), n=Z, h=X))
+
+   # Start at the first boundary point, then draw a closed polyline
+   R0p, Z0p = boundary_points[0]
+   wp.MoveTo(R0p, Z0p)
+   for R, Zc in boundary_points[1:]:
+      wp.LineTo(R, Zc)
+   wp.Close()
+
+   face = wp.Face()
+
+   # Extrude in periodic phi direction and identify end caps. 
+   
+   phi_length = 2 * PI
+   solid = face.Extrude(phi_length * Z)
+
+   # Side wall(s)
+   for f in solid.faces:
+      f.name = "wall"
+
+   bottom = solid.faces.Min(Z)
+   top = solid.faces.Max(Z)
+   bottom.name = "bottom"
+   top.name = "top"
+
+   # Periodic identification of the end caps
+   bottom.Identify(
+      top,
+      "periodic_phi",
+      IdentificationType.PERIODIC,
+      gp_Trsf.Translation(gp_Vec(0, 0, phi_length)),
+   )
+
+   # Mesh and convert to Firedrake
+   ngmsh = OCCGeometry(solid).GenerateMesh(maxh=mesh_size)
+   msh = Mesh(ngmsh, name="TokamakPeriodic")
+   VTKFile("output/Tokamak_3d_Mesh.pvd").write(msh)
+
+Now we solve a Helmholtz problem again with source :math:`f = \cos(z)xy`.
+
+   V = FunctionSpace(msh, "CG", 2)
+   x, y, z = SpatialCoordinate(msh)
+
+   f = cos(z)* x*y
+
+   u = TrialFunction(V)
+   v = TestFunction(V)
+   a = (inner(u, v) + inner(grad(u), grad(v))) * dx
+   L = inner(f, v) * dx
+
+   labels = [i + 1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1))
+            if name == "wall"]
+   bc = DirichletBC(V, 0, labels)
+
+   sol = Function(V)
+   solve(a == L, sol, bcs=bc)
+
+   VTKFile("output/TokamakSolution.pvd").write(sol)
