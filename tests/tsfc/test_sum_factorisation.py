@@ -7,7 +7,7 @@ from gem.gem import one
 from gem.refactorise import MonomialSum
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad, inner)
+                 tetrahedron, quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -225,6 +225,160 @@ def test_sum_factorisation_order() -> None:
         (q1, q0), monomial_sum)
 
     assert ordering == (q0, q1)
+
+
+def bernstein_mass(
+        cell: object, degree: int, scheme: str = "collapsed") -> object:
+    """Construct a Bernstein mass form.
+
+    Parameters
+    ----------
+    cell
+        Reference simplex.
+    degree
+        Polynomial degree.
+    scheme
+        Quadrature scheme.
+
+    Returns
+    -------
+    object
+        UFL bilinear form.
+    """
+    mesh = Mesh(VectorElement("CG", cell, 1))
+    space = FunctionSpace(mesh, FiniteElement("Bernstein", cell, degree))
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    return inner(u, v) * dx(scheme=scheme)
+
+
+def bernstein_laplacian(
+        cell: object, degree: int, scheme: str = "collapsed") -> object:
+    """Construct a Bernstein Laplacian form.
+
+    Parameters
+    ----------
+    cell
+        Reference simplex.
+    degree
+        Polynomial degree.
+    scheme
+        Quadrature scheme.
+
+    Returns
+    -------
+    object
+        UFL bilinear form.
+    """
+    mesh = Mesh(VectorElement("CG", cell, 1))
+    space = FunctionSpace(mesh, FiniteElement("Bernstein", cell, degree))
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    return inner(grad(u), grad(v)) * dx(scheme=scheme)
+
+
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 3), (tetrahedron, 4)])
+def test_bernstein_mass_action(cell: object, order: float) -> None:
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [
+        count_flops(action(bernstein_mass(cell, degree)))
+        for degree in degrees
+    ]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(
+    ("cell", "order"), [(triangle, 3), (tetrahedron, 4.4)])
+def test_bernstein_laplacian_action(cell: object, order: float) -> None:
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [
+        count_flops(action(bernstein_laplacian(cell, degree)))
+        for degree in degrees
+    ]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+def test_bernstein_laplacian_action_compact_literals() -> None:
+    degree = 5
+    form = action(bernstein_laplacian(tetrahedron, degree))
+    kernel, = compile_form(form, parameters={"mode": "spectral"})
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    literals = [
+        numpy.asarray(temporary.initializer)
+        for temporary in temporaries.values()
+        if temporary.initializer is not None
+    ]
+    lattice_size = (degree + 1) ** 3
+    assert max(literal.size for literal in literals) <= lattice_size
+    assert sum(literal.size for literal in literals) < 10 * lattice_size
+
+
+def test_bernstein_laplacian_bilinear_compact_codegen() -> None:
+    import islpy as isl
+    import loopy as lp
+
+    degree = 10
+    collapsed = bernstein_laplacian(
+        tetrahedron, degree, scheme="collapsed")
+    canonical = bernstein_laplacian(
+        tetrahedron, degree, scheme="canonical")
+    collapsed_kernel, = compile_form(
+        collapsed, parameters={"mode": "spectral"})
+    canonical_kernel, = compile_form(
+        canonical, parameters={"mode": "spectral"})
+
+    assert collapsed_kernel.flop_count < canonical_kernel.flop_count
+
+    entrypoint = collapsed_kernel.ast.default_entrypoint
+    collapsed_shapes = [
+        temporary.shape
+        for temporary in entrypoint.temporary_variables.values()
+    ]
+    canonical_shapes = [
+        temporary.shape
+        for temporary in
+        canonical_kernel.ast.default_entrypoint.temporary_variables.values()
+    ]
+    assert max(map(len, collapsed_shapes)) <= 5
+    assert sum(map(numpy.prod, collapsed_shapes)) \
+        < sum(map(numpy.prod, canonical_shapes))
+
+    code = lp.generate_code_v2(collapsed_kernel.ast).device_code()
+    assert sum(
+        line.lstrip().startswith("for (")
+        for line in code.splitlines()
+    ) < 150
+
+    # A tetrahedral lattice has a loop whose bound depends on two parents.
+    assert max(
+        domain.dim(isl.dim_type.param)
+        for domain in entrypoint.domains
+    ) >= 2
+
+
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 5), (tetrahedron, 7)])
+def test_bernstein_mass_bilinear(cell: object, order: float) -> None:
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [
+        count_flops(bernstein_mass(cell, degree))
+        for degree in degrees
+    ]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(("cell", "order"), [(triangle, 5), (tetrahedron, 7)])
+def test_bernstein_laplacian_bilinear(
+        cell: object, order: float) -> None:
+    degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
+    flops = [
+        count_flops(bernstein_laplacian(cell, degree))
+        for degree in degrees
+    ]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
 
 
 if __name__ == "__main__":
