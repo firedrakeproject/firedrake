@@ -1,7 +1,6 @@
 from collections import OrderedDict, defaultdict, namedtuple
 from collections.abc import Iterable
 from functools import partial
-import itertools
 from itertools import chain, zip_longest
 import math
 
@@ -17,7 +16,7 @@ from gem.optimise import (
 from gem.refactorise import (ATOMIC, COMPOUND, OTHER, ExpansionLimitExceeded,
                              MonomialSum, collect_monomials)
 from gem.unconcatenate import unconcatenate
-from gem.coffee import sum_factorise_monomial_sum
+from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
 
 
@@ -25,7 +24,7 @@ Integral = namedtuple('Integral', ['expression',
                                    'quadrature_multiindex',
                                    'argument_indices'])
 FactorisationCandidates = namedtuple(
-    'FactorisationCandidates', ['alternatives', 'baseline'])
+    'FactorisationCandidates', ['alternatives', 'fallback'])
 
 def _factor_dag_size(monomial_sum):
     """Count nodes in the irreducible factors of a polynomial.
@@ -83,8 +82,8 @@ def _delta_inside(node, self):
 
 def _factorisation_candidates(
         expression, argument_indices,
-        delta_inside) -> tuple[FactorisationCandidates, ...]:
-    """Build alternative pre-expansion grouping plans.
+        delta_inside) -> FactorisationCandidates:
+    """Build bounded pre-expansion grouping alternatives.
 
     Parameters
     ----------
@@ -97,23 +96,20 @@ def _factorisation_candidates(
 
     Returns
     -------
-    tuple of FactorisationCandidates
-        Distinct monomial representations for each independent group of
-        choices, together with the all-or-nothing grouping plans.
+    FactorisationCandidates
+        Distinct alternatives and the compact fully grouped fallback.
     """
-    terms = factorisation_group_options(expression, argument_indices)
     layouts = OrderedDict()
-    for term, layout, options in terms:
-        records = layouts.setdefault(layout, [])
-        records.append((term, options))
+    for term, layout, options in factorisation_group_options(
+            expression, argument_indices):
+        layouts.setdefault(layout, []).append((term, options))
 
     def collect(records, position, max_monomials=None):
         result = MonomialSum()
         for term, options in records:
-            groups = options[position]
             classifier = partial(
                 classify, argument_indices,
-                delta_inside=delta_inside, groups=groups)
+                delta_inside=delta_inside, groups=options[position])
             monomial_sum, = collect_monomials(
                 [term], classifier, max_monomials=max_monomials)
             result = MonomialSum.sum(result, monomial_sum)
@@ -122,73 +118,39 @@ def _factorisation_candidates(
                 raise ExpansionLimitExceeded
         return result
 
-    grouped = {
-        layout: collect(records, -1)
-        for layout, records in layouts.items()
-    }
-    expansion_budget = _factor_dag_size(
-        MonomialSum.sum(*grouped.values()))
+    compact = tuple(collect(records, -1)
+                    for records in layouts.values())
+    fallback = MonomialSum.sum(*compact)
+    budget = _factor_dag_size(fallback)
 
-    options = []
-    endpoints = []
-    for layout, records in layouts.items():
+    candidates = (MonomialSum(),)
+    for records, grouped in zip(layouts.values(), compact):
         noptions = len(records[0][1])
-        assert all(len(term_options) == noptions
-                   for _, term_options in records)
-        available = []
+        assert all(len(options) == noptions for _, options in records)
+        alternatives = []
         for position in range(noptions):
             if position == noptions - 1:
-                monomial_sum = grouped[layout]
+                candidate = grouped
             else:
                 try:
-                    monomial_sum = collect(records, position, expansion_budget)
+                    candidate = collect(records, position, budget)
                 except ExpansionLimitExceeded:
                     continue
-            available.append((position, monomial_sum))
-        options.append(tuple(available))
-        endpoints.append(noptions - 1)
+            alternatives.append(candidate)
 
-    supports = tuple(
-        frozenset(
-            atomic
-            for _, option in available
-            for monomial in option
-            for atomic in monomial.atomics)
-        for available in options)
+        combined = OrderedDict()
+        for left in candidates:
+            for right in alternatives:
+                candidate = MonomialSum.sum(left, right)
+                if _factor_dag_size(candidate) <= budget:
+                    combined.setdefault(tuple(candidate), candidate)
+        candidates = tuple(combined.values())
 
-    remaining = set(range(len(options)))
-    components = []
-    while remaining:
-        component = {remaining.pop()}
-        support = set().union(*(supports[i] for i in component))
-        while True:
-            neighbours = {
-                i for i in remaining if supports[i].intersection(support)}
-            if not neighbours:
-                break
-            component.update(neighbours)
-            remaining.difference_update(neighbours)
-            support.update(*(supports[i] for i in neighbours))
-        components.append(tuple(sorted(component)))
-
-    result = []
-    for component in components:
-        candidates = OrderedDict()
-        baseline = OrderedDict()
-        choices = (options[i] for i in component)
-        for selected in itertools.product(*choices):
-            positions, monomial_sums = zip(*selected)
-            candidate = MonomialSum.sum(*monomial_sums)
-            key = tuple(candidate)
-            candidates.setdefault(key, candidate)
-            if all(position in {0, endpoints[i]}
-                   for i, position in zip(component, positions)):
-                baseline.setdefault(key, candidate)
-        result.append(FactorisationCandidates(
-            tuple(candidates.values()), tuple(baseline.values())))
-    return tuple(result)
-
-
+    alternatives = OrderedDict(
+        (tuple(candidate), candidate) for candidate in candidates)
+    alternatives.setdefault(tuple(fallback), fallback)
+    return FactorisationCandidates(
+        tuple(alternatives.values()), fallback)
 def _sum_factorisation_order(
         indices: Iterable[Index],
         monomial_sum: MonomialSum) -> tuple[Index, ...]:
@@ -297,21 +259,16 @@ def _candidate_score(pairs: tuple[tuple, ...]) -> tuple[int, ...]:
 
 
 def _select_factorisation_plan(
-        variable, candidate_groups, quadrature_indices,
+        variable, candidates, quadrature_indices,
         index_replacer) -> MonomialSum:
-    """Choose a minimum-work plan under the prior DAG-size budget.
-
-    The all-or-nothing grouping choices define the complexity budget of the
-    previous factorisation algorithm. Independent groups are combined with a
-    dynamic program, retaining the least expensive plan for each total DAG
-    size. This exposes partial groupings without allowing expression growth.
+    """Choose the least-cost plan no larger than the compact fallback.
 
     Parameters
     ----------
     variable : Node
         Assignment variable.
-    candidate_groups : tuple of FactorisationCandidates
-        Independent factorisation choices.
+    candidates : FactorisationCandidates
+        Bounded factorisation alternatives.
     quadrature_indices : tuple of Index
         Preferred quadrature contraction order.
     index_replacer : MemoizerArg
@@ -322,65 +279,20 @@ def _select_factorisation_plan(
     MonomialSum
         Selected factorisation plan.
     """
-    scores = {}
-    node_budget = 0
-    for group in candidate_groups:
-        baseline_scores = []
-        for candidate in group.baseline:
-            key = tuple(candidate)
-            score = _candidate_score(_optimise_candidate(
-                variable, candidate, quadrature_indices, index_replacer))
-            scores[key] = score
-            baseline_scores.append(score)
-        node_budget += min(baseline_scores)[3]
+    fallback = candidates.fallback
+    fallback_score = _candidate_score(_optimise_candidate(
+        variable, fallback, quadrature_indices, index_replacer))
+    budget = fallback_score[3]
+    best = fallback_score, fallback
 
-    plans = []
-    for group in candidate_groups:
-        alternatives = []
-        for candidate in group.alternatives:
-            key = tuple(candidate)
-            try:
-                score = scores[key]
-            except KeyError:
-                if _factor_dag_size(candidate) > node_budget:
-                    continue
-                score = _candidate_score(_optimise_candidate(
-                    variable, candidate, quadrature_indices, index_replacer))
-                scores[key] = score
-            alternatives.append((score, candidate))
-        plans.append(alternatives)
-
-    # score -> operations, total storage, largest intermediate, DAG nodes
-    states = {(0, 0, 0, 0): ()}
-    for alternatives in plans:
-        updated = {}
-        for left, selected in states.items():
-            for right, candidate in alternatives:
-                score = (
-                    left[0] + right[0],
-                    left[1] + right[1],
-                    max(left[2], right[2]),
-                    left[3] + right[3],
-                )
-                if score[3] <= node_budget:
-                    previous = updated.get(score[3])
-                    if previous is None or score < previous[0]:
-                        updated[score[3]] = (score, selected + (candidate,))
-
-        # A state with both a larger DAG and a worse lexicographic cost can
-        # never become optimal as subsequent component costs are additive.
-        states = {}
-        best = None
-        for size in sorted(updated):
-            score, selected = updated[size]
-            if best is None or score[:3] < best:
-                states[score] = selected
-                best = score[:3]
-
-    score = min(states)
-    return MonomialSum.sum(*states[score])
-
-
+    for candidate in candidates.alternatives:
+        if candidate is fallback or _factor_dag_size(candidate) > budget:
+            continue
+        score = _candidate_score(_optimise_candidate(
+            variable, candidate, quadrature_indices, index_replacer))
+        if score[3] <= budget and score < best[0]:
+            best = score, candidate
+    return best[1]
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
@@ -521,5 +433,6 @@ def delta_elimination(variable, sum_indices, args, rest, index_replacer):
 
 
 def sum_factorise(variable, tail_ordering, monomial_sum):
-    return sum_factorise_monomial_sum(
-        monomial_sum, tuple(tail_ordering), variable.index_ordering())
+    return optimise_monomial_sum(
+        monomial_sum, variable.index_ordering(),
+        tuple(tail_ordering))
