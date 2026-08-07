@@ -381,7 +381,6 @@ def test_bernstein_laplacian_bilinear(
     assert (rates < order).all()
 
 
-
 if __name__ == "__main__":
     import os
     import sys
