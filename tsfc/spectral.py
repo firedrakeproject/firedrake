@@ -26,6 +26,7 @@ Integral = namedtuple('Integral', ['expression',
 FactorisationCandidates = namedtuple(
     'FactorisationCandidates', ['alternatives', 'fallback'])
 
+
 def _factor_dag_size(monomial_sum):
     """Count nodes in the irreducible factors of a polynomial.
 
@@ -151,6 +152,8 @@ def _factorisation_candidates(
     alternatives.setdefault(tuple(fallback), fallback)
     return FactorisationCandidates(
         tuple(alternatives.values()), fallback)
+
+
 def _sum_factorisation_order(
         indices: Iterable[Index],
         monomial_sum: MonomialSum) -> tuple[Index, ...]:
@@ -293,6 +296,8 @@ def _select_factorisation_plan(
         if score[3] <= budget and score < best[0]:
             best = score, candidate
     return best[1]
+
+
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
