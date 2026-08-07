@@ -364,5 +364,5 @@ def test_fieldsplit():
     rg = RandomGenerator(PCG64(seed=0))
     h = rg.uniform(A)
     if single_mode:
-        h *= 10.0
+        h *= 8.0
     assert taylor_test(Jhat, rho, h) > 1.9
