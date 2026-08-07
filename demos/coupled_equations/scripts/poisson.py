@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = True
+PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n_list = [2,4,8,16,32]
+n_list = [2,5,17,21,41]
 mesh_list = []
 h_array = []
 errors = []
@@ -26,10 +26,11 @@ for n in n_list:
     mesh_list.append(mesh)
 
 def build_problem(mesh):
-    p = 1
+    p = 3
+    w = Constant(100.0)/CellDiameter(mesh)
 
     x, y = SpatialCoordinate(mesh)
-    u_exact = x * sin(pi * y) ** 2
+    u_exact = x*(1-x)*sin(pi*y)
 
     # RHS functions
     f = -div(grad(u_exact))
@@ -44,13 +45,13 @@ def build_problem(mesh):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    A = inner(grad(u), grad(v)) * dx - inner(v, dot(grad(u), n)) * ds #(dot(grad(v), grad(u))) * dx
+    A = dot(grad(v), grad(u)) * dx - inner(v, dot(n, grad(u))) * ds + w * inner(v,u) * ds
     L = f * v * dx
 
     # Exact solutions used for further analysis
-    u_exact_func = Function(V).interpolate(u_exact)
+    #u_exact_func = Function(V).interpolate(u_exact)
 
-    return A, L, V, u_exact_func
+    return A, L, V, u_exact
 
 def plot(filename, u):
     u_vals = u.dat.data_ro
@@ -60,8 +61,8 @@ def plot(filename, u):
     fig = plt.figure(figsize=(8, 10))
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    ax.view_init(elev=35, azim=-110)
-    ax.set_aspect("equalxz")
+    #ax.view_init(elev=35, azim=-110)
+    #ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
