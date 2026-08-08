@@ -41,6 +41,10 @@ fi
 VENV="$FIREDRAKE_VENV"
 PY="$VENV/bin/python"
 
+# Firedrake asks for this on every import that does not have it. One thread
+# per rank is also what a parallel test run wants.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+
 usage() {
     cat <<'EOF'
 fdk - helper for working on Firedrake
@@ -83,6 +87,37 @@ fdk - helper for working on Firedrake
       Rebuild the Cython extensions. Do this after a branch switch that
       changes firedrake/cython/*.pyx.
 
+  fdk baseline <nprocs> [pytest args/paths...]
+      Say which failures this branch introduced. Runs the tests at the merge
+      base with the upstream default branch, then at HEAD, and prints the
+      difference. Use this before calling a failure pre-existing: a failure
+      that neither run shares is the only kind this branch caused.
+
+      This checks out the merge base and rebuilds, so it needs a clean tree
+      and it takes twice as long as one run. It restores the branch at the
+      end, including when a run fails.
+
+  fdk show <file> <name>
+      Print one function or class, found by name rather than by line number.
+      Firedrake has files of several thousand lines, and the line numbers in
+      them move.
+
+  fdk deps [name]
+      Report the component packages: where each one is installed, which
+      branch it has, and whether it is dirty or behind its remote. A bug can
+      live in any of them, and an API must be read from the installed source
+      rather than recalled. Given a name, print where that module comes from.
+
+  fdk stack
+      Print the pull request stack: for each branch with an open PR, its
+      number, base, and how far it has diverged from its remote. A stacked
+      branch is rebased onto its base, so the bases are the order to do it in.
+
+  fdk pr <number> [--title <title>] [--body-file <path>]
+      Retitle or redescribe a pull request. `gh pr edit` fails against
+      repositories that still carry a classic project, so this goes through
+      the REST API, which does not read the project fields.
+
   fdk status
       Say whether a test run is in flight.
 
@@ -105,6 +140,19 @@ summarize() {
         | grep -aE '^(FAILED|ERROR)|[0-9]+ (passed|failed|error|skipped)' \
         | sort -u
 }
+
+# Just the test identifiers that failed, one per line and sorted, so that two
+# runs can be compared with `comm`. Rank order varies between runs, and every
+# rank reports, so this deduplicates too.
+failures() {
+    sed -E 's#^(FAILED|ERROR) .*/tests/#\1 tests/#' \
+        | grep -aE '^(FAILED|ERROR) ' \
+        | sed -E 's/ +- .*$//' \
+        | sort -u
+}
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 
 pytest_common=(-q -p no:randomly --color=no -rf -m "parallel[match]")
 
@@ -154,6 +202,149 @@ case "$cmd" in
         ;;
     build)
         PATH="$VENV/bin:$PATH" make -C "$SRC" extforce
+        ;;
+    baseline)
+        [ $# -ge 1 ] || { echo "fdk baseline needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+            echo "fdk baseline: commit or stash first; it checks out the merge base" >&2
+            exit 2
+        fi
+        # A detached HEAD has no branch name to go back to, so remember the
+        # commit either way.
+        here="$(git -C "$SRC" symbolic-ref --quiet --short HEAD \
+                || git -C "$SRC" rev-parse HEAD)"
+        upstream="$(git -C "$SRC" rev-parse --verify --quiet origin/main \
+                    || echo main)"
+        base="$(git -C "$SRC" merge-base HEAD "$upstream")"
+        echo "########## base $base ##########"
+        git -C "$SRC" checkout --quiet "$base" || exit 2
+        # Restore the branch however this exits, so a failed run does not
+        # leave the tree on the merge base. This replaces the cleanup trap, so
+        # it has to remove the working directory too.
+        trap 'git -C "$SRC" checkout --quiet "$here"; \
+              PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1; \
+              rm -rf "$WORK"' EXIT
+        PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
+            | failures > "$WORK/base.txt"
+        git -C "$SRC" checkout --quiet "$here"
+        PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        trap 'rm -rf "$WORK"' EXIT
+        echo "########## head $here ##########"
+        run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
+            | failures > "$WORK/head.txt"
+        echo "########## introduced by $here ##########"
+        comm -13 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  NEW  /'
+        echo "########## fixed by $here ##########"
+        comm -23 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  GONE /'
+        echo "########## pre-existing ##########"
+        comm -12 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  SAME /'
+        ;;
+    show)
+        [ $# -ge 2 ] || { echo "fdk show needs <file> <name>" >&2; exit 2; }
+        "$PY" - "$@" <<'PYEOF'
+import ast
+import sys
+
+path, name = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8", errors="replace") as handle:
+    source = handle.read()
+try:
+    tree = ast.parse(source)
+except SyntaxError as error:
+    sys.exit(f"fdk show: cannot parse {path}: {error}")
+lines = source.splitlines()
+found = False
+for node in ast.walk(tree):
+    if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+    if node.name != name:
+        continue
+    # A decorator sits above the def, and is part of what the reader needs.
+    start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    for number in range(start, (node.end_lineno or start) + 1):
+        print(f"{number}\t{lines[number - 1]}")
+    found = True
+    print()
+if not found:
+    sys.exit(f"fdk show: {path} defines no {name}")
+PYEOF
+        ;;
+    deps)
+        if [ $# -ge 1 ]; then
+            "$PY" -c "import importlib,sys; m=importlib.import_module(sys.argv[1]); print(m.__name__, m.__file__)" "$1"
+            exit $?
+        fi
+        for repo in "$VENV"/src/*/; do
+            [ -d "$repo/.git" ] || continue
+            name="$(basename "$repo")"
+            branch="$(git -C "$repo" symbolic-ref --quiet --short HEAD || echo detached)"
+            dirty=""
+            [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && dirty=" dirty"
+            track="$(git -C "$repo" rev-list --left-right --count HEAD...@{upstream} 2>/dev/null)"
+            [ -n "$track" ] && track=" ahead/behind ${track//	//}"
+            printf '%-18s %s%s%s\n' "$name" "$branch" "$track" "$dirty"
+        done
+        echo
+        echo "modules:"
+        "$PY" - <<'PYEOF'
+import importlib
+for name in ("firedrake", "pyop2", "tsfc", "finat", "FIAT", "ufl", "petsc4py"):
+    try:
+        print(f"  {name:<10} {importlib.import_module(name).__file__}")
+    except ImportError as error:
+        print(f"  {name:<10} not importable: {error}")
+PYEOF
+        ;;
+    stack)
+        for branch in $(git -C "$SRC" for-each-ref --format='%(refname:short)' refs/heads); do
+            info="$(gh pr view "$branch" --json number,baseRefName,title \
+                    -q '"#\(.number)\t\(.baseRefName)\t\(.title)"' 2>/dev/null)" || continue
+            track="$(git -C "$SRC" rev-list --left-right --count "$branch...origin/$branch" 2>/dev/null)"
+            [ -n "$track" ] && track="${track//	//}" || track="-"
+            printf '%-38s %s  [%s]\n' "$branch" "$info" "$track"
+        done
+        echo
+        echo "columns: branch, PR, base, title, [ahead/behind origin]"
+        ;;
+    pr)
+        [ $# -ge 1 ] || { echo "fdk pr needs <number>" >&2; exit 2; }
+        "$PY" - "$@" <<'PYEOF'
+import json
+import subprocess
+import sys
+
+number, args = sys.argv[1], sys.argv[2:]
+payload = {}
+while args:
+    flag, args = args[0], args[1:]
+    if flag == "--title":
+        payload["title"], args = args[0], args[1:]
+    elif flag == "--body-file":
+        with open(args[0], encoding="utf-8") as handle:
+            payload["body"] = handle.read()
+        args = args[1:]
+    else:
+        sys.exit(f"fdk pr: unknown option {flag}")
+if not payload:
+    sys.exit("fdk pr: give --title or --body-file")
+
+repo = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                       "-q", ".nameWithOwner"], capture_output=True, text=True)
+if repo.returncode:
+    sys.exit(repo.stderr.strip())
+# gh pr edit reads the project fields, which fail on a repository that still
+# carries a classic project. The REST API does not read them.
+done = subprocess.run(["gh", "api", "-X", "PATCH",
+                       f"repos/{repo.stdout.strip()}/pulls/{number}", "--input", "-"],
+                      input=json.dumps(payload), capture_output=True, text=True)
+if done.returncode:
+    sys.exit(done.stderr.strip())
+result = json.loads(done.stdout)
+print(f"#{result['number']} {result['title']}")
+print(result["html_url"])
+PYEOF
         ;;
     status)
         if pgrep -f "m pytest" >/dev/null 2>&1; then
