@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Check an edit against the prose and style rules in AGENTS.md.
+"""Check prose against the rules in AGENTS.md.
 
-Point any repository at this by adding a PostToolUse hook on ``Write|Edit`` to
-that repository's ``.claude/settings.local.json``. The checks are generic.
+Checks the part of those rules that a machine can judge, at the moment of
+writing rather than at review. Only lines that an edit added are reported,
+found by diffing against git. A file that git does not track counts as new in
+full.
 
-Reads a PostToolUse payload on stdin. Reports only on lines the edit added,
-found by diffing the file against git. Advisory: always exits 0, and reports
-through systemMessage (to the user) and additionalContext (to Claude).
+The checks are a floor, not a substitute for reading the prose. Clause-stacking
+needs judgement, and so does an argument against a branch that is no longer
+there: "would" is far too common a word to match on.
 
 Checks
 ------
@@ -21,6 +23,37 @@ past-tense
     Wording that describes code which is not there any more.
 hasattr-guard
     ``if not hasattr(self, ...)`` standing in for a setup flag.
+
+Usage
+-----
+Check files from the command line. This exits 1 when it finds something, so a
+pre-commit script can use it::
+
+    .claude/hooks/check-prose.py firedrake/mg/utils.py
+
+Check every edit as you make it, by adding a Claude Code ``PostToolUse`` hook.
+Put this in ``.claude/settings.local.json``, which git does not track, so that
+each checkout opts in for itself::
+
+    {
+      "hooks": {
+        "PostToolUse": [
+          {
+            "matcher": "Write|Edit",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-prose.py\"",
+                "timeout": 15
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+As a hook it reads the payload on stdin, always exits 0, and reports through
+``systemMessage`` and ``additionalContext``.
 """
 import ast
 import io
@@ -128,21 +161,18 @@ def prose_blocks(path, source, added):
         yield start, " ".join(run)
 
 
-def main():
-    try:
-        payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
-        return 0
-    tool_input = payload.get("tool_input") or {}
-    path = tool_input.get("file_path") or (payload.get("tool_response") or {}).get("filePath")
+def check(path):
+    """Return the findings for one file, as (line, rule, why, excerpt) tuples."""
     if not path or not os.path.isfile(path):
-        return 0
+        return []
     if os.path.basename(path) in EXEMPT_NAMES or not path.endswith(SOURCE_SUFFIXES):
-        return 0
+        return []
+    # git resolves a path against -C, so give it one that does not move.
+    path = os.path.abspath(path)
 
     added = added_line_numbers(path)
     if not added:
-        return 0
+        return []
     with open(path, encoding="utf-8", errors="replace") as handle:
         source = handle.read()
     lines = source.splitlines()
@@ -170,27 +200,59 @@ def main():
                                  f"{words} words; ASD-STE100 asks for one idea per sentence",
                                  sentence[:110] + ("..." if len(sentence) > 110 else "")))
 
+    findings.sort()
+    return findings
+
+
+def report(path, findings, limit=12):
+    """Format findings for one file as indented lines."""
+    return "\n".join(f"  {path}:{n}  [{rule}] {why}\n      {excerpt}"
+                     for n, rule, why, excerpt in findings[:limit])
+
+
+def run_as_hook():
+    """Report on the file a PostToolUse payload names. Always succeeds."""
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return 0
+    tool_input = payload.get("tool_input") or {}
+    path = tool_input.get("file_path") or (payload.get("tool_response") or {}).get("filePath")
+    findings = check(path)
     if not findings:
         return 0
-
-    findings.sort()
-    report = "\n".join(f"  {path}:{n}  [{rule}] {why}\n      {excerpt}"
-                       for n, rule, why, excerpt in findings[:12])
     rules = sorted({rule for _, rule, _, _ in findings})
-    message = (
-        "AGENTS.md check on lines this edit added. Fix these, or say why each one "
-        "is a false positive:\n\n" + report
-    )
     json.dump({
         "systemMessage": f"AGENTS.md: {len(findings)} finding(s) in "
                          f"{os.path.basename(path)} ({', '.join(rules)})",
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": message,
+            "additionalContext": (
+                "AGENTS.md check on lines this edit added. Fix these, or say why "
+                "each one is a false positive:\n\n" + report(path, findings)
+            ),
         },
     }, sys.stdout)
     return 0
 
 
+def run_as_command(paths):
+    """Report on the named files. Returns 1 if anything was found."""
+    total = 0
+    for path in paths:
+        findings = check(path)
+        if findings:
+            print(report(path, findings, limit=len(findings)))
+            total += len(findings)
+    if total:
+        print(f"\n{total} finding(s). See AGENTS.md, and this file's docstring.")
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
+    sys.exit(run_as_command(args) if args else run_as_hook())
