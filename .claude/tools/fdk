@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# fdk - helper for working on Firedrake.
+#
+# Gives the repeated work of a Firedrake session one stable command, so the
+# rules that are easy to get wrong by hand are encoded once. Run
+# `.claude/tools/fdk help` for the subcommands.
+#
+# Nothing here is specific to one machine or one checkout.
+
+set -uo pipefail
+
+TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC="$(cd "$TOOLS/../.." && pwd)"
+
+# --- Locate the virtual environment --------------------------------------
+# An install puts the source tree at $VENV/src/firedrake, so a checkout can
+# usually find its own venv two directories up. An explicit FIREDRAKE_VENV
+# wins, then an activated environment.
+if [ -z "${FIREDRAKE_VENV:-}" ]; then
+    guess="$(cd "$SRC/../.." 2>/dev/null && pwd)"
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+        FIREDRAKE_VENV="$VIRTUAL_ENV"
+    elif [ -n "$guess" ] && [ -x "$guess/bin/python" ]; then
+        FIREDRAKE_VENV="$guess"
+    fi
+fi
+
+if [ -z "${FIREDRAKE_VENV:-}" ] || [ ! -x "$FIREDRAKE_VENV/bin/python" ]; then
+    echo "fdk: cannot find the virtual environment; set FIREDRAKE_VENV" >&2
+    exit 2
+fi
+
+VENV="$FIREDRAKE_VENV"
+PY="$VENV/bin/python"
+
+usage() {
+    cat <<'EOF'
+fdk - helper for working on Firedrake
+
+  fdk test <nprocs> [pytest args/paths...]
+      Run tests at the given process count, and print one deduplicated
+      summary instead of one report per rank. nprocs=1 runs pytest directly;
+      nprocs>1 runs it under an explicit mpiexec. Filters on the
+      parallel[match] marker, so only tests whose own nprocs equals the
+      launched communicator size run.
+
+      Use this rather than a bare `pytest` on parallel-marked tests. A bare
+      pytest self-forks one mpiexec per test, which is slow and reports
+      failures that a correct run does not show.
+
+  fdk testraw <nprocs> [pytest args/paths...]
+      As `test`, but unfiltered, to read tracebacks.
+
+  fdk lint [paths...]
+      flake8, over the whole source tree by default.
+
+  fdk prose [paths...]
+      Check the lines an edit added against the prose rules in AGENTS.md.
+
+  fdk py [args...]
+      The interpreter of the virtual environment. A bare `python` is usually
+      the system one, which has no firedrake, pytest or flake8.
+
+  fdk clean
+      firedrake-clean: drop the cached TSFC kernels and PyOP2 code. Do this
+      when a cached kernel links against an extension that a rebuild has
+      changed. The symptom is `undefined symbol: ...` from a cached .so.
+
+  fdk build
+      Rebuild the Cython extensions. Do this after a branch switch that
+      changes firedrake/cython/*.pyx.
+
+  fdk status
+      Say whether a test run is in flight.
+
+  fdk where
+      Print the source tree and the virtual environment in use.
+EOF
+}
+
+# Keep the FAILED/ERROR lines and the counts, shorten the paths, drop the
+# duplicate report that each rank writes. Anchor the path substitution after
+# the FAILED/ERROR word: a pattern that starts at the line eats that word too,
+# and then the summary no longer says which test failed.
+summarize() {
+    sed -E 's#^(FAILED|ERROR) .*/tests/#\1 tests/#' \
+        | grep -aE '^(FAILED|ERROR)|[0-9]+ (passed|failed|error|skipped)' \
+        | sort -u
+}
+
+pytest_common=(-q -p no:randomly --color=no -rf -m "parallel[match]")
+
+run_pytest() {
+    local nprocs="$1"; shift
+    if [ "$nprocs" = "1" ]; then
+        # Do not use `mpiexec -n 1`, which can hang at MPI_Finalize.
+        "$PY" -m pytest "$@"
+    else
+        mpiexec -n "$nprocs" --bind-to none "$PY" -m pytest "$@"
+    fi
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+    test)
+        [ $# -ge 1 ] || { echo "fdk test needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        echo "########## nprocs=$n ##########"
+        run_pytest "$n" "${pytest_common[@]}" --tb=line "$@" 2>&1 | summarize
+        ;;
+    testraw)
+        [ $# -ge 1 ] || { echo "fdk testraw needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1
+        ;;
+    lint)
+        if [ $# -eq 0 ]; then set -- "$SRC/firedrake" "$SRC/tests"; fi
+        "$PY" -m flake8 "$@" && echo "flake8: clean"
+        ;;
+    prose)
+        "$PY" "$TOOLS/../hooks/check-prose.py" "$@" && echo "prose: clean"
+        ;;
+    py)
+        "$PY" "$@"
+        ;;
+    clean)
+        "$VENV/bin/firedrake-clean"
+        ;;
+    build)
+        PATH="$VENV/bin:$PATH" make -C "$SRC" extforce
+        ;;
+    status)
+        if pgrep -f "m pytest" >/dev/null 2>&1; then
+            echo "test run in flight ($(pgrep -cf 'm pytest') pytest processes)"
+        else
+            echo "no test run in flight"
+        fi
+        ;;
+    where)
+        echo "source:      $SRC"
+        echo "environment: $VENV"
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "fdk: unknown subcommand '$cmd'" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

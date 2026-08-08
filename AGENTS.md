@@ -118,6 +118,26 @@ toolchain:
 
 ## Development Toolchain
 
+### The `fdk` Helper
+
+`.claude/tools/fdk` runs the work a session repeats. Run `.claude/tools/fdk help` for the
+subcommands: `test`, `testraw`, `lint`, `prose`, `py`, `clean`, `build`, `status`, `where`.
+
+Prefer it to writing the shell line yourself. It applies the rules below that are easy to get
+wrong by hand:
+
+```bash
+.claude/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
+.claude/tools/fdk build                              # after any firedrake/cython/*.pyx change
+.claude/tools/fdk lint firedrake/mesh.py
+```
+
+`fdk` calls the interpreter of the virtual environment, not the system one. It launches a
+parallel test run under an explicit `mpiexec`, and it prints one summary rather than one report
+per rank. It needs no configuration: it finds the source tree from its own location, and the
+environment from `FIREDRAKE_VENV`, from an activated environment, or from the directory the
+source tree sits in.
+
 ### Environment Setup
 
 * **Editable installs across the stack:** A bug can live in Firedrake or in any of its component
