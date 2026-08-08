@@ -76,8 +76,8 @@ def test_uniform_hierarchy_no_empty_ranks():
 
 @pytest.mark.parallel(3)
 def test_adaptive_hierarchy_redistributes_empty_ranks():
-    # Two cells spread over three ranks leave a rank with no cells, which
-    # adaptive refinement alone does not fix, so the refined mesh has to be
+    # Two cells spread over three ranks leave a rank with no cells. Adaptive
+    # refinement alone does not fix that. The refined mesh has to be
     # redistributed.
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1),
                "partitioner_type": "simple"}
