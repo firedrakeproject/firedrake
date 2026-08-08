@@ -36,9 +36,8 @@ def _linear_expr(mesh):
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
-    # Big enough that refining part of it leaves untouched cells behind.
-    # The transfers copy those cells' nodes instead of evaluating them.
-    # It also gives a coarse cell's child count a wide range.
+    # Big enough that refining part of it leaves untouched cells behind, and
+    # that a coarse cell's child count varies widely across the mesh.
     if mesher == "firedrake-square":
         return UnitSquareMesh(4, 4, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":
@@ -401,25 +400,67 @@ def _coarse_cell_integrals(mh, level, u_coarse, u_fine):
     return mass_coarse[:coarse_mesh.cell_set.size], mass_fine
 
 
+def _poison_padding(mh, level, Vc, Vf):
+    """Point every padded slot of the macro-cell map at a real child.
+
+    ``coarse_cell_to_fine_node_map`` pads each coarse cell's row of children
+    out to the width of the busiest cell on the level. This overwrites that
+    padding with a copy of the row's first real child. Reading a padded slot
+    then integrates over a genuine, non-degenerate cell, and counts it twice.
+
+    Returns the number of slots it overwrote.
+    """
+    from firedrake.mg.utils import coarse_cell_to_fine_node_map
+
+    children = mh.coarse_to_fine_cells[level][:mh[level].cell_set.size]
+    valid = children >= 0
+    # Rows carry different numbers of children, so the padded slots do not
+    # form a rectangle. Address them as a flat list of (row, slot) pairs.
+    rows, slots = np.nonzero(~valid & valid.any(axis=1)[:, None])
+    first = valid.argmax(axis=1)
+
+    poisoned = 0
+    for V in (Vf, Vf.mesh().coordinates.function_space()):
+        cmap = coarse_cell_to_fine_node_map(Vc, V)
+        values = cmap.values[:mh[level].cell_set.size]
+        values = values.reshape(children.shape[0], children.shape[1], -1)
+        values[rows, slots] = values[rows, first[rows]]
+        poisoned += len(rows)
+    return poisoned
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("degree", [0, 1])
-def test_dg_injection_conserves_mass_extruded(degree):
-    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
-    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
-    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
+@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
+def test_dg_injection_ignores_padded_children(mh, family, degree):
+    """DG injection never reads the padding of the macro-cell map.
 
-    rg = RandomGenerator(PCG64(seed=0))
-    for level in range(len(mh) - 1):
-        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
-        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
-        inject(u_fine, u_coarse)
-        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
+    The kernel integrates over a fixed number of child slots per coarse
+    cell, and adaptive refinement gives different coarse cells different
+    numbers of children. The kernel must stop at each cell's own children.
 
+    Point the padding at a real child, so that reading it would integrate
+    over that child a second time. Mass conservation still holds only if the
+    kernel leaves the padding alone. A kernel that runs to the full width
+    fails here, whether the padding holds a duplicate child or the -1 that
+    `op2.Map` reads out of bounds.
+    """
+    level = len(mh) - 2
+    V_coarse = FunctionSpace(mh[level], family, degree)
+    V_fine = FunctionSpace(mh[level + 1], family, degree)
 
+    poisoned = _poison_padding(mh, level, V_coarse, V_fine)
+    assert mh[0].comm.allreduce(poisoned, MPI.SUM) > 0
+
+    u_fine = Function(V_fine)
+    rng = np.random.default_rng(7 + mh[0].comm.rank)
+    u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
+
+    u_coarse = Function(V_coarse)
+    inject(u_fine, u_coarse)
+
+    mass_coarse, mass_fine = _coarse_cell_integrals(mh, level, u_coarse, u_fine)
+    assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
 def _representable_expr(mesh, degree):
     """An expression that a space of the given degree holds exactly on any mesh."""
     x = SpatialCoordinate(mesh)
