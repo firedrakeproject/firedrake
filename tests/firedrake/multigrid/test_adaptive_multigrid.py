@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -381,10 +382,6 @@ def test_transfers(mh, family, degree):
     prolong(u_coarse, u_fine)
     assert errornorm(expr_fine, u_fine) <= 1e-12
 
-    u_injected = Function(V_coarse)
-    inject(Function(V_fine).interpolate(expr_fine), u_injected)
-    assert errornorm(expr_coarse, u_injected) <= 1e-12
-
     # Restriction is the transpose of prolongation, which pins the two down
     # together: the nodes prolongation copies are the nodes restriction must
     # not also accumulate through the kernel.
@@ -396,6 +393,16 @@ def test_transfers(mh, family, degree):
         assemble(action(r_fine, u_fine)),
         rtol=1e-12
     )
+
+    # Injection
+    u_fine = Function(V_fine).interpolate(expr_fine)
+    u_injected = Function(V_coarse)
+    if family in {"DG", "DQ"} and complex_mode:
+        with pytest.raises(NotImplementedError):
+            inject(u_fine, u_injected)
+    else:
+        inject(u_fine, u_injected)
+        assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
