@@ -346,22 +346,34 @@ def preserved_points(PETSc.DM coarse_dm,
                      PETSc.DM fine_dm,
                      PETSc.Section fine_cell_numbering,
                      np.ndarray coarse_to_fine_cells):
-    """Pair the points an adaptive refinement left alone with their coarse originals.
+    """Pair unrefined fine points with their coarse originals.
 
-    A coarse cell that the refinement did not touch is copied into the fine
-    mesh, so its whole closure is copied with it: the transform preserves the
-    cone of every point it does not refine, and hence the plex closure of the
-    copied cell entry by entry. Such a cell has exactly one child, which is
-    what the right-padding of ``coarse_to_fine_cells`` with -1 identifies.
+    Adaptive refinement copies an untouched coarse cell into the fine mesh
+    without change. It therefore preserves the cone of every point in that
+    cell, and so preserves the whole plex closure, point for point. Such a
+    cell has exactly one child. The right-padding of ``coarse_to_fine_cells``
+    with -1 identifies which cells these are.
 
-    :arg coarse_dm: the coarse mesh DMPlex.
-    :arg coarse_cell_numbering: the coarse mesh's cell numbering section.
-    :arg fine_dm: the adaptively refined DMPlex.
-    :arg fine_cell_numbering: the fine mesh's cell numbering section.
-    :arg coarse_to_fine_cells: the Firedrake-numbered coarse-to-fine cell map.
-    :returns: an array over the chart of ``fine_dm``, holding for each fine
-        point the coarse point it was copied from, or -1 if the refinement
-        changed it.
+    Parameters
+    ----------
+    coarse_dm : PETSc.DM
+        The coarse mesh DMPlex.
+    coarse_cell_numbering : PETSc.Section
+        The cell numbering section of the coarse mesh.
+    fine_dm : PETSc.DM
+        The adaptively refined DMPlex.
+    fine_cell_numbering : PETSc.Section
+        The cell numbering section of the fine mesh.
+    coarse_to_fine_cells : numpy.ndarray
+        The Firedrake-numbered coarse-to-fine cell map.
+
+    Returns
+    -------
+    numpy.ndarray
+        An array over the chart of ``fine_dm``. For each fine point, it
+        holds the coarse point it was copied from, or -1 if refinement
+        changed that point.
+
     """
     cdef:
         PetscInt ncoarse, nfine, max_children, c, i, off, child
@@ -404,13 +416,13 @@ def preserved_points(PETSc.DM coarse_dm,
                                           &coarse_size, &coarse_closure))
         CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
                                           &fine_size, &fine_closure))
-        # A cell with one child that the transform nonetheless changed would
-        # have a closure of its own shape; leave it to the transfer kernel.
+        # A one-child cell that refinement did change would have a closure
+        # of a different size. Skip it and let the transfer kernel handle it.
         if coarse_size == fine_size:
             for i in range(coarse_size):
-                # The closures interleave points with their orientations, and
-                # only points that carry the same orientation in both meshes
-                # order their nodes the same way.
+                # Each closure interleaves a point with its orientation. Copy
+                # a point only when its orientation matches in both meshes:
+                # only then do the two cells order their nodes the same way.
                 if coarse_closure[2*i + 1] == fine_closure[2*i + 1]:
                     fine_to_coarse[fine_closure[2*i] - pStart] = coarse_closure[2*i]
         CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,

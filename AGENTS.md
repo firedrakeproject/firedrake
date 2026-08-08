@@ -75,14 +75,20 @@ toolchain:
   is what defeats NumPy's own performance model, on top of bypassing PyOP2/code-generation for
   mesh-bound data.
 * **Docstrings Are Always `numpydoc`:** Every docstring you write or touch — public API, private helper,
-  Cython function in `firedrake/cython/*.pyx`, test helper — must be `numpydoc`, using its section
-  headings (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
+  Cython function in `firedrake/cython/*.pyx` — must be `numpydoc`, using its section headings
+  (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
   (`:arg x:`, `:param x:`, `:returns:`, `:rtype:`) in new or edited code, and do not copy it from the
   surrounding file: much of Firedrake predates the convention, so matching the neighbouring docstrings
   is precisely the wrong instinct — this is the one place where "preserve the existing style" does not
   apply. Being private, internal, or compiled is not an excuse to skip the docstring, to downgrade its
   format, or to leave the arguments undocumented: give every parameter and every return value its
-  `numpydoc` entry, however small the helper.
+  `numpydoc` entry, however small the helper. Exception: tests (`tests/**`) do not need the full
+  `Parameters`/`Returns` structure — a plain one- or two-sentence summary of what is being checked and
+  why is enough.
+* **Plain English (ASD-STE100) In Docstrings And Comments:** Every docstring or comment you write or
+  touch must follow Simplified Technical English (ASD-STE100): short sentences, one idea per sentence,
+  active voice, subject named up front instead of buried in a relative clause. Avoid the clause-stacking,
+  inverted phrasing typical of unedited AI-generated prose — see the Anti-Patterns section below.
 * **Type Hints:** New code should include type hints on function/method signatures.
 * **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
   `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
@@ -380,3 +386,19 @@ code generation depends on. These loops are compiled and typed (`cdef`/`PetscInt
 objects — that combination, not mere placement in a `.pyx` file, is what makes them acceptable. Do not
 use this as license to write a plain Python loop over `.dat.data` and call it fine because "Firedrake
 has C-level loops elsewhere."
+
+### Clause-Stacked Docstrings And Comments
+
+WRONG — the subject hides inside a relative clause the reader must unwind before finding the verb:
+
+```python
+def prolong_preserved_nodes(coarse, fine):
+    """Give the nodes an adaptive refinement preserved their coarse values."""
+```
+
+RIGHT — subject named up front, one short sentence, active voice:
+
+```python
+def prolong_preserved_nodes(coarse, fine):
+    """Copy coarse values onto the fine nodes that adaptive refinement preserved."""
+```

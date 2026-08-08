@@ -140,14 +140,14 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
         valid = owned_coarse_to_fine >= 0
         values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
-        # Under adaptive refinement coarse cells have varying numbers of fine
-        # descendants, so the rows are right-padded up to the busiest coarse
-        # cell's count. op2.Map cannot hold the -1 that marks a slot as empty,
-        # and the macro-cell kernel reading through this map integrates over
-        # every slot alike. Point all of an empty slot's nodes at a single one
-        # of the cell's own children's nodes: the slot then describes a
-        # degenerate cell sitting on the patch it belongs to, whose Jacobian
-        # determinant, and so whose contribution, vanishes.
+        # Under adaptive refinement, coarse cells have different numbers of
+        # fine children. Each row is padded with -1 up to the widest count.
+        # op2.Map cannot store -1 as a node index. The DG injection kernel
+        # also integrates over every column of a row, including the padding.
+        # For each padded column, point its nodes at the nodes of one of the
+        # cell's real children instead. That column then describes a
+        # degenerate cell on top of an existing patch. Its Jacobian
+        # determinant is zero, so it adds nothing to the integral.
         if not valid.all():
             nonempty = valid.any(axis=1)
             filler = numpy.zeros(iterset.size, dtype=IntType)
@@ -173,23 +173,26 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
 
 
 def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
-    """Create the `PETSc.SF` pairing the points an adaptive refinement copied.
+    """Create the SF that pairs unrefined points with their coarse originals.
+
+    Adaptive refinement leaves some cells untouched. This SF maps each
+    unrefined point in ``fine_mesh`` back to the coarse point it came from.
 
     Parameters
     ----------
     coarse_mesh : firedrake.mesh.AbstractMeshTopology
-        The mesh that was refined.
+        The mesh before refinement.
     fine_mesh : firedrake.mesh.AbstractMeshTopology
-        The mesh it was refined into.
+        The mesh after refinement.
     coarse_to_fine : numpy.ndarray
-        The coarse-to-fine cell map relating the two.
+        The coarse-to-fine cell map that relates the two meshes.
 
     Returns
     -------
     PETSc.SF
-        SF whose roots are the points of ``coarse_mesh`` and whose leaves are
-        the points of ``fine_mesh`` that the refinement left alone. `None` if
-        the refinement touched every cell, as a uniform one does.
+        An SF with roots on the points of ``coarse_mesh`` and leaves on the
+        unrefined points of ``fine_mesh``. Returns `None` if refinement
+        changed every cell, as a uniform refinement does.
 
     """
     coarse_plex = coarse_mesh.topology_dm
@@ -200,13 +203,13 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
         coarse_to_fine,
     )
     leaves, = numpy.nonzero(fine_to_coarse_points >= 0)
-    # A uniform refinement preserves nothing, and whether to build the SF at
-    # all has to be agreed on by every rank, not just the empty-handed ones.
+    # A uniform refinement preserves no points. Every rank must agree on
+    # whether to build the SF at all, not just the ranks with no leaves.
     if not fine_plex.comm.tompi4py().allreduce(len(leaves) > 0, op=MPI.LOR):
         return None
     leaves = leaves.astype(IntType)
-    # The refinement acts on each rank's own plex, so a fine point and the
-    # coarse point it was copied from always live on the same rank.
+    # Refinement acts on each rank's own plex. A fine point and the coarse
+    # point it was copied from always live on the same rank.
     remote = numpy.empty((len(leaves), 2), dtype=IntType)
     remote[:, 0] = coarse_plex.comm.rank
     remote[:, 1] = fine_to_coarse_points[leaves]
@@ -217,11 +220,11 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
 
 
 def preserved_node_sf(Vc, Vf):
-    """Find the nodes an adaptively refined space inherits unchanged.
+    """Find the nodes that adaptive refinement leaves unchanged.
 
-    A cell that the refinement left alone carries the same nodes in both
-    spaces, so the transfer operators can copy their values across instead of
-    evaluating them, which is both cheaper and exact.
+    An unrefined cell has the same nodes in both spaces. The transfer
+    operators can then copy values between them instead of evaluating them.
+    This is cheaper, and exact.
 
     Parameters
     ----------
@@ -233,17 +236,20 @@ def preserved_node_sf(Vc, Vf):
     Returns
     -------
     PETSc.SF
-        SF mapping the nodes of ``Vc`` (roots) to the nodes of ``Vf`` (leaves)
-        that hold the same value, or `None` if there are none.
+        An SF with roots on the nodes of ``Vc`` and leaves on the matching
+        nodes of ``Vf``. Returns `None` if no nodes match.
 
     """
     if Vc.ufl_element() != Vf.ufl_element() or Vc.boundary_set != Vf.boundary_set:
-        # Only a space and its counterpart on the refined mesh lay their nodes
-        # out the same way on a cell the refinement left alone.
+        # A space and its counterpart on the refined mesh use the same node
+        # layout on an unrefined cell only when the element and the boundary
+        # set both match.
         return None
     if Vc.extruded or Vf.extruded:
-        # The plex of an extruded mesh is the flat base one, whose points
-        # carry a whole column of nodes that the Sections cannot tell apart.
+        # The DMPlex of an extruded mesh stores only the 2D base mesh. Each
+        # point there represents a whole vertical column of nodes, and a
+        # Section cannot address one node within that column. Give up here
+        # and let the transfer kernel evaluate every node instead.
         return None
     hierarchy, levelc = get_level(Vc.mesh())
     _, levelf = get_level(Vf.mesh())
@@ -261,18 +267,19 @@ def preserved_node_sf(Vc, Vf):
             return cache.setdefault(key, None)
         root_section = Vc.dm.getSection()
         leaf_section = Vf.dm.getSection()
-        # `distributeSection` lays its own section out over the range of the
-        # points the SF touches; only the root offsets it broadcasts are
-        # wanted, padded back out to the chart `createSectionSF` indexes.
+        # `distributeSection` builds its own section over the range of points
+        # that the SF touches. Only the broadcast root offsets are needed
+        # here. Pad them back out to the full chart that `createSectionSF`
+        # expects.
         remote_offsets, distributed_section = point_sf.distributeSection(root_section)
         pStart, pEnd = leaf_section.getChart()
         lpStart, lpEnd = distributed_section.getChart()
         offsets = numpy.zeros(pEnd - pStart, dtype=IntType)
         offsets[lpStart - pStart:lpEnd - pStart] = remote_offsets
         section_sf = point_sf.createSectionSF(root_section, offsets, leaf_section)
-        # The transfer kernels compute the owned fine nodes and leave the halo
-        # to a later exchange, so the copy accounts for exactly as much: a
-        # ghost fine node reduced onto its coarse node would count twice.
+        # The transfer kernels compute only the owned fine nodes and leave
+        # the halo to a later exchange. Keep only the owned leaves here too:
+        # a ghost fine node reduced onto its coarse node would count twice.
         nroots, ilocal, iremote = section_sf.getGraph()
         owned = ilocal < Vf.node_set.size
         trimmed = PETSc.SF().create(comm=section_sf.comm)
@@ -281,7 +288,10 @@ def preserved_node_sf(Vc, Vf):
 
 
 def transfer_node_subset(Vc, Vf):
-    """Find the nodes of a fine space that the transfer kernels must visit.
+    """Find the fine nodes that the transfer kernels must evaluate.
+
+    These are the nodes of ``Vf`` that :func:`preserved_node_sf` does not
+    already account for. Prolongation and restriction can copy the rest.
 
     Parameters
     ----------
@@ -293,8 +303,8 @@ def transfer_node_subset(Vc, Vf):
     Returns
     -------
     pyop2.types.set.Set or pyop2.types.set.Subset
-        The nodes of ``Vf`` that :func:`preserved_node_sf` does not account
-        for, or ``Vf.node_set`` itself if that is all of them.
+        A subset of the nodes of ``Vf``, or ``Vf.node_set`` itself if
+        :func:`preserved_node_sf` found no preserved nodes.
 
     """
     section_sf = preserved_node_sf(Vc, Vf)
@@ -312,15 +322,15 @@ def transfer_node_subset(Vc, Vf):
 
 
 def prolong_preserved_nodes(coarse, fine):
-    """Give the nodes an adaptive refinement preserved their coarse values.
+    """Copy coarse values onto the fine nodes that adaptive refinement preserved.
 
     Parameters
     ----------
     coarse : firedrake.function.Function
         The function on the coarse mesh.
     fine : firedrake.function.Function
-        The function on the refined mesh, whose remaining nodes the transfer
-        kernel has already computed.
+        The function on the refined mesh. The transfer kernel has already
+        computed its other nodes.
 
     """
     from firedrake.halo import _get_mtype
@@ -329,8 +339,8 @@ def prolong_preserved_nodes(coarse, fine):
     if section_sf is None:
         return
     mtype, _ = _get_mtype(fine.dat)
-    # A coarse node that a fine one was copied from can be a ghost, but only
-    # owned fine nodes are written, exactly as the transfer kernel writes them.
+    # The source coarse node can be a ghost node. Only owned fine nodes are
+    # written here, the same as the transfer kernel writes.
     source = coarse.dat.data_ro_with_halos
     target = fine.dat.data_wo
     section_sf.bcastBegin(mtype, source, target, MPI.REPLACE)
@@ -338,18 +348,18 @@ def prolong_preserved_nodes(coarse, fine):
 
 
 def restrict_preserved_nodes(fine_dual, coarse_dual):
-    """Add what the nodes an adaptive refinement preserved contribute to the coarse dual.
+    """Add the contribution of preserved nodes to the coarse dual.
 
-    Prolongation copies such a node, so restriction, its transpose, hands the
-    coarse node the fine value whole.
+    Prolongation copies a preserved node's value without change. Restriction
+    is its transpose, so it adds the fine value to the coarse node unchanged.
 
     Parameters
     ----------
     fine_dual : firedrake.cofunction.Cofunction
         The cofunction on the refined mesh.
     coarse_dual : firedrake.cofunction.Cofunction
-        The cofunction on the coarse mesh, already holding what the transfer
-        kernel accumulated from the remaining fine nodes.
+        The cofunction on the coarse mesh. It already holds the contribution
+        that the transfer kernel accumulated from the other fine nodes.
 
     """
     from firedrake.halo import _get_mtype
@@ -364,8 +374,8 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
     target = buffer.dat.data_wo_with_halos
     section_sf.reduceBegin(mtype, source, target, MPI.SUM)
     section_sf.reduceEnd(mtype, source, target, MPI.SUM)
-    # A preserved coarse node can be a ghost of the rank that holds the fine
-    # node it pairs with, so the contributions need reducing onto its owner.
+    # A preserved coarse node can be a ghost on the rank that owns the
+    # matching fine node. Reduce the contributions onto the owning rank.
     buffer.dat.local_to_global_begin(op2.INC)
     buffer.dat.local_to_global_end(op2.INC)
     coarse_dual.dat.data[...] += buffer.dat.data_ro
