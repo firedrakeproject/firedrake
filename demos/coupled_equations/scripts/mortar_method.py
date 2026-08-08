@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = False
+PLOT = True
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [16,16,16,16,16] #[4,4,4,4,4]#[8,8,8,8,8] #
+n1_list = [8,8,8,8,8] #[4,4,4,4,4]#[8,8,8,8,8] #
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -26,27 +26,30 @@ errors_2 = []
 
 # Prepares meshes with differing refinement levels for convergence analysis
 for n1,n2 in zip(n1_list, n2_list):
-    mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
-    mesh2 = UnitSquareMesh(n2, n2, quadrilateral=True)
-    mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
-
+    mesh1 = RectangleMesh(nx = n1, ny = n1//2, Lx = 0.5, Ly = 1)
+    mesh2 = RectangleMesh(nx = n2, ny = n2//2, Lx = 0.5, Ly = 1)
+    mesh2.coordinates.dat.data[:, 0] += 0.5  # Shift to the right by 0.5
+    
+    coords = mesh2.coordinates.dat.data
+    coords[np.isclose(coords[:, 0], 0.5), 0] = 0.5
+    
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
-    p = 3
+    p = 5
     p_inner = 2
-    w1 = Constant(100.0)/CellDiameter(mesh1)
-    w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+    w1 = Constant(1000.0)/CellDiameter(mesh1)
+    w2 = Constant(1000.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1 * sin(pi * y1) ** 2
-    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
+    u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
-    f2 = -div(grad(u2_exact)) + u2_exact
+    f2 = -div(grad(u2_exact))
 
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
@@ -73,33 +76,30 @@ def build_problem(mesh1, mesh2):
                 - inner(dot(grad(u1), n1), v1) * ds1 \
                 - inner(dot(grad(v1), n1), u1) * ds1
 
-    # Helmholtz on mesh_2
-    A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
+    # Poisson on mesh_2  (drop the +u2_exact in f2 too, unless Helmholtz is intended)
+    A22_form = inner(grad(u2), grad(v2)) * dx2 \
                 + w2 * inner(v2, u2) * ds2 \
-                + inner(dot(grad(u2), n2), v2) * ds2
-    
-    # A12: row v1, column u2
+                - inner(dot(grad(u2), n2), v2) * ds2 \
+                - inner(dot(grad(v2), n2), u2) * ds2
+
     q1 = TrialFunction(Q1)
-    M1_w = -2 * w1 * inner(q1, v1) * ds1
+    M1_w = -w1 * inner(q1, v1) * ds1
+    M1_trace = inner(dot(grad(v1), n1), q1) * ds1
     B12 = interpolate(u2, Q1, allow_missing_dofs=True)
     A12_w = action(M1_w, B12)
-
-    M1_trace = inner(dot(grad(q1), n1), v1) * ds1 - inner(dot(grad(v1), n1), q1) * ds1
     A12_trace = action(M1_trace, B12)
 
-    # A21: row v2, column u1.
     q2 = TrialFunction(Q2)
-    M2_w = -2 * w2 * inner(q2, v2) * ds2
+    M2_w = -w2 * inner(q2, v2) * ds2
+    M2_trace = inner(dot(grad(v2), n2), q2) * ds2
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)
     A21_w = action(M2_w, B21)
-    
-    M2_trace = -inner(dot(grad(q2), n2), v2) * ds2 + inner(dot(grad(v2), n2), q2) * ds2
     A21_trace = action(M2_trace, B21)
 
-    # RHS
+    A = A11_form + A22_form + A12_w + A12_trace + A21_w + A21_trace
+
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
-    A = A11_form + A22_form + A12_w + A12_trace + A21_w
     L = b1 + b2
 
     # Exact solutions used for further analysis
@@ -118,8 +118,8 @@ def plot(filename, u_1, u_2):
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
     trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    ax.view_init(elev=35, azim=-110)
-    ax.set_aspect("equalxz")
+    #ax.view_init(elev=35, azim=-110)
+    #ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
@@ -128,8 +128,9 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
     
-    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
-    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
+    bc1 = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    bc2 = DirichletBC(W.sub(1), 0, [2, 3, 4])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=[bc1, bc2])
     params = {
         "mat_type": "aij",
         "ksp_type": "preonly",
@@ -141,7 +142,7 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     u_1, u_2 = u_sol.subfunctions
 
     if PLOT:
-        plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
+        plot(f"mortar_dirichlet_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
@@ -189,12 +190,12 @@ if VERBOSE:
 # PETSc.Sys.Print(f"...")
 
     plt.figure(figsize=(8,8))
-    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
+    plt.loglog(h2_array, errors_2, "o-", label="Poisson")
     #plt.loglog(h1_array, errors_1, "s-", label="Poisson")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
     plt.grid(False)
     plt.legend()
-    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann Method")
+    plt.title("Poisson-Poisson Coupling with Dirichlet BCs using the Mortar Method")
     plt.savefig("Logloggraph.png")
