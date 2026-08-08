@@ -188,8 +188,20 @@ way.
   ```
   Tests requiring a different `nprocs` are collected but skipped (not run) by this invocation; do not
   conclude a parallel code path is untested just because a plain, unmarked `pytest` run was green.
-* **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI; look at
-  it (and `.github/workflows/pr.yml`/`core.yml`) if a failure only reproduces in CI and not locally.
+* **Running a whole suite:** never a plain serial `pytest <dir>`. The *relevant* subset is the tests
+  that actually execute the lines you changed, at the process counts where those lines are live — code
+  reached only under MPI is untested by any serial run, however large. `fdk test <nprocs> <paths>` runs
+  one such subset under a single `mpiexec`, which is what an edit-and-rerun loop wants. Shard the run
+  instead when one `mpiexec` is too slow, or when you reproduce a CI result.
+  `firedrake-run-split-tests <nprocs> <njobs> <pytest args> <paths>` shards it the way CI does
+  (`.github/workflows/core.yml`):
+  ```bash
+  firedrake-run-split-tests 1 1 -n 16 -q <paths>   # serial tests, -n is pytest-xdist
+  firedrake-run-split-tests 3 4 <paths>            # nprocs=3 tests; adds -m parallel[match] itself
+  ```
+  Run it from a scratch directory: it writes `pytest_nprocs<N>_job<i>.log` and `job<i>.errcode` into the
+  cwd. Size `-n`/`njobs` to the machine, keeping `njobs * nprocs` under the core count, since the jobs
+  are launched concurrently by GNU parallel.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
   before the full module; the suite is large and full-module reruns are slow to iterate against.
 
