@@ -1014,9 +1014,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def submesh_shares_distribution(self, other):
         """Return whether `self` and ``other`` are related and share their distribution.
 
-        Entity maps between two meshes of the same submesh family are only
-        defined if every mesh between them and their youngest common ancestor
-        inherited its parent's parallel distribution.
+        Two meshes of the same submesh family have entity maps only under one
+        condition. Every mesh between them and their youngest common ancestor
+        must take its parent's parallel distribution.
 
         Parameters
         ----------
@@ -1288,9 +1288,9 @@ class MeshTopology(AbstractMeshTopology):
     def _universal_vertex_numbering(self):
         """Section describing the universal (globally unique) vertex numbering.
 
-        Cell closures are ordered by universal vertex number, so a
-        redistributed submesh inherits the numbering of its parent to
-        orient its entities exactly as the parent does.
+        Cell closures are ordered by universal vertex number. A redistributed
+        submesh therefore takes the numbering of its parent, and orients its
+        entities exactly as the parent does.
         """
         numbering = self._vertex_numbering.createGlobalSection(self.topology_dm.getPointSF())
         if self.submesh_point_sf is None:
@@ -5172,9 +5172,9 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if redistribute and subdim != dim:
-        # The entities of the submesh and of the parent are only oriented
-        # consistently, and hence their nodes only correspond, if the two
-        # meshes are made of the same cells.
+        # The two meshes must be made of the same cells. Only then are their
+        # entities oriented consistently, and only then do their nodes
+        # correspond.
         raise NotImplementedError("Can only redistribute a submesh of co-dimension 0")
     if subdomain_id is None:
         if label_name is not None:
@@ -5192,8 +5192,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         # The point correspondence must be recorded before the submesh is
         # distributed, as distributing it discards the subpoint IS.
         point_sf = _make_submesh_point_sf(plex, subplex)
-        # The entity classification inherited from the parent no longer holds
-        # once the submesh is repartitioned; drop it so that it is recomputed.
+        # Repartitioning invalidates the entity classification the submesh
+        # takes from its parent. Drop the labels, so that they are recomputed.
         for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
             subplex.removeLabel(label)
     else:

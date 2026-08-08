@@ -540,9 +540,9 @@ def physical_node_locations(V):
 def transfer_mesh(mesh):
     """Return the mesh that grid transfer operates on.
 
-    A redistributed mesh has no cell maps relating it to the coarse mesh, so
-    transfers go through the mesh it was redistributed from, and the values
-    are then assigned across the two.
+    A redistributed mesh has no cell maps relating it to the coarse mesh.
+    Transfers therefore go through the mesh it was redistributed from. The
+    values are then assigned across the two.
 
     Parameters
     ----------

@@ -383,9 +383,9 @@ class Assigner:
                               target_is_submesh, allow_missing_dofs):
         """Assign between (co)functions on a redistributed submesh and its parent.
 
-        The nodes of the two spaces are in one-to-one correspondence, so the
-        expression is evaluated in the source layout and the result is moved
-        into the target layout with a single communication.
+        The nodes of the two spaces correspond one to one. The expression is
+        evaluated in the source layout. One communication then moves the
+        result into the target layout.
         """
         target_V = lhs_func.function_space()
         source_V, = set(f.function_space() for f in funcs)

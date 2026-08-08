@@ -318,9 +318,9 @@ def test_submesh_assign_cofunction_3_quads_2_processes():
 ])
 @pytest.mark.parallel(nprocs=[1, 3])
 def test_submesh_assign_function_redistributed(mesh_type, family, degree):
-    # A redistributed submesh holds the same mesh as its parent, so assigning
-    # between the two must be exact for every element, including those whose
-    # DoFs depend on the orientation of the entity they live on.
+    # A redistributed submesh holds the same mesh as its parent. Assigning
+    # between the two must therefore be exact for every element. That includes
+    # the elements whose DoFs depend on the orientation of their entity.
     mesh = UnitSquareMesh(4, 4, quadrilateral=(mesh_type == "quadrilateral"))
     submesh = Submesh(mesh, redistribute=True)
     assert submesh.topology.submesh_parent is mesh.topology
