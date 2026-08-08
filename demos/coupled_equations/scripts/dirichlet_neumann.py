@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = False
+PLOT = True
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [2,4,8,16,32]
+n1_list = [4,4,4,4,4]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -26,9 +26,9 @@ errors_2 = []
 
 # Prepares meshes with differing refinement levels for convergence analysis
 for n1,n2 in zip(n1_list, n2_list):
-    mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
-    mesh2 = UnitSquareMesh(n2, n2, quadrilateral=True)
-    mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
+    mesh1 = RectangleMesh(nx = n1, ny = n1//2, Lx = 0.5, Ly = 1)
+    mesh2 = RectangleMesh(nx = n2, ny = n2//2, Lx = 0.5, Ly = 1)
+    mesh2.coordinates.dat.data[:, 0] += 0.5  # Shift to the right by 0.5
 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
@@ -36,12 +36,12 @@ for n1,n2 in zip(n1_list, n2_list):
 def build_problem(mesh1, mesh2):
     p = 3
     p_inner = 2
-    w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+    w2 = Constant(1000.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1 * sin(pi * y1) ** 2
-    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
+    u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
@@ -111,8 +111,8 @@ def plot(filename, u_1, u_2):
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
     trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    ax.view_init(elev=35, azim=-110)
-    ax.set_aspect("equalxz")
+    #ax.view_init(elev=35, azim=-110)
+    #ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
@@ -121,8 +121,9 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
     
-    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
-    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
+    bc1 = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    bc2 = DirichletBC(W.sub(1), 0, [2, 3, 4])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=[bc1,bc2])
     params = {
         "mat_type": "aij",
         "ksp_type": "preonly",
@@ -134,7 +135,7 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     u_1, u_2 = u_sol.subfunctions
 
     if PLOT:
-        plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
+        plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")

@@ -30,14 +30,17 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh2 = RectangleMesh(nx = n2, ny = n2//2, Lx = 0.5, Ly = 1)
     mesh2.coordinates.dat.data[:, 0] += 0.5  # Shift to the right by 0.5
 
+    coords = mesh2.coordinates.dat.data
+    coords[np.isclose(coords[:, 0], 0.5), 0] = 0.5
+
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
     p = 3
-    p_inner = 3
-    w1 = Constant(100.0)/CellDiameter(mesh1)
-    w2 = Constant(100.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+    p_inner = 2
+    w1 = Constant(100.0)*p*p/CellDiameter(mesh1)
+    w2 = Constant(100.0)*p*p/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
