@@ -407,8 +407,9 @@ def scale_boundary_nodes(u, factor):
 
 ### Documenting Code That Is Not There
 
-A reader has only the file in front of them. A comment that describes a removed approach, or that
-argues against a branch the code does not take, sends them looking for something that is not there.
+A reader has only the file in front of them. A comment can describe a removed approach. It can also
+argue against a branch the code does not take. Either one sends the reader looking for something
+that is not there.
 
 WRONG — the first sentence describes deleted code, and the second argues with an absent branch:
 
