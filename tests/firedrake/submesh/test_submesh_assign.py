@@ -403,11 +403,11 @@ def test_submesh_assign_cell_subset_redistributed():
 @pytest.mark.parametrize("redistribute", [False, True])
 @pytest.mark.parallel(nprocs=[1, 3])
 def test_submesh_assign_composed_restrictions(family, degree, redistribute):
-    # Compose all three restrictions of the node layout at once, each of them
-    # applying to one side of the assignment only: the source is the whole of
-    # an element on the whole of the parent mesh, while the target restricts
-    # the mesh to a proper subdomain (optionally redistributing it), the
-    # boundary, and the element to the facets of the reference cell.
+    # Compose all three restrictions of the node layout at once. Each of them
+    # applies to one side of the assignment only. The source is the whole of
+    # an element on the whole of the parent mesh. The target restricts the mesh
+    # to a proper subdomain, optionally redistributing it. It then restricts to
+    # the boundary, and the element to the facets of the reference cell.
     sentinel = -12345.0
     mesh = UnitSquareMesh(6, 6)
     x, y = SpatialCoordinate(mesh)
@@ -457,8 +457,8 @@ def test_assign_restricted_element_same_mesh(cell, family, degree):
 
     # -- the restriction keeps the facet nodes of the full element. Compare
     # against interpolation, which numbers the nodes of the restricted space
-    # without reference to the parent, so that a permutation of the nodes
-    # within an entity cannot go unnoticed.
+    # without reference to the parent. A permutation of the nodes within an
+    # entity therefore cannot go unnoticed.
     f_facet = Function(V_facet).assign(f)
     assert np.allclose(f_facet.dat.data_ro, Function(V_facet).interpolate(expr).dat.data_ro)
 
@@ -505,14 +505,14 @@ def test_assign_incompatible_elements():
     f = Function(FunctionSpace(mesh, "CG", 1))
     with pytest.raises(ValueError):
         f.assign(Function(FunctionSpace(mesh, "RT", 1)))
-    # CG1 carries the nodes CG2 puts on the vertices, and drops the rest, but
-    # they are not the nodes of a common element, so this is not an assignment.
+    # CG1 carries the nodes CG2 puts on the vertices, and drops the rest. They
+    # are not the nodes of a common element, so this is not an assignment.
     with pytest.raises(ValueError):
         f.assign(Function(FunctionSpace(mesh, "CG", 2)))
 
-    # Restricting to the facets of an interval leaves one node per vertex
-    # whatever the degree, so there the node counts alone cannot tell the two
-    # elements apart and only the element they restrict does.
+    # Restricting to the facets of an interval leaves one node per vertex,
+    # whatever the degree. The node counts alone therefore cannot tell the two
+    # elements apart. Only the element they restrict can.
     interval = UnitIntervalMesh(4)
     cells = [finat.ufl.FiniteElement("CG", interval.ufl_cell(), d) for d in (2, 3)]
     with pytest.raises(ValueError):
@@ -535,9 +535,9 @@ def test_assign_incompatible_elements():
 @pytest.mark.parallel(nprocs=[1, 3])
 def test_assign_multiple_source_spaces():
     # An interior and a facet restriction of one element are each compatible
-    # with the parent but not with one another, so each term of the sum is
-    # related to the assignee by its own section SF and moved into its
-    # layout before the two are added.
+    # with the parent, but not with one another. Each term of the sum is
+    # therefore related to the assignee by its own section SF. Both are moved
+    # into that layout before they are added.
     mesh = UnitSquareMesh(6, 6)
     elem = finat.ufl.FiniteElement("CG", mesh.ufl_cell(), 3)
     V = FunctionSpace(mesh, elem)

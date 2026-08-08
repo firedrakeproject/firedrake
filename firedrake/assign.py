@@ -172,12 +172,13 @@ def _unrestricted(element):
 def _compatible_elements(target, source):
     """Whether functions in two elements share a node layout.
 
-    Two elements are compatible if they restrict a common element, and place
-    the same number of nodes on every entity of the reference cell up to the
-    entities one of them drops. Their nodes are then the same functionals
-    entity by entity, so the `PETSc.Section` of either function space
-    describes both and data moves between them without reference to the cell
-    node maps.
+    Two elements are compatible under two conditions. They must restrict a
+    common element. They must also place the same number of nodes on every
+    entity of the reference cell, up to the entities one of them drops.
+
+    Their nodes are then the same functionals, entity by entity. The
+    `PETSc.Section` of either function space therefore describes both, and
+    data moves between them without reference to the cell node maps.
 
     Parameters
     ----------
@@ -206,8 +207,8 @@ def _compatible_elements(target, source):
         return False
     if isinstance(target.cell, TensorProductCell):
         # A base mesh point of an extruded mesh carries the nodes of a whole
-        # column of entities, of which a restriction may drop only some, and
-        # the Section counts the nodes on a point without saying which.
+        # column of entities. A restriction may drop only some of them. The
+        # Section counts the nodes on a point without saying which.
         raise NotImplementedError(
             "Assigning between an element and its restriction is not "
             "implemented on extruded meshes"
@@ -216,9 +217,9 @@ def _compatible_elements(target, source):
     source_counts = _entity_dof_counts(source)
     if target_counts.keys() != source_counts.keys():
         return False
-    # An entity either carries the same nodes in both elements, or is
-    # dropped by one of them; a partial overlap has no entity-wise
-    # correspondence and so cannot be expressed by the two Sections.
+    # An entity either carries the same nodes in both elements, or is dropped
+    # by one of them. A partial overlap has no entity-wise correspondence.
+    # The two Sections therefore cannot express it.
     return all(nt == source_counts[entity] or nt == 0 or source_counts[entity] == 0
                for entity, nt in target_counts.items())
 
@@ -227,8 +228,8 @@ def _node_subset(V, cell_subset):
     """Find the nodes of the cells of a subset.
 
     A node on the boundary of the subset belongs to cells outside it too, and
-    is included: the subset selects the cells whose nodes are assigned, not
-    the nodes that no other cell shares.
+    is included. The subset selects the cells whose nodes are assigned. It
+    does not select the nodes that no other cell shares.
 
     Parameters
     ----------
@@ -251,10 +252,10 @@ def _node_subset(V, cell_subset):
     node_map = V.cell_node_map()
     if node_map is None:
         raise ValueError(f"Function space ({V}) has no nodes on the cells")
-    # A node is on the subset for every rank that shares it as soon as it is on
-    # the subset for one of them, which the cells known to a single rank do not
-    # say: a rank owning the node need not own, or even halo, a cell of the
-    # subset that carries it.
+    # A node is on the subset for every rank that shares it, as soon as it is
+    # on the subset for one of them. The cells known to a single rank do not
+    # say this. A rank owning the node need not own, or even halo, a cell of
+    # the subset that carries it.
     marker = op2.Dat(V.node_set, dtype=IntType)
     marker.data_wo_with_halos[np.unique(node_map.values_with_halo[cell_subset.indices])] = 1
     marker.local_to_global_begin(op2.MAX)
@@ -270,8 +271,8 @@ def _target_is_leaf(target, source):
 
     Data travels root to leaf by broadcast, which requires every leaf node to
     have a counterpart, and leaf to root by reduction, which does not. The
-    target can therefore be the leaf unless it carries nodes on an entity
-    that the source drops, and taking it to be the leaf whenever possible
+    target can therefore be the leaf, unless it carries nodes on an entity
+    that the source drops. Take it to be the leaf whenever possible, which
     keeps the halo of the assignee up to date.
 
     Parameters
@@ -559,8 +560,8 @@ class Assigner:
                 if target_mesh is source_mesh:
                     # Assign (co)functions from one mesh to the same mesh. Two
                     # distinct spaces on it lay their nodes out differently,
-                    # even when they share an element, so those are related by
-                    # their sections like spaces on different meshes are.
+                    # even when they share an element. Their sections relate
+                    # them, as they relate spaces on different meshes.
                     single_mesh_assign = all(f.function_space() == lhs_func.function_space()
                                              for f in funcs)
                 else:
@@ -593,17 +594,17 @@ class Assigner:
         target_mesh = extract_unique_domain(lhs_func).topology
         source_spaces = set(f.function_space() for f in funcs)
         if len(source_spaces) > 1:
-            # Every function is compatible with the assignee (checked at
-            # construction time) but not necessarily with one another, so
-            # each is related to the assignee by its own section SF and
+            # Every function is compatible with the assignee, which is checked
+            # at construction time, but not necessarily with one another. Each
+            # is therefore related to the assignee by its own section SF, and
             # mapped into its layout before they are combined.
             self._assign_multi_space(lhs_func, subset, funcs, allow_missing_dofs)
             return
         source_V, = source_spaces
         source_mesh = source_V.mesh().topology
         # Spaces on meshes that share their distribution are related by their
-        # entity maps, unless their elements lay the nodes out differently, in
-        # which case only their Sections relate them.
+        # entity maps. Elements that lay the nodes out differently are the
+        # exception: there, only the Sections relate them.
         same_element = source_V.ufl_element() == lhs_func.ufl_element()
         if target_mesh is not source_mesh and same_element and target_mesh.submesh_shares_distribution(source_mesh):
             self._assign_submesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
@@ -639,9 +640,9 @@ class Assigner:
         function space, each compatible with the assignee's element but not
         necessarily with one another's.
 
-        Every function is moved, unweighted, into the assignee's node
-        layout by its own section SF; the weighted combination then happens
-        in that common layout exactly as it would on a single mesh.
+        Every function is moved, unweighted, into the assignee's node layout
+        by its own section SF. The weighted combination then happens in that
+        common layout, exactly as it would on a single mesh.
         """
         target_mesh = extract_unique_domain(lhs_func).topology
         target_V = lhs_func.function_space()
