@@ -253,6 +253,71 @@ def run_as_hook():
     return 0
 
 
+def annotated_code(path, source, added, span=10):
+    """Yield (line, comment, code) for the comment runs an edit added.
+
+    ``code`` is what follows the comment, with every comment taken out, which
+    is what a reader who skips the prose actually sees.
+    """
+    if not path.endswith((".py", ".pyx", ".pxd")):
+        return
+    lines = source.splitlines()
+
+    def strip(number):
+        """Return a source line with any comment removed, or None if it is only one."""
+        text = lines[number - 1]
+        bare = text.split("#")[0] if "#" in text and not _in_string(text) else text
+        return None if not bare.strip() else bare.rstrip()
+
+    run, start = [], None
+    for number, text in enumerate(lines, 1):
+        stripped = text.strip()
+        if stripped.startswith("#") and number in added:
+            run.append(stripped.lstrip("#").strip())
+            start = start or number
+            continue
+        if run:
+            code = []
+            for following in range(number, min(number + span, len(lines)) + 1):
+                kept = strip(following)
+                if kept is None and code:
+                    break
+                if kept is not None:
+                    code.append(f"{following}\t{kept}")
+            yield start, " ".join(run), "\n".join(code)
+            run, start = [], None
+
+
+def _in_string(text):
+    """Whether the first ``#`` of a line sits inside a string literal."""
+    return text.count('"', 0, text.index("#")) % 2 or text.count("'", 0, text.index("#")) % 2
+
+
+def run_explain(paths, commit_range=None):
+    """Print each added comment beside the code it annotates. Always succeeds."""
+    if commit_range and not paths:
+        paths = files_in_range(commit_range)
+    total = 0
+    for path in paths:
+        path = os.path.abspath(path)
+        if not os.path.isfile(path) or os.path.basename(path) in EXEMPT_NAMES:
+            continue
+        added = added_line_numbers(path, commit_range)
+        if not added:
+            continue
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            source = handle.read()
+        for line, comment, code in annotated_code(path, source, added):
+            print(f"\n=== {os.path.relpath(path)}:{line}")
+            print(f"  COMMENT  {comment}")
+            print("  CODE WITHOUT IT")
+            print("\n".join(f"    {row}" for row in code.splitlines()) or "    (nothing)")
+            total += 1
+    print(f"\n{total} added comment(s). For each: does the code still say it?")
+    print("Yes -> delete the comment. No -> rewrite the code, not the comment.")
+    return 0
+
+
 def files_in_range(commit_range):
     """Return the source files a commit range touches, relative to its root."""
     root = git("git", "rev-parse", "--show-toplevel").stdout.strip()
@@ -282,6 +347,9 @@ if __name__ == "__main__":
     if args and args[0] in ("-h", "--help"):
         print(__doc__)
         sys.exit(0)
+    explain = False
+    if args and args[0] == "--explain":
+        explain, args = True, args[1:]
     commit_range = None
     if args and args[0] == "--range":
         if len(args) < 2:
@@ -289,6 +357,8 @@ if __name__ == "__main__":
             sys.exit(2)
         commit_range = args[1]
         args = args[2:]
+    if explain:
+        sys.exit(run_explain(args, commit_range))
     if commit_range or args:
         sys.exit(run_as_command(args, commit_range))
     sys.exit(run_as_hook())

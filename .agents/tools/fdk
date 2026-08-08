@@ -17,7 +17,8 @@ TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${FIREDRAKE_SRC:-$(cd "$TOOLS/../.." && pwd)}"
 
 # Prefer the checked-out tools, which are versioned with the branch under test.
-TOOLS_IN_REPO="$SRC/.claude/tools"
+TOOLS_IN_REPO="$SRC/.agents/tools"
+[ -d "$TOOLS_IN_REPO" ] || TOOLS_IN_REPO="$SRC/.claude/tools"
 [ -d "$TOOLS_IN_REPO" ] || TOOLS_IN_REPO="$TOOLS"
 
 # --- Locate the virtual environment --------------------------------------
@@ -96,6 +97,13 @@ fdk - helper for working on Firedrake
       This checks out the merge base and rebuilds, so it needs a clean tree
       and it takes twice as long as one run. It restores the branch at the
       end, including when a run fails.
+
+  fdk explain [--range <base>...<head>] [paths...]
+      Print each comment a change added, next to the code it annotates with
+      the comment stripped out. Read the stripped code and ask whether it
+      still says what the comment claims. If it does, the comment is
+      redundant; if it does not, the code needs the rewrite, not the comment.
+      See the auditing-comments skill.
 
   fdk show <file> <name>
       Print one function or class, found by name rather than by line number.
@@ -240,6 +248,9 @@ case "$cmd" in
         comm -23 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  GONE /'
         echo "########## pre-existing ##########"
         comm -12 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  SAME /'
+        ;;
+    explain)
+        "$PY" "$TOOLS_IN_REPO/check-prose.py" --explain "$@"
         ;;
     show)
         [ $# -ge 2 ] || { echo "fdk show needs <file> <name>" >&2; exit 2; }
