@@ -251,11 +251,10 @@ def get_restriction_indices(V, W):
         return _get_restriction_indices_extruded(V, W)
 
     # The restriction of an element keeps the nodes of the entities it does not
-    # drop. Number the nodes of V and assign them into W. Each node of W then
-    # holds the number of the node of V it came from.
-    numbering = Function(V)
-    numbering.dat.data_wo_with_halos.flat[...] = numpy.arange(V.dof_count)
-    indices = numpy.concatenate([numpy.reshape(Function(Wsub).assign(numbering).dat.data_ro, -1)
+    # drop. An assignment from V to W therefore pairs those nodes off.
+    node_numbers = Function(V)
+    node_numbers.dat.data_wo_with_halos.flat[...] = numpy.arange(V.dof_count)
+    indices = numpy.concatenate([numpy.reshape(Function(Wsub).assign(node_numbers).dat.data_ro, -1)
                                  for Wsub in W])
     return indices.astype(PETSc.IntType)
 

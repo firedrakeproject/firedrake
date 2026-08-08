@@ -35,9 +35,10 @@ def _curved_mesh(nx=4, degree=2):
     """Build a unit square whose curved coordinates the plex can not carry.
 
     The warp bends the boundary as well as the interior, and it does not
-    preserve area. A warp that vanishes on the boundary would leave the
-    perimeter at four, and a shear would leave every area unchanged, so
-    either one would pass these tests without carrying any coordinates.
+    preserve area. Both properties are necessary. A warp that vanishes on
+    the boundary leaves the perimeter at four, and a shear leaves every
+    area unchanged. Either one passes these tests on a plex that carries
+    no coordinates at all.
     """
     mesh = UnitSquareMesh(nx, nx)
     V = VectorFunctionSpace(mesh, "CG", degree)

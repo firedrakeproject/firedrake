@@ -187,9 +187,9 @@ def _same_element_on_either_cell(target, source):
     """
     if target.cell == source.cell:
         return target == source
-    # Carry the element of lower dimension up onto the other cell. A family
-    # that the lower cell does not name, such as "Q" on an interval, raises
-    # rather than compares, so the direction matters.
+    # A family that the lower cell does not name, such as "Q" on an interval,
+    # raises rather than compares. The reconstruction must therefore go up,
+    # onto the cell of higher dimension.
     low, high = sorted((target, source), key=lambda e: e.cell.topological_dimension)
     try:
         return low.reconstruct(cell=high.cell) == high
@@ -259,14 +259,15 @@ def _compatible_elements(target, source):
     if target.cell != source.cell:
         # The two cells have different entities, so the entity numbers can not
         # be compared. A submesh of lower dimension holds the entities of its
-        # parent up to its own dimension, and the point SF pairs them off by
-        # dimension, so the counts must agree dimension by dimension.
+        # parent up to its own dimension. The point SF pairs them off by
+        # dimension. The counts must therefore agree dimension by dimension.
         target_counts = _dimension_dof_counts(target)
         source_counts = _dimension_dof_counts(source)
         if target_counts is None or source_counts is None:
             return False
-        shared = min(len(target_counts), len(source_counts))
-        return all(target_counts[dim] == source_counts[dim] for dim in range(shared))
+        shared_dimensions = min(len(target_counts), len(source_counts))
+        return all(target_counts[dim] == source_counts[dim]
+                   for dim in range(shared_dimensions))
     if isinstance(target.cell, TensorProductCell):
         # A base mesh point of an extruded mesh carries the nodes of a whole
         # column of entities. A restriction may drop only some of them. The
@@ -282,8 +283,9 @@ def _compatible_elements(target, source):
     # An entity either carries the same nodes in both elements, or is dropped
     # by one of them. A partial overlap has no entity-wise correspondence.
     # The two Sections therefore cannot express it.
-    return all(nt == source_counts[entity] or nt == 0 or source_counts[entity] == 0
-               for entity, nt in target_counts.items())
+    return all(target_nodes == source_counts[entity]
+               or target_nodes == 0 or source_counts[entity] == 0
+               for entity, target_nodes in target_counts.items())
 
 
 def _node_subset(V, cell_subset):
@@ -326,6 +328,43 @@ def _node_subset(V, cell_subset):
     marker.global_to_local_end(op2.READ)
     nodes, = np.nonzero(marker.data_ro_with_halos)
     return op2.Subset(V.node_set, nodes)
+
+
+def _assigned_nodes(V, subset):
+    """Find the nodes of a space that an assignment writes to.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        Function space of the function being assigned to.
+    subset : pyop2.types.set.Set or pyop2.types.set.Subset or None
+        The set to assign over. This is the node set of ``V``, the cell set of
+        the mesh of ``V``, a `pyop2.types.set.Subset` of either, or `None`.
+
+    Returns
+    -------
+    pyop2.types.set.Subset or None
+        The nodes of ``V`` to assign, or `None` for all of them.
+
+    Raises
+    ------
+    ValueError
+        If the subset belongs to neither the nodes of ``V`` nor the cells of
+        the mesh of ``V``.
+
+    """
+    all_nodes = V.node_set
+    all_cells = V.mesh().cell_set
+    if subset is None or subset is all_nodes or subset is all_cells:
+        return None
+    superset = getattr(subset, "superset", None)
+    if superset is all_nodes:
+        return subset
+    if superset is all_cells:
+        return _node_subset(V, subset)
+    raise ValueError(f"subset ({subset}) is neither a subset of the nodes of "
+                     f"the function space ({all_nodes}) nor of the cells of "
+                     f"its mesh ({all_cells})")
 
 
 def _target_is_leaf(target, source):
@@ -596,23 +635,7 @@ class Assigner:
         for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
             target_mesh = extract_unique_domain(lhs_func)
             target_V = lhs_func.function_space()
-            # Validate / Process subset.
-            if subset is not None:
-                cell_set = target_V.mesh().cell_set
-                superset = getattr(subset, "superset", None)
-                if subset is target_V.node_set or subset is cell_set:
-                    # The whole set, as `cell_subset("everywhere")` gives.
-                    subset = None
-                elif superset is target_V.node_set:
-                    # op2.Subset of target_V.node_set
-                    pass
-                elif superset is cell_set:
-                    # op2.Subset of the cells, e.g. mesh.cell_subset(id)
-                    subset = _node_subset(target_V, subset)
-                else:
-                    raise ValueError(f"subset ({subset}) is neither a subset of "
-                                     f"target_V.node_set ({target_V.node_set}) nor "
-                                     f"of the cells of its mesh ({cell_set})")
+            subset = _assigned_nodes(target_V, subset)
             source_meshes = set(extract_unique_domain(f) for f in funcs)
             if len(source_meshes) == 0:
                 # Assign constants only.
@@ -620,10 +643,10 @@ class Assigner:
             elif len(source_meshes) == 1:
                 source_mesh, = source_meshes
                 if target_mesh is source_mesh:
-                    # Assign (co)functions from one mesh to the same mesh. Two
-                    # distinct spaces on it lay their nodes out differently,
-                    # even when they share an element. Their sections relate
-                    # them, as they relate spaces on different meshes.
+                    # Two distinct spaces on one mesh lay their nodes out
+                    # differently, even when they share an element. Their
+                    # Sections relate them, as they relate spaces on different
+                    # meshes.
                     single_mesh_assign = all(f.function_space() == lhs_func.function_space()
                                              for f in funcs)
                 else:
