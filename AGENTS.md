@@ -129,7 +129,9 @@ wrong by hand:
 ```bash
 .claude/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
 .claude/tools/fdk build                              # after any firedrake/cython/*.pyx change
-.claude/tools/fdk lint firedrake/mesh.py
+.claude/tools/fdk lint                               # make srclint, as CI runs it
+.claude/tools/fdk lint firedrake/mesh.py             # flake8 on one file, to iterate
+.claude/tools/fdk prose --range main...HEAD          # the prose rules over a whole branch
 ```
 
 `fdk` calls the interpreter of the virtual environment, not the system one. It launches a
@@ -137,6 +139,9 @@ parallel test run under an explicit `mpiexec`, and it prints one summary rather 
 per rank. It needs no configuration: it finds the source tree from its own location, and the
 environment from `FIREDRAKE_VENV`, from an activated environment, or from the directory the
 source tree sits in.
+
+Check a branch with `fdk prose --range` before you ask for review. The hook reports an edit as
+you make it, so it says nothing about the commits you already have.
 
 ### Environment Setup
 

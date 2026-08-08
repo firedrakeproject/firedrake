@@ -52,10 +52,15 @@ fdk - helper for working on Firedrake
       As `test`, but unfiltered, to read tracebacks.
 
   fdk lint [paths...]
-      flake8, over the whole source tree by default.
+      `make srclint`, which is what CI runs, over the whole source tree.
+      Given paths, flake8 over those alone, to iterate on one file.
 
   fdk prose [paths...]
       Check the lines an edit added against the prose rules in AGENTS.md.
+
+  fdk prose --range <base>...<head> [paths...]
+      As `prose`, but over the lines a commit range added, to check a whole
+      branch. Check out the head of the range first.
 
   fdk py [args...]
       The interpreter of the virtual environment. A bare `python` is usually
@@ -116,8 +121,14 @@ case "$cmd" in
         run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1
         ;;
     lint)
-        if [ $# -eq 0 ]; then set -- "$SRC/firedrake" "$SRC/tests"; fi
-        "$PY" -m flake8 "$@" && echo "flake8: clean"
+        if [ $# -eq 0 ]; then
+            # `make srclint` is what CI runs. It reaches the script directories
+            # too, which a plain flake8 skips: those hold files with no .py
+            # suffix, so they need `--filename=*`.
+            PATH="$VENV/bin:$PATH" make -C "$SRC" srclint && echo "srclint: clean"
+        else
+            "$PY" -m flake8 "$@" && echo "flake8: clean"
+        fi
         ;;
     prose)
         "$PY" "$TOOLS/../hooks/check-prose.py" "$@" && echo "prose: clean"
