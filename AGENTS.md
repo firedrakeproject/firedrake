@@ -91,7 +91,7 @@ toolchain:
   touch must follow Simplified Technical English (ASD-STE100): short sentences, one idea per sentence,
   active voice, subject named up front instead of buried in a relative clause. Avoid the clause-stacking,
   inverted phrasing typical of unedited AI-generated prose — see the Anti-Patterns section below.
-  `.claude/hooks/check-prose.py --help` checks the part of this a machine can judge.
+  `.claude/tools/check-prose.py --help` checks the part of this a machine can judge.
 * **Type Hints:** New code should include type hints on function/method signatures.
 * **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
   `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
@@ -118,9 +118,10 @@ toolchain:
 
 ## Development Toolchain
 
-### The `fdk` Helper
+### Agent Tools
 
-`.claude/tools/fdk` runs the work a session repeats. Run `.claude/tools/fdk help` for the
+`.claude/tools/` holds the tools a session uses. `fdk` runs the work a session repeats, and
+`check-prose.py` checks prose against the rules above. Run `.claude/tools/fdk help` for the
 subcommands: `test`, `testraw`, `lint`, `prose`, `py`, `clean`, `build`, `status`, `where`.
 
 Prefer it to writing the shell line yourself. It applies the rules below that are easy to get
@@ -140,8 +141,15 @@ per rank. It needs no configuration: it finds the source tree from its own locat
 environment from `FIREDRAKE_VENV`, from an activated environment, or from the directory the
 source tree sits in.
 
-Check a branch with `fdk prose --range` before you ask for review. The hook reports an edit as
-you make it, so it says nothing about the commits you already have.
+Both tools are plain command-line programs. Any agent can run them, and nothing about them is
+particular to one assistant. `fdk` needs only `bash`, and `check-prose.py` only Python and
+`git`.
+
+Run `fdk prose` over the files you edit, and `fdk prose --range main...HEAD` over the whole
+branch before you ask for review. `check-prose.py` also runs as a Claude Code `PostToolUse`
+hook, which reports each edit as it happens; `--help` prints the settings block that opts a
+checkout in. That is one way to drive it, not the only one, and it is the same checks either
+way.
 
 ### Environment Setup
 
