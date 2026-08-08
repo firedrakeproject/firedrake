@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+# fdk - helper for working on Firedrake.
+#
+# Gives the repeated work of a Firedrake session one stable command, so the
+# rules that are easy to get wrong by hand are encoded once. Run
+# `.claude/tools/fdk help` for the subcommands.
+#
+# Nothing here is specific to one machine or one checkout.
+
+set -uo pipefail
+
+TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# A copy kept outside the repo keeps working on a branch that predates this
+# directory, but it can not find the source tree from its own location, so
+# FIREDRAKE_SRC tells it. A copy in the repo needs no configuration.
+SRC="${FIREDRAKE_SRC:-$(cd "$TOOLS/../.." && pwd)}"
+
+# Prefer the checked-out tools, which are versioned with the branch under test.
+TOOLS_IN_REPO="$SRC/.agents/tools"
+[ -d "$TOOLS_IN_REPO" ] || TOOLS_IN_REPO="$SRC/.claude/tools"
+[ -d "$TOOLS_IN_REPO" ] || TOOLS_IN_REPO="$TOOLS"
+
+# --- Locate the virtual environment --------------------------------------
+# An install puts the source tree at $VENV/src/firedrake, so a checkout can
+# usually find its own venv two directories up. An explicit FIREDRAKE_VENV
+# wins, then an activated environment.
+if [ -z "${FIREDRAKE_VENV:-}" ]; then
+    guess="$(cd "$SRC/../.." 2>/dev/null && pwd)"
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+        FIREDRAKE_VENV="$VIRTUAL_ENV"
+    elif [ -n "$guess" ] && [ -x "$guess/bin/python" ]; then
+        FIREDRAKE_VENV="$guess"
+    fi
+fi
+
+if [ -z "${FIREDRAKE_VENV:-}" ] || [ ! -x "$FIREDRAKE_VENV/bin/python" ]; then
+    echo "fdk: cannot find the virtual environment; set FIREDRAKE_VENV" >&2
+    exit 2
+fi
+
+VENV="$FIREDRAKE_VENV"
+PY="$VENV/bin/python"
+
+# Firedrake asks for this on every import that does not have it. One thread
+# per rank is also what a parallel test run wants.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+
+usage() {
+    cat <<'EOF'
+fdk - helper for working on Firedrake
+
+  fdk test <nprocs> [pytest args/paths...]
+      Run tests at the given process count, and print one deduplicated
+      summary instead of one report per rank. nprocs=1 runs pytest directly;
+      nprocs>1 runs it under an explicit mpiexec. Filters on the
+      parallel[match] marker, so only tests whose own nprocs equals the
+      launched communicator size run.
+
+      Use this rather than a bare `pytest` on parallel-marked tests. A bare
+      pytest self-forks one mpiexec per test, which is slow and reports
+      failures that a correct run does not show.
+
+  fdk testraw <nprocs> [pytest args/paths...]
+      As `test`, but unfiltered, to read tracebacks.
+
+  fdk lint [paths...]
+      `make srclint`, which is what CI runs, over the whole source tree.
+      Given paths, flake8 over those alone, to iterate on one file.
+
+  fdk prose [paths...]
+      Check the lines an edit added against the prose rules in AGENTS.md.
+
+  fdk prose --range <base>...<head> [paths...]
+      As `prose`, but over the lines a commit range added, to check a whole
+      branch. Check out the head of the range first.
+
+  fdk py [args...]
+      The interpreter of the virtual environment. A bare `python` is usually
+      the system one, which has no firedrake, pytest or flake8.
+
+  fdk clean
+      firedrake-clean: drop the cached TSFC kernels and PyOP2 code. Do this
+      when a cached kernel links against an extension that a rebuild has
+      changed. The symptom is `undefined symbol: ...` from a cached .so.
+
+  fdk build
+      Rebuild the Cython extensions. Do this after a branch switch that
+      changes firedrake/cython/*.pyx.
+
+  fdk baseline <nprocs> [pytest args/paths...]
+      Say which failures this branch introduced. Runs the tests at the merge
+      base with the upstream default branch, then at HEAD, and prints the
+      difference. Use this before calling a failure pre-existing: a failure
+      that neither run shares is the only kind this branch caused.
+
+      This checks out the merge base and rebuilds, so it needs a clean tree
+      and it takes twice as long as one run. It restores the branch at the
+      end, including when a run fails.
+
+  fdk explain [--range <base>...<head>] [paths...]
+      Print each comment a change added, next to the code it annotates with
+      the comment stripped out. Read the stripped code and ask whether it
+      still says what the comment claims. If it does, the comment is
+      redundant; if it does not, the code needs the rewrite, not the comment.
+      See the auditing-comments skill.
+
+  fdk show <file> <name>
+      Print one function or class, found by name rather than by line number.
+      Firedrake has files of several thousand lines, and the line numbers in
+      them move.
+
+  fdk deps [name]
+      Report the component packages: where each one is installed, which
+      branch it has, and whether it is dirty or behind its remote. A bug can
+      live in any of them, and an API must be read from the installed source
+      rather than recalled. Given a name, print where that module comes from.
+
+  fdk stack
+      Print the pull request stack: for each branch with an open PR, its
+      number, base, and how far it has diverged from its remote. A stacked
+      branch is rebased onto its base, so the bases are the order to do it in.
+
+  fdk pr <number> [--title <title>] [--body-file <path>]
+      Retitle or redescribe a pull request. `gh pr edit` fails against
+      repositories that still carry a classic project, so this goes through
+      the REST API, which does not read the project fields.
+
+  fdk status
+      Say whether a test run is in flight.
+
+  fdk where
+      Print the source tree and the virtual environment in use.
+
+Keep a copy outside the repo to work on a branch that predates this
+directory, and point it at the source tree:
+
+    export FIREDRAKE_SRC=/path/to/src/firedrake
+EOF
+}
+
+# Keep the FAILED/ERROR lines and the counts, shorten the paths, drop the
+# duplicate report that each rank writes. Anchor the path substitution after
+# the FAILED/ERROR word: a pattern that starts at the line eats that word too,
+# and then the summary no longer says which test failed.
+summarize() {
+    sed -E 's#^(FAILED|ERROR) .*/tests/#\1 tests/#' \
+        | grep -aE '^(FAILED|ERROR)|[0-9]+ (passed|failed|error|skipped)' \
+        | sort -u
+}
+
+# Just the test identifiers that failed, one per line and sorted, so that two
+# runs can be compared with `comm`. Rank order varies between runs, and every
+# rank reports, so this deduplicates too.
+failures() {
+    sed -E 's#^(FAILED|ERROR) .*/tests/#\1 tests/#' \
+        | grep -aE '^(FAILED|ERROR) ' \
+        | sed -E 's/ +- .*$//' \
+        | sort -u
+}
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+pytest_common=(-q -p no:randomly --color=no -rf -m "parallel[match]")
+
+run_pytest() {
+    local nprocs="$1"; shift
+    if [ "$nprocs" = "1" ]; then
+        # Do not use `mpiexec -n 1`, which can hang at MPI_Finalize.
+        "$PY" -m pytest "$@"
+    else
+        mpiexec -n "$nprocs" --bind-to none "$PY" -m pytest "$@"
+    fi
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+    test)
+        [ $# -ge 1 ] || { echo "fdk test needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        echo "########## nprocs=$n ##########"
+        run_pytest "$n" "${pytest_common[@]}" --tb=line "$@" 2>&1 | summarize
+        ;;
+    testraw)
+        [ $# -ge 1 ] || { echo "fdk testraw needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1
+        ;;
+    lint)
+        if [ $# -eq 0 ]; then
+            # `make srclint` is what CI runs. It reaches the script directories
+            # too, which a plain flake8 skips: those hold files with no .py
+            # suffix, so they need `--filename=*`.
+            PATH="$VENV/bin:$PATH" make -C "$SRC" srclint && echo "srclint: clean"
+        else
+            "$PY" -m flake8 "$@" && echo "flake8: clean"
+        fi
+        ;;
+    prose)
+        "$PY" "$TOOLS_IN_REPO/check-prose.py" "$@" && echo "prose: clean"
+        ;;
+    py)
+        "$PY" "$@"
+        ;;
+    clean)
+        "$VENV/bin/firedrake-clean"
+        ;;
+    build)
+        PATH="$VENV/bin:$PATH" make -C "$SRC" extforce
+        ;;
+    baseline)
+        [ $# -ge 1 ] || { echo "fdk baseline needs <nprocs>" >&2; exit 2; }
+        n="$1"; shift
+        if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+            echo "fdk baseline: commit or stash first; it checks out the merge base" >&2
+            exit 2
+        fi
+        # A detached HEAD has no branch name to go back to, so remember the
+        # commit either way.
+        here="$(git -C "$SRC" symbolic-ref --quiet --short HEAD \
+                || git -C "$SRC" rev-parse HEAD)"
+        upstream="$(git -C "$SRC" rev-parse --verify --quiet origin/main \
+                    || echo main)"
+        base="$(git -C "$SRC" merge-base HEAD "$upstream")"
+        echo "########## base $base ##########"
+        git -C "$SRC" checkout --quiet "$base" || exit 2
+        # Restore the branch however this exits, so a failed run does not
+        # leave the tree on the merge base. This replaces the cleanup trap, so
+        # it has to remove the working directory too.
+        trap 'git -C "$SRC" checkout --quiet "$here"; \
+              PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1; \
+              rm -rf "$WORK"' EXIT
+        PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
+            | failures > "$WORK/base.txt"
+        git -C "$SRC" checkout --quiet "$here"
+        PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        trap 'rm -rf "$WORK"' EXIT
+        echo "########## head $here ##########"
+        run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
+            | failures > "$WORK/head.txt"
+        echo "########## introduced by $here ##########"
+        comm -13 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  NEW  /'
+        echo "########## fixed by $here ##########"
+        comm -23 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  GONE /'
+        echo "########## pre-existing ##########"
+        comm -12 "$WORK/base.txt" "$WORK/head.txt" | sed 's/^/  SAME /'
+        ;;
+    explain)
+        "$PY" "$TOOLS_IN_REPO/check-prose.py" --explain "$@"
+        ;;
+    show)
+        [ $# -ge 2 ] || { echo "fdk show needs <file> <name>" >&2; exit 2; }
+        "$PY" - "$@" <<'PYEOF'
+import ast
+import sys
+
+path, name = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8", errors="replace") as handle:
+    source = handle.read()
+try:
+    tree = ast.parse(source)
+except SyntaxError as error:
+    sys.exit(f"fdk show: cannot parse {path}: {error}")
+lines = source.splitlines()
+found = False
+for node in ast.walk(tree):
+    if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+    if node.name != name:
+        continue
+    # A decorator sits above the def, and is part of what the reader needs.
+    start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    for number in range(start, (node.end_lineno or start) + 1):
+        print(f"{number}\t{lines[number - 1]}")
+    found = True
+    print()
+if not found:
+    sys.exit(f"fdk show: {path} defines no {name}")
+PYEOF
+        ;;
+    deps)
+        if [ $# -ge 1 ]; then
+            "$PY" -c "import importlib,sys; m=importlib.import_module(sys.argv[1]); print(m.__name__, m.__file__)" "$1"
+            exit $?
+        fi
+        for repo in "$VENV"/src/*/; do
+            [ -d "$repo/.git" ] || continue
+            name="$(basename "$repo")"
+            branch="$(git -C "$repo" symbolic-ref --quiet --short HEAD || echo detached)"
+            dirty=""
+            [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && dirty=" dirty"
+            track="$(git -C "$repo" rev-list --left-right --count HEAD...@{upstream} 2>/dev/null)"
+            [ -n "$track" ] && track=" ahead/behind ${track//	//}"
+            printf '%-18s %s%s%s\n' "$name" "$branch" "$track" "$dirty"
+        done
+        echo
+        echo "modules:"
+        "$PY" - <<'PYEOF'
+import importlib
+for name in ("firedrake", "pyop2", "tsfc", "finat", "FIAT", "ufl", "petsc4py"):
+    try:
+        print(f"  {name:<10} {importlib.import_module(name).__file__}")
+    except ImportError as error:
+        print(f"  {name:<10} not importable: {error}")
+PYEOF
+        ;;
+    stack)
+        for branch in $(git -C "$SRC" for-each-ref --format='%(refname:short)' refs/heads); do
+            info="$(gh pr view "$branch" --json number,baseRefName,title \
+                    -q '"#\(.number)\t\(.baseRefName)\t\(.title)"' 2>/dev/null)" || continue
+            track="$(git -C "$SRC" rev-list --left-right --count "$branch...origin/$branch" 2>/dev/null)"
+            [ -n "$track" ] && track="${track//	//}" || track="-"
+            printf '%-38s %s  [%s]\n' "$branch" "$info" "$track"
+        done
+        echo
+        echo "columns: branch, PR, base, title, [ahead/behind origin]"
+        ;;
+    pr)
+        [ $# -ge 1 ] || { echo "fdk pr needs <number>" >&2; exit 2; }
+        "$PY" - "$@" <<'PYEOF'
+import json
+import subprocess
+import sys
+
+number, args = sys.argv[1], sys.argv[2:]
+payload = {}
+while args:
+    flag, args = args[0], args[1:]
+    if flag == "--title":
+        payload["title"], args = args[0], args[1:]
+    elif flag == "--body-file":
+        with open(args[0], encoding="utf-8") as handle:
+            payload["body"] = handle.read()
+        args = args[1:]
+    else:
+        sys.exit(f"fdk pr: unknown option {flag}")
+if not payload:
+    sys.exit("fdk pr: give --title or --body-file")
+
+repo = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                       "-q", ".nameWithOwner"], capture_output=True, text=True)
+if repo.returncode:
+    sys.exit(repo.stderr.strip())
+# gh pr edit reads the project fields, which fail on a repository that still
+# carries a classic project. The REST API does not read them.
+done = subprocess.run(["gh", "api", "-X", "PATCH",
+                       f"repos/{repo.stdout.strip()}/pulls/{number}", "--input", "-"],
+                      input=json.dumps(payload), capture_output=True, text=True)
+if done.returncode:
+    sys.exit(done.stderr.strip())
+result = json.loads(done.stdout)
+print(f"#{result['number']} {result['title']}")
+print(result["html_url"])
+PYEOF
+        ;;
+    status)
+        if pgrep -f "m pytest" >/dev/null 2>&1; then
+            echo "test run in flight ($(pgrep -cf 'm pytest') pytest processes)"
+        else
+            echo "no test run in flight"
+        fi
+        ;;
+    where)
+        echo "source:      $SRC"
+        echo "environment: $VENV"
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "fdk: unknown subcommand '$cmd'" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

@@ -55,7 +55,9 @@ toolchain:
 * **Document The Present, Not The Past:** When fixing code that was wrong, do not leave comments or
   prose explaining what the removed, incorrect approach used to do or why it was wrong. Keep comments
   and documentation focused on the current, correct code; a reader should never need the history of
-  what used to be there to understand why the present code is right.
+  what used to be there to understand why the present code is right. The test to apply: a reader who
+  never saw the diff must not be able to tell that anything was removed — see the Anti-Patterns
+  section below.
 
 ## Coding Style And Conventions
 
@@ -75,14 +77,21 @@ toolchain:
   is what defeats NumPy's own performance model, on top of bypassing PyOP2/code-generation for
   mesh-bound data.
 * **Docstrings Are Always `numpydoc`:** Every docstring you write or touch — public API, private helper,
-  Cython function in `firedrake/cython/*.pyx`, test helper — must be `numpydoc`, using its section
-  headings (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
+  Cython function in `firedrake/cython/*.pyx` — must be `numpydoc`, using its section headings
+  (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
   (`:arg x:`, `:param x:`, `:returns:`, `:rtype:`) in new or edited code, and do not copy it from the
   surrounding file: much of Firedrake predates the convention, so matching the neighbouring docstrings
   is precisely the wrong instinct — this is the one place where "preserve the existing style" does not
   apply. Being private, internal, or compiled is not an excuse to skip the docstring, to downgrade its
   format, or to leave the arguments undocumented: give every parameter and every return value its
-  `numpydoc` entry, however small the helper.
+  `numpydoc` entry, however small the helper. Exception: tests (`tests/**`) do not need the full
+  `Parameters`/`Returns` structure — a plain one- or two-sentence summary of what is being checked and
+  why is enough.
+* **Plain English (ASD-STE100) In Docstrings And Comments:** Every docstring or comment you write or
+  touch must follow Simplified Technical English (ASD-STE100): short sentences, one idea per sentence,
+  active voice, subject named up front instead of buried in a relative clause. Avoid the clause-stacking,
+  inverted phrasing typical of unedited AI-generated prose — see the Anti-Patterns section below.
+  `.claude/tools/check-prose.py --help` checks the part of this a machine can judge.
 * **Type Hints:** New code should include type hints on function/method signatures.
 * **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
   `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
@@ -108,6 +117,39 @@ toolchain:
   pytest test suite succeeds locally.
 
 ## Development Toolchain
+
+### Agent Tools
+
+`.claude/tools/` holds the tools a session uses. `fdk` runs the work a session repeats, and
+`check-prose.py` checks prose against the rules above. Run `.claude/tools/fdk help` for the
+subcommands: `test`, `testraw`, `lint`, `prose`, `py`, `clean`, `build`, `status`, `where`.
+
+Prefer it to writing the shell line yourself. It applies the rules below that are easy to get
+wrong by hand:
+
+```bash
+.claude/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
+.claude/tools/fdk build                              # after any firedrake/cython/*.pyx change
+.claude/tools/fdk lint                               # make srclint, as CI runs it
+.claude/tools/fdk lint firedrake/mesh.py             # flake8 on one file, to iterate
+.claude/tools/fdk prose --range main...HEAD          # the prose rules over a whole branch
+```
+
+`fdk` calls the interpreter of the virtual environment, not the system one. It launches a
+parallel test run under an explicit `mpiexec`, and it prints one summary rather than one report
+per rank. It needs no configuration: it finds the source tree from its own location, and the
+environment from `FIREDRAKE_VENV`, from an activated environment, or from the directory the
+source tree sits in.
+
+Both tools are plain command-line programs. Any agent can run them, and nothing about them is
+particular to one assistant. `fdk` needs only `bash`, and `check-prose.py` only Python and
+`git`.
+
+Run `fdk prose` over the files you edit, and `fdk prose --range main...HEAD` over the whole
+branch before you ask for review. `check-prose.py` also runs as a Claude Code `PostToolUse`
+hook, which reports each edit as it happens; `--help` prints the settings block that opts a
+checkout in. That is one way to drive it, not the only one, and it is the same checks either
+way.
 
 ### Environment Setup
 
@@ -380,3 +422,48 @@ code generation depends on. These loops are compiled and typed (`cdef`/`PetscInt
 objects — that combination, not mere placement in a `.pyx` file, is what makes them acceptable. Do not
 use this as license to write a plain Python loop over `.dat.data` and call it fine because "Firedrake
 has C-level loops elsewhere."
+
+### Clause-Stacked Docstrings And Comments
+
+WRONG — the subject hides inside a relative clause the reader must unwind before finding the verb:
+
+```python
+def scale_boundary_nodes(u, factor):
+    """Give the nodes a boundary condition constrains their scaled values."""
+```
+
+RIGHT — subject named up front, one short sentence, active voice:
+
+```python
+def scale_boundary_nodes(u, factor):
+    """Scale the values of the nodes that a boundary condition constrains."""
+```
+
+### Documenting Code That Is Not There
+
+A reader has only the file in front of them. A comment can describe a removed approach. It can also
+argue against a branch the code does not take. Either one sends the reader looking for something
+that is not there.
+
+WRONG — the first sentence describes deleted code, and the second argues with an absent branch:
+
+```python
+def cell_average(u):
+    # This no longer divides by the number of cells, which was wrong when
+    # the cells had different sizes. A test for an empty mesh here would
+    # return a nan.
+    return assemble(u*dx) / assemble(1*dx)
+```
+
+RIGHT — say what the present code does, and state the condition it relies on:
+
+```python
+def cell_average(u):
+    # Divide by the measured volume, so that cells of different sizes
+    # contribute in proportion. The caller passes a non-empty mesh.
+    return assemble(u*dx) / assemble(1*dx)
+```
+
+Some words give this away on sight: "used to", "previously", "no longer", "instead of", "we removed",
+"this replaces". Watch equally for "would" when its subject is code that does not exist. An argument
+against a branch that nobody can see is still a description of the past.
