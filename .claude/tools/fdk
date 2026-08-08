@@ -16,9 +16,9 @@ TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # FIREDRAKE_SRC tells it. A copy in the repo needs no configuration.
 SRC="${FIREDRAKE_SRC:-$(cd "$TOOLS/../.." && pwd)}"
 
-# Prefer the checked-out hook, which is versioned with the branch under test.
-HOOKS="$SRC/.claude/hooks"
-[ -d "$HOOKS" ] || HOOKS="$TOOLS/../hooks"
+# Prefer the checked-out tools, which are versioned with the branch under test.
+TOOLS_IN_REPO="$SRC/.claude/tools"
+[ -d "$TOOLS_IN_REPO" ] || TOOLS_IN_REPO="$TOOLS"
 
 # --- Locate the virtual environment --------------------------------------
 # An install puts the source tree at $VENV/src/firedrake, so a checkout can
@@ -144,7 +144,7 @@ case "$cmd" in
         fi
         ;;
     prose)
-        "$PY" "$HOOKS/check-prose.py" "$@" && echo "prose: clean"
+        "$PY" "$TOOLS_IN_REPO/check-prose.py" "$@" && echo "prose: clean"
         ;;
     py)
         "$PY" "$@"
