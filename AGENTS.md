@@ -195,6 +195,42 @@ toolchain:
   [install docs](https://firedrakeproject.org/install.html#docker)) to rule out "works on my machine"
   environment drift before chasing a hard-to-reproduce bug.
 
+### Checking Prose And Style
+
+`.claude/hooks/check-agents-md.py` checks an edit against the rules above that a machine can judge:
+the Sphinx field-list docstring style, sentences too long for ASD-STE100, wording that describes code
+which is not there any more, and `hasattr` standing in for a setup flag. It reads a Claude Code
+`PostToolUse` payload on stdin, and reports only on the lines an edit added. It is advisory, and it
+always exits 0.
+
+Opt in per checkout, because it runs on every edit. Add this to `.claude/settings.local.json`, which
+git does not track:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {"type": "command", "command": "python3 .claude/hooks/check-agents-md.py", "timeout": 15}
+        ]
+      }
+    ]
+  }
+}
+```
+
+Run it by hand against a file like this:
+
+```bash
+echo '{"tool_input":{"file_path":"firedrake/mg/utils.py"}}' | python3 .claude/hooks/check-agents-md.py
+```
+
+The checks are a floor, not a substitute for reading the prose. Clause-stacking needs judgement, and
+so does an argument against a branch that is no longer there: "would" is far too common a word to
+match on.
+
 ## Anti-Patterns
 
 These must be avoided when writing code, and flagged when reviewing it.
