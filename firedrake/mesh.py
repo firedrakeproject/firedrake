@@ -5218,8 +5218,10 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         distribution_parameters=distribution_parameters,
         tolerance=mesh.tolerance,
     )
-    if point_sf is None:
-        # Tag the submesh with the original distribution parameters
+    if not redistribute:
+        # DISTRIBUTION_PARAMETERS_NOOP keeps Mesh() from distributing the
+        # submesh again. The submesh has the distribution of its parent, so it
+        # reports the parameters of the parent.
         submesh._distribution_parameters = mesh._distribution_parameters
 
     # A mesh with several cell types carries no coordinate Function, so its
