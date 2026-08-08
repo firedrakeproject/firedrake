@@ -96,7 +96,9 @@ TELLS = re.compile(
     re.IGNORECASE,
 )
 HASATTR = re.compile(r"if\s+not\s+hasattr\(\s*self\b")
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+# A sentence can end inside the markup that emphasises it, as `**Do this.**`
+# does, so step over the closing markers to find the space after the stop.
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[*_`\"')\]]*\s+")
 FENCE = re.compile(r"^\s*(```|~~~)")
 
 
