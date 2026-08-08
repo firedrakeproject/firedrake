@@ -8,6 +8,7 @@ from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
+from firedrake.halo import _get_mtype
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
@@ -470,7 +471,6 @@ def prolong_preserved_nodes(coarse, fine):
         computed its other nodes.
 
     """
-    from firedrake.halo import _get_mtype
 
     section_sf = preserved_node_sf(coarse.function_space(), fine.function_space())
     if section_sf is None:
@@ -499,7 +499,6 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
         that the transfer kernel accumulated from the other fine nodes.
 
     """
-    from firedrake.halo import _get_mtype
 
     coarse_V = coarse_dual.function_space()
     section_sf = preserved_node_sf(coarse_V, fine_dual.function_space())
