@@ -169,6 +169,57 @@ def _unrestricted(element):
     return element
 
 
+def _same_element_on_either_cell(target, source):
+    """Whether two elements differ only in the cell they are defined on.
+
+    Parameters
+    ----------
+    target : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned to.
+    source : finat.ufl.finiteelementbase.FiniteElementBase
+        Element of the function being assigned from.
+
+    Returns
+    -------
+    bool
+        Whether one element is the other, carried onto a different cell.
+
+    """
+    if target.cell == source.cell:
+        return target == source
+    # Carry the element of lower dimension up onto the other cell. A family
+    # that the lower cell does not name, such as "Q" on an interval, raises
+    # rather than compares, so the direction matters.
+    low, high = sorted((target, source), key=lambda e: e.cell.topological_dimension)
+    try:
+        return low.reconstruct(cell=high.cell) == high
+    except (ValueError, KeyError):
+        return False
+
+
+def _dimension_dof_counts(element):
+    """Count the nodes an element places on each dimension of the reference cell.
+
+    Parameters
+    ----------
+    element : finat.ufl.finiteelementbase.FiniteElementBase
+        The UFL element.
+
+    Returns
+    -------
+    dict or None
+        The number of nodes on an entity of each dimension. `None` if some
+        dimension holds entities that carry different numbers of nodes, which
+        leaves the dimension alone unable to say how many a point carries.
+
+    """
+    counts = {}
+    for (dim, _), nodes in _entity_dof_counts(element).items():
+        if counts.setdefault(dim, nodes) != nodes:
+            return None
+    return counts
+
+
 def _compatible_elements(target, source):
     """Whether functions in two elements share a node layout.
 
@@ -203,8 +254,19 @@ def _compatible_elements(target, source):
                 and _compatible_elements(target.sub_elements[0], source.sub_elements[0]))
     # Equal node counts on an entity do not by themselves make two nodes the
     # same functional, so the elements must restrict a common element.
-    if _unrestricted(target) != _unrestricted(source):
+    if not _same_element_on_either_cell(_unrestricted(target), _unrestricted(source)):
         return False
+    if target.cell != source.cell:
+        # The two cells have different entities, so the entity numbers can not
+        # be compared. A submesh of lower dimension holds the entities of its
+        # parent up to its own dimension, and the point SF pairs them off by
+        # dimension, so the counts must agree dimension by dimension.
+        target_counts = _dimension_dof_counts(target)
+        source_counts = _dimension_dof_counts(source)
+        if target_counts is None or source_counts is None:
+            return False
+        shared = min(len(target_counts), len(source_counts))
+        return all(target_counts[dim] == source_counts[dim] for dim in range(shared))
     if isinstance(target.cell, TensorProductCell):
         # A base mesh point of an extruded mesh carries the nodes of a whole
         # column of entities. A restriction may drop only some of them. The

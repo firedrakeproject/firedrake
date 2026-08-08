@@ -32,11 +32,17 @@ def test_submesh_redistribute_codim():
 
 
 def _curved_mesh(nx=4, degree=2):
-    """Build a unit square whose curved coordinates the plex can not carry."""
+    """Build a unit square whose curved coordinates the plex can not carry.
+
+    The warp bends the boundary as well as the interior, and it does not
+    preserve area. A warp that vanishes on the boundary would leave the
+    perimeter at four, and a shear would leave every area unchanged, so
+    either one would pass these tests without carrying any coordinates.
+    """
     mesh = UnitSquareMesh(nx, nx)
     V = VectorFunctionSpace(mesh, "CG", degree)
     x, y = SpatialCoordinate(mesh)
-    coordinates = Function(V).interpolate(as_vector([x + 0.15 * sin(pi * y) * x * (1 - x), y]))
+    coordinates = Function(V).interpolate(as_vector([x, y * (1 + 0.3 * sin(2 * pi * x))]))
     return Mesh(coordinates)
 
 
@@ -69,12 +75,20 @@ def test_submesh_affine_coordinates():
 
 
 @pytest.mark.parallel([1, 2, 3])
-def test_submesh_curved_codim():
-    # A parent and a submesh of lower dimension share only some of the nodes
-    # on a parent cell. The cell node maps can not select those nodes.
-    mesh = _curved_mesh()
-    with pytest.raises(NotImplementedError):
-        Submesh(mesh, 1, "on_boundary", label_name="exterior_facets")
+@pytest.mark.parametrize("degree", [2, 3])
+def test_submesh_curved_codim(degree):
+    # A submesh of lower dimension takes the curved coordinates of its parent
+    # entity by entity. Degree 3 puts two nodes on an edge, so it fails if the
+    # submesh orients that edge differently from the parent.
+    mesh = _curved_mesh(degree=degree)
+    submesh = Submesh(mesh, 1, "on_boundary", label_name="exterior_facets")
+    assert submesh.coordinates.ufl_element() == \
+        mesh.coordinates.ufl_element().reconstruct(cell=submesh.ufl_cell())
+
+    perimeter = assemble(Constant(1.0) * dx(submesh))
+    assert np.isclose(perimeter, assemble(Constant(1.0) * ds(mesh)))
+    # The boundary of an affine parent would measure exactly four.
+    assert not np.isclose(perimeter, 4.0)
 
 
 @pytest.mark.parallel([1, 2])
