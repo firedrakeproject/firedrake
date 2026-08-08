@@ -67,12 +67,34 @@ NO_CHILD_ON_THIS_RANK = -1
 child_cells = np.full(size, NO_CHILD_ON_THIS_RANK, dtype=IntType)
 ```
 
-**3. The comment is false, or names something the code does not touch. Delete the
-claim, then decide whether the code needs the rewrite from outcome 2.**
+**3. The comment is false. Delete the claim, then ask what the code was for.**
 
 Check every identifier and every concept the comment names. If the code around it does
 not touch that thing, the sentence is wrong. Do not soften it. Do not qualify it. A
 half-true comment reads as carelessness and costs more than no comment.
+
+Then keep going, because a false comment is seldom only a writing mistake. The sentence
+was there to justify the code. If the justification is not true, the code may have no
+reason to exist:
+
+```python
+# WRONG: the comment states a constraint that is not real
+# Copy before assembling, because assembly renumbers the dofs.
+work = coefficient.copy(deepcopy=True)
+result = assemble(inner(work, v) * dx)
+```
+
+Assembly renumbers nothing. Once that is settled, the question is no longer how to word
+the comment. It is what the copy was for. Nothing writes to `work`, so the copy guards
+nothing:
+
+```python
+# RIGHT: the copy went with the claim that justified it
+result = assemble(inner(coefficient, v) * dx)
+```
+
+Try this outcome before outcome 2. Rewriting code to carry a sentence is wasted work if
+the code should not be there at all.
 
 **4. The reason is genuinely not in the code. Keep the comment, and say only the
 reason.**
@@ -87,35 +109,25 @@ alternative was rejected, a citation, a workaround for a named upstream bug. Say
 remote_offsets, distributed_section = point_sf.distributeSection(root_section)
 ```
 
-## Worked example
+## Why rewriting the comment is the wrong move
 
-This is a real exchange from Firedrake PR #5215. The comment:
+A reviewer says a comment is unclear. The tempting answer is a better comment. It fails
+twice over.
 
-```python
-# Run createNetgenMesh before Mesh construction renumbers the plex.
-```
+The first failure is that the replacement is usually still wrong. The sentence was
+written from the same misunderstanding that produced the code, so a second attempt says
+the same false thing at greater length. A reviewer who did not follow the first sentence
+follows the second one less.
 
-The reviewer: *"But mesh construction doesn't renumber the plex no?"*
+The second failure is worse. An inaccurate comment does not merely confuse a reader. It
+puts the code under suspicion, and the reviewer starts asking why the code is there at
+all. That question is usually a good one. Code defended by a false claim is often code
+that nothing needed, and a reviewer pulling on the sentence is pulling on the real
+defect.
 
-The comment was rewritten, which is the mistake this skill exists to prevent:
-
-```python
-# The netgen mesh follows the plex's local numbering, so build both from the
-# same clone, leaving fine_mesh's own plex untouched.
-```
-
-The reviewer: *"Sorry but I understand the new comment even less. What is 'the plex's
-local numbering'?"* — and then: *"any suggestion that we do anything to do with the
-'numbering of the plex' is simply wrong. It's a very misleading comment **and it makes
-me wonder why we are actually cloning the thing**."*
-
-Two lessons. The second attempt was longer, more specific, and worse, because it was
-still false. And the false comment did not merely confuse: it put the surrounding code
-under suspicion, so the reviewer began to doubt the clone itself.
-
-Outcome 3 then 2 was the fix. The claim about numbering was wrong, so it goes. What the
-code actually needed was for the clone's purpose to be visible — a name saying what the
-clone is for, so that no sentence has to justify it.
+So take the question seriously rather than deflecting it with better wording. When a
+comment cannot be written truthfully, the reading to try first is that the code beneath
+it should go.
 
 ## Notes
 
