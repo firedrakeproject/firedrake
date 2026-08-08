@@ -504,7 +504,7 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
     section_sf = preserved_node_sf(coarse_V, fine_dual.function_space())
     if section_sf is None:
         return
-    buffer = firedrake.Function(coarse_V)
+    buffer = type(coarse_dual)(coarse_V)
     mtype, _ = _get_mtype(buffer.dat)
     source = fine_dual.dat.data_ro
     target = buffer.dat.data_wo_with_halos
@@ -537,9 +537,86 @@ def physical_node_locations(V):
         return cache.setdefault(key, locations)
 
 
+def transfer_mesh(mesh):
+    """Return the mesh that grid transfer operates on.
+
+    A redistributed mesh has no cell maps relating it to the coarse mesh.
+    Transfers therefore go through the mesh it was redistributed from. The
+    values are then assigned across the two.
+
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        A mesh in a `HierarchyBase`.
+
+    Returns
+    -------
+    firedrake.mesh.MeshGeometry
+        ``mesh`` itself, or the mesh it was redistributed from.
+
+    """
+    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
+
+
+def _redistribution_ancestors(topology):
+    """Yield a mesh topology together with the topologies it was redistributed from.
+
+    The transfer operators work on the mesh a redistributed mesh came from,
+    so both must carry the same multigrid level.
+
+    Parameters
+    ----------
+    topology : firedrake.mesh.AbstractMeshTopology
+        The topology to start from.
+
+    Yields
+    ------
+    firedrake.mesh.AbstractMeshTopology
+        ``topology``, then each mesh topology it was redistributed from, in
+        order.
+
+    """
+    yield topology
+    while topology.submesh_point_sf is not None:
+        topology = topology.submesh_parent
+        yield topology
+
+
+def set_dm_refine_level(mesh, level):
+    """Set the refinement level of a mesh and of the meshes it was redistributed from.
+
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        The mesh to set the refinement level of.
+    level : int
+        The refinement level to set.
+
+    """
+    for topology in _redistribution_ancestors(mesh.topology):
+        topology.topology_dm.setRefineLevel(level)
+
+
 def set_level(obj, hierarchy, level):
-    """Attach hierarchy and level info to an object."""
-    setattr(obj.topological, "__level_info__", (hierarchy, level))
+    """Attach hierarchy and level info to an object.
+
+    Parameters
+    ----------
+    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+        The object to attach the hierarchy and level info to.
+    hierarchy : HierarchyBase
+        The hierarchy ``obj`` belongs to.
+    level : Fraction
+        The level of ``obj`` in ``hierarchy``.
+
+    Returns
+    -------
+    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+        ``obj``, unchanged.
+
+    """
+    for topology in _redistribution_ancestors(obj.topological):
+        setattr(topology, "__level_info__", (hierarchy, level))
     return obj
 
 
