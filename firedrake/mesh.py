@@ -5233,11 +5233,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         if mesh.coordinates.ufl_element() != plex_element:
             # The parent coordinates are not carried by the plex (e.g. the parent
             # is curved or periodic), so they must be transferred onto the submesh.
-            if submesh.ufl_cell() != mesh.ufl_cell():
-                raise NotImplementedError(
-                    "Can only transfer the coordinates of a curved or periodic mesh "
-                    "onto a submesh of the same dimension"
-                )
             V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
             coordinates = function.Function(V).assign(mesh.coordinates)
             submesh = Mesh(coordinates, name=name)
