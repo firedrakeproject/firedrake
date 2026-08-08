@@ -10,7 +10,15 @@
 set -uo pipefail
 
 TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$(cd "$TOOLS/../.." && pwd)"
+
+# A copy kept outside the repo keeps working on a branch that predates this
+# directory, but it can not find the source tree from its own location, so
+# FIREDRAKE_SRC tells it. A copy in the repo needs no configuration.
+SRC="${FIREDRAKE_SRC:-$(cd "$TOOLS/../.." && pwd)}"
+
+# Prefer the checked-out hook, which is versioned with the branch under test.
+HOOKS="$SRC/.claude/hooks"
+[ -d "$HOOKS" ] || HOOKS="$TOOLS/../hooks"
 
 # --- Locate the virtual environment --------------------------------------
 # An install puts the source tree at $VENV/src/firedrake, so a checkout can
@@ -80,6 +88,11 @@ fdk - helper for working on Firedrake
 
   fdk where
       Print the source tree and the virtual environment in use.
+
+Keep a copy outside the repo to work on a branch that predates this
+directory, and point it at the source tree:
+
+    export FIREDRAKE_SRC=/path/to/src/firedrake
 EOF
 }
 
@@ -131,7 +144,7 @@ case "$cmd" in
         fi
         ;;
     prose)
-        "$PY" "$TOOLS/../hooks/check-prose.py" "$@" && echo "prose: clean"
+        "$PY" "$HOOKS/check-prose.py" "$@" && echo "prose: clean"
         ;;
     py)
         "$PY" "$@"
