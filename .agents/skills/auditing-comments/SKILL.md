@@ -84,8 +84,8 @@ work = coefficient.copy(deepcopy=True)
 result = assemble(inner(work, v) * dx)
 ```
 
-Assembly renumbers nothing. Once that is settled, the question is no longer how to word
-the comment. It is what the copy was for. Nothing writes to `work`, so the copy guards
+Assembly renumbers nothing. Once that is settled, the question is not how to word the
+comment. It is what the copy was for. Nothing writes to `work`, so the copy guards
 nothing:
 
 ```python
