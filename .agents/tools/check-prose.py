@@ -10,6 +10,11 @@ The checks are a floor, not a substitute for reading the prose. Clause-stacking
 needs judgement, and so does an argument against a branch that is no longer
 there: "would" is far too common a word to match on.
 
+A Markdown or reStructuredText file holds things that are not prose. The checks
+skip a fenced code block, and the YAML frontmatter that opens the file. A
+document that shows badly written prose as an example therefore keeps its
+examples, as long as it fences them.
+
 Checks
 ------
 sphinx-field-list
@@ -92,6 +97,7 @@ TELLS = re.compile(
 )
 HASATTR = re.compile(r"if\s+not\s+hasattr\(\s*self\b")
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+FENCE = re.compile(r"^\s*(```|~~~)")
 
 
 def git(*args):
@@ -122,6 +128,48 @@ def added_line_numbers(path, commit_range=None):
     return added
 
 
+def unprosed_lines(lines: list[str]) -> set[int]:
+    """Find the lines of a Markdown or reStructuredText file that hold no prose.
+
+    Parameters
+    ----------
+    lines : list of str
+        The lines of the file, without their line endings.
+
+    Returns
+    -------
+    set of int
+        The 1-based numbers of the lines a fenced code block holds, and of the
+        YAML frontmatter that opens the file. Both fences and both frontmatter
+        markers are included.
+
+    """
+    skip = set()
+    body = 0
+    # Frontmatter opens the file with a --- line, and a second one ends it. A
+    # file that opens with a rule and never closes one keeps all of its lines.
+    if lines and lines[0].strip() == "---":
+        for number in range(2, len(lines) + 1):
+            if lines[number - 1].strip() == "---":
+                skip.update(range(1, number + 1))
+                body = number
+                break
+    fence = None
+    for number in range(body + 1, len(lines) + 1):
+        match = FENCE.match(lines[number - 1])
+        if fence is None:
+            if match:
+                # The fence opens a block. Only the same marker closes it, so
+                # that ``` inside a ~~~ block stays part of the block.
+                fence = match.group(1)
+                skip.add(number)
+        else:
+            skip.add(number)
+            if match and match.group(1) == fence:
+                fence = None
+    return skip
+
+
 def sentences(text):
     """Split prose into sentences, ignoring code-like fragments."""
     flat = " ".join(text.split())
@@ -134,7 +182,7 @@ def prose_blocks(path, source, added):
         # Treat a run of added prose lines as one block.
         run, start = [], None
         for number, line in enumerate(source.splitlines(), 1):
-            if number in added and line.strip() and not line.lstrip().startswith(("```", "|", ">")):
+            if number in added and line.strip() and not line.lstrip().startswith(("|", ">")):
                 run.append(line.strip())
                 start = start or number
             else:
@@ -193,6 +241,8 @@ def check(path, commit_range=None):
     with open(path, encoding="utf-8", errors="replace") as handle:
         source = handle.read()
     lines = source.splitlines()
+    if not path.endswith((".py", ".pyx", ".pxd")):
+        added -= unprosed_lines(lines)
 
     findings = []
     for number in sorted(added):
