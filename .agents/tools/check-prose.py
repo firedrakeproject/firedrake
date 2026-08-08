@@ -32,13 +32,13 @@ needs Python and ``git``, and nothing particular to one assistant.
 Check files from the command line. This exits 1 when it finds something, so a
 pre-commit script can use it::
 
-    .claude/tools/check-prose.py firedrake/mg/utils.py
+    .agents/tools/check-prose.py firedrake/mg/utils.py
 
 Check a whole branch with ``--range``, which reads the lines a commit range
 added rather than the lines the working tree changed. Give it the files to
 look at, or none to take every file the range touches::
 
-    .claude/tools/check-prose.py --range main...HEAD
+    .agents/tools/check-prose.py --range main...HEAD
 
 Check out the head of the range first. The line numbers come from the diff,
 and the prose comes from the working tree, so the two must agree.
@@ -56,7 +56,7 @@ checkout opts in for itself::
             "hooks": [
               {
                 "type": "command",
-                "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/check-prose.py\"",
+                "command": "python3 \"$CLAUDE_PROJECT_DIR/.agents/tools/check-prose.py\"",
                 "timeout": 15
               }
             ]

@@ -3,7 +3,7 @@
 #
 # Gives the repeated work of a Firedrake session one stable command, so the
 # rules that are easy to get wrong by hand are encoded once. Run
-# `.claude/tools/fdk help` for the subcommands.
+# `.agents/tools/fdk help` for the subcommands.
 #
 # Nothing here is specific to one machine or one checkout.
 

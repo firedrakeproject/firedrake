@@ -91,7 +91,7 @@ toolchain:
   touch must follow Simplified Technical English (ASD-STE100): short sentences, one idea per sentence,
   active voice, subject named up front instead of buried in a relative clause. Avoid the clause-stacking,
   inverted phrasing typical of unedited AI-generated prose — see the Anti-Patterns section below.
-  `.claude/tools/check-prose.py --help` checks the part of this a machine can judge.
+  `.agents/tools/check-prose.py --help` checks the part of this a machine can judge.
 * **Type Hints:** New code should include type hints on function/method signatures.
 
 ## Testing Requirements
@@ -115,19 +115,19 @@ toolchain:
 
 ### Agent Tools
 
-`.claude/tools/` holds the tools a session uses. `fdk` runs the work a session repeats, and
-`check-prose.py` checks prose against the rules above. Run `.claude/tools/fdk help` for the
+`.agents/tools/` holds the tools a session uses. `fdk` runs the work a session repeats, and
+`check-prose.py` checks prose against the rules above. Run `.agents/tools/fdk help` for the
 subcommands: `test`, `testraw`, `lint`, `prose`, `py`, `clean`, `build`, `status`, `where`.
 
 Prefer it to writing the shell line yourself. It applies the rules below that are easy to get
 wrong by hand:
 
 ```bash
-.claude/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
-.claude/tools/fdk build                              # after any firedrake/cython/*.pyx change
-.claude/tools/fdk lint                               # make srclint, as CI runs it
-.claude/tools/fdk lint firedrake/mesh.py             # flake8 on one file, to iterate
-.claude/tools/fdk prose --range main...HEAD          # the prose rules over a whole branch
+.agents/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
+.agents/tools/fdk build                              # after any firedrake/cython/*.pyx change
+.agents/tools/fdk lint                               # make srclint, as CI runs it
+.agents/tools/fdk lint firedrake/mesh.py             # flake8 on one file, to iterate
+.agents/tools/fdk prose --range main...HEAD          # the prose rules over a whole branch
 ```
 
 `fdk` calls the interpreter of the virtual environment, not the system one. It launches a
