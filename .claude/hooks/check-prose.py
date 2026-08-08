@@ -31,6 +31,15 @@ pre-commit script can use it::
 
     .claude/hooks/check-prose.py firedrake/mg/utils.py
 
+Check a whole branch with ``--range``, which reads the lines a commit range
+added rather than the lines the working tree changed. Give it the files to
+look at, or none to take every file the range touches::
+
+    .claude/hooks/check-prose.py --range main...HEAD
+
+Check out the head of the range first. The line numbers come from the diff,
+and the prose comes from the working tree, so the two must agree.
+
 Check every edit as you make it, by adding a Claude Code ``PostToolUse`` hook.
 Put this in ``.claude/settings.local.json``, which git does not track, so that
 each checkout opts in for itself::
@@ -66,8 +75,10 @@ import tokenize
 
 MAX_WORDS = 25
 SOURCE_SUFFIXES = (".py", ".pyx", ".pxd", ".md", ".rst")
-# AGENTS.md and CLAUDE.md state the rules, so they quote the words they ban.
-EXEMPT_NAMES = {"AGENTS.md", "CLAUDE.md"}
+# These state the rules, so they quote the words they ban. This file names
+# itself: the hook only ever sees the file an edit names, but --range sweeps
+# every file a branch touches, and reaches this one.
+EXEMPT_NAMES = {"AGENTS.md", "CLAUDE.md", "check-prose.py"}
 
 SPHINX = re.compile(r":(?:arg|param|returns?|rtype|raises|type|vartype)\b")
 TELLS = re.compile(
@@ -83,18 +94,20 @@ def git(*args):
     return subprocess.run(args, capture_output=True, text=True)
 
 
-def added_line_numbers(path):
+def added_line_numbers(path, commit_range=None):
     """Return the 1-based line numbers this edit added, or None if unknown."""
     directory = os.path.dirname(path) or "."
     if git("git", "-C", directory, "rev-parse", "--git-dir").returncode != 0:
         return None
-    tracked = git("git", "-C", directory, "ls-files", "--error-unmatch", path)
-    if tracked.returncode != 0:
-        # git does not track the file, so all of it is new.
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return set(range(1, len(handle.readlines()) + 1))
+    if commit_range is None:
+        tracked = git("git", "-C", directory, "ls-files", "--error-unmatch", path)
+        if tracked.returncode != 0:
+            # git does not track the file, so all of it is new.
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                return set(range(1, len(handle.readlines()) + 1))
 
-    diff = git("git", "-C", directory, "diff", "-U0", "--", path).stdout
+    diff_range = [commit_range] if commit_range else []
+    diff = git("git", "-C", directory, "diff", "-U0", *diff_range, "--", path).stdout
     added = set()
     for line in diff.splitlines():
         match = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
@@ -161,7 +174,7 @@ def prose_blocks(path, source, added):
         yield start, " ".join(run)
 
 
-def check(path):
+def check(path, commit_range=None):
     """Return the findings for one file, as (line, rule, why, excerpt) tuples."""
     if not path or not os.path.isfile(path):
         return []
@@ -170,7 +183,7 @@ def check(path):
     # git resolves a path against -C, so give it one that does not move.
     path = os.path.abspath(path)
 
-    added = added_line_numbers(path)
+    added = added_line_numbers(path, commit_range)
     if not added:
         return []
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -236,13 +249,23 @@ def run_as_hook():
     return 0
 
 
-def run_as_command(paths):
+def files_in_range(commit_range):
+    """Return the source files a commit range touches, relative to its root."""
+    root = git("git", "rev-parse", "--show-toplevel").stdout.strip()
+    listing = git("git", "diff", "--name-only", commit_range).stdout
+    return [os.path.join(root, name) for name in listing.splitlines()
+            if name.endswith(SOURCE_SUFFIXES)]
+
+
+def run_as_command(paths, commit_range=None):
     """Report on the named files. Returns 1 if anything was found."""
+    if commit_range and not paths:
+        paths = files_in_range(commit_range)
     total = 0
     for path in paths:
-        findings = check(path)
+        findings = check(path, commit_range)
         if findings:
-            print(report(path, findings, limit=len(findings)))
+            print(report(os.path.relpath(path), findings, limit=len(findings)))
             total += len(findings)
     if total:
         print(f"\n{total} finding(s). See AGENTS.md, and this file's docstring.")
@@ -255,4 +278,13 @@ if __name__ == "__main__":
     if args and args[0] in ("-h", "--help"):
         print(__doc__)
         sys.exit(0)
-    sys.exit(run_as_command(args) if args else run_as_hook())
+    commit_range = None
+    if args and args[0] == "--range":
+        if len(args) < 2:
+            print("--range needs a commit range, such as main...HEAD", file=sys.stderr)
+            sys.exit(2)
+        commit_range = args[1]
+        args = args[2:]
+    if commit_range or args:
+        sys.exit(run_as_command(args, commit_range))
+    sys.exit(run_as_hook())
