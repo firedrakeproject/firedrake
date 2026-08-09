@@ -61,6 +61,10 @@ fdk - helper for working on Firedrake
       pytest self-forks one mpiexec per test, which is slow and reports
       failures that a correct run does not show.
 
+      Warns on stderr and exits nonzero if nothing matched nprocs=N. Without
+      this, 0 tests selected prints no summary line and looks like a clean
+      pass.
+
   fdk testraw <nprocs> [pytest args/paths...]
       As `test`, but unfiltered, to read tracebacks.
 
@@ -104,6 +108,13 @@ fdk - helper for working on Firedrake
       still says what the comment claims. If it does, the comment is
       redundant; if it does not, the code needs the rewrite, not the comment.
       See the auditing-comments skill.
+
+  fdk testfile <path>
+      Find the test file(s) that cover a source file, ranked by how many of
+      its top-level names they reference. Firedrake's test layout does not
+      mirror its source layout (variational_solver.py is covered by
+      test_solving_interface.py), so grepping for the module's own basename
+      misses the file.
 
   fdk show <file> <name>
       Print one function or class, found by name rather than by line number.
@@ -174,6 +185,23 @@ run_pytest() {
     fi
 }
 
+# A test only runs at the nprocs it is marked for (default 1). Selecting zero
+# tests at a given nprocs is silent from `test` (summarize drops pytest's own
+# "no tests ran" line along with mpiexec's abort noise) and, at nprocs>1,
+# noisy and misleading from `testraw` (mpiexec's own error, not a real
+# crash). Warn either way, on the same signal: no count line in the output.
+warn_if_nothing_ran() {
+    local n="$1" out="$2"
+    grep -qE '[0-9]+ (passed|failed|error|skipped)' <<<"$out" && return 0
+    cat >&2 <<EOF
+fdk: nothing ran at nprocs=$n. A test runs only at the nprocs it is marked
+     for (default 1, from @pytest.mark.parallel(nprocs=N)); this selection
+     has none marked for $n. Check what a path is marked with:
+       grep -n 'pytest.mark.parallel' <path>
+EOF
+    return 1
+}
+
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 
@@ -182,12 +210,16 @@ case "$cmd" in
         [ $# -ge 1 ] || { echo "fdk test needs <nprocs>" >&2; exit 2; }
         n="$1"; shift
         echo "########## nprocs=$n ##########"
-        run_pytest "$n" "${pytest_common[@]}" --tb=line "$@" 2>&1 | summarize
+        out="$(run_pytest "$n" "${pytest_common[@]}" --tb=line "$@" 2>&1)"
+        printf '%s\n' "$out" | summarize
+        warn_if_nothing_ran "$n" "$out"
         ;;
     testraw)
         [ $# -ge 1 ] || { echo "fdk testraw needs <nprocs>" >&2; exit 2; }
         n="$1"; shift
-        run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1
+        out="$(run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1)"
+        printf '%s\n' "$out"
+        warn_if_nothing_ran "$n" "$out"
         ;;
     lint)
         if [ $# -eq 0 ]; then
@@ -251,6 +283,50 @@ case "$cmd" in
         ;;
     explain)
         "$PY" "$TOOLS_IN_REPO/check-prose.py" --explain "$@"
+        ;;
+    testfile)
+        [ $# -ge 1 ] || { echo "fdk testfile needs <path>" >&2; exit 2; }
+        "$PY" - "$SRC" "$1" <<'PYEOF'
+import ast
+import re
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+src, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8", errors="replace") as handle:
+    source = handle.read()
+try:
+    tree = ast.parse(source)
+except SyntaxError as error:
+    sys.exit(f"fdk testfile: cannot parse {path}: {error}")
+
+names = {
+    node.name
+    for node in ast.iter_child_nodes(tree)
+    if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    and not node.name.startswith("_")
+}
+if not names:
+    sys.exit(f"fdk testfile: {path} defines no top-level name to search for")
+
+pattern = "|".join(re.escape(name) for name in names)
+tests_dir = Path(src) / "tests"
+proc = subprocess.run(
+    ["grep", "-rlE", pattern, "--include=test_*.py", str(tests_dir)],
+    capture_output=True, text=True,
+)
+counts = Counter()
+for line in proc.stdout.splitlines():
+    text = Path(line).read_text(encoding="utf-8", errors="replace")
+    counts[line] = sum(text.count(name) for name in names)
+if not counts:
+    sys.exit(f"fdk testfile: no test under {tests_dir} references a name from {path}")
+width = len(str(max(counts.values())))
+for test_path, count in counts.most_common(15):
+    print(f"{count:>{width}}  {test_path}")
+PYEOF
         ;;
     show)
         [ $# -ge 2 ] || { echo "fdk show needs <file> <name>" >&2; exit 2; }

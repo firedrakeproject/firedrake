@@ -69,7 +69,9 @@ toolchain:
 * **Plain English (ASD-STE100) In Docstrings And Comments:** Short sentences, one idea each, active
   voice, subject named up front rather than buried in a relative clause. Checked by `fdk prose` — see
   the Clause-Stacked anti-pattern below.
-* **Type Hints:** Add type hints to new function and method signatures.
+* **Type Hints:** Add type hints to new function and method signatures, and to any parameter or
+  return value you add to an existing one. The codebase is mid-migration and inconsistently typed
+  elsewhere — do not retrofit a signature beyond what you touch.
 * **Demos Are Literate Programs:** Keep `demos/<name>/<name>.py.rst` prose and code in step. A paragraph
   ending in `::` makes the following indented block executable; a `.. code-block:: python` directive
   renders in the docs but does not run. Prefer `::`.
@@ -77,7 +79,8 @@ toolchain:
 ## Testing Requirements
 
 * Add tests that demonstrate the new feature or bug fix, in the existing test file for that module —
-  do not create a new one.
+  do not create a new one. `fdk testfile <path>` finds it: Firedrake's test layout does not mirror
+  its source layout, so the file's own basename is not a reliable guide.
 * When behavior changes, update the affected tests and confirm parallel (MPI) runs match serial results.
 * Add or update the narrowest test that proves the change.
 
@@ -90,21 +93,23 @@ toolchain:
 
 ### Agent Tools
 
-`.agents/tools/fdk` runs the work a session repeats. Run `fdk help` for the full reference; the
-commands in daily use:
+`.agents/tools/fdk` runs the work a session repeats; it is not on `PATH`, so call it by that path
+(or symlink it onto your own). Run `.agents/tools/fdk help` for the full reference; the commands
+in daily use:
 
 ```bash
-fdk test <nprocs> [paths]                 # tests at a process count, one deduplicated summary
-fdk testraw <nprocs> [paths]              # as test, unfiltered, to read a traceback
-fdk baseline <nprocs> [paths]             # which failures this branch introduced
-fdk lint [paths]                          # make srclint, or flake8 on given paths
-fdk prose [--range base...head] [paths]   # prose rules, on an edit or over a branch
-fdk explain [--range base...head] [paths] # each added comment beside its code
-fdk show <file> <name>                    # one function or class, found by name
-fdk deps [name]                           # component packages: location, branch, dirty state
-fdk stack                                 # the PR stack, and how far each branch has drifted
-fdk pr <number> [--title ...] [--body-file ...]  # retitle/redescribe a PR
-fdk build / fdk clean / fdk py [args] / fdk status
+.agents/tools/fdk test <nprocs> [paths]                 # tests at a process count, one deduplicated summary
+.agents/tools/fdk testraw <nprocs> [paths]              # as test, unfiltered, to read a traceback
+.agents/tools/fdk baseline <nprocs> [paths]             # which failures this branch introduced
+.agents/tools/fdk lint [paths]                          # make srclint, or flake8 on given paths
+.agents/tools/fdk prose [--range base...head] [paths]   # prose rules, on an edit or over a branch
+.agents/tools/fdk explain [--range base...head] [paths] # each added comment beside its code
+.agents/tools/fdk testfile <path>                       # the test file(s) that cover a source file
+.agents/tools/fdk show <file> <name>                    # one function or class, found by name
+.agents/tools/fdk deps [name]                           # component packages: location, branch, dirty state
+.agents/tools/fdk stack                                 # the PR stack, and how far each branch has drifted
+.agents/tools/fdk pr <number> [--title ...] [--body-file ...]  # retitle/redescribe a PR
+.agents/tools/fdk build / clean / py [args] / status
 ```
 
 Prefer `fdk` to writing the shell line yourself: it always calls the virtual environment's
@@ -134,10 +139,14 @@ every edit automatically inside Claude Code; that is one way to drive it, not th
 ### Testing
 
 * Tests that must run under MPI are marked `@pytest.mark.parallel` (optionally
-  `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])`). Use `fdk test <nprocs> <paths>`
-  or `fdk testraw`, never a bare `pytest`, on parallel-marked tests.
+  `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])`); an unmarked test's own nprocs
+  is 1. Use `fdk test <nprocs> <paths>` or `fdk testraw`, never a bare `pytest`, on parallel-marked
+  tests.
   `firedrake-run-split-tests <nprocs> <njobs> <pytest args> <paths>` shards a run the way CI does
   (`.github/workflows/core.yml`); run it from a scratch directory.
+* Pick `<nprocs>` from what the target actually declares, not from a guess: `grep -n
+  'pytest.mark.parallel' <path>` lists its markers. `fdk test`/`fdk testraw` select zero tests, and
+  say so on stderr, when nothing in the given paths is marked for the `<nprocs>` you passed.
 * Run the relevant subset, not a plain serial `pytest <dir>`: the tests that exercise the lines you
   changed, at the process counts where those lines are live.
 * Reproduce narrowly first: run the single failing test node (`pytest path::test_name -k ...`) before

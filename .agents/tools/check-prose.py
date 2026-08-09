@@ -18,9 +18,11 @@ examples, as long as it fences them.
 Checks
 ------
 sphinx-field-list
-    ``:arg x:``/``:param x:``/``:returns:``/``:rtype:``. AGENTS.md allows
-    numpydoc only, and warns that copying the neighbouring style is the wrong
-    instinct here.
+    ``:arg x:``/``:param x:``/``:returns:``/``:rtype:``, anywhere in a
+    docstring an edit touches -- not only on the lines it added. AGENTS.md
+    allows numpydoc only, and says that copying the neighbouring style is the
+    wrong instinct here: touching a docstring migrates the whole docstring,
+    not just the lines the edit added.
 long-sentence
     A sentence of more than MAX_WORDS words in a docstring or a comment.
     ASD-STE100 asks for short sentences, one idea each.
@@ -228,6 +230,47 @@ def prose_blocks(path, source, added):
         yield start, " ".join(run)
 
 
+def touched_docstring_span(path, source, added):
+    """Return every line of a docstring that an edit touched, not just those it added.
+
+    Touching one line of a docstring migrates the whole docstring: this widens
+    the sphinx-field-list check from the added lines to the docstring's full
+    span, so an old field-list line the edit left alone still gets caught.
+
+    Parameters
+    ----------
+    path : str
+        The file the docstring lives in.
+    source : str
+        The file's current contents.
+    added : set of int
+        The 1-based line numbers the edit added.
+
+    Returns
+    -------
+    set of int
+        The 1-based line numbers of every docstring with at least one line in
+        ``added``.
+    """
+    span_lines = set()
+    if not path.endswith((".py", ".pyx", ".pxd")):
+        return span_lines
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return span_lines
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not ast.get_docstring(node):
+            continue
+        target = node.body[0]
+        span = range(target.lineno, (target.end_lineno or target.lineno) + 1)
+        if any(n in added for n in span):
+            span_lines.update(span)
+    return span_lines
+
+
 def check(path, commit_range=None):
     """Return the findings for one file, as (line, rule, why, excerpt) tuples."""
     if not path or not os.path.isfile(path):
@@ -246,14 +289,20 @@ def check(path, commit_range=None):
     if not path.endswith((".py", ".pyx", ".pxd")):
         added -= unprosed_lines(lines)
 
+    docstring_span = touched_docstring_span(path, source, added)
+
     findings = []
-    for number in sorted(added):
+    for number in sorted(added | docstring_span):
         if number > len(lines):
             continue
         line = lines[number - 1]
         if SPHINX.search(line):
-            findings.append((number, "sphinx-field-list",
-                             "Use numpydoc sections, not Sphinx field lists", line.strip()))
+            why = "Use numpydoc sections, not Sphinx field lists"
+            if number not in added:
+                why += " -- pre-existing, but this docstring was touched elsewhere"
+            findings.append((number, "sphinx-field-list", why, line.strip()))
+        if number not in added:
+            continue
         if TELLS.search(line):
             findings.append((number, "past-tense",
                              "Describes code that may not be there any more", line.strip()))
