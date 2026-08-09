@@ -89,10 +89,10 @@ Implementation
 We now implement this problem using Firedrake by first initialising the constants and variables required for solving and analysing the problem. ::
 
   from firedrake import *
+
   # Constants
   PLOT = False
   VERBOSE = True
-  w2 = Constant(100.0)  # Nitsche penalty weight
 
   # Variables initialised for convergence analysis
   n1_list = [2,4,8,16,32]
@@ -117,6 +117,10 @@ For each index in ``n1_list`` and ``n2_list``, we define two meshes with a share
 The problem is then defined by passing these meshes to ``build_problem``. First, the exact solutions for this problem are defined in order to calculate the source functions. :: 
 
   def build_problem(mesh1, mesh2):
+    p = 3
+    p_inner = 2
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
     u1_exact = x1 * sin(pi * y1) ** 2
@@ -138,8 +142,8 @@ The following measures are defined where ``n1`` and ``n2`` are the unit normal v
 Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.::
 
     # Function Spaces
-    V1 = FunctionSpace(mesh1, "CG", 3)
-    V2 = FunctionSpace(mesh2, "CG", 3)
+    V1 = FunctionSpace(mesh1, "CG", p)
+    V2 = FunctionSpace(mesh2, "CG", p)
     W = V1 * V2
 
     # Test and trial functions
@@ -157,8 +161,8 @@ The matrices ``A11`` and ``A22`` are defined directly on the above function spac
                 + w2 * inner(u2, v2) * ds2
     
     # Intermediate spaces
-    Q1v = VectorFunctionSpace(mesh1, "CG", 3)
-    Q2 = FunctionSpace(mesh2, "CG", 3)
+    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
+    Q2 = FunctionSpace(mesh2, "CG", p_inner)
     
     # A12: row v1, column u2
     # W --B12--> Q1v --M1--> W^*
@@ -203,8 +207,6 @@ The resulting solution can be plotted by calling ``plot``. Matplotlib is require
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
     trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    ax.view_init(elev=35, azim=-110)
-    ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
@@ -227,7 +229,7 @@ Utilising both methods mentioned above, the coupled problem can be solved for ea
     u_1, u_2 = u_sol.subfunctions
 
     if PLOT:
-      plot(f"dirichlet_neumann_example_{i}.png", u_1, u_2)
+      plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
 
 We additionally calculate the L2 error norm between the approximated and exact solutions and collect the mesh-size at each iteration for convergence analysis. ::
 
@@ -291,7 +293,7 @@ If the ``VERBOSE`` flag is set to True, the following block runs and prints the 
     plt.gca().invert_xaxis()
     plt.grid(False)
     plt.legend()
-    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann Method")
+    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann BCs")
     plt.savefig("Logloggraph.png")
 
 [TODO: Insert results]
