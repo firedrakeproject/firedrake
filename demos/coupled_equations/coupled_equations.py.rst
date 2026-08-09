@@ -1,37 +1,12 @@
 Coupled equations
 =================
 
-This tutorial shows how Firedrake can handle coupled equations with coupled meshes. The first example implements a poisson equation coupled to a Helmholtz equation.
-
-Dirichlet-Neumann Method
-------------------------
-
-Before defining the specified problem we first introduce the Dirichlet-Neumann method. To provide an accurate computational approximation of the coupled problem, the Dirichlet-Neumann method is applied. This method enforces further conditions on the solution:
-
-.. math::
-
-  \begin{cases}
-
-    L u_1^{(k)} &= f \ \textrm{in}\ \Omega_1,\\
-    u_1^{(k)} &= u_2^{(k-1)} \ \textrm{on}\ \Gamma,\\
-    u_1^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_1 \setminus \Gamma.
-  
-  \end{cases}
-
-  \begin{cases}
-
-    L u_2^{(k)} &= f \ \textrm{in}\ \Omega_2,\\
-    \frac{\partial u_2^{(k)}}{\partial n} &= \frac{\partial u_1^{(k)}}{\partial n} \ \textrm{on}\ \Gamma,\\
-    u_2^{(k)} &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma.
-
-  \end{cases}
-
-The Neumann boundary condition is applied to the poisson equation whereas the Dirichlet boundary condition is applied to the Helmholtz equation.
+This tutorial provides a guide on how to solve equations coupled on meshes represented by different domain spaces in Firedrake. As an example, we couple a poisson and Helmholtz equation on meshes connected along one edge with dirichlt and neumann boundary conditions.
 
 Coupled Poisson and Helmholtz equations
 ---------------------------------------
 
-Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` with boundary :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square. The poisson equation is defined on :math:`\Omega_1` as
+Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` and let the boundary :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square mesh. The poisson equation is defined on :math:`\Omega_1` as
 
 .. math::
 
@@ -44,20 +19,21 @@ The Helmholtz equation is defined on :math:`\Omega_2` as
 .. math::
   -\nabla^2 u_2 + u_2 &= g
 
-  \nabla u_2 \cdot n &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma. 
+  \nabla u_2 \cdot n &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma,
 
-:math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`.
+where :math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`. These solutions are known as trial functions.
 
+The weak forms for the poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. 
 
-The weak forms for these equations can be found by multiplying by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. For the poisson equation, the variational problem involves finding :math:`u_1 \in V^1` such that :math:`a_{11}(u_1, v_1) = L_1(v_1) \ \textrm{for all}\ v_1 \in V^1` where
+For the poisson equation, the variational problem involves finding :math:`u_1 \in V^1` such that :math:`a_{11}(u_1, v_1) = L_1(v_1) \ \textrm{for all}\ v_1 \in V^1` where
 
 .. math::
 
-  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x,
+  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x - \int_{\Gamma} v_1 \nabla u_1 \cdot n \ {\rm d} s,
 
   L_1 (v_1) &= \int_{\Omega_1}f v_1  \ {\rm d} x.
 
-Similarly, the variational problem for the Helmholtz equation involves finding :math:`u_2 \in V^2` such that :math:`a_{22} (u_2, v_2) = L_2 (v_2) \ \textrm{for all}\ v_2 \in V^2` where [TODO: Remove second term]
+Similarly, the variational problem for the Helmholtz equation involves finding :math:`u_2 \in V^2` such that :math:`a_{22} (u_2, v_2) = L_2 (v_2) \ \textrm{for all}\ v_2 \in V^2` where 
 
 .. math::
 
@@ -65,24 +41,27 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
   L_2 (v_2) &= \int_{\Omega_2}g v_2  \ {\rm d} x.
 
-These equations are then coupled along the shared interface :math:`\Gamma` with Nitsche's method to enforce the Dirichlet boundary condition in the weak form. We add a boundary penalty term to the Helmholtz weak form equation. We also enforce the Neumann boundary condition :math:`\frac{\partial u_2}{\partial n} = \frac{\partial u_1}{\partial n}` on the poisson weak form equation
+Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}`. 
+
+The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus a penalty term is added to :math:`a_{22}`. 
 
 .. math::
 
-  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x,
+  a_{11} (u_1, v_1) &= \int_{\Omega_1}\nabla u_1 \cdot \nabla v_1  \ {\rm d} x - \int_{\Gamma} v_1 \nabla u_1 \cdot n \ {\rm d} s,
 
-  a_{22}(u_2, v_2) &= \int_{\Omega_2}\nabla u_2 \cdot \nabla u_2 + u_2 v_2  \ {\rm d} x - \int_{\Gamma}\frac{\partial u_2}{\partial n} v_2 \ {\rm d} s + w_2 \int_{\Gamma}u_2 v_2 \ {\rm d} s.
+  a_{22}(u_2, v_2) &= \int_{\Omega_2}\nabla u_2 \cdot \nabla u_2 + u_2 v_2  \ {\rm d} x - \int_{\Gamma}v_2 \nabla u_2 \cdot n  \ {\rm d} s + w_2 \int_{\Gamma}u_2 v_2 \ {\rm d} s.
 
-
-The coupling terms are also defined as
+Along the shared interface, the two meshes are coupled. These coupling terms are defined as
 
 .. math::
 
-  a_{12}(u_2, v_1) &= - \int_{\Gamma}\mathcal{I}_{V^1} (u_2) v_1 \ {\rm d} s,
+  a_{12}(u_2, v_1) &= - \int_{\Gamma} (\mathcal{I}_{V^1} (\nabla u_2) \cdot n) v_1 \ {\rm d} s,
 
   a_{21}(u_1, v_2) &= -w_2 \int_{\Gamma}\mathcal{I}_{V^2} (u_1) v_2 \ {\rm d} s,
 
-where :math:`w_2 \>\> 0` are penalty parameters and :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` is a cross-mesh interpolation operator. Therefore, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
+where :math:`w_2 = \frac{w_0}{h}` is a penalty parameter. :math:`w_0` is a constant and :math:`h` the element spacings for the pernalty parameter. The penalty constant :math:`w_0` is typically found with trial and error. Additionally, :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` and :math:`\mathcal{I}_{V^1}: V^2 \rightarrow V^1` are cross-mesh interpolation operators, defining the trial function :math:`u_1` in the domain :math:`V^2` and vice-versa. :math:`a_{12}` enforces the neumann boundary condition whereas :math:`a_{21}` enforces the dirichlet boundary condition.
+
+Overall, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
 
 .. math::
 
@@ -92,9 +71,9 @@ where :math:`w_2 \>\> 0` are penalty parameters and :math:`\mathcal{I}_{V^2}: V^
 Method of Manufactured Solutions (MMS)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions. This is accomplished by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The equations to be passed into the solver is calculated from these exact solutions to obtain an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
+The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The functions :math:`f` and :math:`g` to be passed into the solver is calculated from these exact solutions, obtaining an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
 
-For this demo, we define the solution as
+For this demo, we define the exact solutions as
 
 .. math::
   u_1 &= x \sin(\pi y)^2,
