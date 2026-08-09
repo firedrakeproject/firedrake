@@ -37,8 +37,9 @@ The three-dot form diffs against the merge base, which is what you want for a st
 captured diff contains every file — do **not** re-run `git diff` per file. Options such as `--stat`
 must precede the revision arguments.
 
-If the working tree is dirty, say so and state whether you are reviewing committed work only
-(`<SRC>` = `HEAD`) or including uncommitted changes (`git diff <DEST>` with no `<SRC>`).
+Say so if the working tree is dirty. Then say which of the two you review. One is the committed work
+alone (`<SRC>` = `HEAD`). The other adds the uncommitted changes (`git diff <DEST>` with no
+`<SRC>`).
 
 ## Review
 

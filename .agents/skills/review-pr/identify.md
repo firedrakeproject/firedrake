@@ -22,10 +22,10 @@ Record `headRefOid` as `<PR_HEAD_SHA>`, and `baseRefName` as `<BASE>`.
 `main` or `release`. This is load-bearing for review scope.
 
 - **Review only the diff against `<BASE>`.** `gh pr diff <PR_NUMBER>` already does this. Never diff
-  against `main`/`release` for a stacked PR — you would review the parent PR's changes as if they
-  were this one's, producing findings the author cannot act on here.
-- If `<BASE>` is not `main` or `release`, say so at the top of the report: name the base branch, and
-  note that changes introduced by the parent are out of scope.
+  a stacked PR against `main` or `release`. That reads the parent PR's changes as this one's, and it
+  produces findings the author cannot act on here.
+- Say so at the top of the report when `<BASE>` is neither `main` nor `release`. Name the base
+  branch, and say that the changes the parent introduced are out of scope.
 - A PR based on a non-default branch needs the `base:main` or `base:release` label for CI to resolve
   its base build. If `<BASE>` is a feature branch and neither label is present, report it as a HIGH
   finding — CI cannot run without it.
@@ -33,10 +33,9 @@ Record `headRefOid` as `<PR_HEAD_SHA>`, and `baseRefName` as `<BASE>`.
 **Drift.** The PR may not match what is checked out locally.
 
 - `git show-ref --verify --quiet refs/heads/<headRefName>` — if non-zero, skip this check.
-- Else `git rev-parse <headRefName>`; if it differs from `<PR_HEAD_SHA>`, warn that the local branch
-  and the PR head have diverged, and recommend `/review-branch` if the user meant to review local
-  work.
+- Else `git rev-parse <headRefName>`. Warn that the local branch and the PR head have diverged if it
+  differs from `<PR_HEAD_SHA>`. Recommend `/review-branch` if the user meant to review local work.
 
-Section 5 requires reopening cited code. When local and remote have drifted, verify findings against
-the fetched PR head (`gh pr diff`, or `gh api` file contents at `<PR_HEAD_SHA>`), not the working
-tree — otherwise you will confirm or drop findings against the wrong source.
+Section 5 requires reopening cited code. Verify a finding against the fetched PR head when local and
+remote have drifted (`gh pr diff`, or `gh api` file contents at `<PR_HEAD_SHA>`). The working tree
+is the wrong source. It makes you confirm or drop a finding against code the PR does not hold.

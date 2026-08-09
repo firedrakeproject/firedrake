@@ -19,17 +19,17 @@ change is a refactor with no user-visible effect, say that plainly and state wha
 A short table: symbol or term → meaning, in plain language. Every symbol used later in the brief
 appears here. Include the terms of art, not only the symbols.
 
-Then, in two or three sentences: the minimum background needed to follow Section 3, with a specific
-citation (author, year, section) for a reader who wants the real treatment.
+Then give, in two or three sentences, the minimum background needed to follow Section 3. Cite a
+specific author, year, and section for a reader who wants the real treatment.
 
 ## 3. The method
 
 What is actually computed, and why this formulation. Structure it as a short numbered procedure where
 possible — reviewers follow steps better than prose.
 
-State the assumptions the method depends on (mesh conformity, element family, degree, dimension,
-serial vs distributed) and what happens when they do not hold: error, silent degradation, or
-undefined.
+State the assumptions the method depends on: mesh conformity, element family, degree, dimension, and
+serial or distributed execution. Then say what happens when they do not hold. The answer is an
+error, a silent degradation, or undefined behaviour.
 
 Where a formulation was chosen over an alternative, say which alternative and why — from the author's
 answers in the interview step, not from speculation.
@@ -46,10 +46,10 @@ The properties that must hold if the implementation is right. For each: what it 
 and what a violation looks like from the outside (wrong answer, iteration-count growth, deadlock,
 assertion failure).
 
-Firedrake changes of this kind usually have several of: symmetry or self-adjointness of an operator;
-conservation of a discrete quantity; exactness on a polynomial subspace; mesh-independence or
-degree-independence of iteration counts; convergence at the theoretical rate under refinement;
-identical results in serial and under MPI; idempotence of a transfer round-trip. Include only the
+A Firedrake change of this kind usually has several of the properties below. An operator is
+symmetric or self-adjoint. A discrete quantity is conserved. The method is exact on a polynomial
+subspace. Iteration counts are independent of the mesh or of the degree. Refinement converges at the
+theoretical rate. Serial and MPI runs agree. A transfer round-trip is idempotent. Include only the
 ones that genuinely apply.
 
 ## 6. What the tests pin
@@ -62,14 +62,15 @@ property does **not** pin it — say so.
 
 ## 7. Claims with nothing pinning them
 
-The most important section. List every property from Section 5 with no test in Section 6, and every
-mathematical claim in the PR body or docstrings that no test exercises.
+The most important section. List every property from Section 5 that has no test in Section 6. List
+every mathematical claim in the PR body or the docstrings that no test exercises.
 
 For each, state what a test would have to assert. This is the strongest lever the brief provides: a
 specific test can be asked for without re-deriving anything.
 
-If a claim is deliberately untested (too expensive, covered upstream, checked by hand once), say so
-and say which — that is a legitimate answer, but it should be on the record.
+A claim may be untested on purpose. It is too expensive, an upstream test covers it, or someone
+checked it by hand once. Say so, and say which of the three. That is a legitimate answer, and it
+belongs on the record.
 
 ## 8. Checks that need no re-derivation
 

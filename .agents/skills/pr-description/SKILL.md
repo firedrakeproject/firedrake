@@ -14,25 +14,26 @@ watched it happen.
 
 `SRC` is `$ARGUMENTS` if given, else `HEAD`. Follow @../review-branch/SKILL.md ("Resolve `DEST`") to
 find the target branch, then capture `git diff --stat <DEST>...<SRC>` and `git diff <DEST>...<SRC>`.
-If a PR already exists for this branch, also pull its current title/body (`gh pr view <N> --json
-title,body`) as a starting point rather than discarding it.
+A PR may already exist for this branch. Pull its current title and body (`gh pr view <N> --json
+title,body`) and start from those rather than discard them.
 
 ## 2. Gather the root cause
 
 State only what the diff and the commit history actually establish — do not invent a rationale.
 
 - Read the commit messages in `<DEST>..<SRC>` for the "why", not just the "what".
-- If a defect is being fixed, identify its symptom (what a user or test would have observed) and its
-  root cause (the specific assumption or code path that was wrong), not just the line that changed.
+- Name the symptom of a defect, and name its root cause. The symptom is what a user or a test
+  observed. The root cause is the assumption or the code path that was wrong, not the line that
+  changed.
 - If this branch fixes a regression, `git blame` the faulty line(s) to name the upstream PR.
 - If anything is unclear from the diff and history alone, ask rather than guess.
 
 ## 3. Write for a reviewer with zero context
 
-The reviewer sees only the diff's two endpoints — `<DEST>` and `<SRC>` — never the intermediate
-states the branch passed through while it was being developed. A sentence that describes one of
-those intermediate states sends the reviewer looking for code that appears nowhere in the diff, and
-reads as a grammar error rather than as missing context.
+The reviewer sees the diff's two endpoints alone: `<DEST>` and `<SRC>`. The branch passed through
+other states while you developed it. The reviewer never sees those. A sentence about one of them
+sends the reviewer looking for code that the diff does not hold. It reads as a grammar error, not
+as missing context.
 
 Never write to the branch's author or to whoever produced it ("I found...", "we then tried...",
 "after some debugging..."). Write as if narrating the diff itself to a stranger.
@@ -49,9 +50,9 @@ time — before the merge, or after it — and the tense must say which:
 | The fixed behaviour, as it stands after merge | present, usually with "now" | "The rewrite **now** walks each stratum once." |
 | A regression's origin, if applicable | past | "PR #NNNN **introduced** this when it switched to per-point lookups." |
 
-Never use future tense ("this PR will fix...", "this change will make..."). By the time anyone reads
-the description, the diff already exists — the fixed state is not a future promise, it is what
-`<SRC>` already *is*. Write "now scatters", not "will scatter".
+Never use future tense ("this PR will fix...", "this change will make..."). The diff already exists
+by the time anyone reads the description. The fixed state is not a promise. It is what `<SRC>`
+already *is*. Write "now scatters", not "will scatter".
 
 Do not narrate the PR itself as an agent ("this PR adds...", "this commit changes..."). Describe the
 code's before/after behaviour directly; the diff is not the subject of its own sentences.
@@ -69,6 +70,6 @@ code's before/after behaviour directly; the diff is not the subject of its own s
 
 ## 6. Output
 
-Print the drafted title and body. Do not run `gh pr create` or `gh pr edit` — opening or editing a
-PR is a visible action on a shared system, and posting it is a separate step the user asks for
-explicitly, same as every other GitHub-writing action.
+Print the drafted title and body. Do not run `gh pr create` or `gh pr edit`. A PR is visible on a
+shared system, so opening or editing one is a step the user asks for. Every other action that
+writes to GitHub works the same way.

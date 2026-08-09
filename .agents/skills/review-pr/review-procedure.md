@@ -23,9 +23,9 @@ Apply the Anti-Patterns section of `AGENTS.md` in full. Beyond it, weight these:
 **Parallel correctness (CRITICAL when violated).** These are the failures that do not show up in a
 serial test run and cost days to diagnose:
 
-- A collective call (`comm.allreduce`, `comm.bcast`, PETSc `Vec`/`Mat` assembly, `DMPlex`
-  distribution, cache lookups on a `comm`) reachable on some ranks but not others — including via an
-  early `return`, a `continue`, an exception path, or a `if comm.rank == 0` guard.
+- A collective call that some ranks reach and others do not. The calls are `comm.allreduce`,
+  `comm.bcast`, PETSc `Vec`/`Mat` assembly, `DMPlex` distribution, and cache lookups on a `comm`.
+  An early `return`, a `continue`, an exception path, or a `if comm.rank == 0` guard each hides one.
 - A decision fed into code generation, or into a cache key, computed rank-locally when it must be
   collective. The symptom is `CompilationError: Generated code differs across ranks`; the fix is
   upstream of the generated source.
@@ -48,19 +48,19 @@ every PR. Check specifically:
 - Are new tests added to an existing test file covering that feature, rather than a new file?
 
 **API drift (MEDIUM).** Firedrake, UFL and petsc4py signatures change; properties become methods and
-back. If the diff calls an API in a form you have not seen used elsewhere in this codebase, read the
-installed source to confirm the signature before either trusting or flagging it.
+back. Read the installed source when the diff calls an API in a form you have not seen elsewhere in
+this codebase. Confirm the signature there before you trust it or flag it.
 
-**Style (treat at par with MEDIUM).** `AGENTS.md` conventions are review blockers, not nits: numpydoc
-docstrings on public APIs, type hints on new signatures, attributes declared in `__init__` or as
-`functools.cached_property` rather than discovered via `hasattr`, no comments narrating what the code
-used to do.
+**Style (treat at par with MEDIUM).** `AGENTS.md` conventions are review blockers, not nits. A
+public API needs a numpydoc docstring. A new signature needs type hints. An attribute belongs in
+`__init__`, or in a `functools.cached_property`, rather than in a `hasattr` probe. A comment must
+describe the code that is in front of the reader.
 
 **Mathematical claims.** Changes of this kind rest on derivations that are not reconstructible from
 the diff alone. Calibrate accordingly.
 
-- Report a mathematical error only when you can name the specific term, index, sign, or scaling that
-  is wrong **and** state what it should be. "This looks suspicious" is not a finding.
+- Name the term, index, sign, or scaling that is wrong, **and** state what it should be. Report a
+  mathematical error only then. "This looks suspicious" is not a finding.
 - Never report "I cannot verify this derivation" as a finding. Inability to check is not evidence of
   a defect. If a mathematical claim in the PR is load-bearing and unverifiable from the diff, that
   belongs in a reviewer brief (`/review-brief`), not in this report.
@@ -69,10 +69,10 @@ the diff alone. Calibrate accordingly.
 
 ### 6. Verify each finding before reporting
 
-After generating the review, treat every finding at Style or above as tentative. For each one:
-reopen the cited code and confirm it matches what the finding describes; reread it and confirm the
-issue is real rather than a misread or speculation; confirm it is actionable. Drop findings that fail
-any check. Report only those that survive.
+After generating the review, treat every finding at Style or above as tentative. Do three things for
+each one. Reopen the cited code, and confirm it matches what the finding describes. Reread it, and
+confirm the issue is real rather than a misread or a speculation. Then confirm it is actionable.
+Drop a finding that fails any of the three. Report only those that survive.
 
 For parallel-correctness findings specifically, state the concrete divergence — which ranks take
 which path, and where they end up waiting. A collective-asymmetry finding you cannot walk through

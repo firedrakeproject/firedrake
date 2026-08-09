@@ -7,15 +7,15 @@ argument-hint: <PR_NUMBER | branch | empty for current branch>
 Produces a document that makes a numerically heavy change reviewable — not a summary, and not a
 substitute for the reviewer's judgement.
 
-A change of this kind arrives carrying context that exists only in the author's head: which
-formulation was chosen and why, what it assumes, what must hold if it is right. Review stalls
-because that context was never written down, not because the diff is unreadable. The brief writes it
-down, and in doing so converts "trust me, the mathematics is right" into "here is the assertion that
+A change of this kind carries context that only the author holds. That context is the formulation
+they chose, the reason they chose it, what it assumes, and what must hold if it is right. Review
+stalls because that context was never written down, not because the diff is unreadable. The brief
+writes it down. That turns "trust me, the mathematics is right" into "here is the assertion that
 fails if it isn't."
 
-Whether a stated invariant is pinned by a test, whether a claimed generality is actually exercised,
-and whether the code computes what the prose says it computes are all checkable without re-deriving
-anything. Surfacing those three is the whole job.
+Three questions need no re-derivation. Does a test pin the stated invariant? Does anything exercise
+the claimed generality? Does the code compute what the prose says it computes? Surfacing those three
+is the whole job.
 
 ## 1. Identify and gather
 
@@ -31,9 +31,9 @@ Then gather, in this order:
 
 ## 2. Interview the author before writing
 
-The author is available. **Ask them rather than inventing rationale.** Do not guess at motivation,
-provenance of a formula, or why one formulation was chosen over another — a plausible-sounding
-invented justification is worse than an admitted gap, because a reader cannot tell the two apart.
+The author is available. **Ask them rather than inventing rationale.** Do not guess at a motivation,
+at where a formula comes from, or at why one formulation won. An invented justification that sounds
+plausible is worse than an admitted gap. A reader cannot tell the two apart.
 
 Ask about anything you cannot establish from the diff and the literature:
 
@@ -71,9 +71,9 @@ Style rules, which matter more here than in an ordinary review:
 Write the brief to `/tmp/.../review-brief-<PR_NUMBER>.md` in the scratchpad directory, and print the
 path. Do **not** post it to GitHub as part of this skill.
 
-Posting is a separate, explicitly requested step. If the user asks for it, post as a **single**
-top-level PR comment (`gh pr comment`), never as inline review comments, and prepend the disclosure
-line required by Firedrake's AI contribution policy — see `AGENTS.md` and the
+Posting is a separate, explicitly requested step. Post it as a **single** top-level PR comment
+(`gh pr comment`) if the user asks for it. Never post inline review comments. Prepend the disclosure
+line that Firedrake's AI contribution policy requires. See `AGENTS.md` and the
 [AI contribution policy](https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy).
-The brief is authored material published under the author's name: they must read it in full and
-stand behind it before it goes anywhere near the PR.
+The brief is authored material, published under the author's name. They must read it in full and
+stand behind it before it goes near the PR.

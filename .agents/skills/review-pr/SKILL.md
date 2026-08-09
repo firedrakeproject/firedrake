@@ -7,8 +7,8 @@ argument-hint: <PR_NUMBER | diff-file | empty for current branch>
 Reviews the **remote PR state**, not local `HEAD`.
 
 Read `AGENTS.md` at the repository root before reviewing. Its Core Working Rules, Coding Style And
-Conventions, and Anti-Patterns sections are the rubric — the Anti-Patterns section is written to be
-applied at review time, not just at authoring time.
+Conventions, and Anti-Patterns sections are the rubric. The Anti-Patterns section is written for
+review time, not for authoring time alone.
 
 ## Identify and fetch
 
