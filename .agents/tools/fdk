@@ -116,6 +116,10 @@ fdk - helper for working on Firedrake
       test_solving_interface.py), so grepping for the module's own basename
       misses the file.
 
+  fdk testfile --from-content
+      As above, given a new test's own content on stdin instead of a source
+      file's path -- find what already covers it, before writing it.
+
   fdk show <file> <name>
       Print one function or class, found by name rather than by line number.
       Firedrake has files of several thousand lines, and the line numbers in
@@ -285,8 +289,11 @@ case "$cmd" in
         "$PY" "$TOOLS_IN_REPO/check-prose.py" --explain "$@"
         ;;
     testfile)
-        [ $# -ge 1 ] || { echo "fdk testfile needs <path>" >&2; exit 2; }
-        "$PY" - "$SRC" "$1" <<'PYEOF'
+        [ $# -ge 1 ] || { echo "fdk testfile needs <path>, or --from-content" >&2; exit 2; }
+        # A script file, not a `python - <<PYEOF` heredoc: --from-content
+        # reads its own input from stdin, and a heredoc would consume stdin
+        # to deliver the script itself, leaving none for that.
+        cat > "$WORK/testfile.py" <<'PYEOF'
 import ast
 import re
 import subprocess
@@ -294,14 +301,92 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-src, path = sys.argv[1], sys.argv[2]
+# Boilerplate almost every test file imports, regardless of what it actually
+# tests. Left in, when ranking by usage rather than by definition (see
+# below), these would swamp the one name that names the feature under test,
+# such as `NonlinearVariationalSolver`.
+BOILERPLATE = {
+    "Function", "FunctionSpace", "VectorFunctionSpace", "TensorFunctionSpace",
+    "MixedFunctionSpace", "TestFunction", "TrialFunction", "TestFunctions",
+    "TrialFunctions", "Constant", "DirichletBC", "SpatialCoordinate",
+    "Mesh", "UnitSquareMesh", "UnitIntervalMesh", "UnitCubeMesh",
+    "RectangleMesh", "ExtrudedMesh", "PETSc",
+}
+
+
+def ranked_by_usage(names, tests_dir, min_breadth=2, limit=15):
+    """Rank test files by how many of `names` each one *references*.
+
+    For content with only a handful of names to search on -- a new test,
+    not a whole source module -- counting occurrences favours a long file
+    that mentions one name in passing, or a short file fixated on just one
+    of them, over a file actually built around the same combination. This
+    counts distinct names present instead, and requires more than one, so
+    a single incidental match does not count as coverage.
+    """
+    names = {n for n in names if len(n) >= 5} - BOILERPLATE
+    if len(names) < min_breadth:
+        return []
+    pattern = "|".join(re.escape(n) for n in names)
+    proc = subprocess.run(
+        ["grep", "-rlE", pattern, "--include=test_*.py", str(tests_dir)],
+        capture_output=True, text=True,
+    )
+    breadth = {}
+    for line in proc.stdout.splitlines():
+        text = Path(line).read_text(encoding="utf-8", errors="replace")
+        breadth[line] = sum(1 for n in names if n in text)
+    ranked = sorted((p for p, b in breadth.items() if b >= min_breadth),
+                     key=breadth.get, reverse=True)
+    return ranked[:limit]
+
+
+def ranked_by_definition(names, tests_dir, limit=15):
+    """Rank test files by how many times each one *mentions* `names`.
+
+    For a source module's full set of top-level definitions -- many, and
+    each one distinctive -- a raw count already tracks relevance well; the
+    file that uses a module's own vocabulary the most is its test file.
+    """
+    pattern = "|".join(re.escape(n) for n in names)
+    proc = subprocess.run(
+        ["grep", "-rlE", pattern, "--include=test_*.py", str(tests_dir)],
+        capture_output=True, text=True,
+    )
+    counts = Counter()
+    for line in proc.stdout.splitlines():
+        text = Path(line).read_text(encoding="utf-8", errors="replace")
+        counts[line] = sum(text.count(n) for n in names)
+    return counts.most_common(limit)
+
+
+src, arg = sys.argv[1], sys.argv[2]
+tests_dir = Path(src) / "tests"
+
+if arg == "--from-content":
+    content = sys.stdin.read()
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as error:
+        sys.exit(f"fdk testfile: cannot parse stdin: {error}")
+    # A single capitalized letter is a local (`F` the form, `V` the space),
+    # not a class, however common a coincidental match on it would be.
+    names = {node.id for node in ast.walk(tree)
+             if isinstance(node, ast.Name) and node.id[:1].isupper()}
+    if not names:
+        sys.exit("fdk testfile: stdin has no capitalized name to search for")
+    ranked = ranked_by_usage(names, tests_dir)
+    for test_path in ranked:
+        print(test_path)
+    sys.exit(0 if ranked else 1)
+
+path = arg
 with open(path, encoding="utf-8", errors="replace") as handle:
     source = handle.read()
 try:
     tree = ast.parse(source)
 except SyntaxError as error:
     sys.exit(f"fdk testfile: cannot parse {path}: {error}")
-
 names = {
     node.name
     for node in ast.iter_child_nodes(tree)
@@ -310,23 +395,14 @@ names = {
 }
 if not names:
     sys.exit(f"fdk testfile: {path} defines no top-level name to search for")
-
-pattern = "|".join(re.escape(name) for name in names)
-tests_dir = Path(src) / "tests"
-proc = subprocess.run(
-    ["grep", "-rlE", pattern, "--include=test_*.py", str(tests_dir)],
-    capture_output=True, text=True,
-)
-counts = Counter()
-for line in proc.stdout.splitlines():
-    text = Path(line).read_text(encoding="utf-8", errors="replace")
-    counts[line] = sum(text.count(name) for name in names)
-if not counts:
+ranked = ranked_by_definition(names, tests_dir)
+if not ranked:
     sys.exit(f"fdk testfile: no test under {tests_dir} references a name from {path}")
-width = len(str(max(counts.values())))
-for test_path, count in counts.most_common(15):
+width = len(str(ranked[0][1]))
+for test_path, count in ranked:
     print(f"{count:>{width}}  {test_path}")
 PYEOF
+        "$PY" "$WORK/testfile.py" "$SRC" "$1"
         ;;
     show)
         [ $# -ge 2 ] || { echo "fdk show needs <file> <name>" >&2; exit 2; }

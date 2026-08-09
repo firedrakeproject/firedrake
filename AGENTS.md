@@ -93,9 +93,10 @@ toolchain:
 
 ### Agent Tools
 
-`.agents/tools/fdk` runs the work a session repeats; it is not on `PATH`, so call it by that path
-(or symlink it onto your own). Run `.agents/tools/fdk help` for the full reference; the commands
-in daily use:
+`.agents/tools/fdk` is the required interface for tests and lint in this repo, not one option among
+several: a bare `pytest` or `flake8` is denied outright, by a `PreToolUse` hook this checkout runs
+by default. It is not on `PATH`, so call it by that path (or symlink it onto your own). Run
+`.agents/tools/fdk help` for the full reference; the commands in daily use:
 
 ```bash
 .agents/tools/fdk test <nprocs> [paths]                 # tests at a process count, one deduplicated summary
@@ -112,8 +113,8 @@ in daily use:
 .agents/tools/fdk build / clean / py [args] / status
 ```
 
-Prefer `fdk` to writing the shell line yourself: it always calls the virtual environment's
-interpreter, filters parallel tests correctly, and needs no configuration in a normal checkout.
+Use `fdk`, not the shell line it wraps: it always calls the virtual environment's interpreter,
+filters parallel tests correctly, and needs no configuration in a normal checkout.
 
 Run `fdk prose` on files you edit, and `fdk prose --range main...HEAD` on the whole branch before
 requesting review. `check-prose.py --help` prints the `PostToolUse` hook config that runs it on
