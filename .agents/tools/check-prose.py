@@ -93,8 +93,17 @@ EXEMPT_NAMES = {"AGENTS.md", "CLAUDE.md", "check-prose.py"}
 
 SPHINX = re.compile(r":(?:arg|param|returns?|rtype|raises|type|vartype)\b")
 TELLS = re.compile(
-    r"(?<![A-Za-z])(?:used to|previously|no longer|we removed|this replaces"
+    r"(?<![A-Za-z])(?:previously|no longer|we removed|this replaces"
     r"|formerly|instead of the (?:old|previous|former))(?![A-Za-z])",
+    re.IGNORECASE,
+)
+# "used to" alone is not enough: "this used to divide by N" describes
+# removed code, but "the function used to define F" just names what the
+# function is for -- a reduced relative clause, not the sentence's main
+# verb. The first has a pronoun subject right before "used to"; the second
+# hangs off a noun. Only the first is the tell.
+USED_TO = re.compile(
+    r"(?<![A-Za-z])(?:this|it|that|these|those|we|they)\s+used to(?![A-Za-z])",
     re.IGNORECASE,
 )
 HASATTR = re.compile(r"if\s+not\s+hasattr\(\s*self\b")
@@ -303,7 +312,7 @@ def check(path, commit_range=None):
             findings.append((number, "sphinx-field-list", why, line.strip()))
         if number not in added:
             continue
-        if TELLS.search(line):
+        if TELLS.search(line) or USED_TO.search(line):
             findings.append((number, "past-tense",
                              "Describes code that may not be there any more", line.strip()))
         if HASATTR.search(line):
