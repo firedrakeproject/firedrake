@@ -33,199 +33,130 @@ toolchain:
 
 ## Core Working Rules
 
-* **Mathematical Root Causes:** Bug fixes must address the underlying core mathematical or
-  architectural issue. Do not merely patch particular failing test cases or edge cases.
-* **Generality Over Complexity:** Avoid increasing code complexity with complicated bookkeeping or
-  special-case logic. Firedrake relies on the mathematical generality of finite elements.
-* **Unified Abstractions:** Proper Firedrake code avoids branching on the wide range of discretizations
-  (e.g., cell type, polynomial degree, or finite element family) or execution states (serial vs. MPI
-  parallel). Rely on UFL, TSFC, PyOP2, and PETSc abstractions to handle these variations
-  transparently.
-* **Preserve Style:** Preserve Firedrake style and naming conventions. Keep edits minimal and local to
-  the requested change. Match existing patterns in the package you are modifying.
-* **Avoid Duplication:** Avoid unnecessary code duplication. Prefer reusing or extending nearby logic
-  when it keeps behavior clear and local. Do not add speculative abstractions or broad refactors unless
-  explicitly requested.
-* **Do Not Trust Memorized API Shapes:** Firedrake, UFL, and PETSc/petsc4py APIs change over time —
-  properties become methods, arguments get renamed, call signatures get deprecated. An LLM's trained
-  knowledge reflects a snapshot that may already be stale, and will confidently reproduce the old,
-  no-longer-correct form (e.g. calling a now-method as a bare attribute, or vice versa). Before calling
-  an API you have not just seen used in this codebase, verify its actual current signature by reading
-  the installed Firedrake/UFL/PETSc source rather than relying on memorized patterns.
-* **Document The Present, Not The Past:** When fixing code that was wrong, do not leave comments or
-  prose explaining what the removed, incorrect approach used to do or why it was wrong. Keep comments
-  and documentation focused on the current, correct code; a reader should never need the history of
-  what used to be there to understand why the present code is right. The test to apply: a reader who
-  never saw the diff must not be able to tell that anything was removed — see the Anti-Patterns
-  section below.
+* **Mathematical Root Causes:** Fix the underlying mathematical or architectural cause. Do not patch
+  individual failing test cases.
+* **Generality Over Complexity:** Rely on the mathematical generality of finite elements. Do not add
+  special-case bookkeeping or branching.
+* **Unified Abstractions:** Do not branch on cell type, polynomial degree, element family, or serial vs.
+  MPI-parallel execution. Use the UFL/TSFC/PyOP2/PETSc abstraction that already handles it — see
+  Anti-Patterns.
+* **Preserve Style:** Match the naming and patterns of the package you are editing. Keep edits minimal
+  and local to the requested change.
+* **Avoid Duplication:** Reuse or extend nearby logic instead of duplicating it. Do not add speculative
+  abstractions or broad refactors unless asked.
+* **Verify API Shapes:** Read a Firedrake, UFL, or PETSc/petsc4py API's current signature from the
+  installed source before calling it, unless you have just seen it used in this codebase. `fdk deps`
+  finds where each component package lives.
+* **Document The Present, Not The Past:** Do not describe a removed or rejected approach in a comment or
+  docstring. Document only what the current code does. Checked by `fdk prose` — see Anti-Patterns.
 
 ## Coding Style And Conventions
 
-* **Class Attributes:** Every attribute a class can hold must be declared in one visible place, either
-  initialized in the constructor (`__init__`) or, for state that is expensive or unnecessary to compute
-  eagerly, declared as a `functools.cached_property`. Avoid discovering an attribute's existence via
-  `hasattr`/`setattr`/`getattr` scattered across methods — laziness is fine, ad hoc laziness is not.
-* **No Python Mesh Loops:** The Firedrake style strictly avoids using Python `for` loops to iterate
-  over degrees of freedom (DoFs) or cells in a mesh.
-* **Prefer Code Generation/PETSc:** All mesh-level or DoF-level operations must be implemented using
-  PyOP2-driven kernels or DMPlex operations. These should be accessed either through `petsc4py` or
-  Firedrake's internal Cython wrappers.
-* **NumPy Is Fine, Repeatedly Touching Whole Arrays Is Not:** NumPy is the right tool for index
-  computations, small metadata configurations, and vectorized pre/post-processing. The anti-pattern is
-  not "using NumPy" but iterating a large array element-by-element (in a Python `for` loop) or
-  otherwise touching the same whole array repeatedly outside of a single vectorized expression — that
-  is what defeats NumPy's own performance model, on top of bypassing PyOP2/code-generation for
-  mesh-bound data.
-* **Docstrings Are Always `numpydoc`:** Every docstring you write or touch — public API, private helper,
-  Cython function in `firedrake/cython/*.pyx` — must be `numpydoc`, using its section headings
-  (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
-  (`:arg x:`, `:param x:`, `:returns:`, `:rtype:`) in new or edited code, and do not copy it from the
-  surrounding file: much of Firedrake predates the convention, so matching the neighbouring docstrings
-  is precisely the wrong instinct — this is the one place where "preserve the existing style" does not
-  apply. Being private, internal, or compiled is not an excuse to skip the docstring, to downgrade its
-  format, or to leave the arguments undocumented: give every parameter and every return value its
-  `numpydoc` entry, however small the helper. Exception: tests (`tests/**`) do not need the full
-  `Parameters`/`Returns` structure — a plain one- or two-sentence summary of what is being checked and
-  why is enough.
-* **Plain English (ASD-STE100) In Docstrings And Comments:** Every docstring or comment you write or
-  touch must follow Simplified Technical English (ASD-STE100): short sentences, one idea per sentence,
-  active voice, subject named up front instead of buried in a relative clause. Avoid the clause-stacking,
-  inverted phrasing typical of unedited AI-generated prose — see the Anti-Patterns section below.
-  `.agents/tools/check-prose.py --help` checks the part of this a machine can judge.
-* **Type Hints:** New code should include type hints on function/method signatures.
+* **Class Attributes:** Declare every attribute in `__init__`, or as a `functools.cached_property` for
+  state that is expensive to compute eagerly. Do not discover an attribute via
+  `hasattr`/`setattr`/`getattr`. See Anti-Patterns; the setup-guard case is checked by `fdk prose`.
+* **No Python Mesh Loops:** Never iterate over degrees of freedom or cells with a Python `for` loop.
+* **Prefer Code Generation/PETSc:** Implement mesh-level or DoF-level operations through PyOP2-driven
+  kernels or DMPlex, via `petsc4py` or Firedrake's Cython wrappers. See Anti-Patterns.
+* **NumPy For Vectorized Work Only:** Use NumPy for index computation and vectorized pre/post-processing.
+  Do not iterate a large array element-by-element, or touch the same whole array repeatedly outside one
+  vectorized expression.
+* **Docstrings Are Always `numpydoc`:** Use numpydoc section headings (`Parameters`, `Returns`, `Raises`,
+  `Notes`) in every docstring you write or touch, including private helpers and Cython functions in
+  `firedrake/cython/*.pyx`. Never the old Sphinx field-list style (`:arg x:`, `:param x:`, `:returns:`,
+  `:rtype:`), even where the surrounding file already uses it. Tests (`tests/**`) need only a one- or
+  two-sentence summary. Checked by `fdk prose`.
+* **Plain English (ASD-STE100) In Docstrings And Comments:** Short sentences, one idea each, active
+  voice, subject named up front rather than buried in a relative clause. Checked by `fdk prose` — see
+  the Clause-Stacked anti-pattern below.
+* **Type Hints:** Add type hints to new function and method signatures.
+* **Demos Are Literate Programs:** Keep `demos/<name>/<name>.py.rst` prose and code in step. A paragraph
+  ending in `::` makes the following indented block executable; a `.. code-block:: python` directive
+  renders in the docs but does not run. Prefer `::`.
 
 ## Testing Requirements
 
-* **Pull Requests:** All PRs must include comprehensive tests demonstrating that the new feature works
-  or the bug is fixed.
-* If behavior changes, update the relevant test blocks and ensure that parallel runs (MPI) yield
-  correct and identical mathematical results to serial runs.
-* Keep tests targeted. Add or update the narrowest test that proves the behavior you changed.
-* Do not create new test files for this. Add the new test(s) to the existing test file(s) that already
-  cover the feature or module being changed.
+* Add tests that demonstrate the new feature or bug fix, in the existing test file for that module —
+  do not create a new one.
+* When behavior changes, update the affected tests and confirm parallel (MPI) runs match serial results.
+* Add or update the narrowest test that proves the change.
 
 ## Pull Request Expectations
 
-* All changes are expected to arrive through GitHub Pull Requests.
-* Keep diffs reviewable and focused.
-* Before concluding work, ensure `make srclint` passes, and verify that the relevant subset of the
-  pytest test suite succeeds locally.
+* All changes land through GitHub pull requests. Keep diffs focused.
+* Before requesting review: `fdk lint`, `fdk prose --range main...HEAD`, and the relevant `fdk test`.
 
 ## Development Toolchain
 
 ### Agent Tools
 
-`.agents/tools/` holds the tools a session uses. `fdk` runs the work a session repeats, and
-`check-prose.py` checks prose against the rules above. Run `.agents/tools/fdk help` for the
-subcommands: `test`, `testraw`, `lint`, `prose`, `py`, `clean`, `build`, `status`, `where`.
-
-Prefer it to writing the shell line yourself. It applies the rules below that are easy to get
-wrong by hand:
+`.agents/tools/fdk` runs the work a session repeats. Run `fdk help` for the full reference; the
+commands in daily use:
 
 ```bash
-.agents/tools/fdk test 3 tests/firedrake/multigrid   # every nprocs=3 test, under one mpiexec
-.agents/tools/fdk build                              # after any firedrake/cython/*.pyx change
-.agents/tools/fdk lint                               # make srclint, as CI runs it
-.agents/tools/fdk lint firedrake/mesh.py             # flake8 on one file, to iterate
-.agents/tools/fdk prose --range main...HEAD          # the prose rules over a whole branch
+fdk test <nprocs> [paths]                 # tests at a process count, one deduplicated summary
+fdk testraw <nprocs> [paths]              # as test, unfiltered, to read a traceback
+fdk baseline <nprocs> [paths]             # which failures this branch introduced
+fdk lint [paths]                          # make srclint, or flake8 on given paths
+fdk prose [--range base...head] [paths]   # prose rules, on an edit or over a branch
+fdk explain [--range base...head] [paths] # each added comment beside its code
+fdk show <file> <name>                    # one function or class, found by name
+fdk deps [name]                           # component packages: location, branch, dirty state
+fdk stack                                 # the PR stack, and how far each branch has drifted
+fdk pr <number> [--title ...] [--body-file ...]  # retitle/redescribe a PR
+fdk build / fdk clean / fdk py [args] / fdk status
 ```
 
-`fdk` calls the interpreter of the virtual environment, not the system one. It launches a
-parallel test run under an explicit `mpiexec`, and it prints one summary rather than one report
-per rank. It needs no configuration: it finds the source tree from its own location, and the
-environment from `FIREDRAKE_VENV`, from an activated environment, or from the directory the
-source tree sits in.
+Prefer `fdk` to writing the shell line yourself: it always calls the virtual environment's
+interpreter, filters parallel tests correctly, and needs no configuration in a normal checkout.
 
-Both tools are plain command-line programs. Any agent can run them, and nothing about them is
-particular to one assistant. `fdk` needs only `bash`, and `check-prose.py` only Python and
-`git`.
-
-Run `fdk prose` over the files you edit, and `fdk prose --range main...HEAD` over the whole
-branch before you ask for review. `check-prose.py` also runs as a Claude Code `PostToolUse`
-hook, which reports each edit as it happens; `--help` prints the settings block that opts a
-checkout in. That is one way to drive it, not the only one, and it is the same checks either
-way.
+Run `fdk prose` on files you edit, and `fdk prose --range main...HEAD` on the whole branch before
+requesting review. `check-prose.py --help` prints the `PostToolUse` hook config that runs it on
+every edit automatically inside Claude Code; that is one way to drive it, not the only one.
 
 ### Environment Setup
 
-* **Editable installs across the stack:** A bug can live in Firedrake or in any of its component
-  packages (PETSc, petsc4py, UFL, FIAT, FInAT, TSFC, PyOP2, loopy). Follow the
-  ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages) instructions
-  in the install docs to get a component installed in editable mode so source edits take effect without
-  reinstalling, and check which branch/commit of each component is actually active before assuming a
-  fix belongs in Firedrake itself.
-* **`petsc4py`/PETSc version skew:** `petsc4py` is a compiled extension built against one specific
-  PETSc checkout. If you switch the PETSc branch/commit underneath an existing venv (e.g. to bisect a
-  PETSc-side issue) without rebuilding `petsc4py` against it, `import firedrake` fails with a confusing
-  `undefined symbol: ...` error from `petsc4py`'s `.so` — not a Firedrake traceback, and easy to
-  misattribute to whatever you were just changing. Rebuild `petsc4py` (and re-run
-  `pip install --no-build-isolation -e .` for it) after switching PETSc, rather than debugging the
-  symptom.
-* **Caching:** Generated TSFC kernels and compiled PyOP2 code are cached on disk, under
-  `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR`. These are not pre-set shell variables — do not
-  expect `echo $PYOP2_CACHE_DIR` to show anything. `firedrake.configuration.setup_cache_dirs()` sets
-  them in-process, defaulting to `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`, as one of the first things
-  `import firedrake` does (right after PETSc initialization, before PyOP2 loads) unless you already
-  exported them yourself beforehand. This also means that if PETSc initialization itself fails (e.g.
-  the version-skew symptom above), these variables never get set at all. If a code-generation change
-  does not seem to take effect, or you suspect a stale kernel, run `firedrake-clean` before re-testing
-  (it prints the actual paths in use).
+* **Editable installs across the stack:** Install components in editable mode (see
+  ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages)) so source
+  edits take effect without reinstalling. `fdk deps` reports each component's location, branch, and
+  dirty state — check it before assuming a fix belongs in Firedrake itself.
+* **`petsc4py`/PETSc version skew:** After switching the PETSc branch or commit under an existing venv,
+  rebuild `petsc4py` (`pip install --no-build-isolation -e .`) before doing anything else. A stale
+  `petsc4py` fails `import firedrake` with an `undefined symbol: ...` error that looks unrelated to
+  PETSc.
+* **Caching:** Generated TSFC kernels and compiled PyOP2 code are cached under
+  `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR` (default `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`), set
+  in-process by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. Run `fdk clean`
+  before re-testing a code-generation change that does not seem to take effect.
 * **Smoke test after install/rebuild:** `firedrake-check` runs a small grouped-by-process-count subset
-  of the regression suite; use it to sanity-check an environment before investing time in a full test
-  run.
+  of the regression suite; use it to sanity-check an environment before a full test run.
 
 ### Testing
 
-* **Parallel tests:** Tests that must run under MPI are marked `@pytest.mark.parallel` (optionally
-  `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])` for multiple process counts), via
-  the `mpi-pytest` plugin. Plain `pytest test_foo.py` does exercise them: for each parallel test it
-  self-forks an `mpiexec` subprocess with the right `nprocs`, one test at a time, which is slow and
-  produces one nested pytest report per test. To instead run every `nprocs=3` test in `test_foo.py`
-  together, directly under a single outer `mpiexec`, filter on the `parallel[match]` marker that the
-  plugin attaches to tests whose `nprocs` equals the launched communicator size:
-  ```bash
-  mpiexec -n 3 python -m pytest -m "parallel[match]" test_foo.py
-  ```
-  Tests requiring a different `nprocs` are collected but skipped (not run) by this invocation; do not
-  conclude a parallel code path is untested just because a plain, unmarked `pytest` run was green.
-* **Running a whole suite:** never a plain serial `pytest <dir>`. The *relevant* subset is the tests
-  that actually execute the lines you changed, at the process counts where those lines are live — code
-  reached only under MPI is untested by any serial run, however large. `fdk test <nprocs> <paths>` runs
-  one such subset under a single `mpiexec`, which is what an edit-and-rerun loop wants. Shard the run
-  instead when one `mpiexec` is too slow, or when you reproduce a CI result.
-  `firedrake-run-split-tests <nprocs> <njobs> <pytest args> <paths>` shards it the way CI does
-  (`.github/workflows/core.yml`):
-  ```bash
-  firedrake-run-split-tests 1 1 -n 16 -q <paths>   # serial tests, -n is pytest-xdist
-  firedrake-run-split-tests 3 4 <paths>            # nprocs=3 tests; adds -m parallel[match] itself
-  ```
-  Run it from a scratch directory: it writes `pytest_nprocs<N>_job<i>.log` and `job<i>.errcode` into the
-  cwd. Size `-n`/`njobs` to the machine, keeping `njobs * nprocs` under the core count, since the jobs
-  are launched concurrently by GNU parallel.
-* **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
-  before the full module; the suite is large and full-module reruns are slow to iterate against.
+* Tests that must run under MPI are marked `@pytest.mark.parallel` (optionally
+  `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])`). Use `fdk test <nprocs> <paths>`
+  or `fdk testraw`, never a bare `pytest`, on parallel-marked tests.
+  `firedrake-run-split-tests <nprocs> <njobs> <pytest args> <paths>` shards a run the way CI does
+  (`.github/workflows/core.yml`); run it from a scratch directory.
+* Run the relevant subset, not a plain serial `pytest <dir>`: the tests that exercise the lines you
+  changed, at the process counts where those lines are live.
+* Reproduce narrowly first: run the single failing test node (`pytest path::test_name -k ...`) before
+  the full module.
 
 ### Debugging
 
-* **Generated kernels (niche, rarely needed):** By default, generated C is compiled optimized and
-  without debug symbols, so a debugger attached to the Python process cannot meaningfully step through
-  it. Set `PYOP2_DEBUG=1` to compile with `-O0 -g` instead, which is the prerequisite for using
-  `gdb`/`cgdb` on the compiled kernel at all.
-* **Cross-rank code-generation mismatches:** If a parallel run raises `CompilationError: Generated code
-  differs across ranks`, the mismatching per-rank source is dumped under
-  `<cache_dir>/mismatching-kernels/src-rank*.c`. Diffing the two sources only tells you *what* differs;
-  the actual fix is almost always upstream of that, in whatever Python-level parameter or branch is
-  computed differently per rank and fed into code generation (e.g. a rank-local decision that should be
-  a collective/global one) — make that decision the same on every rank, rather than patching the
-  generated source or the difference itself.
-* **Parallel deadlocks (niche, rarely needed):** `PYOP2_SPMD_STRICT=1` adds barriers around calls
-  marked `@collective` and around cache access, trading overhead for a much narrower failure point when
-  ranks disagree about control flow.
-* **Logging:** `firedrake.logging.set_log_level()` (or the `PYOP2_LOG_LEVEL` environment variable)
-  raises verbosity of Firedrake's/PyOP2's own logger, independent of PETSc's `-log_view`/`-info`.
-* **PETSc-level diagnostics:** Since the linear/nonlinear solve ultimately runs through petsc4py,
-  standard PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`, `-log_view`, `-start_in_debugger`)
-  can be passed through Firedrake's `solver_parameters` or the command line exactly as in a plain PETSc
+* **Generated kernels (niche, rarely needed):** Set `PYOP2_DEBUG=1` to compile generated C with
+  `-O0 -g`, the prerequisite for `gdb`/`cgdb` on a compiled kernel.
+* **Cross-rank code-generation mismatches:** `CompilationError: Generated code differs across ranks`
+  dumps the mismatching per-rank source under `<cache_dir>/mismatching-kernels/src-rank*.c`. Fix the
+  Python-level value that is computed differently per rank and fed into code generation — make that
+  decision the same on every rank, rather than patching the generated source.
+* **Parallel deadlocks (niche, rarely needed):** `PYOP2_SPMD_STRICT=1` adds barriers around
+  `@collective` calls and cache access, to narrow down where ranks disagree about control flow.
+* **Logging:** `firedrake.logging.set_log_level()` (or `PYOP2_LOG_LEVEL`) sets Firedrake/PyOP2 log
+  verbosity, independent of PETSc's `-log_view`/`-info`.
+* **PETSc-level diagnostics:** Pass PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`,
+  `-log_view`, `-start_in_debugger`) through `solver_parameters` or the command line, as in any PETSc
   application.
 
 ### Reproducible Environments
