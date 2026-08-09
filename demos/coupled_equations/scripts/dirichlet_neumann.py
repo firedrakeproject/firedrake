@@ -15,7 +15,7 @@ PLOT = True
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [4,4,4,4,4]
+n1_list = [8,8,8,8,8]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -26,22 +26,25 @@ errors_2 = []
 
 # Prepares meshes with differing refinement levels for convergence analysis
 for n1,n2 in zip(n1_list, n2_list):
-    mesh1 = RectangleMesh(nx = n1, ny = n1//2, Lx = 0.5, Ly = 1)
-    mesh2 = RectangleMesh(nx = n2, ny = n2//2, Lx = 0.5, Ly = 1)
-    mesh2.coordinates.dat.data[:, 0] += 0.5  # Shift to the right by 0.5
+    mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
+    mesh2 = UnitSquareMesh(n2, n2, quadrilateral=True)
+    mesh2.coordinates.dat.data[:, 0] += 1.0  # Shift to the right by 1
 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
-    p = 3
-    p_inner = 2
-    w2 = Constant(1000.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+    p = 4
+    p_inner = 4
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
-    u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
+    u1_exact = x1 * sin(pi * y1) ** 2
+    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+
+    #u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
+    #u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
@@ -122,8 +125,7 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     u_sol = Function(W)
     
     bc1 = DirichletBC(W.sub(0), 0, [1, 3, 4])
-    bc2 = DirichletBC(W.sub(1), 0, [2, 3, 4])
-    problem = LinearVariationalProblem(A, L, u_sol, bcs=[bc1,bc2])
+    problem = LinearVariationalProblem(A, L, u_sol, bcs=bc1)
     params = {
         "mat_type": "aij",
         "ksp_type": "preonly",

@@ -154,11 +154,6 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
 
 
     # The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. 
-    # Intermediate spaces are used for defining the coupling terms in the variational problem. 
-    # These coupling terms are calculated by multiplying the cross-mesh interpolation matrices
-    # ``B12`` and ``B21`` with the mass matrices ``M1`` and ``M2``. 
-    # Recall that ``A12`` enforces the Neumann boundary condition 
-    # whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
 
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1
@@ -167,6 +162,13 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
                 - inner(dot(grad(u2), n2), v2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
+
+    # Intermediate spaces are used to define the coupling terms in the variational problem. 
+    # These coupling terms are calculated by finding the product of the cross-mesh interpolation 
+    # matrices ``B12, B21`` and the mass matrices ``M1, M2``, 
+    # placing the coupling terms in the dual space of ``W``.
+    # Recall that ``A12`` enforces the Neumann boundary condition 
+    # whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
     
     # Intermediate spaces
     Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
@@ -256,13 +258,13 @@ Utilising both methods mentioned above, the coupled problem can be solved for ea
 Convergence Analysis
 --------------------
 
-Using the L2 error norms calculated above, we can approximate the rate of convergence 
+Using the L2 error norms calculated above, we can approximate the rate of convergence as
 
 .. math::
   
-  q = \frac{\ln \left( \frac{||u_{h_1} - \tilde{u}||_{L^2}}{||u_{h_2} - \tilde{u}||_{L^2}} \right)}{\ln \left( \frac{h_1}{h_2} \right)}.
+  q = \frac{\ln \left( \frac{||u_{h_1} - \tilde{u}||_{L^2}}{||u_{h_2} - \tilde{u}||_{L^2}} \right)}{\ln \left( \frac{h_1}{h_2} \right)}
   
-where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes of differing sizes, :math:`\tilde{u}` is the exact solution, :math:`h_1` and :math:`h_2` are the mesh spacings. ::
+where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes of differing sizes, :math:`\tilde{u}` is the exact solution, :math:`h_1` and :math:`h_2` are the element spacings in each mesh. It is expected for finite element problems to converge to the exact solution at rate :math:`O(h^{p+1})` where :math:`p` is the dimension of the domain. ::
 
   ratios_1 = []
   ratios_2 = []
@@ -305,8 +307,101 @@ If the ``VERBOSE`` flag is set to True, the following block runs and prints the 
     plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann BCs")
     plt.savefig("Logloggraph.png")
 
-[TODO: Insert results]
+Running the above script with ``n1_list = [2,4,8,16,32]``, ``n2_list = [2,4,8,16,32]`` and domain dimensions ``p = 4`` and ``p_inner = 4``, we obtain the following error norm and convergence rate values.
 
+.. list-table::
+   :header-rows: 1
+
+   * - h
+     - Error 1
+     - Rate 1
+   * - 0.50000
+     - 1.981675e-05
+     - -
+   * - 0.25000
+     - 1.978103e-06
+     - 3.3245
+   * - 0.12500
+     - 3.139620e-08
+     - 5.9774
+   * - 0.06250
+     - 4.924948e-10
+     - 5.9943
+   * - 0.03125
+     - 7.703876e-12
+     - 5.9984
+
+.. list-table::
+   :header-rows: 1
+
+   * - h
+     - Error 2
+     - Rate 2
+   * - 0.50000
+     - 5.559123e-05
+     - -
+   * - 0.25000
+     - 4.598223e-06
+     - 3.5957
+   * - 0.12500
+     - 7.296559e-08
+     - 5.9777
+   * - 0.06250
+     - 1.144489e-09
+     - 5.9944
+   * - 0.03125
+     - 1.791455e-11
+     - 5.9974
+
+This corresponds to a problem with conforming coupled meshes, converging with rate :math:`O(h^{p+2})` and small error norm values.
+
+This problem can also be solved on non-conforming meshes. As an example, we run the script with ``n1_list = [8,8,8,8,8]``, ``n2_list = [2,4,8,16,32]`` and the same domain dimensions. We now obtain the following error norm and convergence rate values.
+
+.. list-table::
+   :header-rows: 1
+
+   * - h
+     - Error 1
+     - Rate 1
+   * - 0.12500
+     - 1.618352e-05
+     - -
+   * - 0.12500
+     - 3.079616e-07
+     - inf
+   * - 0.12500
+     - 3.139620e-08
+     - inf
+   * - 0.12500
+     - 4.729473e-08
+     - -inf
+   * - 0.12500
+     - 2.266786e-07
+     - -inf
+
+.. list-table::
+   :header-rows: 1
+
+   * - h
+     - Error 2
+     - Rate 2
+   * - 0.50000
+     - 5.466399e-05
+     - -
+   * - 0.25000
+     - 4.577680e-06
+     - 3.5779
+   * - 0.12500
+     - 7.296559e-08
+     - 5.9713
+   * - 0.06250
+     - 1.571188e-07
+     - -1.1066
+   * - 0.03125
+     - 3.634664e-07
+     - -1.2100
+
+Similar results to the conforming mesh case are observed, where the approximated solution decreases in error at a rate of :math:`O(h^{p+2})` until :math:`h = \frac{1}{n_1}` is reached.
 
 A python script version of this demo can be found :demo:`here <coupled_equations.py>`.
 
