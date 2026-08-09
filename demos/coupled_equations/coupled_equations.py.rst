@@ -104,7 +104,7 @@ We now implement this problem using Firedrake by first initialising the constant
   errors_1 = []
   errors_2 = []
 
-For each index in ``n1_list`` and ``n2_list``, we define two meshes with a shared edge each with ``n1 x n1`` and ``n2 x n2`` elements. ::
+For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x n1`` and ``n2 x n2`` elements and a shared interface at :math:`x = 1`. ::
 
   for n1,n2 in zip(n1_list, n2_list):
     mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
@@ -114,7 +114,7 @@ For each index in ``n1_list`` and ``n2_list``, we define two meshes with a share
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-The problem is then defined by passing these meshes to ``build_problem``. First, the exact solutions for this problem are defined in order to calculate the source functions. :: 
+The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()`` which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. ::
 
   def build_problem(mesh1, mesh2):
     p = 3
@@ -130,7 +130,9 @@ The problem is then defined by passing these meshes to ``build_problem``. First,
     f1 = -div(grad(u1_exact))
     f2 = -div(grad(u2_exact)) + u2_exact
 
-The following measures are defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes. ::
+
+    # Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh,
+    # ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes.
 
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
@@ -139,18 +141,24 @@ The following measures are defined where ``n1`` and ``n2`` are the unit normal v
     ds1 = Measure("ds", domain=mesh1, subdomain_id=2)
     ds2 = Measure("ds", domain=mesh2, subdomain_id=1)
 
-Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.::
 
-    # Function Spaces
+    # Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, 
+    # with test and trial functions defined on the subspaces of this mixed function space.
+
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
     W = V1 * V2
 
-    # Test and trial functions
     u1, u2 = TrialFunctions(W)
     v1, v2 = TestFunctions(W)
 
-The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. Intermediate spaces are used for defining the coupling terms in the variational problem. These coupling terms are calculated by multiplying the cross-mesh interpolation matrices ``B12`` and ``B21`` with the mass matrices ``M1`` and ``M2``. ``A12`` follows the Neumann boundary condition whilst ``A21`` follows the Dirichlet boundary condition with Nitsche's penalty weight applied. [TODO: Talk about why cross-mesh interpolation and mass matrices occur] ::
+
+    # The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. 
+    # Intermediate spaces are used for defining the coupling terms in the variational problem. 
+    # These coupling terms are calculated by multiplying the cross-mesh interpolation matrices
+    # ``B12`` and ``B21`` with the mass matrices ``M1`` and ``M2``. 
+    # Recall that ``A12`` enforces the Neumann boundary condition 
+    # whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
 
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1
@@ -178,7 +186,10 @@ The matrices ``A11`` and ``A22`` are defined directly on the above function spac
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
     A21_form = action(M2, B21)
 
-These definitions are combined to form the overall problem to be solved ``Ax = L``. We return ``A, L, W`` and the exact solutions mapped onto the function space from this method. ::
+    
+    # These definitions are combined to form the overall problem to be solved ``Ax = L``. 
+    # From this method, we return ``A, L, W`` and the exact solutions 
+    # which are mapped onto the function space.
 
     # RHS
     b1 = inner(f1, v1) * dx1
@@ -192,7 +203,7 @@ These definitions are combined to form the overall problem to be solved ``Ax = L
 
     return A, L, W, u1_exact_func, u2_exact_func
 
-The resulting solution can be plotted by calling ``plot``. Matplotlib is required for plotting with this method and Firedrake's `trisurf`_ is used to produce a three-dimensional surface plot. ::
+The resulting solution can be plotted by calling ``plot()``. Matplotlib is required for plotting with this method and Firedrake's `trisurf`_ is used to produce a three-dimensional surface plot. ::
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import trisurf
@@ -210,13 +221,13 @@ The resulting solution can be plotted by calling ``plot``. Matplotlib is require
     plt.tight_layout()
     plt.savefig(filename)
 
-Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh-size as shown below.::
+Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh-size as shown below and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
 
   for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
     u_sol = Function(W)
     
-    bc = DirichletBC(W.sub(0), 0, [1, 3, 4])
+    bc = DirichletBC(W.sub(0), 0, [1, 3, 4]) # Defining a 
     problem = LinearVariationalProblem(A, L, u_sol, bcs=bc)
     params = {
         "mat_type": "aij",
@@ -230,8 +241,6 @@ Utilising both methods mentioned above, the coupled problem can be solved for ea
 
     if PLOT:
       plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
-
-We additionally calculate the L2 error norm between the approximated and exact solutions and collect the mesh-size at each iteration for convergence analysis. ::
 
     e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
     e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
