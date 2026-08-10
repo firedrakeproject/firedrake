@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = True
+PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [8,8,8,8,8] #[4,4,4,4,4]#[8,8,8,8,8] #
+n1_list = [8,8,8,8,8]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -37,10 +37,10 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
-    p = 5
-    p_inner = 2
-    w1 = Constant(1000.0)/CellDiameter(mesh1)
-    w2 = Constant(1000.0)/CellDiameter(mesh2)  # Nitsche penalty weight
+    p = 3
+    p_inner = 3
+    w1 = Constant(50.0)/CellDiameter(mesh1)
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
@@ -64,6 +64,8 @@ def build_problem(mesh1, mesh2):
     # Intermediate spaces
     Q1 = FunctionSpace(mesh1, "CG", p_inner)
     Q2 = FunctionSpace(mesh2, "CG", p_inner)
+    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
+    Q2v = VectorFunctionSpace(mesh2, "CG", p_inner)
 
     W = V1 * V2
     # Test and trial functions
@@ -73,30 +75,44 @@ def build_problem(mesh1, mesh2):
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1 \
                 + w1 * inner(v1, u1) * ds1 \
-                - inner(dot(grad(u1), n1), v1) * ds1 \
-                - inner(dot(grad(v1), n1), u1) * ds1
+                - 0.5 * inner(dot(grad(u1), n1), v1) * ds1 \
+                - 0.5 * inner(dot(grad(v1), n1), u1) * ds1
 
     # Poisson on mesh_2  (drop the +u2_exact in f2 too, unless Helmholtz is intended)
     A22_form = inner(grad(u2), grad(v2)) * dx2 \
                 + w2 * inner(v2, u2) * ds2 \
-                - inner(dot(grad(u2), n2), v2) * ds2 \
-                - inner(dot(grad(v2), n2), u2) * ds2
+                - 0.5 * inner(dot(grad(u2), n2), v2) * ds2 \
+                - 0.5 * inner(dot(grad(v2), n2), u2) * ds2
 
     q1 = TrialFunction(Q1)
-    M1_w = -w1 * inner(q1, v1) * ds1
-    M1_trace = inner(dot(grad(v1), n1), q1) * ds1
+    q1v = TrialFunction(Q1v)
     B12 = interpolate(u2, Q1, allow_missing_dofs=True)
+    B12v = interpolate(grad(u2), Q1v, allow_missing_dofs=True)
+
+    M1_w = -w1 * inner(q1, v1) * ds1
     A12_w = action(M1_w, B12)
+
+    M1_trace = 0.5 * inner(dot(grad(v1), n1), q1) * ds1
     A12_trace = action(M1_trace, B12)
 
+    M1_flux = -0.5 * inner(dot(q1v, n1), v1) * ds1
+    A12_flux = action(M1_flux, B12v)
+
     q2 = TrialFunction(Q2)
-    M2_w = -w2 * inner(q2, v2) * ds2
-    M2_trace = inner(dot(grad(v2), n2), q2) * ds2
+    q2v = TrialFunction(Q2v)
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)
+    B21v = interpolate(grad(u1), Q2v, allow_missing_dofs=True)
+
+    M2_w = -w2 * inner(q2, v2) * ds2
     A21_w = action(M2_w, B21)
+
+    M2_trace = 0.5 * inner(dot(grad(v2), n2), q2) * ds2
     A21_trace = action(M2_trace, B21)
 
-    A = A11_form + A22_form + A12_w + A12_trace + A21_w + A21_trace
+    M2_flux = -0.5 * inner(dot(q2v, n2), v2) * ds2
+    A21_flux = action(M2_flux, B21v)
+
+    A = A11_form + A22_form + A12_w + A12_trace + A12_flux + A21_w + A21_trace + A21_flux
 
     b1 = inner(f1, v1) * dx1
     b2 = inner(f2, v2) * dx2
