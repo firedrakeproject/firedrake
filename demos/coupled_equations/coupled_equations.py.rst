@@ -1,12 +1,12 @@
 Coupled equations
 =================
 
-This tutorial provides a guide on how to solve equations coupled on meshes represented by different domain spaces in Firedrake. As an example, we couple a poisson and Helmholtz equation on meshes connected along one edge with dirichlt and neumann boundary conditions.
+This tutorial provides a guide to solving equations coupled on meshes represented by different domain spaces in Firedrake. As an example, we couple a Poisson and Helmholtz equation on meshes connected along one edge with Dirichlet and Neumann boundary conditions.
 
 Coupled Poisson and Helmholtz equations
 ---------------------------------------
 
-Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` and let the boundary :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square mesh. The poisson equation is defined on :math:`\Omega_1` as
+Consider unit squares :math:`\Omega_1 = [0,1] \times [0,1]` and :math:`\Omega_2 = [1,2] \times [0,1]` and let the boundary :math:`\Gamma = {(1, y) : y \in [0,1]}` be the shared edge between each unit square mesh. The Poisson equation is defined on :math:`\Omega_1` as
 
 .. math::
 
@@ -23,9 +23,9 @@ The Helmholtz equation is defined on :math:`\Omega_2` as
 
 where :math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`. These solutions are known as trial functions.
 
-The weak forms for the poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. 
+The weak forms for the Poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. 
 
-For the poisson equation, the variational problem involves finding :math:`u_1 \in V^1` such that :math:`a_{11}(u_1, v_1) = L_1(v_1) \ \textrm{for all}\ v_1 \in V^1` where
+For the Poisson equation, the variational problem involves finding :math:`u_1 \in V^1` such that :math:`a_{11}(u_1, v_1) = L_1(v_1) \ \textrm{for all}\ v_1 \in V^1` where
 
 .. math::
 
@@ -41,9 +41,9 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
   L_2 (v_2) &= \int_{\Omega_2}g v_2  \ {\rm d} x.
 
-Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}`. 
+Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the Poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}`. 
 
-The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus a penalty term is added to :math:`a_{22}`. 
+The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus, a penalty term is added to :math:`a_{22}`. 
 
 .. math::
 
@@ -59,7 +59,7 @@ Along the shared interface, the two meshes are coupled. These coupling terms are
 
   a_{21}(u_1, v_2) &= -w_2 \int_{\Gamma}\mathcal{I}_{V^2} (u_1) v_2 \ {\rm d} s,
 
-where :math:`w_2 = \frac{w_0}{h}` is a penalty parameter. :math:`w_0` is a constant and :math:`h` the element spacings for the pernalty parameter. The penalty constant :math:`w_0` is typically found with trial and error. Additionally, :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` and :math:`\mathcal{I}_{V^1}: V^2 \rightarrow V^1` are cross-mesh interpolation operators, defining the trial function :math:`u_1` in the domain :math:`V^2` and vice-versa. :math:`a_{12}` enforces the neumann boundary condition whereas :math:`a_{21}` enforces the dirichlet boundary condition.
+where :math:`w_2 = \frac{w_0}{h}` is a penalty parameter. :math:`w_0` is a constant and :math:`h` the element spacings for the penalty parameter. The penalty constant :math:`w_0` is typically found with trial and error. Additionally, :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` and :math:`\mathcal{I}_{V^1}: V^2 \rightarrow V^1` are cross-mesh interpolation operators, defining the trial function :math:`u_1` in the domain :math:`V^2` and vice versa. :math:`a_{12}` enforces the Neumann boundary condition whereas :math:`a_{21}` enforces the Dirichlet boundary condition.
 
 Overall, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
 
@@ -71,7 +71,7 @@ Overall, the variational problem for the coupled equations is: find :math:`(u_1,
 Method of Manufactured Solutions (MMS)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The functions :math:`f` and :math:`g` to be passed into the solver is calculated from these exact solutions, obtaining an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
+The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The functions :math:`f` and :math:`g` to be passed into the solver are calculated from these exact solutions, obtaining an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
 
 For this demo, we define the exact solutions as
 
@@ -114,7 +114,7 @@ For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()`` which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. ::
+The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()``, which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. ::
 
   def build_problem(mesh1, mesh2):
     p = 3
@@ -223,7 +223,7 @@ The resulting solution can be plotted by calling ``plot()``. Matplotlib is requi
     plt.tight_layout()
     plt.savefig(filename)
 
-Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh-size as shown below and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
+Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh size as shown below and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
 
   for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
