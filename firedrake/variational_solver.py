@@ -135,8 +135,13 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 else:
                     Jp_full = replace(self.Jp, {self.u: u_full})
                     self.Jp = ufl_expr.action(Pstar, ufl_expr.action(Jp_full, P))
+
             if self.E:
-                self.E = replace(self.E, {self.u: self.u_restrict})
+                if isinstance(self.E, Form):
+                    self.E = replace(self.E, {self.u: self.u_restrict})
+                else:
+                    # `self.E` is a zero-form, so there are no spaces to restrict
+                    self.E = replace(self.E, {self.u: u_full})
             self.restricted_space = V_res
         else:
             self.u_restrict = u
