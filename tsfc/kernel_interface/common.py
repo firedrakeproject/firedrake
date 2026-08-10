@@ -7,7 +7,7 @@ import copy
 
 from ufl.classes import Cofunction
 from ufl.utils.sequences import max_degree
-from ufl.domain import extract_unique_domain
+from ufl.domain import MeshSequence, extract_unique_domain
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
 import finat
@@ -647,7 +647,15 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):
         domain = arg.ufl_function_space().ufl_domain()
-        integral_type = domain_integral_type_map[domain]
+        try:
+            integral_type = domain_integral_type_map[domain]
+        except KeyError:
+            # An unsplit argument (e.g. a mixed-space patch argument) reports
+            # its domain as a MeshSequence rather than a single mesh: every
+            # mesh it sequences is the same iteration, so they must agree.
+            if not isinstance(domain, MeshSequence):
+                raise
+            integral_type, = {domain_integral_type_map[m] for m in domain.meshes}
         if integral_type is None:
             raise RuntimeError(f"Can not determine integral_type on {arg}")
         if integral_type.startswith("interior_facet"):
