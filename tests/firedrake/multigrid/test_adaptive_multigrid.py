@@ -401,6 +401,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     volume. It passes even when the kernel integrates over the wrong set
     of children.
     """
+    rg = RandomGenerator(PCG64(seed=0))
     padded = False
     for level in range(len(mh) - 1):
         # A coarse cell that the refinement left alone has one child, and a
@@ -411,9 +412,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
         V_coarse = FunctionSpace(mh[level], family, degree)
         V_fine = FunctionSpace(mh[level + 1], family, degree)
 
-        u_fine = Function(V_fine)
-        rng = np.random.default_rng(42 + mh[0].comm.rank)
-        u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
+        u_fine = rg.uniform(V_fine)
 
         u_coarse = Function(V_coarse)
         inject(u_fine, u_coarse)

@@ -140,13 +140,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # real entry from its own row. The injection kernel only reads
         # through this map, and picks the candidate that matches the coarse
         # node's physical location, so a repeated entry changes nothing.
-        #
-        # Every rank runs this fill. The partition decides which rows hold
-        # padding, so the fill must not depend on a rank-local test.
-        # The check covers the owned rows alone. coarse_to_fine_cells spans
-        # the owned coarse cells, so most halo rows hold no candidate at all.
-        # Those rows keep the zero filler, and injection visits owned nodes
-        # only, so nothing reads them.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
         if not nonempty[:Vc.node_set.size].all():
