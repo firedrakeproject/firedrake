@@ -6,9 +6,23 @@ import ctypes
 import cython
 from libc.stddef cimport size_t
 from libc.stdint cimport uintptr_t, uint32_t, int64_t
+from libc.stdlib cimport free, malloc
 
 cimport mpi4py.MPI as MPI
-from mpi4py.libmpi cimport MPI_INT
+from mpi4py.libmpi cimport (
+    MPI_Aint,
+    MPI_DATATYPE_NULL,
+    MPI_INT,
+    MPI_STATUSES_IGNORE,
+    MPI_Datatype,
+    MPI_Irecv,
+    MPI_Isend,
+    MPI_Request,
+    MPI_Type_commit,
+    MPI_Type_create_resized,
+    MPI_Type_free,
+    MPI_Waitall,
+)
 from petsc4py.PETSc cimport CHKERR
 
 include "petschdr.pxi"
@@ -156,16 +170,14 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def discover_ranks(
+cdef tuple _discover_sends(
         RTree rtree,
         np.ndarray[np.float64_t, ndim=2, mode="c"] points,
-        MPI.Comm comm):
-    """Query a distributed Rtree and discover which ranks to send points,
-    and which ranks are going to send points to us.
+        Py_ssize_t comm_size):
+    """Group candidate point indices by destination rank.
 
-    For each point in `points`, we find all candidate ranks whose bounding
-    boxes contain that point. We then use `PetscCommBuildTwoSided` to discover 
-    which ranks will be sending points to us.
+    The R-tree query returns unique candidate ranks for each point. This
+    routine transposes that point-major result into rank-major send buffers.
 
     Parameters
     ----------
@@ -174,45 +186,34 @@ def discover_ranks(
         rank numbers as leaf ids.
     points : (n_points, gdim) float64 array
         The local points to send to remote ranks.
-    comm : mpi4py.MPI.Comm
-        The MPI communicator.
+    comm_size : int
+        Number of ranks in the MPI communicator.
 
     Returns
     -------
-    toranks : (nto,) int32 array
+    toranks : (nranks_to,) int32 array
         Target ranks to send points to.
-    send_offsets : (nto + 1,) int32 array
-        Points destined for `toranks[i]` are
-        `point_indices[send_offsets[i]:send_offsets[i+1]]`.
     point_indices : (total_sends,) int32 array
         Indices into `points` determining which points to send.
-    fromranks : (nfrom,) int32 array
-        Ranks that will send points to us.
-    recv_counts : (nfrom,) int32 array
-        Number of points we will receive from each rank in `fromranks`.
+    send_counts : (comm_size,) int32 array
+        Its first `nranks_to` entries contain the numbers of points sent to
+        the corresponding entries of `toranks`.
     """
     cdef:
         int64_t *ids_out = NULL
         size_t *offsets_out = NULL
         size_t n_points = points.shape[0]
-        size_t i = 0
+        size_t i, j
         Py_ssize_t nranks_to = 0
-        Py_ssize_t rank, index
+        Py_ssize_t rank, index, count, offset
         RTreeError err, ids_free_err, offsets_free_err
-        MPI.MPI_Comm mpi_comm = comm.ob_mpi
-        PetscMPIInt k, nfrom
-        PetscMPIInt *fromranks = NULL
-        void *fromdata = NULL
         np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
         np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
-        np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
-        np.ndarray[np.int32_t, ndim=1, mode="c"] fromranks_out
-        np.ndarray[np.int32_t, ndim=1, mode="c"] recv_counts_out
 
-    # the candidate ranks for point `i` are
-    # `ids_out[offsets_out[i]:offsets_out[i + 1]]`.
-    err = rtree_locate_all_at_points(
+    # query the partition rtree to find candidate ranks
+    # this routine returns the unique IDs for each point
+    err = rtree_locate_all_at_points_unique(
         rtree.tree,
         <const double *>points.data,
         n_points,
@@ -220,35 +221,38 @@ def discover_ranks(
         &offsets_out,
     )
     if err != Success:
-        raise RuntimeError("rtree_locate_all_at_points failed")
+        raise RuntimeError("rtree_locate_all_at_points_unique failed")
 
     try:
-        send_counts = np.zeros(comm.size, dtype=np.int32)
+        send_counts = np.zeros(comm_size, dtype=np.int32)
 
-        # Count point/rank pairs
+        # Count the points destined for each rank.
+        # The candidate ranks for point `i` are
+        # `ids_out[offsets_out[i]:offsets_out[i + 1]]`.
         for i in range(n_points):
             for j in range(offsets_out[i], offsets_out[i + 1]):
                 rank = <Py_ssize_t>ids_out[j]
                 if send_counts[rank] == 0:
-                    # not seen this rank yet and we need to send a point there
                     nranks_to += 1
                 send_counts[rank] += 1
 
         toranks = np.empty(nranks_to, dtype=np.int32)
-        send_offsets = np.empty(nranks_to + 1, dtype=np.int32)
-        send_offsets[0] = 0
-        
-        i = 0
-        for rank in range(comm.size):
+
+        # Store destinations in rank order and turn each dense count into the
+        # cursor used to fill that rank's section of `point_indices`.
+        index = 0
+        offset = 0
+        for rank in range(comm_size):
             if send_counts[rank] == 0:
+                # not sending this rank any points
                 continue
-            toranks[i] = <np.int32_t>rank
-            send_offsets[i + 1] = send_offsets[i] + send_counts[rank]
-            send_counts[rank] = send_offsets[i]
-            i += 1
+            toranks[index] = <np.int32_t>rank
+            count = send_counts[rank]
+            send_counts[rank] = offset
+            offset += count
+            index += 1
 
-        point_indices = np.empty(send_offsets[nranks_to], dtype=np.int32)
-
+        point_indices = np.empty(offset, dtype=np.int32)
         for i in range(n_points):
             for j in range(offsets_out[i], offsets_out[i + 1]):
                 rank = <Py_ssize_t>ids_out[j]
@@ -256,8 +260,14 @@ def discover_ranks(
                 point_indices[index] = <np.int32_t>i
                 send_counts[rank] += 1
 
+        # PetscCommBuildTwoSided expects packed counts corresponding to
+        # `toranks`, so the dense cursors are no longer needed.
+        offset = 0
         for index in range(nranks_to):
-            send_counts[index] = send_offsets[index + 1] - send_offsets[index]
+            rank = toranks[index]
+            count = send_counts[rank] - offset
+            offset += count
+            send_counts[index] = count
     finally:
         ids_free_err = rtree_free_ids(ids_out, offsets_out[n_points])
         offsets_free_err = rtree_free_offsets(offsets_out, n_points + 1)
@@ -267,29 +277,131 @@ def discover_ranks(
     if offsets_free_err != Success:
         raise RuntimeError("rtree_free_offsets failed")
 
-    # Routine that discovers communicating ranks given one-sided information
+    return toranks, point_indices, send_counts
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def discover_remote_roots(
+        RTree rtree,
+        np.ndarray[np.float64_t, ndim=2, mode="c"] points,
+        MPI.Comm comm):
+    """Build the remote-root array for a point-embedding star forest.
+
+    Parameters
+    ----------
+    rtree : RTree
+        The distributed Rtree built by :func:`build_from_aabb` with rank
+        numbers as leaf ids.
+    points : (n_points, gdim) float64 array
+        Local root-point coordinates.
+    comm : mpi4py.MPI.Comm
+        The MPI communicator.
+
+    Returns
+    -------
+    remote : (nleaves, 2) int32 array
+        For every local candidate leaf, the MPI rank and local index of its
+        remote root point.
+    """
+    cdef:
+        MPI.MPI_Comm mpi_comm = comm.ob_mpi
+        MPI_Datatype remote_index_type = MPI_DATATYPE_NULL
+        MPI_Request *requests = NULL
+        PetscMPIInt k, nranks_from, nranks_to, nrequests
+        PetscMPIInt count, source_rank, recv_offset = 0
+        PetscMPIInt rank_from = comm.rank
+        PetscMPIInt *fromranks = NULL
+        void *recv_counts = NULL
+        Py_ssize_t i, nleaves = 0, send_offset = 0
+        np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
+        np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
+        np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
+        np.ndarray[np.int32_t, ndim=2, mode="c"] remote
+
+    toranks, point_indices, send_counts = _discover_sends(
+        rtree, points, comm.size,
+    )
+    nranks_to = <PetscMPIInt>toranks.shape[0]
+
+    # discover incoming ranks and exchange their point counts
     CHKERR(PetscCommBuildTwoSided(
         mpi_comm,
-        1,  # sending/receiving one entry (the number of points)
+        1,
         MPI_INT,
-        <PetscMPIInt>nranks_to,  # number of ranks to send data to
-        <const PetscMPIInt *>toranks.data,  # ranks to send to (array of length nto)
-        <const void *>send_counts.data,  # data to send to each rank (array of length nto)
-        &nfrom,  # number of ranks we're receiving messages from
-        &fromranks,  # ranks we're receiving messages from (array of length nfrom)
-        &fromdata,  # data we're receiving from each rank (array of length nfrom)
+        <PetscMPIInt>toranks.shape[0],
+        <const PetscMPIInt *>toranks.data,
+        <const void *>send_counts.data,
+        &nranks_from,
+        &fromranks,
+        &recv_counts,
     ))
 
-    # Copy petsc-allocated results into numpy arrays then free them
-    fromranks_out = np.empty(nfrom, dtype=np.int32)
-    recv_counts_out = np.empty(nfrom, dtype=np.int32)
-    for k in range(nfrom):
-        fromranks_out[k] = fromranks[k]
-        recv_counts_out[k] = (<PetscMPIInt *>fromdata)[k]
-    CHKERR(PetscFree(fromranks))
-    CHKERR(PetscFree(fromdata))
+    # Now each rank knows what ranks it is going to receive points from,
+    # and how many points from each of those ranks. We now proceed and
+    # send these points sparsely.
 
-    return toranks, send_offsets, point_indices, fromranks_out, recv_counts_out
+    try:
+        for k in range(nranks_from):
+            nleaves += (<PetscMPIInt *>recv_counts)[k]
+        remote = np.empty((nleaves, 2), dtype=np.int32)
+
+        nrequests = nranks_from + nranks_to
+        if nrequests:
+            requests = <MPI_Request *>malloc(nrequests * sizeof(MPI_Request))
+
+        # Receive point indices directly into the second column of `remote`.
+        # `remote` is a contiguous (nleaves, 2) shaped array, so we create
+        # an MPI unit whose payload is MPI_INT, but whose extent is twice that.
+        if nranks_from:
+            CHKERRMPI(MPI_Type_create_resized(
+                MPI_INT,
+                <MPI_Aint>0,
+                <MPI_Aint>(2 * sizeof(np.int32_t)),
+                &remote_index_type,
+            ))
+            CHKERRMPI(MPI_Type_commit(&remote_index_type))
+
+        for k in range(nranks_from):
+            source_rank = fromranks[k]
+            count = (<PetscMPIInt *>recv_counts)[k]
+            for i in range(recv_offset, recv_offset + count):
+                remote[i, 0] = source_rank
+            CHKERRMPI(MPI_Irecv(
+                <void *>&remote[recv_offset, 1],
+                count,
+                remote_index_type,
+                source_rank,
+                source_rank,
+                mpi_comm,
+                &requests[k],
+            ))
+            recv_offset += count
+
+        for k in range(nranks_to):
+            count = send_counts[k]
+            CHKERRMPI(MPI_Isend(
+                <const void *>&point_indices[send_offset],
+                count,
+                MPI_INT,
+                toranks[k],
+                rank_from,
+                mpi_comm,
+                &requests[nranks_from + k],
+            ))
+            send_offset += count
+
+        CHKERRMPI(MPI_Waitall(nrequests, requests, MPI_STATUSES_IGNORE))
+    finally:
+        if remote_index_type != MPI_DATATYPE_NULL:
+            CHKERRMPI(MPI_Type_free(&remote_index_type))
+        if requests != NULL:
+            free(requests)
+        CHKERR(PetscFree(fromranks))
+        CHKERR(PetscFree(recv_counts))
+
+    return remote
+
 
 def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
     cdef:

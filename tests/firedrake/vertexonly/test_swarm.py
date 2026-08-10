@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.cython import rtree
 from firedrake.utils import IntType, RealType
 from firedrake.mesh import _pic_swarm_in_mesh
 import pytest
@@ -412,3 +413,32 @@ def test_pic_swarm_in_mesh_2d_3procs():
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=False)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=False)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_discover_remote_roots():
+    """Build remote SF nodes from unique point/rank candidates."""
+    comm = MPI.COMM_WORLD
+    mins = np.array([[0.0], [1.0], [1.0], [10.0]], dtype=np.float64)
+    maxs = np.array([[2.0], [3.0], [2.5], [11.0]], dtype=np.float64)
+    ids = np.array([0, 0, 1, 2], dtype=np.int64)
+    tree = rtree.build_from_aabb(mins, maxs, ids)
+
+    points = (
+        np.array([[1.5], [10.5], [-1.0]], dtype=np.float64),
+        np.array([[0.5], [1.5]], dtype=np.float64),
+        np.empty((0, 1), dtype=np.float64),
+    )[comm.rank]
+    expected = (
+        {(0, 0), (1, 0), (1, 1)},
+        {(0, 0), (1, 1)},
+        {(0, 1)},
+    )[comm.rank]
+
+    remote = rtree.discover_remote_roots(tree, points, comm)
+
+    assert remote.dtype == np.int32
+    assert {tuple(node) for node in remote.tolist()} == expected
+    sf = PETSc.SF().create(comm=comm)
+    sf.setGraph(len(points), None, remote)
+    assert sf.getGraph()[0] == len(points)

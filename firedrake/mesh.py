@@ -4462,48 +4462,6 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
 
 
 @PETSc.Log.EventDecorator()
-def _embedding_star_forest(
-    toranks: np.ndarray,
-    send_offsets: np.ndarray,
-    point_indices: np.ndarray,
-    nroots: int,
-    fromranks: np.ndarray,
-    recv_counts: np.ndarray,
-    comm: MPI.Comm,
-):
-    # Build the star forest for point embedding.
-    # Roots are the points on the original ranks as input by the user,
-    # and the leaves are the candidate points on the ranks which may
-    # contain the parent cell of the root points.
-    n_recv_total = recv_counts.sum()
-    recv_buffer = np.empty(n_recv_total, dtype=IntType)
-
-    # Sparse communication of point indices
-    requests = []
-    recv_offset = 0
-    for source_rank, count in zip(fromranks, recv_counts):
-        buf = recv_buffer[recv_offset:recv_offset + count]
-        requests.append(comm.Irecv(buf, source=source_rank, tag=source_rank))
-        recv_offset += count
-
-    for i, dest_rank in enumerate(toranks):
-        idx_slice = point_indices[send_offsets[i]:send_offsets[i + 1]]
-        send_buf = np.ascontiguousarray(idx_slice, dtype=IntType)
-        requests.append(comm.Isend(send_buf, dest=dest_rank, tag=comm.rank))
-
-    MPI.Request.Waitall(requests)
-
-    input_ranks_on_leaves = np.repeat(fromranks, recv_counts)
-    remote = np.empty((n_recv_total, 2), dtype=IntType)
-    remote[:, 0] = input_ranks_on_leaves
-    remote[:, 1] = recv_buffer
-
-    sf = PETSc.SF().create(comm=comm)
-    sf.setGraph(nroots, None, remote)
-    return sf, remote
-
-
-@PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
     parent_mesh,
     coords,
@@ -4631,18 +4589,10 @@ def _parent_mesh_embedding(
 
     # Query distributed Rtree to find candidate ranks for each point.
     distributed_rtree = parent_mesh.distributed_rtree
-    toranks, send_offsets, point_indices, fromranks, recv_counts = (
-        rtree.discover_ranks(distributed_rtree, coords, comm)
-    )
-
-    # total number of candidate points sent to this rank
-    # This will be the total number of leaves in the SF on this rank
-    nleaves = recv_counts.sum()
-
-    sf, remote = _embedding_star_forest(
-        toranks, send_offsets, point_indices, nroots, fromranks, recv_counts, comm
-    )
-    remote = remote.reshape(-1, 2)
+    remote = rtree.discover_remote_roots(distributed_rtree, coords, comm)
+    nleaves = remote.shape[0]
+    sf = PETSc.SF().create(comm=comm)
+    sf.setGraph(nroots, None, remote)
     input_ranks_on_leaves = remote[:, 0].astype(IntType)
     input_idxs_on_leaves = remote[:, 1].astype(IntType)
 
