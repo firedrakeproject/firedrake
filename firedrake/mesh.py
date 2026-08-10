@@ -3855,6 +3855,26 @@ class VertexOnlyMeshSF:
             0 if len(leaf_indices) == 0 else int(leaf_indices.max()) + 1
         )
 
+    @classmethod
+    @PETSc.Log.EventDecorator()
+    def discover(cls, parent_mesh: MeshGeometry, root_coordinates: np.ndarray) -> "VertexOnlyMeshSF":
+        root_coordinates = np.asarray(
+            root_coordinates.real,
+            dtype=np.float64,
+            order="C",
+        )
+
+        with temp_internal_comm(parent_mesh.comm) as comm:
+            remote = rtree.discover_remote_roots(
+                parent_mesh.distributed_rtree,
+                root_coordinates,
+                comm,
+            )
+            sf = PETSc.SF().create(comm=comm)
+            sf.setGraph(len(root_coordinates), None, remote)
+
+        return cls(sf)
+
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
     """A DMSwarm with a saved list of added fields"""
