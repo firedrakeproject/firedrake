@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = True
+PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [2,4,8,16,32]
+n1_list = [8,8,8,8,8]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -38,9 +38,8 @@ for n1,n2 in zip(n1_list, n2_list):
 
 def build_problem(mesh1, mesh2):
     p = 3
-    p_inner = 2
-    w1 = Constant(100.0)*p*p/CellDiameter(mesh1)
-    w2 = Constant(100.0)*p*p/CellDiameter(mesh2)  # Nitsche penalty weight
+    p_inner = 3
+    w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
@@ -62,7 +61,7 @@ def build_problem(mesh1, mesh2):
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
     # Intermediate spaces
-    Q1 = FunctionSpace(mesh1, "CG", p_inner)
+    Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
     Q2 = FunctionSpace(mesh2, "CG", p_inner)
 
     W = V1 * V2
@@ -71,28 +70,27 @@ def build_problem(mesh1, mesh2):
     v1, v2 = TestFunctions(W)
 
     # Poisson on mesh_1
-    A11_form = inner(grad(u1), grad(v1)) * dx1 \
-                - inner(dot(grad(u1), n1), v1) * ds1 \
-                - inner(dot(grad(v1), n1), u1) * ds1 \
-                + w1 * inner(u1, v1) * ds1
+    A11_form = inner(grad(u1), grad(v1)) * dx1 #\
+              #  - inner(dot(grad(u1), n1), v1) * ds1 \
+              #  - inner(dot(grad(v1), n1), u1) * ds1 \
+               # + w1 * inner(u1, v1) * ds1
 
     # Poisson on mesh_2
     A22_form = inner(grad(u2), grad(v2)) * dx2 \
                 - inner(dot(grad(u2), n2), v2) * ds2 \
-                - inner(dot(grad(v2), n2), u2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
+    # - inner(dot(grad(v2), n2), u2) * ds2 \
 
     # A12: row v1, column u2
-    q1 = TrialFunction(Q1)
-    M1 = - w1 * inner(q1, v1) * ds1 \
-        + inner(dot(grad(v1), n1), q1) * ds1 
-    B12 = interpolate(u2, Q1, allow_missing_dofs=True)
+    q1v = TrialFunction(Q1v)
+    M1 = - inner(dot(q1v, n1), v1) * ds1
+    B12 = interpolate(grad(u2), Q1v, allow_missing_dofs=True)
     A12_form = action(M1, B12)
 
     # A21: row v2, column u1
     q2 = TrialFunction(Q2)
-    M2 = - w2 * inner(q2, v2) * ds2 \
-        + inner(dot(grad(v2), n2), q2) * ds2   
+    M2 = - w2 * inner(q2, v2) * ds2 #\
+        #+ inner(dot(grad(v2), n2), q2) * ds2   
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)
     A21_form = action(M2, B21)
 
