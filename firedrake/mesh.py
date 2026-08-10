@@ -3846,7 +3846,7 @@ class VertexOnlyMeshSF:
 
         self.sf = sf
         self.nroots = nroots
-        self.nleaves = len(self.leaf_indices)
+        self.nleaves = len(leaf_indices)
         self.leaf_indices = leaf_indices
         self.remote = remote
         self.input_ranks = remote[:, 0]
@@ -3874,6 +3874,15 @@ class VertexOnlyMeshSF:
             sf.setGraph(len(root_coordinates), None, remote)
 
         return cls(sf)
+
+    def broadcast(
+        self,
+        root_values: np.ndarray,
+        leaf_values: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if root_values.shape[0] != self.nroots:
+            raise ValueError("Array in bad shape")
+
 
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
