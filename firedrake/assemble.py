@@ -1544,7 +1544,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if not any(bc.function_space_match(fs) for fs in spaces):
+            if not any(bc.function_space(parent=True) == fs for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
             if spaces[0] != spaces[1]:
                 # Not on a diagonal block, we cannot set diagonal entries
@@ -2129,20 +2129,25 @@ class ParloopBuilder:
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
 
+        def block_index(bc):
+            fs = bc.function_space()
+            if fs.component is not None:
+                fs = fs.parent
+            return fs.index
+
         test_space = self.test_function_space
-        if len(test_space) > 1:
-            test_space = test_space[row]
         bcrow = tuple(
-            bc for bc in self._bcs if bc.function_space_match(test_space)
+            bc for bc in self._bcs
+            if bc.function_space(parent=True) == test_space
+            and (len(test_space) == 1 or block_index(bc) == row)
         )
 
         trial_space = self.trial_function_space
-        if len(trial_space) > 1:
-            trial_space = trial_space[col]
         bccol = tuple(
             bc for bc in self._bcs
             if isinstance(bc, DirichletBC)
-            and bc.function_space_match(trial_space)
+            and bc.function_space(parent=True) == trial_space
+            and (len(trial_space) == 1 or block_index(bc) == col)
         )
         return bcrow, bccol
 
