@@ -107,22 +107,25 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
 
-            P = interpolate(u_res, V)
-            Pstar = ufl_expr.adjoint(P)
-            u_full = interpolate(self.u_restrict, V)
+            # Pull back the residual and Jacobian:
+            # F_res(u_res) = P^* F(P u_res)
+            # J_res(u_res) = P^* J(P u_res) P
+            P = interpolate(u_res, V)  # V_res -> V
+            Pstar = ufl_expr.adjoint(P)  # V^* -> V_res^*
+            u_full = interpolate(self.u_restrict, V)  # P u_res
 
             if isinstance(F, Form):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                F_full = replace(F, {self.u: u_full})
+                F_full = replace(F, {self.u: u_full})  # F(P u_res)
                 self.F = ufl_expr.action(Pstar, F_full)
 
             if isinstance(self.J, Form):
                 v_arg, u_arg = self.J.arguments()
                 self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             else:
-                J_full = replace(self.J, {self.u: u_full})
+                J_full = replace(self.J, {self.u: u_full})  # J(P u_res)
                 self.J = ufl_expr.action(Pstar, ufl_expr.action(J_full, P))
 
             if self.Jp:
