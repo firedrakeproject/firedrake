@@ -1,8 +1,10 @@
 # Firedrake
 
 Firedrake is an automated system for the portable solution of partial differential equations using
-the finite element method (FEM). The codebase is primarily Python, relying heavily on code generation
-and high-performance C backends to achieve scalability and speed.
+the finite element method. The codebase is primarily Python, relying heavily on code generation
+and high-performance C backends to achieve scalability and speed. Firedrake is highly composable and
+fully differentiable, enabling the automatic generation of tangent linear and adjoint models for
+PDE-constrained optimization.
 
 Firedrake's full contribution process is documented at
 [Contributing to Firedrake](https://firedrakeproject.org/contribute.html). In short, for AI-assisted
@@ -30,6 +32,12 @@ toolchain:
   2. **Lowering to Loopy:** The GEM expressions are then lowered into **loopy** kernels.
 * **PyOP2:** Finally, the generated loopy kernels are wrapped and executed by PyOP2, which handles the
   parallel execution of loops over mesh cells and facets.
+* **pyadjoint:** Firedrake integrates with `pyadjoint` for algorithmic differentiation. Annotated
+  operations (assembly, interpolation, variational solves, boundary condition application, ...) are
+  recorded on a `Tape` as a DAG of `Block`s; a `ReducedFunctional` composed with one or more `Control`s
+  can then be evaluated, differentiated (adjoint or tangent-linear), and checked with a `taylor_test`.
+  Taping happens at the level of Firedrake's own operations, not the underlying numerics, so any new
+  feature assembled purely from already-annotated building blocks is differentiable automatically.
 
 ## Core Working Rules
 
@@ -56,6 +64,13 @@ toolchain:
   prose explaining what the removed, incorrect approach used to do or why it was wrong. Keep comments
   and documentation focused on the current, correct code; a reader should never need the history of
   what used to be there to understand why the present code is right.
+* **Composability And Differentiability:** New features are expected to compose with existing ones
+  without special-casing, and, via `pyadjoint`, to remain differentiable when built from already-taped
+  operations. Prefer the annotated, top-level API (e.g. `firedrake.assemble`) over a lower-level
+  equivalent that bypasses it (e.g. calling an `Interpolator`'s own `.assemble()` directly) even when
+  both give the same forward numbers — the lower-level call silently drops out of the tape, and no test
+  will notice unless it specifically exercises pyadjoint. When a change could plausibly sit on the tape,
+  verify differentiability explicitly with a `taylor_test`, not just a forward-value check.
 
 ## Coding Style And Conventions
 
@@ -76,6 +91,29 @@ toolchain:
   mesh-bound data.
 * **Docstrings:** All public-facing APIs must include properly formatted `numpydoc`-style docstrings.
 * **Type Hints:** New code should include type hints on function/method signatures.
+
+## Design And Debugging Method
+
+How to spend effort on any feature or bug: the first three shape a design before writing code,
+the last two localize a failure before reading code.
+
+* **Design by nearest working neighbor.** Some existing feature already solves a structurally
+  identical problem. Grep for the invariant yours must satisfy (the type handled, the hook fired,
+  the kwarg accepted), read how the neighbor earns it, and implement only the delta.
+* **Write the state contract before the code.** For anything flowing through a cached, replayed,
+  or lazily-refreshed system, answer up front: who owns it, when is it refreshed, what happens on
+  reuse or in-place mutation, how does a replay recover it. Stale-state bugs fail far from their
+  cause and only under reuse.
+* **Classify the mathematical structure before choosing machinery.** Affine and linear
+  dependencies have closed-form contributions (identities, fixed operators, exact zeros for higher
+  derivatives); recognizing an exact zero lets you skip a code path instead of fixing it.
+* **Attribute before you analyze.** Shrink *where* with one-delta experiments — each ingredient
+  toggled in isolation against a known-good baseline, consecutive CI failure sets diffed, a single
+  hunk reverted, the merge base rerun — then read code for *why*.
+* **Census the consumers before changing a lifecycle.** Changing *when* or *how often* something
+  is computed (rather than its value) is safe only after grepping every access site: some consumer
+  calls it in a context you did not design for (per nonlinear iteration, inside a PETSc callback,
+  on every attribute read).
 
 ## Testing Requirements
 
@@ -104,6 +142,12 @@ toolchain:
   in the install docs to get a component installed in editable mode so source edits take effect without
   reinstalling, and check which branch/commit of each component is actually active before assuming a
   fix belongs in Firedrake itself.
+* **Branch pairing across the stack:** Firedrake's `main` and `release` branches go hand in hand with
+  the `main` and `release` branches of its components (FIAT, UFL, ...). A CI failure may be
+  unreproducible locally simply because a component checkout in the venv sits on some other branch —
+  check `git -C $VIRTUAL_ENV/src/<pkg> branch`, switch to the branch matching the Firedrake branch
+  under test, run `firedrake-clean`, and reproduce again before hunting for the bug in Firedrake
+  itself.
 * **`petsc4py`/PETSc version skew:** `petsc4py` is a compiled extension built against one specific
   PETSc checkout. If you switch the PETSc branch/commit underneath an existing venv (e.g. to bisect a
   PETSc-side issue) without rebuilding `petsc4py` against it, `import firedrake` fails with a confusing
@@ -140,12 +184,25 @@ toolchain:
   conclude a parallel code path is untested just because a plain, unmarked `pytest` run was green.
 * **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI; look at
   it (and `.github/workflows/pr.yml`/`core.yml`) if a failure only reproduces in CI and not locally.
+* **CI triage:** `gh pr checks <PR#>` lists job statuses. When `gh run view --log` returns nothing
+  (it does for very large logs), download the log with
+  `gh api repos/<org>/<repo>/actions/jobs/<job-id>/logs` and grep for `FAILED`. Before debugging
+  anything, fetch the failure list of the *previous* run of the same PR: the difference between the
+  two failure sets attributes each failure to the commits pushed in between.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
   before the full module; the suite is large and full-module reruns are slow to iterate against.
+* **Test mathematical correctness, not just that it runs or looks structurally right.** Neither "no
+  exception was raised" nor `==` agreement between two expressions proves the result is
+  correct — two independently-built expressions can match structurally while sharing the same wrong
+  derivative or simplification rule. Verify the actual mathematical claim: evaluate numerically and
+  compare against a  hand-computed or finite-difference value, or use a Taylor test for anything
+  claiming to be a derivative.
+* **Taylor-test-everything is the immune system:** Taylor-test a `ReducedFunctional`, ensuring that any
+  new feature built from existing, annotated Firedrake operations is automatically differentiable.
 
 ### Debugging
 
-* **Generated kernels (niche, rarely needed):** By default, generated C is compiled optimized and
+* **Generated kernels:** By default, generated C is compiled optimized and
   without debug symbols, so a debugger attached to the Python process cannot meaningfully step through
   it. Set `PYOP2_DEBUG=1` to compile with `-O0 -g` instead, which is the prerequisite for using
   `gdb`/`cgdb` on the compiled kernel at all.
@@ -156,7 +213,7 @@ toolchain:
   computed differently per rank and fed into code generation (e.g. a rank-local decision that should be
   a collective/global one) — make that decision the same on every rank, rather than patching the
   generated source or the difference itself.
-* **Parallel deadlocks (niche, rarely needed):** `PYOP2_SPMD_STRICT=1` adds barriers around calls
+* **Parallel deadlocks:** `PYOP2_SPMD_STRICT=1` adds barriers around calls
   marked `@collective` and around cache access, trading overhead for a much narrower failure point when
   ranks disagree about control flow.
 * **Logging:** `firedrake.logging.set_log_level()` (or the `PYOP2_LOG_LEVEL` environment variable)
@@ -165,6 +222,23 @@ toolchain:
   standard PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`, `-log_view`, `-start_in_debugger`)
   can be passed through Firedrake's `solver_parameters` or the command line exactly as in a plain PETSc
   application.
+* **Errors inside PETSc callbacks do not surface as their own traceback:** under pytest they often
+  appear as a bare `Segmentation fault` with no Firedrake frames; standalone they appear as
+  `petsc4py.PETSc.Error: error code 101` whose *first* chained traceback (e.g. a `TypeError` about
+  the callback context in `petscsnes.pxi`) describes the corrupted callback state, not the cause.
+  Rerun the failing test as a standalone script to expose the chained tracebacks, and read the PETSc
+  call stack inside the error (`PCSetUp_MG` → `SNESComputeFunction`, ...) to identify *which*
+  callback was executing.
+* **Construction-time code re-runs inside solver callbacks:** geometric multigrid coarsens the
+  entire problem lazily inside `PCSetUp`, through the `coarsen` singledispatch in
+  `firedrake/mg/ufl_utils.py` — whatever a feature does at construction time (e.g. `DirichletBC`
+  interpolating or projecting its boundary value into the space) is re-executed per level inside
+  that PETSc callback. Objects that carry solvers or attach DM hooks (a `Projector`, a variational
+  solver) must be built once and cached, never rebuilt on each call of an accessor that may fire
+  there: repeatedly constructing and garbage-collecting a solver stack inside `PCSetUp_MG` corrupts
+  the DM callback state and segfaults far from the allocation site. Extruded (hexahedral)
+  hierarchies are the stress test: tensor-product elements (NCE/NCF) have no dual-basis
+  interpolation, so paths that interpolate on simplices take the projection fallback there.
 
 ### Reproducible Environments
 
