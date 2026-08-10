@@ -46,6 +46,80 @@ PY="$VENV/bin/python"
 # per rank is also what a parallel test run wants.
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
+# --- Kernel caches -------------------------------------------------------
+# Firedrake defaults these to $VIRTUAL_ENV/.cache, and to $HOME/.cache when
+# no environment is activated, so an activated shell and a bare one compile
+# into different caches and clear different ones. Pin them to the
+# environment this run uses, so that a cache, the fingerprint recorded beside
+# it, and `fdk clean` all name the same directory. An explicit setting wins,
+# for a caller who is deliberately isolating a run.
+export FIREDRAKE_TSFC_KERNEL_CACHE_DIR="${FIREDRAKE_TSFC_KERNEL_CACHE_DIR:-$VENV/.cache/tsfc}"
+export PYOP2_CACHE_DIR="${PYOP2_CACHE_DIR:-$VENV/.cache/pyop2}"
+
+# --- Kernel cache freshness ----------------------------------------------
+# TSFC keys its cached kernels on the form signature and the compiler
+# parameters; PyOP2 keys its compiled code on the generated source. Neither
+# keys on the code generator itself, so an edit to tsfc/, pyop2/, FIAT or UFL
+# leaves every kernel already on disk in place, and the next run tests the
+# code generator that produced them rather than the one in the tree. That
+# reports failures a correct run does not have, and hides ones it does. The
+# fingerprint of those sources travels with the caches, so a run whose
+# sources have moved clears them first.
+STAMP="$PYOP2_CACHE_DIR/.fdk-codegen-fingerprint"
+
+# The trees a cached kernel is generated from. Firedrake's own tree is
+# excluded except for the two packages it vendors: the rest of it is
+# interpreted afresh on every run.
+codegen_trees() {
+    local tree
+    for tree in "$SRC/tsfc" "$SRC/pyop2"; do
+        [ -d "$tree" ] && printf '%s\n' "$tree"
+    done
+    for tree in "$VENV"/src/*/; do
+        tree="${tree%/}"
+        [ -d "$tree/.git" ] || continue
+        [ "$tree" = "$SRC" ] && continue
+        printf '%s\n' "$tree"
+    done
+    return 0
+}
+
+# Hash the file list as well as the contents: adding or removing a file
+# changes what runs even when no surviving file's text does. Content rather
+# than timestamps, so that checking a commit out again, as a bisect does,
+# matches the caches it already built.
+codegen_fingerprint() {
+    local trees
+    mapfile -t trees < <(codegen_trees)
+    [ "${#trees[@]}" -gt 0 ] || { printf 'no-codegen-trees\n'; return 0; }
+    {
+        find "${trees[@]}" -type f -name '*.py' -print 2>/dev/null | LC_ALL=C sort
+        find "${trees[@]}" -type f -name '*.py' -print0 2>/dev/null \
+            | LC_ALL=C sort -z | xargs -0 cat 2>/dev/null
+    } | sha1sum | cut -d' ' -f1
+}
+
+record_fingerprint() {
+    mkdir -p "$(dirname "$STAMP")"
+    codegen_fingerprint > "$STAMP"
+}
+
+# Called before every test run. Silent, and costs a few tens of milliseconds,
+# when nothing has moved.
+ensure_fresh_caches() {
+    local now
+    now="$(codegen_fingerprint)"
+    [ "$now" = "$(cat "$STAMP" 2>/dev/null)" ] && return 0
+    cat >&2 <<'EOF'
+fdk: the code generators changed since these caches were built. Clearing
+     them, so that this run tests the tree rather than the kernels an
+     earlier tsfc/, pyop2/, FIAT or UFL left behind.
+EOF
+    "$VENV/bin/firedrake-clean" >&2 || return 1
+    mkdir -p "$(dirname "$STAMP")"
+    printf '%s\n' "$now" > "$STAMP"
+}
+
 usage() {
     cat <<'EOF'
 fdk - helper for working on Firedrake
@@ -64,6 +138,11 @@ fdk - helper for working on Firedrake
       Warns on stderr and exits nonzero if nothing matched nprocs=N. Without
       this, 0 tests selected prints no summary line and looks like a clean
       pass.
+
+      Clears the kernel caches first if the code generators have changed
+      since they were built, so that an edit to tsfc/, pyop2/, FIAT or UFL
+      cannot be tested against the kernels the previous version cached. See
+      `fdk clean`.
 
   fdk testraw <nprocs> [pytest args/paths...]
       As `test`, but unfiltered, to read tracebacks.
@@ -88,6 +167,13 @@ fdk - helper for working on Firedrake
       when a cached kernel links against an extension that a rebuild has
       changed. The symptom is `undefined symbol: ...` from a cached .so.
 
+      TSFC keys its cached kernels on the form, and PyOP2 keys its compiled
+      code on the generated source, so neither notices that the generator
+      itself has changed. `test`, `testraw` and `baseline` therefore run this
+      for you whenever tsfc/, pyop2/ or a dependency checkout has moved since
+      the caches were built; the fingerprint they compare against is recorded
+      here.
+
   fdk build
       Rebuild the Cython extensions. Do this after a branch switch that
       changes firedrake/cython/*.pyx.
@@ -98,9 +184,14 @@ fdk - helper for working on Firedrake
       difference. Use this before calling a failure pre-existing: a failure
       that neither run shares is the only kind this branch caused.
 
-      This checks out the merge base and rebuilds, so it needs a clean tree
-      and it takes twice as long as one run. It restores the branch at the
-      end, including when a run fails.
+      Run this before reading any code, and before repeating someone else's
+      claim that a failure is new. A caller's belief about what upstream
+      does is not evidence, and a branch behind main shows failures that
+      main has already fixed, or has never had.
+
+      This checks out the merge base and rebuilds, so it takes twice as long
+      as one run. Uncommitted work is stashed and restored. It restores the
+      branch at the end, including when a run fails.
 
   fdk explain [--range <base>...<head>] [paths...]
       Print each comment a change added, next to the code it annotates with
@@ -213,6 +304,7 @@ case "$cmd" in
     test)
         [ $# -ge 1 ] || { echo "fdk test needs <nprocs>" >&2; exit 2; }
         n="$1"; shift
+        ensure_fresh_caches
         echo "########## nprocs=$n ##########"
         out="$(run_pytest "$n" "${pytest_common[@]}" --tb=line "$@" 2>&1)"
         printf '%s\n' "$out" | summarize
@@ -221,6 +313,7 @@ case "$cmd" in
     testraw)
         [ $# -ge 1 ] || { echo "fdk testraw needs <nprocs>" >&2; exit 2; }
         n="$1"; shift
+        ensure_fresh_caches
         out="$(run_pytest "$n" "${pytest_common[@]}" --tb=short "$@" 2>&1)"
         printf '%s\n' "$out"
         warn_if_nothing_ran "$n" "$out"
@@ -242,7 +335,7 @@ case "$cmd" in
         "$PY" "$@"
         ;;
     clean)
-        "$VENV/bin/firedrake-clean"
+        "$VENV/bin/firedrake-clean" && record_fingerprint
         ;;
     build)
         PATH="$VENV/bin:$PATH" make -C "$SRC" extforce
@@ -250,14 +343,24 @@ case "$cmd" in
     baseline)
         [ $# -ge 1 ] || { echo "fdk baseline needs <nprocs>" >&2; exit 2; }
         n="$1"; shift
+        # Uncommitted work is the normal state when a failure needs
+        # attributing, and refusing it here is what pushes a session into
+        # reading code instead of running this. Stash it, and restore it
+        # however the run exits.
+        stashed=""
         if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
-            echo "fdk baseline: commit or stash first; it checks out the merge base" >&2
-            exit 2
+            git -C "$SRC" stash push --quiet --message "fdk baseline $$" || exit 2
+            stashed="yes"
+            echo "fdk baseline: stashed uncommitted work; restored when this exits" >&2
         fi
         # A detached HEAD has no branch name to go back to, so remember the
         # commit either way.
         here="$(git -C "$SRC" symbolic-ref --quiet --short HEAD \
                 || git -C "$SRC" rev-parse HEAD)"
+        unstash() {
+            [ -n "$stashed" ] || return 0
+            git -C "$SRC" stash pop --quiet && stashed=""
+        }
         upstream="$(git -C "$SRC" rev-parse --verify --quiet origin/main \
                     || echo main)"
         base="$(git -C "$SRC" merge-base HEAD "$upstream")"
@@ -268,14 +371,17 @@ case "$cmd" in
         # it has to remove the working directory too.
         trap 'git -C "$SRC" checkout --quiet "$here"; \
               PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1; \
-              rm -rf "$WORK"' EXIT
+              unstash; rm -rf "$WORK"' EXIT
         PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        ensure_fresh_caches
         run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
             | failures > "$WORK/base.txt"
         git -C "$SRC" checkout --quiet "$here"
         PATH="$VENV/bin:$PATH" make -s -C "$SRC" extforce >/dev/null 2>&1
+        unstash
         trap 'rm -rf "$WORK"' EXIT
         echo "########## head $here ##########"
+        ensure_fresh_caches
         run_pytest "$n" "${pytest_common[@]}" --tb=no "$@" 2>&1 \
             | failures > "$WORK/head.txt"
         echo "########## introduced by $here ##########"
