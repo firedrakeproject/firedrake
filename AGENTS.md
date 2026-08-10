@@ -132,13 +132,28 @@ every edit automatically inside Claude Code; that is one way to drive it, not th
   PETSc.
 * **Caching:** Generated TSFC kernels and compiled PyOP2 code are cached under
   `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR` (default `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`), set
-  in-process by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. Run `fdk clean`
-  before re-testing a code-generation change that does not seem to take effect.
+  in-process by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. TSFC keys a cached
+  kernel on the form and the compiler parameters, and PyOP2 keys compiled code on the generated source.
+  Neither keys on the code generator, so an edit to `tsfc/`, `pyop2/`, FIAT or UFL leaves every kernel
+  already on disk in place. `fdk test`, `fdk testraw` and `fdk baseline` compare a fingerprint of those
+  sources against the caches and clear them when it has moved, so you do not have to remember `fdk clean`.
+* **A stale kernel reads as a wrong answer, not as a stale kernel:** the run imports your edited Python
+  and executes someone else's C. The result is a plausible number, a solver that diverges, or a test
+  that fails on numerics. Treat any code-generation change whose test result you have not re-run
+  from cleared caches as unmeasured.
 * **Smoke test after install/rebuild:** `firedrake-check` runs a small grouped-by-process-count subset
   of the regression suite; use it to sanity-check an environment before a full test run.
 
 ### Testing
 
+* **Attribute a failure before you analyse it.** Run `fdk baseline <nprocs> <paths>` on any failure
+  you are asked to fix, before reading code. It reports which failures this branch introduced, which
+  it fixed, and which it shares with the merge base. A failure the merge base also has is not yours.
+* **A premise you were handed is not evidence.** "This passes on main", "this test is untouched, so
+  the regression is in my change", and "the other configuration works" each name a fact that one
+  command settles and that hours of reading cannot. Check the ones your search depends on first. A
+  branch is often behind main as well: `git log --oneline HEAD..origin/main | wc -l` says how far, and
+  a failure that main has already fixed is not a bug in this branch.
 * Tests that must run under MPI are marked `@pytest.mark.parallel` (optionally
   `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])`); an unmarked test's own nprocs
   is 1. Use `fdk test <nprocs> <paths>` or `fdk testraw`, never a bare `pytest`, on parallel-marked
