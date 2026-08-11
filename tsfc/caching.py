@@ -1,10 +1,10 @@
 """This module fingerprints the toolchain that generates code.
 
-A kernel cache that folds this in stays correct after an edit to the toolchain that
-produced it. It does not stay keyed only on the form.
+A kernel cache that adds this to its own key stays correct after an edit to the
+toolchain that produced it. It does not stay keyed only on the form.
 
-Firedrake's kernel caches fold :func:`codegen_key` into their own key, alongside the
-form that they key on. An edit to the toolchain then changes the key for every kernel
+Firedrake's kernel caches add :func:`codegen_key` to their own key, alongside the form
+that they key on. An edit to the toolchain then changes the key for every kernel
 that it could have changed.
 
 Every process computes this key once, at import, not on every compile. Two processes
@@ -83,6 +83,6 @@ def codegen_key() -> Hashable:
     Returns
     -------
     Hashable
-        A value suitable for folding into a `cachetools` hash key.
+        A value suitable for adding to a `cachetools` hash key.
     """
     return _CODEGEN_KEY
