@@ -11,11 +11,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = True
+PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [8,8,8,8,8]
+n1_list = [16,16,16,16,16]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -35,16 +35,13 @@ for n1,n2 in zip(n1_list, n2_list):
 
 def build_problem(mesh1, mesh2):
     p = 4
-    p_inner = 4
+    p_inner = 2
     w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
     u1_exact = x1 * sin(pi * y1) ** 2
     u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
-
-    #u1_exact = x1*(0.5-x1)*(1-x1)*sin(pi*y1)
-    #u2_exact = x2*(0.5-x2)*(1-x2)*sin(pi*y2)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
@@ -75,6 +72,7 @@ def build_problem(mesh1, mesh2):
     # Helmholtz on mesh_2
     A22_form = (inner(grad(u2), grad(v2)) + inner(u2, v2)) * dx2 \
                 - inner(dot(grad(u2), n2), v2) * ds2 \
+                - inner(dot(grad(v2), n2), u2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
     
     # A12: row v1, column u2
@@ -88,7 +86,7 @@ def build_problem(mesh1, mesh2):
     # A21: row v2, column u1.
     # W --B21--> Q2 --M2--> W^*
     q2 = TrialFunction(Q2)
-    M2 = -w2 * inner(q2, v2) * ds2  # Q2 -> W^*
+    M2 = -w2 * inner(q2, v2) * ds2 + inner(q2, dot(grad(v2), n2)) * ds2 # Q2 -> W^*
     B21 = interpolate(u1, Q2, allow_missing_dofs=True)  # W -> Q2
     A21_form = action(M2, B21)
 
