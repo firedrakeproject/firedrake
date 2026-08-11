@@ -14,6 +14,7 @@ from ufl import conj, Form, ZeroBaseForm
 from .ufl_expr import TestFunction, extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
+from tsfc.caching import codegen_key
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
@@ -59,6 +60,7 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
         utils.tuplify(parameters),
         dont_split_numbers,
         diagonal,
+        codegen_key(),
     )
 
 
@@ -158,6 +160,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
         split,
         _make_dont_split_numbers(dont_split, form),
         diagonal,
+        codegen_key(),
     )
 
 

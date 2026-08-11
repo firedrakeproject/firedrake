@@ -79,6 +79,17 @@ def test_tsfc_different_names(mass):
     assert k1[-1] is not k2[-1]
 
 
+def test_tsfc_recompiles_when_codegen_key_changes(mass, monkeypatch):
+    """A changed toolchain fingerprint must not reuse a kernel compiled under the old one."""
+    monkeypatch.setattr(tsfc_interface, "codegen_key", lambda: "before")
+    k1, = tsfc_interface.compile_form(mass, 'mass_codegen_key')
+
+    monkeypatch.setattr(tsfc_interface, "codegen_key", lambda: "after")
+    k2, = tsfc_interface.compile_form(mass, 'mass_codegen_key')
+
+    assert k1[-1] is not k2[-1]
+
+
 def test_tsfc_cell_kernel(mass):
     k = tsfc_interface.compile_form(mass, 'mass')
     assert len(k) == 1 and 'cell_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
