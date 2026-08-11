@@ -1001,72 +1001,87 @@ cdef inline PetscInt _fact(PetscInt m):
 
 cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
                                                   const PetscInt *plex_cone,
+                                                  PetscInt *plex_cone_copy,
+                                                  PetscInt *inds,
                                                   PetscInt coneSize):
     """Compute orientation of a simplex cell/facet etc.
 
-    Example:
-    Compute orientaion of an edge (interval) of a triange
+    Parameters
+    ----------
+    fiat_cone : PetscInt *
+        The FIAT cone.
+    plex_cone : const PetscInt *
+        The plex cone.
+    plex_cone_copy : PetscInt *
+        A work array of at least `coneSize` entries.
+    inds : PetscInt *
+        A work array of at least `coneSize` entries.
+    coneSize : PetscInt
+        The size of the cones.
 
-    cell_closure[cell, :] = [32, 31, 33, 41, 44, 47, 53]
-    fiat_cone = [32, 33]  # DMPlex cone of the interval of interest
-    plex_cone = [33, 32]  # DMPlex cone of the interval of interest
-    coneSize = 2
+    Returns
+    -------
+    PetscInt
+        The orientation.
 
-    UFCTriangle
+    Notes
+    -----
+    Example: compute orientation of an edge (interval) of a triangle::
 
-     2
-     | \
-     4   3
-     | 6   \
-     0--5---1
+        cell_closure[cell, :] = [32, 31, 33, 41, 44, 47, 53]
+        fiat_cone = [32, 33]  # DMPlex cone of the interval of interest
+        plex_cone = [33, 32]  # DMPlex cone of the interval of interest
+        coneSize = 2
 
-    physical triangle mapped onto UFCTriangle
+    UFCTriangle::
 
-    33
-     | \
-    44  41
-     |53   \
-    32--47--31
+         2
+         | \
+         4   3
+         | 6   \
+         0--5---1
 
-    Conceptually, the following happens:
+    physical triangle mapped onto UFCTriangle::
 
-    inds = []
-    for e in fiat_cone:
-        if e in plex_cone:
-            inds.append(plex_cone.index(e))
-            plex_cone.remove(e)
+        33
+         | \
+        44  41
+         |53   \
+        32--47--31
 
-    -> inds = [1, 0]
-    o = 1! * inds[0] + 0! * inds[1] = 1
+    Conceptually, the following happens::
+
+        inds = []
+        for e in fiat_cone:
+            if e in plex_cone:
+                inds.append(plex_cone.index(e))
+                plex_cone.remove(e)
+
+        -> inds = [1, 0]
+        o = 1! * inds[0] + 0! * inds[1] = 1
     """
     cdef:
         PetscInt k, n, e, q, o = 0, coneSize1 = coneSize
-        PetscInt *cone1 = NULL
-        PetscInt *inds = NULL
 
-    CHKERR(PetscMalloc1(coneSize, &cone1))
-    CHKERR(PetscMalloc1(coneSize, &inds))
     for k in range(coneSize1):
-        cone1[k] = plex_cone[k]
+        plex_cone_copy[k] = plex_cone[k]
     n = 0
     for e in range(coneSize):
         q = fiat_cone[e]
         for k in range(coneSize1):
-            if q == cone1[k]:
+            if q == plex_cone_copy[k]:
                 inds[n] = k
                 n += 1
                 break
         else:
             raise ValueError(f"Point {q} is in fiat_cone, but not in plex_cone")
         while k < coneSize1 - 1:
-            cone1[k] = cone1[k + 1]
+            plex_cone_copy[k] = plex_cone_copy[k + 1]
             k += 1
         coneSize1 -= 1
     assert n == coneSize
     for k in range(n):
         o += _fact(n - 1 - k) * inds[k]
-    CHKERR(PetscFree(cone1))
-    CHKERR(PetscFree(inds))
     return o
 
 
@@ -1110,10 +1125,10 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
         for j in range(dim1):
             if plex_cone_copy[2 * j] == fiat_cone[2 * i] or plex_cone_copy[2 * j + 1] == fiat_cone[2 * i]:
                 if plex_cone_copy[2 * j] == fiat_cone[2 * i] and plex_cone_copy[2 * j + 1] == fiat_cone[2 * i + 1]:
-                    # io += (2**(dim - 1 - i)) * 0
+                    # io += (1 << (dim - 1 - i)) * 0
                     pass
                 elif plex_cone_copy[2 * j + 1] == fiat_cone[2 * i] and plex_cone_copy[2 * j] == fiat_cone[2 * i + 1]:
-                    io += <PetscInt> (2**(dim - 1 - i)) * 1
+                    io += 1 << (dim - 1 - i)
                 else:
                     raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
                 eo += _fact(dim - 1 - i) * j
@@ -1125,7 +1140,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
         else:
             raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
     assert dim1 == 0
-    return <PetscInt> (2**dim) * eo + io
+    return (1 << dim) * eo + io
 
 
 @cython.boundscheck(False)
@@ -1134,35 +1149,56 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
                                           PetscInt[:, ::1] cell_closure,
                                           PetscInt cell,
                                           PetscInt e,
+                                          PetscDMPolytopeType ct,
                                           PetscInt *fiat_cone,
                                           PetscInt *plex_cone,
                                           PetscInt *plex_cone_copy,
+                                          PetscInt *inds,
                                           PetscInt *entity_cone_map,
                                           PetscInt *entity_cone_map_offset):
     """Compute orientation of a given entity on a given cell.
 
-    :arg dm: The DMPlex object
-    :arg cell_closure: The cell_closure array that defines a map
-        from FIAT entities to plex points for each cell
-    :arg cell: The cell (Firedrake numbering)
-    :arg e: The entity (FIAT numbering)
-    :arg fiat_cone: The work array to store a FIAT cone
-    :arg plex_cone: The work array to store a plex cone
-    :arg plex_cone_copy: A work array
-    :arg entity_cone_map: The concatenated array of entity cones in FIAT local entity numbers
-    :arg entity_cone_map_offset: The map from FIAT local entity numbers to offsets into entity_cone_map
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The DMPlex object.
+    cell_closure : PetscInt[:, ::1]
+        The cell_closure array that defines a map from FIAT entities to plex
+        points for each cell.
+    cell : PetscInt
+        The cell (Firedrake numbering).
+    e : PetscInt
+        The entity (FIAT numbering).
+    ct : PetscDMPolytopeType
+        The polytope type of the entity.
+    fiat_cone : PetscInt *
+        The work array to store a FIAT cone.
+    plex_cone : PetscInt *
+        The work array to store a plex cone.
+    plex_cone_copy : PetscInt *
+        A work array.
+    inds : PetscInt *
+        A work array.
+    entity_cone_map : PetscInt *
+        The concatenated array of entity cones in FIAT local entity numbers.
+    entity_cone_map_offset : PetscInt *
+        The map from FIAT local entity numbers to offsets into
+        `entity_cone_map`.
 
+    Returns
+    -------
+    PetscInt
+        The orientation.
+
+    Notes
+    -----
     Dispatches on PETSc.DM.PolytopeType.
     """
     cdef:
         PetscInt p, coneSize, offset, i, dim, o
         const PetscInt *cone = NULL
-        PetscDMPolytopeType ct
 
     p = cell_closure[cell, e]
-    CHKERR(DMPlexGetCellType(dm.dm, p, &ct))
-    if ct == DM_POLYTOPE_POINT:
-        return 0
     CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
     CHKERR(DMPlexGetCone(dm.dm, p, &cone))
     if (entity_cone_map_offset[e + 1] - entity_cone_map_offset[e]) != coneSize:
@@ -1172,7 +1208,7 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
     if ct == DM_POLYTOPE_SEGMENT or ct == DM_POLYTOPE_TRIANGLE or ct == DM_POLYTOPE_TETRAHEDRON:
         # UFCInterval / UFCTriangle / UFCTetrahedron
-        return _compute_orientation_simplex(fiat_cone, cone, coneSize)
+        return _compute_orientation_simplex(fiat_cone, cone, plex_cone_copy, inds, coneSize)
     elif ct == DM_POLYTOPE_QUADRILATERAL:
         # UFCQuadrilateral
         dim = 2
@@ -1211,8 +1247,10 @@ def entity_orientations(mesh,
         PetscInt *fiat_cone = NULL
         PetscInt *plex_cone = NULL
         PetscInt *plex_cone_copy = NULL
+        PetscInt *inds = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
+        PetscDMPolytopeType *entity_cell_type = NULL
         PetscInt[:, ::1] cell_closure_view
         PetscInt[:, ::1] entity_orientations
 
@@ -1256,20 +1294,35 @@ def entity_orientations(mesh,
     CHKERR(PetscMalloc1(maxConeSize, &fiat_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone))  # work array
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
+    CHKERR(PetscMalloc1(maxConeSize, &inds))  # work array
     # typed memoryviews so the hot loop indexes cell_closure / output in C
     # instead of via slow np.ndarray scalar indexing.
     cell_closure_view = cell_closure
+    # Every cell has the same FIAT cell, so entity e has the same polytope type
+    # on every cell; look each one up once rather than once per (cell, entity).
+    CHKERR(PetscMalloc1(numEntities, &entity_cell_type))
+    for e in range(numEntities):
+        entity_cell_type[e] = DM_POLYTOPE_UNKNOWN
+    if numCells > 0:
+        for e in range(numEntities):
+            CHKERR(DMPlexGetCellType(dm.dm, cell_closure_view[0, e], &entity_cell_type[e]))
     for cell in range(numCells):
         for e in range(numEntities):
+            if entity_cell_type[e] == DM_POLYTOPE_POINT:
+                continue  # vertices are always oriented 0
             entity_orientations[cell, e] = _compute_orientation(dm, cell_closure_view, cell, e,
+                                                                entity_cell_type[e],
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,
+                                                                inds,
                                                                 entity_cone_map,
                                                                 entity_cone_map_offset)
     CHKERR(PetscFree(fiat_cone))
     CHKERR(PetscFree(plex_cone))
     CHKERR(PetscFree(plex_cone_copy))
+    CHKERR(PetscFree(inds))
+    CHKERR(PetscFree(entity_cell_type))
     CHKERR(PetscFree(entity_cone_map))
     CHKERR(PetscFree(entity_cone_map_offset))
     return np.asarray(entity_orientations)
