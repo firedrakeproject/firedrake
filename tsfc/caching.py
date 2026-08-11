@@ -1,7 +1,8 @@
-"""A fingerprint of the toolchain that generates code, for callers that cache on a form.
+"""A fingerprint of the toolchain that generates code.
 
-A caller folds :func:`codegen_key` into its own cache key, alongside the form. An edit
-to the toolchain then changes the key for every kernel that it could have changed.
+Firedrake's kernel caches fold :func:`codegen_key` into their own key, alongside the
+form that they key on. An edit to the toolchain then changes the key for every kernel
+that it could have changed.
 
 Every process computes this key once, at import, not on every compile. Two processes
 that see the same toolchain files compute the same key. A later process then reuses
