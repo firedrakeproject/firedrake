@@ -3875,14 +3875,67 @@ class VertexOnlyMeshSF:
 
         return cls(sf)
 
+    @contextmanager
+    def _mpi_unit(self, root_values: np.ndarray):
+        dtype = root_values.dtype
+        base_type = MPI._typedict[dtype.char]
+        unit_size = np.prod(root_values.shape[1:])
+
+        if unit_size == 1:
+            # No need to create contiguous unit
+            # freeing is handled automatically
+            yield base_type
+            return
+
+        unit = base_type.Create_contiguous(unit_size)
+        unit.Commit()
+        try:
+            yield unit
+        finally:
+            unit.Free()
+
+    def _check_arrays(
+        self,
+        root_values: np.ndarray,
+        leaf_values: np.ndarray,
+    ) -> None:
+        if root_values.shape[0] != self.nroots:
+            raise ValueError("Array in bad shape")
+        if leaf_values.shape[1:] != root_values.shape[1:]:
+            raise ValueError("`leaf_values` shape does not match `root_values`")
+        if leaf_values.dtype != root_values.dtype:
+            raise TypeError("`leaf_values` dtype does not match `root_values`")
+
+
     def broadcast(
         self,
         root_values: np.ndarray,
         leaf_values: np.ndarray | None = None,
+        op: MPI.Op = MPI.REPLACE,
     ) -> np.ndarray:
-        if root_values.shape[0] != self.nroots:
-            raise ValueError("Array in bad shape")
+        if leaf_values is None:
+            leaf_shape = (self.leaf_buffer_size,) + root_values.shape[1:]
+            leaf_values = np.empty(leaf_shape, dtype=root_values.dtype)
 
+        self._check_arrays(root_values, leaf_values)
+
+        with self._mpi_unit(root_values) as unit:
+            self.sf.bcastBegin(unit, root_values, leaf_values, op)
+            self.sf.bcastEnd(unit, root_values, leaf_values, op)
+        return leaf_values
+
+    def reduce(
+        self,
+        leaf_values: np.ndarray,
+        root_values: np.ndarray,
+        op: MPI.Op = MPI.REPLACE,
+    ) -> np.ndarray:
+        self._check_arrays(root_values, leaf_values)
+
+        with self._mpi_unit(root_values) as unit:
+            self.sf.reduceBegin(unit, leaf_values, root_values, op)
+            self.sf.reduceEnd(unit, leaf_values, root_values, op)
+        return root_values
 
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
