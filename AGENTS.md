@@ -99,8 +99,8 @@ Firedrake's toolchain, in order:
   ```bash
   mpiexec -n 3 python -m pytest -m "parallel[match]" test_foo.py
   ```
-  Tests at other `nprocs` are collected but skipped. A green unmarked `pytest` run is not evidence the
-  parallel tests passed.
+  Tests at other `nprocs` are collected but skipped. A green unmarked `pytest` run is not evidence
+  that the parallel tests passed.
 * **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI. Check it
   and `.github/workflows/pr.yml`/`core.yml` if a failure reproduces only in CI.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
@@ -246,10 +246,10 @@ class KSPWrapper:
         self._ksp.solve(b, x)
 ```
 
-`PCSNESBase` (`firedrake/preconditioners/base.py`), the base class every `PCBase`/`SNESBase`
-preconditioner inherits, uses exactly this pattern: `__init__` sets `self.initialized = False`, and
-`setUp()` dispatches to `initialize()` or `update()` on that flag. A boolean is greppable; `hasattr`
-is indistinguishable from a forgotten initialization until it fails.
+`PCSNESBase` (`firedrake/preconditioners/base.py`), the base class inherited by every
+`PCBase`/`SNESBase` preconditioner, uses exactly this pattern: `__init__` sets
+`self.initialized = False`, and `setUp()` dispatches to `initialize()` or `update()` on that flag. A
+boolean is greppable; `hasattr` is indistinguishable from a forgotten initialization until it fails.
 
 ### Python-Level Looping Over Mesh-Bound Array Data
 
@@ -273,7 +273,7 @@ assemble(expr * dx)
 ```
 
 If the computation is not expressible as a UFL form at all (e.g. `do_heavy_math` is some arbitrary,
-non-variational, per-DoF transform), two sanctioned escape hatches, in order of preference:
+non-variational, per-DoF transform), there are two sanctioned escape hatches, in order of preference:
 
 1. A PyOP2 direct loop via `firedrake.par_loop`, still generated, cached, and parallelized like any
    other kernel, just without going through a UFL form:
@@ -289,9 +289,9 @@ non-variational, per-DoF transform), two sanctioned escape hatches, in order of 
    par_loop((domain, instructions), dx, {"A": (A, RW), "B": (B, READ)})
    ```
 
-2. A compiled Cython loop over the raw DoF array — the same pattern Firedrake's own `firedrake/cython/`
-   wrappers use for mesh-topology bookkeeping (see below) — for the rare case a `par_loop` kernel
-   cannot express the transform (e.g. it needs a general-purpose C library call):
+2. A compiled Cython loop over the raw DoF array — the same pattern used by Firedrake's own
+   `firedrake/cython/` wrappers for mesh-topology bookkeeping (see below) — for the rare case where a
+   `par_loop` kernel cannot express the transform (e.g. it needs a general-purpose C library call):
 
    ```cython
    # heavy_math.pyx, compiled ahead of time -- not a plain Python loop
@@ -309,16 +309,16 @@ non-variational, per-DoF transform), two sanctioned escape hatches, in order of 
 This rule is about Python-level loops. Firedrake's own Cython wrappers in `firedrake/cython/`
 (`dmcommon.pyx`, `extrusion_numbering.pyx`, `mgimpl.pyx`, `patchimpl.pyx`, ...) loop over mesh entities
 routinely, for mesh-topology bookkeeping with no UFL/TSFC representation — e.g. `create_cell_closure()`
-in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the closure map code generation depends
-on. These loops are compiled and typed (`cdef`/`PetscInt`, `@cython.boundscheck(False)`), on DMPlex
-point ranges, not interpreted Python objects. A plain Python loop over `.dat.data` is not fine merely
-because "Firedrake has C-level loops elsewhere."
+in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the closure map that code generation
+depends on. These loops are compiled and typed (`cdef`/`PetscInt`, `@cython.boundscheck(False)`), on
+DMPlex point ranges, not interpreted Python objects. A plain Python loop over `.dat.data` is not fine
+merely because "Firedrake has C-level loops elsewhere."
 
 ### Documenting Code That Is Not There
 
 A reader has only the file in front of them. A comment can describe a removed approach, or argue
-against a branch the code does not take. Either one sends the reader looking for something that is
-not there.
+against a branch that the code does not take. Either one sends the reader looking for something that
+is not there.
 
 WRONG — the comment explains what the old scaling used to do and why it broke, instead of the code
 in front of the reader:
@@ -353,9 +353,8 @@ that.
 
 WRONG — a typical AI-generated docstring: a nominalised opening instead of an imperative verb, a
 dropped relative pronoun ("the operator the KSP wraps" for "the operator that the KSP wraps," reading
-as two clauses until the reader backtracks), passive participles doing the work relative clauses
-should, and a single sentence over forty words carrying four ideas. A reader has to guess what
-modifies what:
+as two clauses until the reader backtracks), passive participles instead of relative clauses, and a
+single sentence over forty words carrying four ideas. A reader has to guess what modifies what:
 
 ```python
 def update(self, pc):
@@ -427,7 +426,7 @@ snes.setConvergenceTest(my_test)
 If `petsc4py` renamed a keyword or moved the method since the version an LLM was trained on, this
 fails with a `TypeError` far from its real cause.
 
-RIGHT — read the signature the venv actually has, which may be an editable checkout of an unreleased
+RIGHT — read the signature installed in the venv, which may be an editable checkout of an unreleased
 branch:
 
 ```bash
