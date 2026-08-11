@@ -351,19 +351,20 @@ Follow ASD-STE100 (Simplified Technical English): short sentences, one idea each
 subject named up front. One example below packs in most of the ways a docstring or comment breaks
 that.
 
-WRONG — a typical AI-generated docstring: a nominalised opening instead of an imperative verb, passive
-participles doing the work relative clauses should, no "which"/"that" to mark where one idea ends and
-the next begins, and a single sentence over forty words carrying four ideas. A reader has to guess what
+WRONG — a typical AI-generated docstring: a nominalised opening instead of an imperative verb, a
+dropped relative pronoun ("the operator the KSP wraps" for "the operator that the KSP wraps," reading
+as two clauses until the reader backtracks), passive participles doing the work relative clauses
+should, and a single sentence over forty words carrying four ideas. A reader has to guess what
 modifies what:
 
 ```python
 def update(self, pc):
-    """Performs a recomputation of the preconditioner matrix, clearing
-    the cached factorization built from the previous operator now
+    """Performs a recomputation of the full preconditioner matrix,
+    clearing the factorization the previous operator built now
     considered stale, this method invoked automatically whenever the
-    wrapped operator changes as detected by PETSc during assembly, and
-    ensures subsequent solves avoid using an outdated factorization
-    potentially producing incorrect results."""
+    operator the KSP wraps changes, ensuring subsequent solves avoid
+    using an outdated factorization potentially producing incorrect
+    results."""
 ```
 
 RIGHT — the actor named first, one idea per sentence, the effect stated without the backstory:
@@ -378,16 +379,8 @@ def update(self, pc):
 ```
 
 `numpydoc lint`'s `SS05` catches one piece of this mechanically — a summary opening with "Performs"
-instead of the imperative "Recompute". The rest — the passive chain, the missing relative pronouns,
+instead of the imperative "Recompute". The rest — the passive chain, the dropped relative pronoun,
 the dangling modifiers, the sentence length, an unneeded why — is judgement; nothing here checks it.
-
-**Dropped relative pronoun** — "the code a branch changes" reads as two clauses until the reader
-backtracks and re-reads "a branch changes" as a modifier of "the code", not a new subject. Recast as
-a participial phrase rather than restoring "that":
-
-WRONG: "Read the code a branch changes before approving it."
-
-RIGHT: "Read the code changed by a branch before approving it."
 
 ### A `python` That Is Not The Environment's
 
