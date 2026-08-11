@@ -468,8 +468,16 @@ def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     goal = self(callback.goal_functional, self, coefficient_mapping=coefficient_mapping)
-    primal = coefficient_mapping[callback._primal]
-    return type(callback)(goal, primal, callback._enrichment_degree)
+    exact_solution = self(callback.exact_solution, self, coefficient_mapping=coefficient_mapping)
+    primal = self(callback._primal, self, coefficient_mapping=coefficient_mapping)
+    new_callback = type(callback)(goal, exact_solution, primal=primal,
+                                  enrichment_degree=callback._enrichment_degree,
+                                  options_prefix=callback._options_prefix)
+    # The estimate that motivated this refinement is the latest one there is:
+    # the refined mesh has not been estimated for yet. Its convergence flag
+    # stays False, since this mesh is precisely the one deemed too coarse.
+    new_callback.error_estimate = callback.error_estimate
+    return new_callback
 
 
 @_reconstruct.register(firedrake.slate.AssembledVector)
@@ -589,6 +597,14 @@ def create_interpolation(dmc, dmf):
 
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
+
+    if V_c == V_f:
+        # Interpolating a space into itself is the identity. This is not a
+        # multigrid level transfer. PETSc's DMAdaptor asks for it when the
+        # adaptor hands back the DM it was given, unrefined.
+        size = V_c.dof_dset.layout_vec.getSizes()
+        mat = PETSc.Mat().createConstantDiagonal((size, size), 1.0, comm=dmc.comm)
+        return mat, None
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
