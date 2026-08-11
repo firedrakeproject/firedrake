@@ -93,6 +93,8 @@ toolchain:
 * Keep diffs reviewable and focused.
 * Before concluding work, ensure `make srclint` passes, and verify that the relevant subset of the
   pytest test suite succeeds locally.
+* Work through the [pre-submission checklist](https://firedrakeproject.org/contribute.html#pre-submission-checklist)
+  in `docs/source/contribute.rst` before requesting review.
 
 ## Development Toolchain
 
@@ -176,7 +178,8 @@ toolchain:
 
 ## Anti-Patterns
 
-These must be avoided when writing code, and flagged when reviewing it.
+These must be avoided when writing code, and flagged when reviewing it. Each one below is a WRONG/RIGHT
+pair to read, or names the check that catches it. Nothing else qualifies as a rule.
 
 ### Branching On Discretization Or Execution State
 
@@ -367,3 +370,149 @@ code generation depends on. These loops are compiled and typed (`cdef`/`PetscInt
 objects — that combination, not mere placement in a `.pyx` file, is what makes them acceptable. Do not
 use this as license to write a plain Python loop over `.dat.data` and call it fine because "Firedrake
 has C-level loops elsewhere."
+
+### Documenting Code That Is Not There
+
+A reader has only the file in front of them. A comment can describe a removed approach, or argue
+against a branch the code does not take. Either one sends the reader looking for something that is
+not there.
+
+WRONG — the comment explains what the old scaling used to do and why it broke, instead of the code
+in front of the reader:
+
+```python
+def pc_stiffness_scaling(mesh, kappa):
+    # This no longer scales by the mean of kappa. That broke for a kappa that
+    # varied by orders of magnitude across the mesh, denormalizing h_scaling
+    # to 1 for a constant kappa.
+    h = CellDiameter(mesh)
+    return h * h * kappa
+```
+
+RIGHT — say what the present line does:
+
+```python
+def pc_stiffness_scaling(mesh, kappa):
+    # Scale by the local kappa, so cells do not end up over- or
+    # under-weighted when kappa spans several orders of magnitude.
+    h = CellDiameter(mesh)
+    return h * h * kappa
+```
+
+Some words give this away on sight: "used to", "previously", "no longer", "instead of", "we removed",
+"this replaces". Watch equally for "would" when its subject is code that does not exist.
+
+### Grammar
+
+Each pair below fixes one sentence-level habit that makes a docstring or comment harder to read than
+the code it describes.
+
+**Third-person summary** — a numpydoc summary line names an action, not a fact about it:
+
+WRONG: `"""Returns the number of cells in the mesh."""`
+
+RIGHT: `"""Return the number of cells in the mesh."""`
+
+Enforced by `numpydoc lint` as `SS05`.
+
+**Passive with the actor buried** — name the actor as the subject:
+
+WRONG: "The residual is assembled by the monitor before each SNES callback."
+
+RIGHT: "The monitor assembles the residual before each SNES callback."
+
+**Nominalised verb** — a verb turned into a noun needs a second verb to carry it; use the verb:
+
+WRONG: `"""Performs a computation of the trace of u on the mesh boundary."""`
+
+RIGHT: `"""Compute the trace of u on the mesh boundary."""`
+
+**Stacked relative clauses** — one sentence, one idea; split at the second "which"/"that":
+
+WRONG: "The solver, which builds a KSP that wraps the operator that PETSc assembles, caches it on the
+class."
+
+RIGHT: "The solver builds a KSP that wraps the assembled operator. It caches the KSP on the class."
+
+**Sentence over ~25 words** — split it (judgement, no check):
+
+WRONG: "When the mesh is extruded and the base mesh has a periodic direction the DMPlex numbering can
+disagree between ranks unless the SF is rebuilt after distribution, which then breaks the closure
+map."
+
+RIGHT: "An extruded mesh over a periodic base can disagree between ranks on the DMPlex numbering.
+Rebuild the SF after distribution, or the closure map breaks."
+
+**State what, not why — unless the why changes what a reader does.** A reason that does not change
+how the code is used or edited is dead weight; state the effect and stop:
+
+WRONG:
+
+```python
+# Clear the cached matrix. We do this because rebuilding a KSP from a
+# fresh operator turned out to be cheaper than trying to reuse the old
+# factorization, and stale factorizations were silently giving wrong
+# answers on the next solve.
+self._mat = None
+```
+
+RIGHT:
+
+```python
+# Clear the cached matrix; the next solve rebuilds it.
+self._mat = None
+```
+
+A why earns its place when it is a non-obvious invariant, a workaround for a specific upstream bug, or
+a constraint the next edit could easily break — not as routine narration of a routine effect.
+
+### A `python` That Is Not The Environment's
+
+WRONG — `python` resolves to whatever is first on `$PATH`, silently the system interpreter if the venv
+was never activated:
+
+```bash
+python -m pytest tests/firedrake/regression/test_helmholtz.py
+```
+
+RIGHT — activate the venv first, so `python` resolves to the one with Firedrake installed:
+
+```bash
+. venv-firedrake/bin/activate
+python -m pytest tests/firedrake/regression/test_helmholtz.py
+```
+
+### Linting One File And Calling It Clean
+
+WRONG — checks only the file just edited:
+
+```bash
+flake8 firedrake/mesh.py
+```
+
+RIGHT — `make srclint` also lints `firedrake/scripts`, `scripts`, `tests`, `pyop2`, `pyop2/scripts`,
+and `tsfc`, which is what CI enforces:
+
+```bash
+make srclint
+```
+
+### Recalling An API Instead Of Reading It
+
+Gives the *Do Not Trust Memorized API Shapes* rule its mechanism.
+
+WRONG — a signature written from memory, not from the version actually installed:
+
+```python
+snes.setConvergenceTest(my_test)
+```
+
+If `petsc4py` renamed a keyword or moved the method since the version an LLM was trained on, this
+fails with a `TypeError` far from its real cause.
+
+RIGHT — read the signature the venv actually has, which may be an editable checkout of an unreleased
+branch:
+
+```bash
+python -c "from petsc4py import PETSc; help(PETSc.SNES.setConvergenceTest)"
+```
