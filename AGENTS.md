@@ -404,67 +404,37 @@ Some words give this away on sight: "used to", "previously", "no longer", "inste
 
 ### Grammar
 
-Each pair below fixes one sentence-level habit that makes a docstring or comment harder to read than
-the code it describes.
+Follow ASD-STE100 (Simplified Technical English): short sentences, one idea each, active voice, the
+subject named up front. One example carries most of the ways a docstring or comment breaks that,
+because the habits compound rather than occurring one at a time.
 
-**Third-person summary** — a numpydoc summary line names an action, not a fact about it:
-
-WRONG: `"""Returns the number of cells in the mesh."""`
-
-RIGHT: `"""Return the number of cells in the mesh."""`
-
-Enforced by `numpydoc lint` as `SS05`.
-
-**Passive with the actor buried** — name the actor as the subject:
-
-WRONG: "The residual is assembled by the monitor before each SNES callback."
-
-RIGHT: "The monitor assembles the residual before each SNES callback."
-
-**Nominalised verb** — a verb turned into a noun needs a second verb to carry it; use the verb:
-
-WRONG: `"""Performs a computation of the trace of u on the mesh boundary."""`
-
-RIGHT: `"""Compute the trace of u on the mesh boundary."""`
-
-**Stacked relative clauses** — one sentence, one idea; split at the second "which"/"that":
-
-WRONG: "The solver, which builds a KSP that wraps the operator that PETSc assembles, caches it on the
-class."
-
-RIGHT: "The solver builds a KSP that wraps the assembled operator. It caches the KSP on the class."
-
-**Sentence over ~25 words** — split it (judgement, no check):
-
-WRONG: "When the mesh is extruded and the base mesh has a periodic direction the DMPlex numbering can
-disagree between ranks unless the SF is rebuilt after distribution, which then breaks the closure
-map."
-
-RIGHT: "An extruded mesh over a periodic base can disagree between ranks on the DMPlex numbering.
-Rebuild the SF after distribution, or the closure map breaks."
-
-**State what, not why — unless the why changes what a reader does.** A reason that does not change
-how the code is used or edited is dead weight; state the effect and stop:
-
-WRONG:
+WRONG — passive voice with the actor buried, a nominalised verb standing in for one, three stacked
+relative clauses, one 50-word sentence carrying four ideas, and a why nobody asked for:
 
 ```python
-# Clear the cached matrix. We do this because rebuilding a KSP from a
-# fresh operator turned out to be cheaper than trying to reuse the old
-# factorization, and stale factorizations were silently giving wrong
-# answers on the next solve.
-self._mat = None
+def update(self, pc):
+    """A recomputation of the preconditioner matrix is performed by this
+    method, which is called whenever the operator that is wrapped by the
+    KSP that PETSc assembles has changed, clearing the cached factorization,
+    because reusing a factorization built from a stale operator was found
+    during testing to silently give the wrong answer."""
 ```
 
-RIGHT:
+RIGHT — active voice, the actor named first, one idea per sentence, the effect stated without the
+backstory:
 
 ```python
-# Clear the cached matrix; the next solve rebuilds it.
-self._mat = None
+def update(self, pc):
+    """Recompute the preconditioner matrix.
+
+    Call this when the wrapped operator changes. It clears the cached
+    factorization.
+    """
 ```
 
-A why earns its place when it is a non-obvious invariant, a workaround for a specific upstream bug, or
-a constraint the next edit could easily break — not as routine narration of a routine effect.
+`numpydoc lint`'s `SS05` catches one piece of this mechanically — a summary opening with "Recomputes"
+instead of "Recompute". The rest — passive voice, nominalisation, clause-stacking, sentence length, an
+unneeded why — is judgement; nothing here checks it.
 
 ### A `python` That Is Not The Environment's
 
