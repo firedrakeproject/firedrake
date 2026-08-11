@@ -4566,7 +4566,7 @@ def _parent_mesh_embedding(
 
     Returns
     -------
-    embedded_sf : PETSc.SF
+    embedded_sf : VertexOnlyMeshSF
         The star forest connecting root points to the 'winning' leaf point(s).
         Each root may be connected to multiple leaves if halos are included.
     winner_cells : np.ndarray
@@ -4631,46 +4631,25 @@ def _parent_mesh_embedding(
 
     gdim = parent_mesh.geometric_dimension
     comm = parent_mesh.comm
-    int_unit = MPI._typedict[np.dtype(IntType).char]
-    real_unit = MPI._typedict[np.dtype(RealType).char]
-
-    if gdim == 1:
-        real_type = real_unit
-        needs_free = False
-    else:
-        real_type = real_unit.Create_contiguous(gdim)
-        real_type.Commit()
-        needs_free = True
 
     # If redundant then only rank 0's coordinates are embedded.
     if redundant and comm.rank != 0:
         coords = np.empty((0, gdim), dtype=RealType)
 
-    # The roots of the embedding SF are the input coordinates
+    # The roots of the embedding SF are the input coordinates.
     nroots = coords.shape[0]
-
-    # Query distributed Rtree to find candidate ranks for each point.
-    distributed_rtree = parent_mesh.distributed_rtree
-    remote = rtree.discover_remote_roots(distributed_rtree, coords, comm)
-    nleaves = remote.shape[0]
-    sf = PETSc.SF().create(comm=comm)
-    sf.setGraph(nroots, None, remote)
-    input_ranks_on_leaves = remote[:, 0].astype(IntType)
-    input_idxs_on_leaves = remote[:, 1].astype(IntType)
+    candidate_sf = VertexOnlyMeshSF.discover(parent_mesh, coords)
+    nleaves = candidate_sf.nleaves
+    input_ranks_on_leaves = candidate_sf.input_ranks.astype(IntType)
+    input_idxs_on_leaves = candidate_sf.input_indices.astype(IntType)
 
     # Assign global indices to each leaf
     start_idx = comm.exscan(nroots) or 0
     global_idxs = start_idx + np.arange(nroots, dtype=IntType)
-    global_idxs_on_leaves = np.empty(nleaves, dtype=IntType)
-    sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
+    global_idxs_on_leaves = candidate_sf.broadcast(global_idxs)
 
     # Broadcast point coordinates to candidate leaves
-    coords_flat = coords.ravel()
-    coords_recv_flat = np.empty(nleaves * gdim, dtype=RealType)
-    sf.bcastBegin(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
-    sf.bcastEnd(real_type, coords_flat, coords_recv_flat, MPI.REPLACE)
-    coords_recv = coords_recv_flat.reshape(nleaves, gdim)
+    coords_recv = candidate_sf.broadcast(coords)
 
     # Locate parent cells for each received candidate on this rank
     parent_cell_nums, reference_coords, ref_cell_dists_l1 = _locate_cells(coords_recv)
@@ -4682,13 +4661,10 @@ def _parent_mesh_embedding(
     # Non-visible candidates are set to np.inf so they won't affect the minimum
     ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
     ref_cell_dists_min = np.full(nroots, np.inf, dtype=RealType)
-    sf.reduceBegin(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
-    sf.reduceEnd(real_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
+    candidate_sf.reduce(ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
 
     # Send each root's min distance back to its leaves.
-    ref_cell_dists_min_on_leaves = np.empty(nleaves, dtype=RealType)
-    sf.bcastBegin(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(real_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
+    ref_cell_dists_min_on_leaves = candidate_sf.broadcast(ref_cell_dists_min)
 
     # Candidate leaves are those that are visible and have the minimum L1 distance.
     is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
@@ -4700,13 +4676,10 @@ def _parent_mesh_embedding(
     rank_candidates = np.full(nleaves, -1, dtype=IntType)
     rank_candidates[is_min_candidate] = owning_ranks[is_min_candidate]
     winner_ranks = np.full(nroots, -1, dtype=IntType)
-    sf.reduceBegin(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
-    sf.reduceEnd(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
+    candidate_sf.reduce(rank_candidates, winner_ranks, op=MPI.MAX)
 
     # Broadcast winner rank back to leaves.
-    winner_ranks_on_leaves = np.empty(nleaves, dtype=IntType)
-    sf.bcastBegin(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
+    winner_ranks_on_leaves = candidate_sf.broadcast(winner_ranks)
 
     # If a leaf selected a minimum-distance cell whose owner rank does not
     # match the elected winner rank for that root, retry location while
@@ -4780,7 +4753,9 @@ def _parent_mesh_embedding(
 
     # Remove losing candidates from the SF
     selected_leaf_indices = np.flatnonzero(leaf_is_embedded).astype(IntType)
-    embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
+    embedded_sf = VertexOnlyMeshSF(
+        candidate_sf.sf.createEmbeddedLeafSF(selected_leaf_indices)
+    )
 
     # Reduce winner cell and reference coords back to roots.
     # We are okay to use the embedded_sf since we reduce arrays
@@ -4788,21 +4763,16 @@ def _parent_mesh_embedding(
     ref_dim = reference_coords.shape[1]
     winner_cells_leaves = np.where(leaf_is_winner, parent_cell_nums, -1)
     winner_cells = np.full(nroots, -1, dtype=IntType)
-    embedded_sf.reduceBegin(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
-    embedded_sf.reduceEnd(int_unit, winner_cells_leaves, winner_cells, op=MPI.MAX)
+    embedded_sf.reduce(winner_cells_leaves, winner_cells, op=MPI.MAX)
 
     winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
-    ref_coords_leaves = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
-    embedded_sf.reduceBegin(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
-    embedded_sf.reduceEnd(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
+    ref_coords_leaves = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0)
+    embedded_sf.reduce(ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
 
     # Manually set winner ref coords to nan for missing roots
     # since the reduction will have set them to zero.
     winner_ref_coords[missing_roots] = np.nan
     n_missing_points = np.sum(missing_roots)
-
-    if needs_free:
-        real_type.Free()
 
     return (
         embedded_sf,
