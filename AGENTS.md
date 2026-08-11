@@ -89,8 +89,21 @@ toolchain:
   otherwise touching the same whole array repeatedly outside of a single vectorized expression — that
   is what defeats NumPy's own performance model, on top of bypassing PyOP2/code-generation for
   mesh-bound data.
-* **Docstrings:** All public-facing APIs must include properly formatted `numpydoc`-style docstrings.
+* **Docstrings Are Always `numpydoc`:** Every docstring you write or touch — public API, private helper,
+  Cython function in `firedrake/cython/*.pyx`, test helper — must be `numpydoc`, using its section
+  headings (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
+  (`:arg x:`, `:param x:`, `:returns:`, `:rtype:`) in new or edited code, and do not copy it from the
+  surrounding file: much of Firedrake predates the convention, so matching the neighbouring docstrings
+  is precisely the wrong instinct — this is the one place where "preserve the existing style" does not
+  apply. Being private, internal, or compiled is not an excuse to skip the docstring, to downgrade its
+  format, or to leave the arguments undocumented: give every parameter and every return value its
+  `numpydoc` entry, however small the helper.
 * **Type Hints:** New code should include type hints on function/method signatures.
+* **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
+  `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
+  ending in `::` makes the indented block after it *executable*; a `.. code-block:: python` directive is
+  excluded from that rule, so its snippet renders in the docs but never runs. Prefer `::` — reach for
+  the directive only for an illustrative fragment naming things the demo never defines.
 
 ## Design And Debugging Method
 
