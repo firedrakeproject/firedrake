@@ -1,6 +1,6 @@
 """A fingerprint of the toolchain that generates code, for callers that cache on a form.
 
-Firedrake keys its kernel caches by the form that it compiles, not by the compiler
+Firedrake keys its kernel caches on the form that it compiles, not on the compiler
 that lowered the form. An edit to this toolchain then leaves a stale kernel in place.
 :func:`codegen_key` closes that gap. A caller folds it into its own cache key. An
 edit to the toolchain then changes the key for every kernel that it could have
