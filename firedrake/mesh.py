@@ -4132,7 +4132,6 @@ def _pic_swarm_in_mesh(
         parent_mesh.tolerance = tolerance
 
     coords = np.asarray(coords, dtype=RealType)
-    int_unit = MPI._typedict[np.dtype(IntType).char]
 
     (
         embedded_sf,
@@ -4231,12 +4230,10 @@ def _pic_swarm_in_mesh(
     owner_swarm_idx_buf[owned_indices] = np.arange(n_owned, dtype=IntType)
 
     owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
-    embedded_sf.reduceBegin(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
-    embedded_sf.reduceEnd(int_unit, owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
+    embedded_sf.reduce(owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
 
     owner_swarm_idx_on_leaves = np.full(n_recv_total, -1, dtype=IntType)
-    embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
-    embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
+    embedded_sf.broadcast(owner_swarm_idx_roots, owner_swarm_idx_on_leaves)
 
     n_total = n_owned + n_halo
     sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
