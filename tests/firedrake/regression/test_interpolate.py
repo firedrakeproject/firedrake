@@ -785,3 +785,23 @@ def test_interpolate_indexed():
     I1 = assemble(interpolate(u2, U), mat_type="nest")
     I1_block = assemble(interpolate(TrialFunction(U), U))
     assert np.allclose(I1.petscmat.getNestSubMatrix(0, 1)[:, :], I1_block.petscmat[:, :])
+
+
+def test_compile_expression_key_includes_codegen_key(monkeypatch):
+    """A changed toolchain fingerprint must produce a different expression-kernel
+    cache key, or a kernel compiled before the change will be served after it."""
+    import firedrake.interpolation as interpolation
+
+    mesh = UnitTriangleMesh()
+    V = FunctionSpace(mesh, "CG", 1)
+    expr = Interpolate(TestFunction(V), V)
+
+    monkeypatch.setattr(interpolation, "codegen_key", lambda: "before")
+    key1 = interpolation._compile_expression_key(
+        mesh.comm, expr, V.ufl_element(), mesh, {})
+
+    monkeypatch.setattr(interpolation, "codegen_key", lambda: "after")
+    key2 = interpolation._compile_expression_key(
+        mesh.comm, expr, V.ufl_element(), mesh, {})
+
+    assert key1 != key2

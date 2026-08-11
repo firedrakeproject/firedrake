@@ -8,7 +8,10 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
+from pathlib import Path
 from typing import Hashable
+
+from tsfc.caching import codegen_key, stamp_source_tree
 
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
@@ -64,6 +67,12 @@ class SlateKernel(TSFCKernel):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
+#: Fingerprint of Slate's own code generator, in `firedrake/slate/slac/`. TSFC's
+#: `codegen_key` does not cover this: Slate lowers its own expressions to loopy
+#: directly, without going through TSFC. Fixed once, at import, to match `codegen_key`.
+_SLAC_CODEGEN_KEY: Hashable = stamp_source_tree(Path(__file__).resolve().parent)
+
+
 def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable, ...]:
     params = copy.deepcopy(parameters)
     if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
@@ -72,7 +81,8 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[H
         params["form_compiler"].update(compiler_parameters)
     # The getattr here is to defer validation to the `compile_expression` call
     # as the test suite checks the correct exceptions are raised on invalid input.
-    return (getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items())))
+    return (getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+            + str(codegen_key()) + str(_SLAC_CODEGEN_KEY))
 
 
 def _compile_expression_comm(*args, **kwargs):

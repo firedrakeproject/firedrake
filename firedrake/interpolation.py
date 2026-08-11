@@ -22,6 +22,7 @@ from pyop2.caching import memory_and_disk_cache
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 from finat.element_factory import create_element
 
+from tsfc.caching import codegen_key
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
@@ -1216,7 +1217,7 @@ except KeyError:
 def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
     dual_arg, operand = expr.argument_slots()
-    return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters))
+    return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters), codegen_key())
 
 
 @memory_and_disk_cache(
