@@ -364,7 +364,7 @@ adjective on "form" until the reader notices that it is a clause.
 RIGHT — the pronoun restored, and the stack broken with a plain verb:
 
 ```python
-# The kernel caches are indexed by the form that is being compiled.
+# The kernel caches are keyed by the form that is being compiled.
 ```
 
 ### A `python` That Is Not The Environment's
