@@ -348,38 +348,25 @@ Some words give this away on sight: "used to", "previously", "no longer", "inste
 ### Grammar
 
 Follow ASD-STE100 (Simplified Technical English): short sentences, one idea each, active voice, the
-subject named up front. One example below packs in most of the ways a docstring or comment breaks
-that.
+subject named up front, and every relative pronoun kept explicit.
 
-WRONG — a typical AI-generated docstring: a nominalised opening instead of an imperative verb, a
-dropped relative pronoun ("the operator the KSP wraps" for "the operator that the KSP wraps," reading
-as two clauses until the reader backtracks), passive participles instead of relative clauses, and a
-single sentence over forty words carrying four ideas. A reader has to guess what modifies what:
+WRONG — a dropped relative pronoun, and nouns stacked in place of a verb:
 
 ```python
-def update(self, pc):
-    """Performs a recomputation of the full preconditioner matrix,
-    clearing the factorization the previous operator built now
-    considered stale, this method invoked automatically whenever the
-    operator the KSP wraps changes, ensuring subsequent solves avoid
-    using an outdated factorization potentially producing incorrect
-    results."""
+# The kernel caches key on the form being compiled.
 ```
 
-RIGHT — the actor named first, one idea per sentence, the effect stated without the backstory:
+"caches key on" strings two nouns and a verbalised noun together, so a reader must guess which word
+is the verb. "the form being compiled" drops "that is" — the reduced participle reads as an
+adjective on "form" until the reader notices that it is a clause.
+
+RIGHT — the pronoun restored, and the stack broken with a plain verb:
 
 ```python
-def update(self, pc):
-    """Recompute the preconditioner matrix.
-
-    Call this when the wrapped operator changes. It clears the cached
-    factorization.
-    """
+# The kernel caches are indexed by the form that is being compiled.
 ```
 
-`numpydoc lint`'s `SS05` catches one piece of this mechanically — a summary opening with "Performs"
-instead of the imperative "Recompute". The rest — the passive chain, the dropped relative pronoun,
-the dangling modifiers, the sentence length, an unneeded why — is judgement; nothing here checks it.
+Nothing here is numpydoc-checkable. It is judgement, same as every other pattern in this section.
 
 ### A `python` That Is Not The Environment's
 
