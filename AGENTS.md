@@ -132,7 +132,7 @@ Firedrake's toolchain, in order:
 
 ## Anti-Patterns
 
-Each pattern below is a WRONG/RIGHT pair to read, or names the check that catches it.
+Each pattern below is a WRONG/RIGHT pair to read.
 
 ### Branching On Discretization Or Execution State
 
@@ -365,8 +365,6 @@ RIGHT — the pronoun restored, and the stack broken with a plain verb:
 ```python
 # The kernel caches are indexed by the form that is being compiled.
 ```
-
-Nothing here is numpydoc-checkable. It is judgement, same as every other pattern in this section.
 
 ### A `python` That Is Not The Environment's
 
