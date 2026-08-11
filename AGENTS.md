@@ -408,20 +408,22 @@ Follow ASD-STE100 (Simplified Technical English): short sentences, one idea each
 subject named up front. One example carries most of the ways a docstring or comment breaks that,
 because the habits compound rather than occurring one at a time.
 
-WRONG — passive voice with the actor buried, a nominalised verb standing in for one, three stacked
-relative clauses, one 50-word sentence carrying four ideas, and a why nobody asked for:
+WRONG — a typical AI-generated docstring: a nominalised opening instead of an imperative verb, passive
+participles doing the work relative clauses should, no "which"/"that" to mark where one idea ends and
+the next begins, and a single sentence over forty words carrying four ideas. A reader has to guess what
+modifies what:
 
 ```python
 def update(self, pc):
-    """A recomputation of the preconditioner matrix is performed by this
-    method, which is called whenever the operator that is wrapped by the
-    KSP that PETSc assembles has changed, clearing the cached factorization,
-    because reusing a factorization built from a stale operator was found
-    during testing to silently give the wrong answer."""
+    """Performs a recomputation of the preconditioner matrix, clearing
+    the cached factorization built from the previous operator now
+    considered stale, this method invoked automatically whenever the
+    wrapped operator changes as detected by PETSc during assembly, and
+    ensures subsequent solves avoid using an outdated factorization
+    potentially producing incorrect results."""
 ```
 
-RIGHT — active voice, the actor named first, one idea per sentence, the effect stated without the
-backstory:
+RIGHT — the actor named first, one idea per sentence, the effect stated without the backstory:
 
 ```python
 def update(self, pc):
@@ -432,9 +434,9 @@ def update(self, pc):
     """
 ```
 
-`numpydoc lint`'s `SS05` catches one piece of this mechanically — a summary opening with "Recomputes"
-instead of "Recompute". The rest — passive voice, nominalisation, clause-stacking, sentence length, an
-unneeded why — is judgement; nothing here checks it.
+`numpydoc lint`'s `SS05` catches one piece of this mechanically — a summary opening with "Performs"
+instead of the imperative "Recompute". The rest — the passive chain, the missing relative pronouns,
+the dangling modifiers, the sentence length, an unneeded why — is judgement; nothing here checks it.
 
 ### A `python` That Is Not The Environment's
 
