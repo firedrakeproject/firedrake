@@ -30,6 +30,17 @@ past-tense
     Wording that describes code which is not there any more.
 hasattr-guard
     ``if not hasattr(self, ...)`` standing in for a setup flag.
+google-section
+    ``Args:``/``Returns:``/``Raises:``, the Google docstring headings, anywhere
+    in a docstring an edit touches. AGENTS.md allows numpydoc only, which
+    underlines a heading instead of following it with a colon. Reported over
+    the whole docstring for the reason sphinx-field-list is.
+dof-loop
+    A Python ``for`` over ``.dat.data``, ``num_cells()`` or ``node_count``.
+    AGENTS.md asks for a form, a ``par_loop``, or Cython instead. Files under
+    ``firedrake/cython/`` and under a ``tests/`` directory are not checked:
+    the first exists to loop over mesh entities, and the second asserts over
+    meshes small enough for the loop to cost nothing.
 
 Usage
 -----
@@ -107,6 +118,18 @@ USED_TO = re.compile(
     re.IGNORECASE,
 )
 HASATTR = re.compile(r"if\s+not\s+hasattr\(\s*self\b")
+# numpydoc underlines a heading. A heading that ends in a colon instead is
+# Google's, whatever the word in front of the colon.
+GOOGLE_SECTION = re.compile(
+    r"^\s+(?:Args|Arguments|Parameters|Returns?|Raises|Yields|Attributes):\s*$"
+)
+# The iterable names data that lives on the mesh, so the loop walks the mesh
+# one entity at a time in Python. Both accessors that end in the data itself
+# count, as does a range over the counts that size it.
+DOF_LOOP = re.compile(r"\bfor\b.*\bin\b.*(?:\.dat\.data|num_cells\(\)|node_count)")
+# firedrake/cython/ exists to loop over mesh entities, and does it compiled and
+# typed. A test loops to assert, over a mesh small enough for that to be free.
+DOF_LOOP_EXEMPT_DIRS = ("/cython/", "/tests/")
 # A sentence can end inside the markup that emphasises it, as `**Do this.**`
 # does, so step over the closing markers to find the space after the stop.
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[*_`\"')\]]*\s+")
@@ -299,6 +322,7 @@ def check(path, commit_range=None):
         added -= unprosed_lines(lines)
 
     docstring_span = touched_docstring_span(path, source, added)
+    checks_dof_loop = not any(part in path for part in DOF_LOOP_EXEMPT_DIRS)
 
     findings = []
     for number in sorted(added | docstring_span):
@@ -310,8 +334,17 @@ def check(path, commit_range=None):
             if number not in added:
                 why += " -- pre-existing, but this docstring was touched elsewhere"
             findings.append((number, "sphinx-field-list", why, line.strip()))
+        if GOOGLE_SECTION.match(line):
+            why = "Use numpydoc sections, not Google headings"
+            if number not in added:
+                why += " -- pre-existing, but this docstring was touched elsewhere"
+            findings.append((number, "google-section", why, line.strip()))
         if number not in added:
             continue
+        if checks_dof_loop and DOF_LOOP.search(line):
+            findings.append((number, "dof-loop",
+                             "Use a form, a par_loop, or Cython, not a Python loop "
+                             "over mesh data", line.strip()))
         if TELLS.search(line) or USED_TO.search(line):
             findings.append((number, "past-tense",
                              "Describes code that may not be there any more", line.strip()))
