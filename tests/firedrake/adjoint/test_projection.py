@@ -166,6 +166,92 @@ def test_self_project_function():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("project_via_method", [False, True])
+def test_project_solver_parameters_recorded(project_via_method):
+    # A deliberately unconverged solve, so that the forward result is
+    # distinguishable from a converged one: the replay only matches the
+    # taped functional if it uses the recorded solver parameters.
+    sp = {
+        "ksp_type": "richardson",
+        "pc_type": "none",
+        "ksp_max_it": 1,
+        "ksp_convergence_test": "skip",
+    }
+
+    mesh = UnitSquareMesh(4, 4)
+    W = FunctionSpace(mesh, "CG", 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(W).interpolate(sin(2 * pi * x) * cos(2 * pi * y))
+
+    if project_via_method:
+        u = Function(V).project(f, solver_parameters=sp)
+    else:
+        u = project(f, V, solver_parameters=sp)
+    J = assemble(u**2 * dx)
+
+    from firedrake.adjoint_utils.blocks import ProjectBlock
+    block, = (b for b in get_working_tape().get_blocks()
+              if isinstance(b, ProjectBlock))
+    recorded = block.forward_kwargs["solver_parameters"]
+    assert all(recorded[key] == value for key, value in sp.items())
+    assert block.adj_kwargs["solver_parameters"] == recorded
+
+    rf = ReducedFunctional(J, Control(f))
+    assert rf(f) == pytest.approx(float(J), rel=1e-12)
+
+
+@pytest.mark.skipcomplex
+def test_project_default_solver_parameters_recorded():
+    # The Projector's default solver parameters must end up on the tape,
+    # so that replay does not fall back to the global firedrake defaults.
+    mesh = UnitSquareMesh(4, 4)
+    W = FunctionSpace(mesh, "CG", 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(W).interpolate(x * y)
+
+    u = project(f, V)
+    assemble(u**2 * dx)
+
+    from firedrake.adjoint_utils.blocks import ProjectBlock
+    from firedrake.projection import resolve_projection_solver_parameters
+    block, = (b for b in get_working_tape().get_blocks()
+              if isinstance(b, ProjectBlock))
+    expected = resolve_projection_solver_parameters(None)
+    assert block.forward_kwargs["solver_parameters"] == expected
+    assert block.adj_kwargs["solver_parameters"] == expected
+
+
+@pytest.mark.skipcomplex
+def test_same_space_project_records_assignment(rg):
+    # Projecting a Function onto its own space shortcuts to an assignment
+    # in the forward model, so the tape must record an assignment rather
+    # than a mass solve.
+    from firedrake.adjoint_utils.blocks import (
+        FunctionAssignBlock, GenericSolveBlock
+    )
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x * y)
+
+    u = Function(V)
+    u.project(f)
+    J = assemble(u**2 * dx)
+
+    blocks = get_working_tape().get_blocks()
+    assert not any(isinstance(b, GenericSolveBlock) for b in blocks)
+    assert sum(isinstance(b, FunctionAssignBlock) for b in blocks) == 1
+
+    rf = ReducedFunctional(J, Control(f))
+    assert rf(f) == pytest.approx(float(J), rel=1e-12)
+
+    h = rg.uniform(V)
+    assert taylor_test(rf, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
 def test_project_to_function_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
