@@ -381,6 +381,14 @@ def update(self, pc):
 instead of the imperative "Recompute". The rest — the passive chain, the missing relative pronouns,
 the dangling modifiers, the sentence length, an unneeded why — is judgement; nothing here checks it.
 
+**Dropped relative pronoun** — "the code a branch changes" reads as two clauses until the reader
+backtracks and re-reads "a branch changes" as a modifier of "the code", not a new subject. Recast as
+a participial phrase rather than restoring "that":
+
+WRONG: "Read the code a branch changes before approving it."
+
+RIGHT: "Read the code changed by a branch before approving it."
+
 ### A `python` That Is Not The Environment's
 
 WRONG — `python` resolves to whatever is first on `$PATH`, silently the system interpreter if the venv
