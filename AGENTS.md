@@ -86,13 +86,13 @@ Firedrake's toolchain, in order:
 * **Caching:** TSFC kernels and PyOP2 code are cached under
   `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR` (default `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`), set
   by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. Run `firedrake-clean` if a
-  code-generation change does not take effect.
+  change to the code generator does not take effect.
 * **Smoke test:** `firedrake-check` runs a process-count-grouped subset of the regression suite; use it
   before a full run.
 
 ### Testing
 
-* **Parallel tests:** Tests needing MPI are marked `@pytest.mark.parallel` (`nprocs=N`, or a list for
+* **Parallel tests:** Tests that need MPI are marked `@pytest.mark.parallel` (`nprocs=N`, or a list for
   multiple counts), run via the `mpi-pytest` plugin. Plain `pytest test_foo.py` self-forks one
   `mpiexec` subprocess per parallel test, one nested report each. Run every test at a given `nprocs`
   together, under one outer `mpiexec`, filtered on `parallel[match]`:
@@ -110,10 +110,10 @@ Firedrake's toolchain, in order:
 
 * **Generated kernels (niche):** Set `PYOP2_DEBUG=1` to compile generated C with `-O0 -g`, needed for
   `gdb`/`cgdb` on a compiled kernel.
-* **Cross-rank code-generation mismatches:** `CompilationError: Generated code differs across ranks`
-  dumps the mismatching per-rank source under `<cache_dir>/mismatching-kernels/src-rank*.c`. Fix the
-  Python-level value computed differently per rank and fed into code generation, not the generated
-  source.
+* **Mismatches when ranks generate different code:** `CompilationError: Generated code differs across
+  ranks` dumps the mismatching per-rank source under `<cache_dir>/mismatching-kernels/src-rank*.c`. Fix
+  the Python-level value that is computed differently per rank and that feeds into code generation, not
+  the generated source.
 * **Parallel deadlocks (niche):** `PYOP2_SPMD_STRICT=1` adds barriers around `@collective` calls and
   cache access, to narrow down where ranks disagree on control flow.
 * **Logging:** `firedrake.logging.set_log_level()` (or `PYOP2_LOG_LEVEL`) sets Firedrake/PyOP2 log
@@ -246,8 +246,8 @@ class KSPWrapper:
         self._ksp.solve(b, x)
 ```
 
-`PCSNESBase` (`firedrake/preconditioners/base.py`), the base class inherited by every
-`PCBase`/`SNESBase` preconditioner, uses exactly this pattern: `__init__` sets
+`PCSNESBase` (`firedrake/preconditioners/base.py`), the base class that every
+`PCBase`/`SNESBase` preconditioner inherits, uses exactly this pattern: `__init__` sets
 `self.initialized = False`, and `setUp()` dispatches to `initialize()` or `update()` on that flag. A
 boolean is greppable; `hasattr` is indistinguishable from a forgotten initialization until it fails.
 
@@ -289,9 +289,10 @@ non-variational, per-DoF transform), there are two sanctioned escape hatches, in
    par_loop((domain, instructions), dx, {"A": (A, RW), "B": (B, READ)})
    ```
 
-2. A compiled Cython loop over the raw DoF array — the same pattern used by Firedrake's own
-   `firedrake/cython/` wrappers for mesh-topology bookkeeping (see below) — for the rare case where a
-   `par_loop` kernel cannot express the transform (e.g. it needs a general-purpose C library call):
+2. A compiled Cython loop over the raw DoF array — the same pattern that Firedrake's own
+   `firedrake/cython/` wrappers use for bookkeeping on mesh topology (see below) — for the rare case
+   where a `par_loop` kernel cannot express the transform (e.g. it needs a general-purpose C library
+   call):
 
    ```cython
    # heavy_math.pyx, compiled ahead of time -- not a plain Python loop
@@ -308,7 +309,7 @@ non-variational, per-DoF transform), there are two sanctioned escape hatches, in
 
 This rule is about Python-level loops. Firedrake's own Cython wrappers in `firedrake/cython/`
 (`dmcommon.pyx`, `extrusion_numbering.pyx`, `mgimpl.pyx`, `patchimpl.pyx`, ...) loop over mesh entities
-routinely, for mesh-topology bookkeeping with no UFL/TSFC representation — e.g. `create_cell_closure()`
+routinely, for bookkeeping on mesh topology with no UFL/TSFC representation — e.g. `create_cell_closure()`
 in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the closure map that code generation
 depends on. These loops are compiled and typed (`cdef`/`PetscInt`, `@cython.boundscheck(False)`), on
 DMPlex point ranges, not interpreted Python objects. A plain Python loop over `.dat.data` is not fine
@@ -408,11 +409,11 @@ WRONG — a signature written from memory, not from the version actually install
 snes.setConvergenceTest(my_test)
 ```
 
-If `petsc4py` renamed a keyword or moved the method since the version an LLM was trained on, this
+If `petsc4py` renamed a keyword or moved the method since the version that an LLM was trained on, this
 fails with a `TypeError` far from its real cause.
 
-RIGHT — read the signature installed in the venv, which may be an editable checkout of an unreleased
-branch:
+RIGHT — read the signature that is installed in the venv, which may be an editable checkout of an
+unreleased branch:
 
 ```bash
 python -c "from petsc4py import PETSc; help(PETSc.SNES.setConvergenceTest)"
