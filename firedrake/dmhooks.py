@@ -521,12 +521,11 @@ def _refine_adaptive(dm):
 
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    # The refined context describes the same nonlinear problem, so it is solved
+    # by the same SNES; only the DM underneath that SNES changes.
+    refined_ctx.set_snes(ctx.get_snes())
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
-    # The SNES's own ksp does not change across adaptive refinement, only the
-    # DM underneath it does; carry the composed ksp forward onto the refined
-    # DM(s) so solve_jacobian_transpose can still find it there.
-    ksp = dm.getAttr("_ksp")
     # Get all DMs from the refined problem
     dms = [refined_ctx._problem.u_restrict.function_space().dm]
     for value in coefficient_mapping.values():
@@ -536,8 +535,6 @@ def _refine_adaptive(dm):
                 dms.append(value_dm)
     # Attach refined context
     for refined_dm in dms:
-        if ksp is not None:
-            refined_dm.setAttr("_ksp", ksp)
         add_hook(parent, setup=partial(push_parent, refined_dm, parent),
                  teardown=partial(pop_parent, refined_dm, parent),
                  call_setup=True)
