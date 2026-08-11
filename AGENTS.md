@@ -471,7 +471,8 @@ make srclint
 
 ### Recalling An API Instead Of Reading It
 
-Gives the *Do Not Trust Memorized API Shapes* rule its mechanism.
+Firedrake, UFL, and PETSc/petsc4py move faster than training data; a remembered signature can already
+be wrong.
 
 WRONG — a signature written from memory, not from the version actually installed:
 
