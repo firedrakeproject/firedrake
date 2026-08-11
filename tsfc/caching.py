@@ -1,4 +1,7 @@
-"""A fingerprint of the toolchain that generates code.
+"""This module fingerprints the toolchain that generates code.
+
+A kernel cache that folds this in stays correct after an edit to the toolchain that
+produced it. It does not stay keyed only on the form.
 
 Firedrake's kernel caches fold :func:`codegen_key` into their own key, alongside the
 form that they key on. An edit to the toolchain then changes the key for every kernel
