@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+import numpy as np
 import pytest
 from firedrake import *
 from firedrake import dmhooks
@@ -22,7 +23,7 @@ def test_marking_callback_configures_refine_adaptor():
 
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
-    assert solver._ctx._problem.dm.getAttr("_ksp") is solver.ksp
+    assert solver._ctx.get_snes() is solver.snes
 
 
 def test_solve_accepts_marking_callback():
@@ -68,6 +69,86 @@ gc.collect()
 
 def test_collect_mesh_after_adaptive_solve():
     subprocess.run([sys.executable, "-c", _COLLECT_AFTER_ADAPT], check=True)
+
+
+def _jacobian_solver(V, u):
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
+    return NonlinearVariationalSolver(
+        problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"}
+    )
+
+
+def test_solve_jacobian_uses_its_own_solvers_operator():
+    # Every solver on a function space used to share one DM-composed KSP, so
+    # building a second solver on V hijacked the first one's Jacobian solve.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    first = _jacobian_solver(V, Function(V))
+    first.solve()
+
+    b = assemble(inner(Constant(1), TestFunction(V))*dx)
+    expected = Function(V)
+    first._ctx.solve_jacobian(b, expected)
+
+    # A second solver on the same V, with a deliberately different Jacobian.
+    u2 = Function(V)
+    v2 = TestFunction(V)
+    second_problem = NonlinearVariationalProblem(
+        Constant(7)*inner(grad(u2), grad(v2))*dx - inner(Constant(1), v2)*dx,
+        u2, bcs=DirichletBC(V, 0, "on_boundary"))
+    second = NonlinearVariationalSolver(
+        second_problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    second.solve()
+
+    actual = Function(V)
+    first._ctx.solve_jacobian(b, actual)
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+    # ... and the second solver really does have a different operator, so the
+    # check above is not vacuous.
+    other = Function(V)
+    second._ctx.solve_jacobian(b, other)
+    assert not np.allclose(other.dat.data_ro, expected.dat.data_ro)
+
+
+def test_solve_jacobian_matches_assembled_jacobian():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    solver = _jacobian_solver(V, u)
+    solver.solve()
+
+    bc = DirichletBC(V, 0, "on_boundary")
+    b = assemble(inner(Constant(1), TestFunction(V))*dx, bcs=bc)
+    J = assemble(derivative(solver._problem.F, u), bcs=bc)
+
+    for transpose in (False, True):
+        actual = Function(V)
+        solver._ctx.solve_jacobian(b, actual, transpose=transpose)
+        expected = Function(V)
+        solve(J, expected, b, solver_parameters={"ksp_type": "preonly",
+                                                 "pc_type": "lu"})
+        assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+def test_solve_jacobian_without_snes_raises():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    solver = _jacobian_solver(V, u)
+    solver.solve()
+
+    # Contexts rebuilt for coarse levels or field splits describe a different
+    # problem than the outer SNES, so they deliberately do not inherit it.
+    reconstructed = solver._ctx.reconstruct()
+    assert reconstructed.get_snes() is None
+
+    b = assemble(inner(Constant(1), TestFunction(V))*dx)
+    with pytest.raises(RuntimeError, match="not attached to a SNES"):
+        reconstructed.solve_jacobian(b, Function(V))
 
 
 def _dwr_poisson_solver_parameters(adapt_option, criterion, num_refinements):

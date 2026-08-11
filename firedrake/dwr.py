@@ -171,8 +171,10 @@ class DWRMarkingCallback:
     and ``dwr_monitor`` (default off). The auxiliary solvers use the
     ``dwr_enriched_``, ``dwr_cell_``, and ``dwr_facet_`` sub-prefixes. The
     dual solves reuse the low- and enriched-order primal solvers' Jacobian
-    via ``solve_jacobian_transpose``. If no ``dwr_enriched_`` options are
-    set, the enriched-order solve inherits the parent solver's own options.
+    via ``solve_jacobian``, so the primal solvers must be preconditioned by
+    something implementing ``applyTranspose``. If no ``dwr_enriched_``
+    options are set, the enriched-order solve inherits the parent solver's
+    own options.
 
     Adaptation stops once ``|eta| < max(dwr_atol, dwr_rtol * |J(u_h)|)``,
     at which point the callback returns `None` rather than a set of markers.
@@ -290,7 +292,7 @@ class DWRMarkingCallback:
         dual_low = Function(V, name="dwr_dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)
         rhs = assemble(goal_derivative, bcs=problem.bcs)
-        ctx.solve_jacobian_transpose(rhs, dual_low)
+        ctx.solve_jacobian(rhs, dual_low, transpose=True)
 
         primal_high = Function(high_space, name="dwr_primal_high")
         primal_high.interpolate(current_solution)
@@ -313,7 +315,7 @@ class DWRMarkingCallback:
         dual_test_high = TestFunction(high_space)
         goal_derivative_high = derivative(goal_high, primal_high, dual_test_high)
         rhs_high = assemble(goal_derivative_high, bcs=high_problem.bcs)
-        primal_solver._ctx.solve_jacobian_transpose(rhs_high, dual_high)
+        primal_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
 
         dual_error = dual_high - dual_low
         self.error_estimate = self._estimate_error(

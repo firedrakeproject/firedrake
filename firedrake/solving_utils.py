@@ -1,4 +1,5 @@
 import typing
+import weakref
 from itertools import chain
 
 import numpy
@@ -135,6 +136,33 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
+def check_ksp_convergence(ksp: PETSc.KSP) -> None:
+    """Raise if a linear solve did not converge.
+
+    The KSP-level counterpart of `check_snes_convergence`, for the linear
+    solves that are not driven by a SNES.
+
+    Parameters
+    ----------
+    ksp
+        The `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the KSP reports a negative converged reason.
+    """
+    r = ksp.getConvergedReason()
+    try:
+        reason = KSPReasons[r]
+    except KeyError:
+        reason = "unknown reason (petsc4py enum incomplete?), try with -ksp_converged_reason"
+    if r < 0:
+        raise ConvergenceError(r"""Linear solve failed to converge after %d iterations.
+Reason:
+   %s""" % (ksp.getIterationNumber(), reason))
+
+
 def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) -> int:
     """SNES convergence test that stops once the adaptive loop has converged.
 
@@ -221,6 +249,18 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
 
+    Notes
+    -----
+    The route back from a context to the SNES solving it is `get_snes`, set by
+    `set_snes` when the solver is built. The reference is weak: the SNES owns
+    its DM, which owns this context for the duration of a solve, so a strong
+    reference here would close a cycle that the garbage collector cannot break.
+
+    Only the context a solver is built with knows its SNES. The contexts
+    `reconstruct` produces for field splits and coarse multigrid levels do not
+    inherit it, because the outer SNES's Jacobian describes a different problem
+    than the one they hold.
+
     """
     @PETSc.Log.EventDecorator()
     def __init__(self, problem,
@@ -259,6 +299,8 @@ class _SNESContext(object):
         # Set once the marking callback declines to mark anything, meaning
         # that no further adaptation of this mesh is wanted.
         self._adapt_converged = False
+        # A weak reference to the SNES solving this problem, see set_snes.
+        self._snes = None
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -378,35 +420,62 @@ class _SNESContext(object):
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
 
-    def solve_jacobian_transpose(self, rhs: Cofunction,
-                                 solution: Function) -> None:
-        """Solve the transpose of the current Jacobian.
+    def set_snes(self, snes: PETSc.SNES | None) -> None:
+        """Record the SNES that solves this problem.
 
         Parameters
         ----------
-        rhs
-            The dual right-hand side.
-        solution
-            The Function in which to store the solution.
+        snes
+            The `PETSc.SNES` this context is the user context of, or `None` to
+            record that there is none. Only a weak reference is kept, so the
+            caller must own the SNES; a `~.NonlinearVariationalSolver` does.
         """
-        ksp = self._problem.dm.getAttr("_ksp")
-        if ksp is None:
-            raise RuntimeError("This context is not attached to a KSP")
-        with rhs.dat.vec_ro as b, solution.dat.vec_wo as x:
-            if b.norm() == 0:
-                x.set(0)
-                return
-            with dmhooks.add_hooks(ksp.getDM(), self, appctx=self, save=False):
-                ksp.solveTranspose(b, x)
-            reason = ksp.getConvergedReason()
-            if reason < 0:
-                raise ConvergenceError(
-                    "Transpose Jacobian solve failed to converge after "
-                    f"{ksp.getIterationNumber()} iterations.\nReason:\n   "
-                    f"{KSPReasons.get(reason, reason)} "
-                    f"(PC type {ksp.getPC().getType()}, "
-                    f"failure {ksp.getPC().getFailedReason()})"
-                )
+        self._snes = None if snes is None else weakref.ref(snes)
+
+    def get_snes(self) -> PETSc.SNES | None:
+        """Return the SNES that solves this problem.
+
+        Returns
+        -------
+        The `PETSc.SNES` passed to `set_snes`, or `None` if none was set or the
+        SNES has since been collected.
+        """
+        return None if self._snes is None else self._snes()
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve against the current Jacobian.
+
+        The Jacobian and preconditioner assembled by the most recent solve are
+        reused, so this costs one linear solve rather than a fresh setup.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve against the transposed Jacobian. This requires a
+            preconditioner implementing ``applyTranspose``, which not every
+            Python PC does.
+
+        Raises
+        ------
+        RuntimeError
+            If no SNES was recorded on this context.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.get_snes()
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        solve = ksp.solveTranspose if transpose else ksp.solve
+        with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self, save=False):
+                solve(bvec, xvec)
+        check_ksp_convergence(ksp)
 
     @property
     def transfer_manager(self):
@@ -669,11 +738,6 @@ class _SNESContext(object):
     def create_operators(ksp):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
-        # ksp.getDM() and similar accessors return a fresh Python wrapper on
-        # every call, so solve_jacobian_transpose could not otherwise find
-        # this ksp again later. Composing it directly on the DM keeps this
-        # specific wrapper alive for as long as the DM is.
-        dm.setAttr("_ksp", ksp)
         A = ctx._jac.petscmat
         if ctx.Jp is None:
             return A

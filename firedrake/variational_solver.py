@@ -432,13 +432,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
-        # A fresh Python wrapper is returned on every getKSP() call, so
-        # solve_jacobian_transpose could not otherwise find this ksp again
-        # later. Composing it directly on the problem's DM, exactly as
-        # _SNESContext.create_operators does for inner multigrid levels,
-        # keeps this specific wrapper alive for as long as the DM is.
-        self.ksp = self.snes.getKSP()
-        problem.dm.setAttr("_ksp", self.ksp)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
         self.snes.setDM(problem.dm)
