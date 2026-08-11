@@ -3937,6 +3937,15 @@ class VertexOnlyMeshSF:
             self.sf.reduceEnd(unit, leaf_values, root_values, op)
         return root_values
 
+    def create_embedded_leaf_sf(
+        self,
+        mask: np.ndarray,
+    ) -> "VertexOnlyMeshSF":
+        if mask.shape != (self.nleaves,):
+            raise ValueError("mask must contain one entry per leaf")
+        selected_leaf_indices = self.leaf_indices[mask]
+        return type(self)(self.sf.createEmbeddedLeafSF(selected_leaf_indices))
+
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
     """A DMSwarm with a saved list of added fields"""
@@ -4749,10 +4758,7 @@ def _parent_mesh_embedding(
             reference_coords[missing_local_leaves, :] = np.nan
 
     # Remove losing candidates from the SF
-    selected_leaf_indices = np.flatnonzero(leaf_is_embedded).astype(IntType)
-    embedded_sf = VertexOnlyMeshSF(
-        candidate_sf.sf.createEmbeddedLeafSF(selected_leaf_indices)
-    )
+    embedded_sf = candidate_sf.create_embedded_leaf_sf(leaf_is_embedded)
 
     # Reduce winner cell and reference coords back to roots.
     # We are okay to use the embedded_sf since we reduce arrays
