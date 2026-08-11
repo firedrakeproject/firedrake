@@ -312,8 +312,7 @@ class DWRMarkingCallback:
 
         goal_high = replace(self.goal_functional, {current_solution: primal_high})
         dual_high = Function(high_space, name="dwr_dual_high")
-        dual_test_high = TestFunction(high_space)
-        goal_derivative_high = derivative(goal_high, primal_high, dual_test_high)
+        goal_derivative_high = derivative(goal_high, primal_high)
         rhs_high = assemble(goal_derivative_high, bcs=high_problem.bcs)
         primal_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
 
