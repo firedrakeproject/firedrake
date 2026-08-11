@@ -1,19 +1,18 @@
-Goal-oriented mesh adaptivity
-=============================
+Goal-oriented mesh adaptivity for mixed linear elasticity
+=========================================================
 
 This demo uses a dual-weighted residual (DWR) estimator to adapt a mesh for
 one particular quantity of interest.  The example is the weakly symmetric
-Hellinger--Reissner elasticity problem studied by Rognes and Logg in
-`Automated Goal-Oriented Error Control I
-<https://doi.org/10.1137/100795008>`__.  It is a useful test because its mixed
-space contains both :math:`H(\mathrm{div})`- and :math:`L^2`-conforming fields.
+Hellinger--Reissner elasticity problem studied by Rognes and Logg
+:cite:`Rognes:2013`.  It is a useful test because its mixed space contains
+both :math:`H(\mathrm{div})`- and :math:`L^2`-conforming fields.  It is also
+linear, unlike the :doc:`p-Laplacian <goal_oriented_nonlinear_p_laplacian.py>`
+that the same machinery handles.
 
 The unknowns are the two rows of the stress :math:`\sigma`, the displacement
 :math:`u`, and a scalar rotation :math:`\gamma`.  We use first-order BDM
 elements for each stress row, piecewise constants for the displacement, and
-continuous linears for the rotation.  The deliberately small initial mesh
-keeps the demo quick; increasing its resolution and the number of refinement
-steps produces the longer adaptive sequences used in the paper. ::
+continuous linears for the rotation. ::
 
   from firedrake import *
 
@@ -74,19 +73,46 @@ global Dörfler marking. ::
   tangent = as_vector((0, 1))
   goal = psi*dot(dot(n, sigma), tangent)*ds(2)
 
-The auxiliary cell and facet solvers accept their own options under the
-``dwr_cell_`` and ``dwr_facet_`` prefixes, but here we leave them at their
-PETSc defaults.  The enriched primal solve has no options of its own either,
-so it inherits the outer solver's options below; we call
-``ksp.solveTranspose`` on it, so the dual solve reuses those options too. ::
+The Hellinger--Reissner system is indefinite.  We therefore ask MUMPS to detect
+null pivots (``icntl_24``) rather than give up on the first one it meets.  We
+also give it room to grow its working space (``icntl_14``). ::
 
   solver_parameters = {
       "ksp_type": "preonly",
       "pc_type": "lu",
       "pc_factor_mat_solver_type": "mumps",
+      "mat_mumps_icntl_14": 200,
+      "mat_mumps_icntl_24": 1,
+  }
+
+Each auxiliary solve the estimator performs has its own options prefix, so
+none of them is silently configured by the outer solver's options.
+``dwr_cell_`` and ``dwr_facet_`` localise the residual onto cells and facets;
+both mass-like operators are well conditioned, so a diagonally preconditioned
+solve suffices.  ``dwr_enriched_`` is the enriched-order primal solve, whose
+Jacobian is reused transposed for the enriched dual.  Left unset, a prefix
+inherits the outer solver's options, which for the enriched solve is what we
+want here. ::
+
+  solver_parameters.update({
+      "dwr_cell_ksp_type": "cg",
+      "dwr_cell_pc_type": "jacobi",
+      "dwr_facet_ksp_type": "cg",
+      "dwr_facet_pc_type": "jacobi",
+  })
+
+``snes_adapt_sequence`` bounds the number of SOLVE--ESTIMATE--MARK--REFINE
+cycles.  ``dwr_rtol`` stops the loop early once the estimated error in the goal
+falls below that fraction of :math:`|J(w_h)|`, and ``dwr_atol`` sets an absolute
+tolerance instead.  ``dwr_monitor`` reports the estimate once per cycle, split
+into the discretisation part and the algebraic-solve part. ::
+
+  solver_parameters.update({
       "snes_adapt_sequence": 5,
       "dwr_marking_fraction": 0.5,
-  }
+      "dwr_rtol": 1.0e-3,
+      "dwr_monitor": None,
+  })
 
   initial_dofs = W.dim()
   problem = NonlinearVariationalProblem(F, w)
@@ -97,14 +123,16 @@ so it inherits the outer solver's options below; we call
   )
   w_adapt = solver.solve()
 
-``solver.solve()`` returns the solution on the final adapted mesh, and
+``solver.solve()`` returns the solution on the final adapted mesh,
 ``solver.get_goal_functional()`` gives the goal functional already
-reconstructed on that mesh. ::
+reconstructed on that mesh, and ``solver.get_error_estimate()`` gives the
+estimate :math:`\eta` of :math:`J(w) - J(w_h)` from the last cycle. ::
 
   adapted_goal = solver.get_goal_functional()
 
   print(f"degrees of freedom: {initial_dofs} -> {w_adapt.function_space().dim()}")
   print(f"weighted shear traction: {assemble(adapted_goal):.8f}")
+  print(f"error estimate: {solver.get_error_estimate():.3e}")
 
 The refinement is driven by the error in this boundary traction, rather than
 by a global energy norm.  Cells near the right boundary, where the goal
@@ -118,12 +146,20 @@ domain. ::
   triplot(w_adapt.function_space().mesh().unique(), axes=axes)
   axes.set_aspect("equal")
   axes.legend(loc="center left", bbox_to_anchor=(1.05, 0.5))
-  fig.savefig("goal_oriented_adaptivity_mesh.png", bbox_inches="tight")
+  fig.savefig("goal_oriented_linear_elasticity_mesh.png", bbox_inches="tight")
 
-.. image:: goal_oriented_adaptivity_mesh.png
+.. image:: goal_oriented_linear_elasticity_mesh.png
    :width: 60%
    :alt: The adapted mesh, refined near the right boundary.
    :align: center
 
 More refinement steps can be requested by increasing ``snes_adapt_sequence``
-without writing an explicit solve--estimate--refine loop.
+without writing an explicit solve--estimate--refine loop.  The deliberately
+small initial mesh keeps this demo quick.  Five cycles is far from enough to
+resolve the traction; reaching the value quoted above takes the longer
+sequences of the original study :cite:`Rognes:2013`.
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames

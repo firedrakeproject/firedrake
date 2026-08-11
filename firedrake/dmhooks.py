@@ -463,14 +463,15 @@ def _refine_adaptive(dm):
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
-
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
+    if ctx._adapt_converged:
+        # PETSc's adaptor has no tolerance of its own, so it keeps asking for
+        # the remainder of -snes_adapt_sequence after the callback has declared
+        # itself satisfied. Hand the same DM straight back, without paying for
+        # an estimate whose answer is already known.
+        return dm
     current_solution = ctx._x
     solution_mesh = current_solution.function_space().mesh()
     mesh = solution_mesh.unique()
@@ -482,9 +483,22 @@ def _refine_adaptive(dm):
     if level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
-        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
+        # Without a callback there is nothing to tell one cell from another,
+        # so refine them all. Adaptive refinement then degenerates to uniform
+        # refinement, which is what grid sequencing alone asks for.
+        markers = firedrake.Function(firedrake.FunctionSpace(mesh, "DG", 0)).assign(1)
+    else:
+        markers = ctx._marking_callback(ctx, current_solution)
+    if markers is None:
+        # The callback is satisfied with this mesh, so hand the same DM back
+        # unrefined. petsc4py increments the reference count of whatever this
+        # returns, which is exactly what DMAdaptorAdapt()'s destruction of its
+        # input consumes, so the count is already balanced. Recording it on the
+        # context lets both this function and the SNES convergence test skip
+        # the remaining steps of the sequence.
+        ctx._adapt_converged = True
+        return dm
 
-    markers = ctx._marking_callback(ctx, current_solution)
     if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
         raise TypeError(
             f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
@@ -495,6 +509,11 @@ def _refine_adaptive(dm):
     num_dofs_per_cell = M.finat_element.space_dimension()
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
+
+    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
+    # adapted input DM remains a level in the mesh hierarchy.
+    # Increase the reference count so the coarse DM survives.
+    dm.incRef()
 
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
     if isinstance(solution_mesh, MeshSequenceGeometry):

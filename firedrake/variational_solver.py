@@ -466,6 +466,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
+        if marking_callback is not None:
+            self.snes.setConvergenceTest(solving_utils.adaptive_convergence_test)
+
         # Used for custom grid transfer.
         self._transfer_operators = ()
         self._setup = False
@@ -504,6 +507,26 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         if not isinstance(callback, DWRMarkingCallback):
             raise AttributeError("This solver has no DWRMarkingCallback attached")
         return callback.goal_functional
+
+    def get_error_estimate(self) -> float:
+        r"""Return the most recent estimate of the error in the goal functional.
+
+        This is the ``eta`` approximating :math:`J(u) - J(u_h)` computed by the
+        attached :class:`.DWRMarkingCallback`, the last time it was asked to
+        mark. It is what ``-dwr_atol`` and ``-dwr_rtol`` are tested against.
+
+        The estimate refers to the mesh it was computed on. That is the current
+        mesh only if the solve stopped because the tolerances were met.
+        Otherwise it is the mesh one refinement coarser, since refining is what
+        the estimate asked for, and the refined mesh has yet to be estimated.
+        """
+        from firedrake.dwr import DWRMarkingCallback
+        callback = self._ctx._marking_callback
+        if not isinstance(callback, DWRMarkingCallback):
+            raise AttributeError("This solver has no DWRMarkingCallback attached")
+        if callback.error_estimate is None:
+            raise ValueError("No error estimate is available until the solver has marked")
+        return callback.error_estimate
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
@@ -544,6 +567,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
+        # Reset the adaptive convergence flag, so that a solver that stopped
+        # adapting last time gets to adapt again.
+        self._ctx._adapt_converged = False
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
@@ -587,9 +613,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-                if self.snes.getDM() != solution_dm:
-                    # DMAdaptorAdapt() consumed a reference to work, which the
-                    # adapted-away DM keeps as its template global vector.
+                if self.snes.getSolution() != work:
+                    # DMAdaptorAdapt() consumed a reference to work when it
+                    # replaced it with a vector of its own. The solution vector
+                    # records that, whereas the DM does not: adaptation that
+                    # converges immediately leaves the DM alone but still
+                    # rebuilds the vector.
                     work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())

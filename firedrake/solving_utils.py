@@ -135,6 +135,40 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
+def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) -> int:
+    """SNES convergence test that stops once the adaptive loop has converged.
+
+    PETSc's `DMAdaptor` runs a fixed number of ``-snes_adapt_sequence`` steps
+    and has no error tolerance of its own. Once the marking callback declines
+    to mark anything, the mesh stops changing, so each remaining step would
+    re-solve a problem that is already solved. Reporting convergence
+    immediately makes those steps cost nothing.
+
+    Parameters
+    ----------
+    snes
+        The `PETSc.SNES` being tested.
+    it
+        The current nonlinear iteration number.
+    norms
+        The solution, update and residual norms, as PETSc passes them.
+
+    Returns
+    -------
+    The `PETSc.SNES.ConvergedReason` for this iteration.
+    """
+    ctx = dmhooks.get_appctx(snes.getDM())
+    if ctx is not None and ctx._adapt_converged:
+        return PETSc.SNES.ConvergedReason.CONVERGED_ITS
+    # petsc4py exposes no binding for SNESConvergedDefault, so reinstate it as
+    # the SNES's own test for the duration of the call that delegates to it.
+    snes.setConvergenceTest("default")
+    try:
+        return snes.callConvergenceTest(it, *norms)
+    finally:
+        snes.setConvergenceTest(adaptive_convergence_test)
+
+
 class _SNESContext(object):
     """Context holding information for SNES callbacks.
 
@@ -222,6 +256,9 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        # Set once the marking callback declines to mark anything, meaning
+        # that no further adaptation of this mesh is wanted.
+        self._adapt_converged = False
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess

@@ -5,6 +5,7 @@ import pytest
 from firedrake import *
 from firedrake import dmhooks
 from firedrake.mg.utils import get_level
+from ufl.domain import extract_unique_domain
 
 
 def test_marking_callback_configures_refine_adaptor():
@@ -185,6 +186,85 @@ def test_dwr_marking_callback_solver_reuse():
     assert first_dim > old_dim
     assert isinstance(first_goal, float)
     assert isinstance(second_goal, float)
+
+
+def _dwr_poisson_problem(n=4):
+    mesh = UnitSquareMesh(n, n)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - v*dx
+    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
+    return mesh, V, problem, u*dx
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_marking_callback_stops_at_tolerance():
+    atol = 2.0e-3
+    requested = 8
+    mesh, V, problem, goal = _dwr_poisson_problem()
+    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", requested)
+    parameters["dwr_atol"] = atol
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=DWRMarkingCallback(goal),
+    )
+    result = solver.solve()
+
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert 0 < level < requested
+    assert solver._ctx._adapt_converged
+    assert abs(solver.get_error_estimate()) < atol
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_marking_callback_reads_options_after_refinement():
+    # Every dwr_ option must keep coming from the prefix of the solver the
+    # callback was attached to. The reconstructed context is renamed after
+    # the multigrid level it becomes.
+    mesh, V, problem, goal = _dwr_poisson_problem()
+    callback = DWRMarkingCallback(goal)
+    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 3)
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=callback,
+    )
+    solver.solve()
+
+    assert solver._ctx._marking_callback._options_prefix == solver.options_prefix
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_marking_callback_reconstructs_exact_solution():
+    mesh, V, problem, goal = _dwr_poisson_problem()
+    x, y = SpatialCoordinate(mesh)
+    callback = DWRMarkingCallback(goal, exact_solution=x*(1 - x)*y*(1 - y))
+    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 2)
+    parameters["dwr_monitor"] = None
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=callback,
+    )
+    result = solver.solve()
+
+    adapted = solver._ctx._marking_callback
+    adapted_mesh = result.function_space().mesh().unique()
+    assert adapted_mesh is not mesh
+    assert extract_unique_domain(adapted.exact_solution) is adapted_mesh
+    assert solver.get_error_estimate() != 0.0
+
+
+@pytest.mark.parallel([1, 2])
+def test_adaptive_refine_without_marking_callback_is_uniform():
+    mesh, V, problem, _ = _dwr_poisson_problem(n=2)
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
+                           "snes_adapt_sequence": 2, "adaptor_criterion": "refine"},
+    )
+    result = solver.solve()
+
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 2
+    # Two rounds of red refinement of the 8 cells of a 2x2 unit square.
+    assert result.function_space().dim() == 81
 
 
 @pytest.mark.skipnetgen
