@@ -1,0 +1,19 @@
+{
+  "worktree": {
+    "bgIsolation": "none"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agents/tools/require-fdk.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
