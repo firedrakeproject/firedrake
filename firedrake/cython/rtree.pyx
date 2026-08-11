@@ -52,21 +52,6 @@ cdef extern from "rtree-capi.h":
 
     RTreeError rtree_free_offsets(size_t *offsets, size_t n)
 
-    RTreeError rtree_locate_all_at_point(
-        const RTreeH *tree,
-        const double *point,
-        int64_t **ids_out,
-        size_t *nids_out
-    )
-
-    RTreeError rtree_locate_all_at_points(
-        const RTreeH *tree,
-        const double *points,
-        size_t n_points,
-        int64_t **ids_out,
-        size_t **offsets_out
-    )
-
     RTreeError rtree_locate_all_at_points_unique(
         const RTreeH *tree,
         const double *points,
@@ -170,20 +155,16 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef tuple _discover_sends(
+cdef tuple _destination_ranks(
         RTree rtree,
         np.ndarray[np.float64_t, ndim=2, mode="c"] points,
         Py_ssize_t comm_size):
     """Group candidate point indices by destination rank.
 
-    The R-tree query returns unique candidate ranks for each point. This
-    routine transposes that point-major result into rank-major send buffers.
-
     Parameters
     ----------
     rtree : RTree
-        The distributed Rtree built by :func:`build_from_aabb` with
-        rank numbers as leaf ids.
+        The distributed Rtree with rank numbers as leaf ids.
     points : (n_points, gdim) float64 array
         The local points to send to remote ranks.
     comm_size : int
@@ -196,8 +177,7 @@ cdef tuple _discover_sends(
     point_indices : (total_sends,) int32 array
         Indices into `points` determining which points to send.
     send_counts : (comm_size,) int32 array
-        Its first `nranks_to` entries contain the numbers of points sent to
-        the corresponding entries of `toranks`.
+        The number of points to send to each rank.
     """
     cdef:
         int64_t *ids_out = NULL
@@ -238,8 +218,6 @@ cdef tuple _discover_sends(
 
         toranks = np.empty(nranks_to, dtype=np.int32)
 
-        # Store destinations in rank order and turn each dense count into the
-        # cursor used to fill that rank's section of `point_indices`.
         index = 0
         offset = 0
         for rank in range(comm_size):
@@ -260,8 +238,6 @@ cdef tuple _discover_sends(
                 point_indices[index] = <np.int32_t>i
                 send_counts[rank] += 1
 
-        # PetscCommBuildTwoSided expects packed counts corresponding to
-        # `toranks`, so the dense cursors are no longer needed.
         offset = 0
         for index in range(nranks_to):
             rank = toranks[index]
@@ -319,7 +295,7 @@ def discover_remote_roots(
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
 
-    toranks, point_indices, send_counts = _discover_sends(
+    toranks, point_indices, send_counts = _destination_ranks(
         rtree, points, comm.size,
     )
     nranks_to = <PetscMPIInt>toranks.shape[0]
@@ -338,8 +314,7 @@ def discover_remote_roots(
     ))
 
     # Now each rank knows what ranks it is going to receive points from,
-    # and how many points from each of those ranks. We now proceed and
-    # send these points sparsely.
+    # and how many points. We now proceed and send these points sparsely.
 
     try:
         for k in range(nranks_from):
