@@ -57,11 +57,11 @@ mixed formulation. ::
 
   F = (
       inner(compliance, tau)
-      + dot(div(sigma), v)
-      + dot(u, div(tau))
-      + (sigma[0, 1] - sigma[1, 0])*eta
-      + gamma*(tau[0, 1] - tau[1, 0])
-  )*dx - dot(body_force, v)*dx - dot(u0, dot(tau, n))*ds
+      + inner(div(sigma), v)
+      + inner(u, div(tau))
+      + inner(sigma[0, 1] - sigma[1, 0], eta)
+      + inner(gamma, tau[0, 1] - tau[1, 0])
+  )*dx - inner(body_force, v)*dx - inner(u0, dot(tau, n))*ds
 
 Our goal is the weighted average shear traction on the right boundary.  Its
 exact value is approximately :math:`-0.06029761071`.  The DWR callback
