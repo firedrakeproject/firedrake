@@ -1,14 +1,19 @@
 """A fingerprint of the toolchain that generates code, for callers that cache on a form.
 
-Firedrake indexes its kernel caches by the form being compiled. It does not index
-them by the compiler that lowered the form. An edit to this toolchain leaves every
-kernel already on disk in place. :func:`codegen_key` closes that gap. A caller folds
-it into its own cache key. An edit anywhere in the toolchain then changes the key
-for every kernel that it could have changed.
+Firedrake indexes its kernel caches by the form that it compiles, not by the compiler
+that lowered the form. An edit to this toolchain then leaves a stale kernel in place.
+:func:`codegen_key` closes that gap. A caller folds it into its own cache key. An
+edit to the toolchain then changes the key for every kernel that it could have
+changed.
 
-The key is fixed once, when this module is imported. A process does not recompute it
-per compile. Import is the moment a process starts running a particular toolchain, so
-fixing the key there keeps the cost off the compile path entirely.
+Every process computes this key once, at import, not on every compile. Two processes
+that see the same toolchain files compute the same key. A later process then reuses
+a kernel that an earlier process cached on disk.
+
+:func:`stamp_source_tree` stats a file rather than reading it. It sees a file's path,
+size, and the time that the file was last written, not the file's content. Reading
+every file's content would catch more edits, but at a cost that this module cannot
+pay on every import.
 """
 from __future__ import annotations
 
