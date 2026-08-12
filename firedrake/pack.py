@@ -840,6 +840,7 @@ def check_fuse(element):
 
 
 @check_fuse.register(finat.ufl.FiniteElement)
+@check_fuse.register(finat.ufl.BrokenElement)
 def check_fuse_nonfuse(element):
     return False, False, False, None, None
 
