@@ -6,9 +6,9 @@ high-performance C backends for scalability and speed.
 
 Firedrake's full contribution process is documented at
 [Contributing to Firedrake](https://firedrakeproject.org/contribute.html). For AI-assisted
-contributions: declare that AI was used and which tool; a human leads the PR, understands every
-change, and answers reviewer questions directly; the code has been run locally; AI does not close
-issues labelled 'good first issue'. Full conditions:
+contributions: declare that AI was used and which tool; a human should lead the PR, understands every
+change, and answers reviewer questions directly; the code has been run locally; AI should not be used
+to close issues labelled 'good first issue'. Full conditions:
 [AI contribution policy](https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy).
 
 ## Project Architecture
@@ -33,15 +33,16 @@ Firedrake's toolchain, in order:
 * **Unified Abstractions:** Do not branch on cell type, polynomial degree, element family, or serial
   vs. MPI-parallel execution. Use the UFL/TSFC/PyOP2/PETSc abstraction that already handles it — see
   Anti-Patterns.
-* **Preserve Style:** Match the naming and patterns of the package you are editing. Keep edits minimal
-  and local to the requested change.
+* **Preserve Coding Style:** Match the naming and patterns of the package you are editing. Keep edits minimal
+  and local to the requested change. However, do not match the terse, telegraphic style of existing
+  comments and docstrings.
 * **Avoid Duplication:** Reuse or extend nearby logic instead of duplicating it. Do not add speculative
   abstractions or broad refactors unless asked.
 * **Do Not Trust Memorized API Shapes:** Read a Firedrake, UFL, or PETSc/petsc4py API's current
   signature from the installed source before calling it, unless you have just seen it used in this
-  codebase — see Anti-Patterns.
+  codebase.
 * **Document The Present, Not The Past:** Do not describe a removed or rejected approach in a comment
-  or docstring. Document only what the current code does — see Anti-Patterns.
+  or docstring. Document only what the current code does.
 
 ## Coding Style And Conventions
 
@@ -55,8 +56,9 @@ Firedrake's toolchain, in order:
 * **NumPy For Vectorized Work Only:** Use NumPy for index computation and vectorized pre/post-processing.
   Do not iterate a large array element-by-element, or touch the same whole array repeatedly outside one
   vectorized expression.
-* **Docstrings:** All public-facing APIs use `numpydoc`-style docstrings.
-* **Type Hints:** Add type hints to new function/method signatures.
+* **Docstrings and Type Hints:** The codebase is mid-migration and inconsistently documented and typed.
+  All public-facing APIs that you touch must be updated to `numpydoc`-style.
+  Add type hints to new function/method signatures.
 
 ## Testing Requirements
 
@@ -68,7 +70,7 @@ Firedrake's toolchain, in order:
 ## Pull Request Expectations
 
 * All changes land through GitHub pull requests. Keep diffs focused.
-* Before requesting review: `make srclint`, the relevant test subset, and the
+* Before requesting review: `make srclint`, ensure the relevant test subset is green, and read the
   [pre-submission checklist](https://firedrakeproject.org/contribute.html#pre-submission-checklist) in
   `docs/source/contribute.rst`.
 
@@ -108,13 +110,13 @@ Firedrake's toolchain, in order:
 
 ### Debugging
 
-* **Generated kernels (niche):** Set `PYOP2_DEBUG=1` to compile generated C with `-O0 -g`, needed for
+* **Generated kernels:** Set `PYOP2_DEBUG=1` to compile generated C with `-O0 -g`, needed for
   `gdb`/`cgdb` on a compiled kernel.
 * **Mismatches when ranks generate different code:** `CompilationError: Generated code differs across
   ranks` dumps the mismatching per-rank source under `<cache_dir>/mismatching-kernels/src-rank*.c`. Fix
   the Python-level value that is computed differently per rank and that feeds into code generation, not
   the generated source.
-* **Parallel deadlocks (niche):** `PYOP2_SPMD_STRICT=1` adds barriers around `@collective` calls and
+* **Parallel deadlocks:** `PYOP2_SPMD_STRICT=1` adds barriers around `@collective` calls and
   cache access, to narrow down where ranks disagree on control flow.
 * **Logging:** `firedrake.logging.set_log_level()` (or `PYOP2_LOG_LEVEL`) sets Firedrake/PyOP2 log
   verbosity, independent of PETSc's `-log_view`/`-info`.
@@ -129,6 +131,25 @@ Firedrake's toolchain, in order:
   `:dev-main`/`:dev-release` — see the
   [install docs](https://firedrakeproject.org/install.html#docker)) to rule out environment drift
   before chasing a hard-to-reproduce bug.
+
+## Grammar & Style Rules for Technical Prose
+
+Write as an expert technical writer addressing a peer (a mathematician or software engineer).
+Use ASD-STE100. Write clear, complete sentences rather than grammatically convoluted shortcuts.
+All comments, docstrings, and documentation must adhere to the following standards:
+
+* **Active Verbs Over Noun-Stacking:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
+   - **WRONG:** `# Process boundary facet normal orientation sign correction.`
+   - **RIGHT:** `# Flips boundary facets so their normals point outside the mesh.`
+
+* **Explicit Relative Pronouns:** Never drop pronouns like `that`, `which`, or `where` to condense sentences.
+   - **WRONG:** `# Function updates tensor values modified during solve step.`
+   - **RIGHT:** `# Updates tensor values that were modified during the solve step.`
+
+* **Subject-Verb Alignment:** Ensure that introductory prepositional phrases modify the actual grammatical
+subject of the main clause. Avoid dangling modifiers.
+   - **WRONG**: `# Using the tangent linear model, $O(M)$ solves are needed.`
+   - **RIGHT**: `# The tangent linear approach requires $O(M)$ solves.`
 
 ## Anti-Patterns
 
@@ -314,107 +335,3 @@ in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the closure map 
 depends on. These loops are compiled and typed (`cdef`/`PetscInt`, `@cython.boundscheck(False)`), on
 DMPlex point ranges, not interpreted Python objects. A plain Python loop over `.dat.data` is not fine
 merely because "Firedrake has C-level loops elsewhere."
-
-### Documenting Code That Is Not There
-
-A reader has only the file in front of them. A comment can describe a removed approach, or argue
-against a branch that the code does not take. Either one sends the reader looking for something that
-is not there.
-
-WRONG — the comment explains what the old scaling used to do and why it broke, instead of the code
-in front of the reader:
-
-```python
-def pc_stiffness_scaling(mesh, kappa):
-    # This no longer scales by the mean of kappa. That broke for a kappa that
-    # varied by orders of magnitude across the mesh, denormalizing h_scaling
-    # to 1 for a constant kappa.
-    h = CellDiameter(mesh)
-    return h * h * kappa
-```
-
-RIGHT — say what the present line does:
-
-```python
-def pc_stiffness_scaling(mesh, kappa):
-    # Scale by the local kappa, so cells do not end up over- or
-    # under-weighted when kappa spans several orders of magnitude.
-    h = CellDiameter(mesh)
-    return h * h * kappa
-```
-
-Some words give this away on sight: "used to", "previously", "no longer", "instead of", "we removed",
-"this replaces". Watch equally for "would" when its subject is code that does not exist.
-
-### Grammar
-
-Follow ASD-STE100 (Simplified Technical English): short sentences, one idea each, active voice, the
-subject named up front, and every relative pronoun kept explicit.
-
-WRONG — a dropped relative pronoun, and nouns stacked in place of a verb:
-
-```python
-# The kernel caches key on the form being compiled.
-```
-
-"caches key on" strings two nouns and a verbalised noun together, so a reader must guess which word
-is the verb. "the form being compiled" drops "that is" — the reduced participle reads as an
-adjective on "form" until the reader notices that it is a clause.
-
-RIGHT — the pronoun restored, and the stack broken with a plain verb:
-
-```python
-# The kernel caches are keyed on the form that is being compiled.
-```
-
-### A `python` That Is Not The Environment's
-
-WRONG — `python` resolves to whatever is first on `$PATH`, silently the system interpreter if the venv
-was never activated:
-
-```bash
-python -m pytest tests/firedrake/regression/test_helmholtz.py
-```
-
-RIGHT — activate the venv first, so `python` resolves to the one with Firedrake installed:
-
-```bash
-. venv-firedrake/bin/activate
-python -m pytest tests/firedrake/regression/test_helmholtz.py
-```
-
-### Linting One File And Calling It Clean
-
-WRONG — checks only the file just edited:
-
-```bash
-flake8 firedrake/mesh.py
-```
-
-RIGHT — `make srclint` also lints `firedrake/scripts`, `scripts`, `tests`, `pyop2`, `pyop2/scripts`,
-and `tsfc`, which is what CI enforces:
-
-```bash
-make srclint
-```
-
-### Recalling An API Instead Of Reading It
-
-Firedrake, UFL, and PETSc/petsc4py move faster than training data; a remembered signature can already
-be wrong.
-
-WRONG — a signature written from memory, not from the version actually installed:
-
-```python
-snes.setConvergenceTest(my_test)
-```
-
-If `petsc4py` renamed a keyword or moved the method since the version that an LLM was trained on, this
-fails with a `TypeError` far from its real cause.
-
-RIGHT — read the signature that is installed in the venv, which may be an editable checkout of an
-unreleased branch:
-
-```bash
-python -c "from petsc4py import PETSc; help(PETSc.SNES.setConvergenceTest)"
-```
