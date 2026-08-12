@@ -2809,6 +2809,39 @@ values from f.)"""
             the reference coordinates and distances are meaningless for these
             points.
         """
+        cells, ref_coords, ref_cell_dists_l1, _ = self._locate_cells_ref_coords_dists_and_owners(
+            xs, tolerance=tolerance, cells_ignore=cells_ignore
+        )
+        return cells, ref_coords, ref_cell_dists_l1
+
+    def _locate_cells_ref_coords_dists_and_owners(
+        self,
+        xs: np.ndarray,
+        tolerance: float | None = None,
+        cells_ignore: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Locate cells and their owner ranks for an array of points.
+
+        Parameters
+        ----------
+        xs : numpy.ndarray
+            Point coordinates with shape ``(npoints, gdim)``.
+        tolerance : float, optional
+            Reference-cell tolerance used to accept nearby cells.
+        cells_ignore : numpy.ndarray, optional
+            Cell numbers to exclude for each point.
+
+        Returns
+        -------
+        cells : numpy.ndarray
+            Located Firedrake cell numbers, or ``-1`` for missing points.
+        reference_coordinates : numpy.ndarray
+            Reference coordinates in the located cells.
+        distances : numpy.ndarray
+            L1 distances from the reference cells.
+        owner_ranks : numpy.ndarray
+            Owner rank of each located cell, or ``-1`` for missing points.
+        """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         if tolerance is None:
@@ -2831,17 +2864,31 @@ values from f.)"""
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
+        owner_ranks = np.empty(npoints, dtype=IntType)
+        cell_owner_ranks = np.ascontiguousarray(self._visible_ranks, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
         cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
+        owner_ranks_data = owner_ranks.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
         ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
-            err = run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+            err = run_c(
+                self.coordinates._ctypes,
+                xs_data,
+                Xs_data,
+                ref_cells_dists,
+                cells_data,
+                owner_ranks_data,
+                npoints,
+                cells_ignore.shape[1],
+                cells_ignore,
+                cell_owner_ranks,
+            )
         if err != 0:
             raise RuntimeError(f"C locator failed with error code {err}")
-        return cells, Xs, ref_cell_dists_l1
+        return cells, Xs, ref_cell_dists_l1, owner_ranks
 
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
@@ -2849,7 +2896,8 @@ values from f.)"""
 
         First, the rtree is queried to find candidate cells for each point. Then, for each point, we locate
         the single owning cell from the candidates. This owning cell is the one which is closest to the point
-        in the L1 norm in reference coordinates.
+        in the L1 norm in reference coordinates, breaking equal-distance ties in favour of the highest owner
+        rank.
         """
         from pyop2 import compilation
         import firedrake.function as function
@@ -2861,7 +2909,16 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                PetscErrorCode locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                PetscErrorCode locator(struct Function *f,
+                                       double *x,
+                                       {RealType_c} *X,
+                                       {RealType_c} *ref_cell_dists_l1,
+                                       {IntType_c} *cells,
+                                       {IntType_c} *owners,
+                                       size_t npoints,
+                                       size_t ncells_ignore,
+                                       {IntType_c} *cells_ignore,
+                                       const {IntType_c} *cell_owner_ranks)
                 {{
                     PetscErrorCode locate_err = PETSC_SUCCESS;
                     int64_t *candidate_ids = NULL;
@@ -2895,7 +2952,8 @@ values from f.)"""
                             f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
                             &temp_reference_coords, &found_reference_coords,
                             &ref_cell_dists_l1[i], nids_i, ids_i,
-                            ncells_ignore, cells_ignore_i, &cells[i]);
+                            ncells_ignore, cells_ignore_i, cell_owner_ranks,
+                            &cells[i], &owners[i]);
 
                         if (locate_err != PETSC_SUCCESS) {{
                             break;
@@ -2934,8 +2992,10 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(IntType)),
+                                ctypes.POINTER(as_ctypes(IntType)),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS"),
                                 np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
@@ -4152,7 +4212,7 @@ def _pic_swarm_in_mesh(
         parent_cell_nums_leaves,
         reference_coords_leaves,
         leaf_is_winner,
-        is_min_candidate,
+        is_selected_candidate,
         winner_ranks_on_leaves,
         input_ranks_on_leaves,
         input_idxs_on_leaves,
@@ -4174,7 +4234,7 @@ def _pic_swarm_in_mesh(
     if exclude_halos:
         halo_indices = np.empty(0, dtype=IntType)
     else:
-        halo_indices = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
+        halo_indices = np.flatnonzero(is_selected_candidate & ~leaf_is_winner)
     n_owned = len(owned_indices)
     n_halo = len(halo_indices)
     # Owned first, then halo
@@ -4597,9 +4657,9 @@ def _parent_mesh_embedding(
     leaf_is_winner : np.ndarray
         An array of shape `(nleaves,)`, containing True for the single leaf that is
         the winner for its root, and False otherwise.
-    is_min_candidate : ``np.ndarray``
+    is_selected_candidate : ``np.ndarray``
         An array of shape `(nleaves,)`, containing True for leaves achieving the
-        global minimum distance, and False otherwise.
+        globally selected distance and owner-rank key, and False otherwise.
     winner_ranks_on_leaves : ``np.ndarray``
         An array of shape `(nleaves,)`, containing the winner rank broadcast back to each leaf.
     coords_recv : ``np.ndarray``
@@ -4611,29 +4671,18 @@ def _parent_mesh_embedding(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
 
-    def _locate_cells(xs: np.ndarray, cells_ignore=None):
+    def _locate_cells(xs: np.ndarray):
         # Given an array of coordinates, returns the cell numbers, reference coordinates,
-        # and L1 distances to the reference cell for each coodinate.
-        cell_nums, ref_coords, ref_dists_l1 = parent_mesh.locate_cells_ref_coords_and_dists(
-            xs, tolerance, cells_ignore=cells_ignore
+        # L1 distances to the reference cell, and cell owner ranks for each coordinate.
+        cell_nums, ref_coords, ref_dists_l1, owner_ranks = (
+            parent_mesh._locate_cells_ref_coords_dists_and_owners(
+                xs, tolerance
+            )
         )
         if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
             # We have an extra dimension we can safely drop.
             ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
-        return cell_nums, ref_coords, ref_dists_l1
-
-    def _owning_ranks(cell_nums: np.ndarray, visible_ranks: np.ndarray) -> np.ndarray:
-        # Given an array of cell numbers, returns the owning rank for each cell,
-        # or -1 if not visible on this rank.
-        owner_ranks = np.full_like(cell_nums, -1, dtype=IntType)
-        visible = cell_nums != -1
-        if np.any(visible):
-            if parent_mesh.extruded:
-                lookup_cells = cell_nums[visible] // (parent_mesh.layers - 1)
-            else:
-                lookup_cells = cell_nums[visible]
-            owner_ranks[visible] = visible_ranks[lookup_cells]
-        return owner_ranks
+        return cell_nums, ref_coords, ref_dists_l1, owner_ranks
 
     gdim = parent_mesh.geometric_dimension
     comm = parent_mesh.comm
@@ -4658,89 +4707,43 @@ def _parent_mesh_embedding(
     coords_recv = candidate_sf.broadcast(coords)
 
     # Locate parent cells for each received candidate on this rank
-    parent_cell_nums, reference_coords, ref_cell_dists_l1 = _locate_cells(coords_recv)
+    parent_cell_nums, ref_coords, ref_cell_dists, owning_ranks = _locate_cells(coords_recv)
 
-    # The point is visible on this rank if it was found in a cell (parent_cell_num != -1)
-    locally_visible = parent_cell_nums != -1
+    # Keep points visible on this rank (points found found in a cell)
+    keep = parent_cell_nums != -1
 
     # Reduce minimum distance over candidate leaves back to roots
-    # Non-visible candidates are set to np.inf so they won't affect the minimum
-    ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
-    ref_cell_dists_min = np.full(nroots, np.inf, dtype=RealType)
-    candidate_sf.reduce(ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
-
-    # Send each root's min distance back to its leaves.
-    ref_cell_dists_min_on_leaves = candidate_sf.broadcast(ref_cell_dists_min)
-
-    # Candidate leaves are those that are visible and have the minimum L1 distance.
-    is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
-
-    visible_ranks = parent_mesh._visible_ranks
-    owning_ranks = _owning_ranks(parent_cell_nums, visible_ranks)
+    root_distance_min = np.full(nroots, np.inf, dtype=RealType)
+    candidate_sf.reduce(
+        np.where(keep, ref_cell_dists, np.inf),
+        root_distance,
+        op=MPI.MIN,
+    )
+    # Keep leaves that have the minimum L1 distance
+    keep &= (distance == candidate_sf.broadcast(root_distance_min))
 
     # Tie-break among candidates by highest owner rank.
-    rank_candidates = np.full(nleaves, -1, dtype=IntType)
-    rank_candidates[is_min_candidate] = owning_ranks[is_min_candidate]
-    winner_ranks = np.full(nroots, -1, dtype=IntType)
-    candidate_sf.reduce(rank_candidates, winner_ranks, op=MPI.MAX)
+    root_owner = np.full(nroots, -1, dtype=IntType)
+    candidate_sf.reduce(
+        np.where(keep, owning_ranks, -1),
+        root_owner,
+        op=MPI.MAX,
+    )
+    # Keep leaves that have the highest owning rank
+    keep &= (owning_ranks == candidate_sf.broadcast(root_owner))
 
-    # Broadcast winner rank back to leaves.
-    winner_ranks_on_leaves = candidate_sf.broadcast(winner_ranks)
-
-    # If a leaf selected a minimum-distance cell whose owner rank does not
-    # match the elected winner rank for that root, retry location while
-    # excluding previously selected cells until we either find a matching
-    # owner cell without increasing the minimum distance, or we run out of candidates.
-    retry_leaf_indices = np.flatnonzero(
-        is_min_candidate
-        & (winner_ranks_on_leaves != -1)
-        & (owning_ranks != winner_ranks_on_leaves)
-    ).astype(IntType)
-    if len(retry_leaf_indices):
-        # We exclude previously selected cells from _locate_cells
-        retry_cells_ignore = parent_cell_nums[retry_leaf_indices].reshape(-1, 1)
-
-        while len(retry_leaf_indices):
-            retry_cells, retry_reference_coords, retry_ref_cell_dists_l1 = _locate_cells(
-                coords_recv[retry_leaf_indices], cells_ignore=retry_cells_ignore
-            )
-            # Assign new values for the retrying leaves.
-            parent_cell_nums[retry_leaf_indices] = retry_cells
-            reference_coords[retry_leaf_indices, :] = retry_reference_coords
-            ref_cell_dists_l1[retry_leaf_indices] = retry_ref_cell_dists_l1
-            locally_visible[retry_leaf_indices] = retry_cells != -1
-
-            # Get new owner ranks for the retrying leaves and update owning_ranks.
-            new_owner_ranks = _owning_ranks(retry_cells, visible_ranks)
-            owning_ranks[retry_leaf_indices] = new_owner_ranks
-
-            winners_local = winner_ranks_on_leaves[retry_leaf_indices]
-            has_different_owner = new_owner_ranks != winners_local
-            # Discard the new candidate if it's not visible or further than the previous candidate.
-            keep_candidate = (retry_cells != -1) & (retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[retry_leaf_indices])
-
-            # We stop retrying if all leaves have either: found a cell which is owned by the winner rank,
-            # or have no more candidates to try (not visible or further than the previous candidate).
-            keep_retry = keep_candidate & has_different_owner
-            if not np.any(keep_retry):
-                break
-
-            # Update the list of retrying leaves and the cells to ignore for the next iteration.
-            retry_cells_ignore = np.hstack(
-                (retry_cells_ignore[keep_retry], retry_cells[keep_retry].reshape((-1, 1)))
-            )
-            retry_leaf_indices = retry_leaf_indices[keep_retry]
-
-        # Recompute candidates after retries.
-        ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
-        is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
+    # The local locator uses owner rank as its secondary key among cells at
+    # equal distance. Therefore every rank that can see a globally preferred
+    # cell selects it on the first search; leaves with a different owner are
+    # not copies of the globally selected point.
+    is_selected_candidate = is_min_candidate & (owning_ranks == winner_ranks_on_leaves)
 
     # Winner leaves are those that achieve the minimum distance and live on the winning rank for their root.
-    leaf_is_winner = is_min_candidate & (winner_ranks_on_leaves == comm.rank)
+    leaf_is_winner = is_selected_candidate & (winner_ranks_on_leaves == comm.rank)
 
     # Halo leaves are minimum distance candidates that are not winners on this rank.
     # If exclude_halos is True, we exclude these from the embedded SF.
-    leaf_is_embedded = is_min_candidate.copy()
+    leaf_is_embedded = is_selected_candidate.copy()
     if exclude_halos:
         leaf_is_embedded &= leaf_is_winner
 
@@ -4787,7 +4790,7 @@ def _parent_mesh_embedding(
         parent_cell_nums,
         reference_coords,
         leaf_is_winner,
-        is_min_candidate,
+        is_selected_candidate,
         winner_ranks_on_leaves,
         input_ranks_on_leaves,
         input_idxs_on_leaves,
