@@ -1968,7 +1968,7 @@ class AbstractMeshTopology(abc.ABC):
                 self.submesh_parent.cell_closure,
                 entity_per_cell,
             )[self._old_to_new_cell_numbering_is.indices]
-        elif self._cell_backend and self.ufl_cell().cellname.split("_")[-1] == "tetrahedron":
+        elif self._cell_backend == finat.ufl.CellBackend.FUSE and self.ufl_cell().cellname.split("_")[-1] == "tetrahedron":
             return self._reorder_closure_fuse_tet(plex_closures)
         elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
