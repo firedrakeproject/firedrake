@@ -65,9 +65,9 @@ mixed formulation. ::
 
 Our goal is the weighted average shear traction on the right boundary.  Its
 exact value is approximately :math:`-0.06029761071`.  The DWR callback
-linearises this functional, solves the low- and enriched-order dual problems,
-localises the weak residual with bubble and cone functions, and performs
-global Dörfler marking. ::
+linearises this functional and solves the low- and enriched-order dual
+problems.  It then localises the weak residual with bubble and cone functions,
+and marks the cells by the global Dörfler criterion. ::
 
   psi = y*(y - 1)
   tangent = as_vector((0, 1))
@@ -123,10 +123,10 @@ into the discretisation part and the algebraic-solve part. ::
   )
   w_adapt = solver.solve()
 
-``solver.solve()`` returns the solution on the final adapted mesh,
-``solver.get_goal_functional()`` gives the goal functional already
-reconstructed on that mesh, and ``solver.get_error_estimate()`` gives the
-estimate :math:`\eta` of :math:`J(w) - J(w_h)` from the last cycle. ::
+``solver.solve()`` returns the solution on the final adapted mesh.
+``solver.get_goal_functional()`` gives the goal functional on that same mesh,
+and ``solver.get_error_estimate()`` gives the estimate :math:`\eta` of
+:math:`J(w) - J(w_h)` from the last cycle. ::
 
   adapted_goal = solver.get_goal_functional()
 

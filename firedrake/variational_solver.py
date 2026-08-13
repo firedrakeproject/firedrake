@@ -495,7 +495,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     def get_goal_functional(self) -> ufl.BaseForm:
         r"""Return the goal functional of the attached :class:`.DWRMarkingCallback`,
-        reconstructed on the current (possibly adapted) solution mesh."""
+        on the current (possibly adapted) solution mesh."""
         from firedrake.dwr import DWRMarkingCallback
         callback = self._ctx._marking_callback
         if not isinstance(callback, DWRMarkingCallback):
@@ -505,14 +505,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     def get_error_estimate(self) -> float:
         r"""Return the most recent estimate of the error in the goal functional.
 
-        This is the ``eta`` approximating :math:`J(u) - J(u_h)` computed by the
-        attached :class:`.DWRMarkingCallback`, the last time it was asked to
-        mark. It is what ``-dwr_atol`` and ``-dwr_rtol`` are tested against.
+        This is the ``eta`` that approximates :math:`J(u) - J(u_h)`, from the
+        last time the attached :class:`.DWRMarkingCallback` marked. The
+        ``-dwr_atol`` and ``-dwr_rtol`` tolerances apply to it.
 
-        The estimate refers to the mesh it was computed on. That is the current
-        mesh only if the solve stopped because the tolerances were met.
-        Otherwise it is the mesh one refinement coarser, since refining is what
-        the estimate asked for, and the refined mesh has yet to be estimated.
+        The estimate refers to the mesh that it came from. That is the current
+        mesh only if the solve stopped because it met the tolerances. Otherwise
+        it is the mesh one refinement coarser, because the estimate asked for
+        that refinement, and no estimate covers the refined mesh yet.
         """
         from firedrake.dwr import DWRMarkingCallback
         callback = self._ctx._marking_callback
@@ -594,8 +594,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        # The problem may have been reconstructed on an adapted mesh since
-        # the last solve, so this cannot be cached across calls.
+        # The problem may sit on an adapted mesh since the last solve, so no
+        # cache can hold this vector across calls.
         work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
@@ -608,11 +608,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
                 if self.snes.getSolution() != work:
-                    # DMAdaptorAdapt() consumed a reference to work when it
-                    # replaced it with a vector of its own. The solution vector
-                    # records that, whereas the DM does not: adaptation that
-                    # converges immediately leaves the DM alone but still
-                    # rebuilds the vector.
+                    # DMAdaptorAdapt() consumed a reference to work when it put
+                    # a vector of its own in place. The solution vector records
+                    # that exchange, and the DM does not. An adaptation that
+                    # converges at once leaves the DM alone, and still builds
+                    # the vector again.
                     work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())

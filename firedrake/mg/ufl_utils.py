@@ -472,10 +472,11 @@ def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
     primal = self(callback._primal, self, coefficient_mapping=coefficient_mapping)
     new_callback = type(callback)(goal, exact_solution, primal=primal,
                                   enrichment_degree=callback._enrichment_degree,
-                                  options_prefix=callback._options_prefix)
-    # The estimate that motivated this refinement is the latest one there is:
-    # the refined mesh has not been estimated for yet. Its convergence flag
-    # stays False, since this mesh is precisely the one deemed too coarse.
+                                  options_prefix=callback._options_prefix,
+                                  options=callback._options)
+    # The estimate that asked for this refinement is the most recent one, since
+    # no estimate covers the refined mesh yet. The convergence flag stays False,
+    # because this mesh is the one that the estimate called too coarse.
     new_callback.error_estimate = callback.error_estimate
     return new_callback
 
@@ -599,9 +600,9 @@ def create_interpolation(dmc, dmf):
     V_f = fctx._problem.u_restrict.function_space()
 
     if V_c == V_f:
-        # Interpolating a space into itself is the identity. This is not a
+        # An interpolation from a space into itself is the identity, and not a
         # multigrid level transfer. PETSc's DMAdaptor asks for it when the
-        # adaptor hands back the DM it was given, unrefined.
+        # adaptor hands back the same DM, unrefined.
         size = V_c.dof_dset.layout_vec.getSizes()
         mat = PETSc.Mat().createConstantDiagonal((size, size), 1.0, comm=dmc.comm)
         return mat, None

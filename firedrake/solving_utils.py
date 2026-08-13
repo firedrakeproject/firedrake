@@ -137,10 +137,10 @@ Reason:
 
 
 def check_ksp_convergence(ksp: PETSc.KSP) -> None:
-    """Raise if a linear solve did not converge.
+    """Raise an error if a linear solve does not converge.
 
     The KSP-level counterpart of `check_snes_convergence`, for the linear
-    solves that are not driven by a SNES.
+    solves that no SNES drives.
 
     Parameters
     ----------
@@ -168,14 +168,14 @@ def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) 
 
     PETSc's `DMAdaptor` runs a fixed number of ``-snes_adapt_sequence`` steps
     and has no error tolerance of its own. Once the marking callback declines
-    to mark anything, the mesh stops changing, so each remaining step would
-    re-solve a problem that is already solved. Reporting convergence
-    immediately makes those steps cost nothing.
+    to mark anything, the mesh stops changing. Each remaining step would then
+    solve a problem that is already solved. This test reports convergence
+    immediately, so those steps cost nothing.
 
     Parameters
     ----------
     snes
-        The `PETSc.SNES` being tested.
+        The `PETSc.SNES` that this test examines.
     it
         The current nonlinear iteration number.
     norms
@@ -188,8 +188,8 @@ def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) 
     ctx = dmhooks.get_appctx(snes.getDM())
     if ctx is not None and ctx._adapt_converged:
         return PETSc.SNES.ConvergedReason.CONVERGED_ITS
-    # petsc4py exposes no binding for SNESConvergedDefault, so reinstate it as
-    # the SNES's own test for the duration of the call that delegates to it.
+    # petsc4py exposes no binding for SNESConvergedDefault, so this test puts
+    # it back as the SNES's own test while it delegates to it.
     snes.setConvergenceTest("default")
     try:
         return snes.callConvergenceTest(it, *norms)
@@ -251,15 +251,16 @@ class _SNESContext(object):
 
     Notes
     -----
-    The route back from a context to the SNES solving it is `get_snes`, set by
-    `set_snes` when the solver is built. The reference is weak: the SNES owns
-    its DM, which owns this context for the duration of a solve, so a strong
-    reference here would close a cycle that the garbage collector cannot break.
+    `get_snes` gives the route back from a context to the SNES that solves it,
+    and `set_snes` records that SNES when the solver builds the context. The
+    reference is weak. The SNES owns its DM, and that DM owns this context
+    while a solve runs, so a strong reference here would close a cycle that
+    the garbage collector cannot break.
 
-    Only the context a solver is built with knows its SNES. The contexts
-    `reconstruct` produces for field splits and coarse multigrid levels do not
-    inherit it, because the outer SNES's Jacobian describes a different problem
-    than the one they hold.
+    Only the context that a solver builds knows its SNES. The contexts that
+    `reconstruct` makes for field splits and coarse multigrid levels do not
+    inherit it, because the Jacobian of the outer SNES describes a different
+    problem from the one that they hold.
 
     """
     @PETSc.Log.EventDecorator()
@@ -296,8 +297,8 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
-        # Set once the marking callback declines to mark anything, meaning
-        # that no further adaptation of this mesh is wanted.
+        # True once the marking callback declines to mark anything. This mesh
+        # then needs no more adaptation.
         self._adapt_converged = False
         # A weak reference to the SNES solving this problem, see set_snes.
         self._snes = None
@@ -426,9 +427,10 @@ class _SNESContext(object):
         Parameters
         ----------
         snes
-            The `PETSc.SNES` this context is the user context of, or `None` to
-            record that there is none. Only a weak reference is kept, so the
-            caller must own the SNES; a `~.NonlinearVariationalSolver` does.
+            The `PETSc.SNES` that holds this context as its user context, or
+            `None` if it has none. This method keeps only a weak reference, so
+            the caller must own the SNES. A `~.NonlinearVariationalSolver`
+            owns it.
         """
         self._snes = None if snes is None else weakref.ref(snes)
 
@@ -437,8 +439,8 @@ class _SNESContext(object):
 
         Returns
         -------
-        The `PETSc.SNES` passed to `set_snes`, or `None` if none was set or the
-        SNES has since been collected.
+        The `PETSc.SNES` that `set_snes` recorded, or `None` if nothing was
+        recorded, or if the garbage collector has since taken that SNES.
         """
         return None if self._snes is None else self._snes()
 
@@ -446,8 +448,8 @@ class _SNESContext(object):
                        transpose: bool = False) -> None:
         """Solve against the current Jacobian.
 
-        The Jacobian and preconditioner assembled by the most recent solve are
-        reused, so this costs one linear solve rather than a fresh setup.
+        This method reuses the Jacobian and the preconditioner that the most
+        recent solve assembled, so it costs one linear solve and no new setup.
 
         Parameters
         ----------

@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake import dmhooks
+from firedrake import dmhooks, dwr
 from firedrake.mg.utils import get_level
 from ufl.domain import extract_unique_domain
 
@@ -81,8 +81,8 @@ def _jacobian_solver(V, u):
 
 
 def test_solve_jacobian_uses_its_own_solvers_operator():
-    # Every solver on a function space used to share one DM-composed KSP, so
-    # building a second solver on V hijacked the first one's Jacobian solve.
+    # A second solver on V must not take over the Jacobian solve of the first
+    # one. Each solver holds its own KSP, and not the KSP that the DM composes.
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -311,6 +311,58 @@ def test_dwr_marking_callback_reads_options_after_refinement():
     solver.solve()
 
     assert solver._ctx._marking_callback._options_prefix == solver.options_prefix
+
+
+def _recording_solver(base, record):
+    """Return a solver class that records the solver that each solve used."""
+    class RecordingSolver(base):
+        def solve(self, *args, **kwargs):
+            super().solve(*args, **kwargs)
+            ksp = self.snes.ksp
+            record.append((self.options_prefix, (ksp.getType(), ksp.pc.getType())))
+
+    return RecordingSolver
+
+
+@pytest.mark.parallel([1, 2])
+def test_dwr_auxiliary_solver_options_survive_refinement(monkeypatch):
+    # The auxiliary solvers are rebuilt on every adapted mesh, and each one
+    # deletes from the options database the options that it reads. The callback
+    # must therefore hold its own copy of them. Otherwise every mesh after the
+    # first one is solved with the default preonly and lu, which is what these
+    # parameters are chosen to differ from.
+    used = []
+    monkeypatch.setattr(dwr, "LinearVariationalSolver",
+                        _recording_solver(LinearVariationalSolver, used))
+    monkeypatch.setattr(dwr, "NonlinearVariationalSolver",
+                        _recording_solver(NonlinearVariationalSolver, used))
+
+    refinements = 3
+    mesh, V, problem, goal = _dwr_poisson_problem()
+    parameters = {
+        "ksp_type": "cg",
+        "pc_type": "jacobi",
+        "dwr_cell_ksp_type": "preonly",
+        "dwr_cell_pc_type": "jacobi",
+        "dwr_facet_ksp_type": "preonly",
+        "dwr_facet_pc_type": "jacobi",
+        "snes_adapt_sequence": refinements,
+        "adaptor_criterion": "refine",
+    }
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=DWRMarkingCallback(goal),
+    )
+    solver.solve()
+
+    localization = [solve for prefix, solve in used
+                    if prefix.endswith(("dwr_cell_", "dwr_facet_"))]
+    enriched = [solve for prefix, solve in used if prefix.endswith("dwr_enriched_")]
+    # One cell solve and one facet solve localize the estimate on every mesh.
+    assert len(localization) == 2*refinements
+    assert set(localization) == {("preonly", "jacobi")}
+    # The enriched solve inherits the iterative solver of the parent.
+    assert len(enriched) == refinements
+    assert set(enriched) == {("cg", "jacobi")}
 
 
 @pytest.mark.parallel([1, 2])
