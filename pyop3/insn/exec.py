@@ -843,7 +843,7 @@ def _(arg: lp.ValueArg):
 # TODO: This should probably get folded into '_compile_static', otherwise we
 # have to get the translation unit from cache, hash it, then get the thing
 # we actually want from the cache.
-@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu))
+@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), heavy=True)
 @pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
 def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
     return lp.generate_code_v2(tu).device_code()

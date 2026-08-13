@@ -460,6 +460,19 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---1---+
+        # FUSE                    +---1---+
+        #                         |       |
+        #                         0       2
+        #                         |       |
+        #                         +---3---+
+        #if "fuse" in dm.name:
+        # FUSE rules
+        # print("FUSE")
+        #plex_cone_new[0] = plex_cone_old[0]
+        #plex_cone_new[1] = plex_cone_old[3]
+        #plex_cone_new[2] = plex_cone_old[2]
+        #plex_cone_new[3] = plex_cone_old[1]
+        #else:
         plex_cone_new[0] = plex_cone_old[0]
         plex_cone_new[1] = plex_cone_old[2]
         plex_cone_new[2] = plex_cone_old[1]
@@ -488,6 +501,65 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         plex_cone_new[5] = plex_cone_old[1]
     else:
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def create_cell_closure_fuse_tet(plex_closures):
+    """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
+
+    :arg dm: The DM object encapsulating the mesh topology
+    :arg _closureSize: Number of entities in the cell
+    """
+    # UFCTetrahedron:         0---9---1---9---0
+    #                          \ 12  / \ 13  /
+    # cell = 14                 7   5   6   8
+    #                            \ / 10  \ /
+    #                             3---4---2
+    #                              \ 11  /
+    #                               7   8
+    #                                \ /
+    #                                 0
+    #
+    # PETSc.DM.PolytopeType. 14--10--13--10---14
+    # TETRAHEDRON:             \  3  / \  4  /
+    #                           8   7   6   9
+    # cell = 0                   \ /  1  \ /
+    #                            11---5---12
+    #                              \  2  /
+    #                               8   9
+    #                                \ /
+    #                                14
+    # fuse tet
+    cdef:
+        PetscInt c, cStart, cEnd, cell, i, ncells
+        PetscInt closureSize
+        PetscInt *plex_closure = NULL
+        PetscInt *fiat_closure = NULL
+        np.ndarray cell_closure
+
+    ncells, closureSize = plex_closures.shape
+    cell_closure = np.empty_like(plex_closures)
+    # CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    for c in range(ncells):
+        # plex_closure = plex_closures[c]
+        cell_closure[c, 0] = plex_closures[c, 13]
+        cell_closure[c, 1] = plex_closures[c, 11]
+        cell_closure[c, 2] = plex_closures[c, 14]
+        cell_closure[c, 3] = plex_closures[c, 12]
+        cell_closure[c, 4] = plex_closures[c, 7]
+        cell_closure[c, 5] = plex_closures[c, 8]
+        cell_closure[c, 6] = plex_closures[c, 10]
+        cell_closure[c, 7] = plex_closures[c, 6]
+        cell_closure[c, 8] = plex_closures[c, 5]
+        cell_closure[c, 9] = plex_closures[c, 9]
+        cell_closure[c, 10] = plex_closures[c, 4]
+        cell_closure[c, 11] = plex_closures[c, 1]
+        cell_closure[c, 12] = plex_closures[c, 3]
+        cell_closure[c, 13] = plex_closures[c, 2]
+        cell_closure[c, 14] = plex_closures[c, 0]
+    # PETSc.CHKERR(PetscFree(fiat_closure))
+    return cell_closure
 
 
 @cython.boundscheck(False)
@@ -1227,7 +1299,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         entity_cone_map[i] = entity_cone_list[i]
     for i in range(len(entity_cone_list_offset)):
         entity_cone_map_offset[i] = entity_cone_list_offset[i]
-    #
+
     dm = mesh.topology_dm
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]

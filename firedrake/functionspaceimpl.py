@@ -50,7 +50,7 @@ from firedrake.utils import IntType, deprecated
 from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 
 
-def check_element(element, top=True):
+def check_element(element, top=True, cell_backend=finat.ufl.CellBackend.FIAT):
     """Run some checks on the provided element.
 
     The :class:`finat.ufl.mixedelement.VectorElement` and
@@ -68,6 +68,8 @@ def check_element(element, top=True):
         <finat.ufl.finiteelementbase.FiniteElementBase>` to check.
     top : bool
         Are we at the top element (in which case the modifier is legal).
+    cell_backend : finat.ufl.CellBackend
+        The underlying cell type of the mesh, defaults to finat.ufl.CellBackend.FIAT
 
     Returns
     -------
@@ -83,7 +85,7 @@ def check_element(element, top=True):
        type(element) is not finat.ufl.MixedElement:
         raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "Real"]:
+       element.family() not in ["Q", "DQ", "Real"] and cell_backend == finat.ufl.CellBackend.FIAT:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
@@ -100,11 +102,11 @@ def check_element(element, top=True):
     else:
         inner = ()
     for e in inner:
-        check_element(e, top=False)
+        check_element(e, top=False, cell_backend=cell_backend)
 
 
-def create_element(ufl_element):
-    finat_element = _create_element(ufl_element)
+def create_element(ufl_element, cell_backend=finat.ufl.CellBackend.FIAT):
+    finat_element = _create_element(ufl_element, cell_backend=cell_backend)
     if isinstance(finat_element, finat.TensorFiniteElement):
         # Retrieve scalar element
         finat_element = finat_element.base_element
@@ -489,6 +491,8 @@ class WithGeometryBase:
     def make_function_space(cls, mesh, element, name=None, _labels=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         topology = mesh.topology
+        if hasattr(element, 'triple') and mesh._cell_backend != finat.ufl.CellBackend.FUSE:
+            raise NotImplementedError("FUSE defined element not on fuse enabled mesh.")
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             if isinstance(mesh, MeshGeometry):
@@ -504,7 +508,7 @@ class WithGeometryBase:
             if isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
-            check_element(element)
+            check_element(element, cell_backend=mesh._cell_backend)
             if element.family() == "Real":
                 new = RealFunctionSpace(topology, element, name=name, **kwargs)
             else:
@@ -1196,7 +1200,7 @@ class FunctionSpace(AbstractFunctionSpace):
         self.comm = mesh.comm
 
         self.element = element
-        self.finat_element = create_element(element)
+        self.finat_element = create_element(element, cell_backend=mesh._cell_backend)
 
         entity_dofs = self.finat_element.entity_dofs()
         nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))

@@ -2,8 +2,10 @@ import collections
 import contextlib
 import functools
 import itertools
+import warnings
 from typing import Any
 
+import loopy as lp
 import numpy as np
 import pyop3 as op3
 import finat
@@ -210,9 +212,34 @@ def transform_packed_cell_closure_dat(
     # no reason. This orientation work should really only be necessary for hexes but I'm
     # leaving as is for now because we otherwise get small inconsistencies between the
     # old and new 'cell_node_list's which I want to avoid.
-    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
-    # FIXME: This is awful! Just do it universally
+    transform_in_kernel, transform_out_kernel = fuse_orientations([space])
+
+    if transform_in_kernel and transform_out_kernel and packed_dat.dtype == utils.IntType:
+        warnings.warn("Int Type dats cannot be transformed using fuse transforms, using old rules")
+        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    elif transform_in_kernel and transform_out_kernel:
+        orientations = space.mesh().entity_orientations_dat
+
+        mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([packed_dat.size, packed_dat.size]), dtype=utils.ScalarType, prefix="trans")
+
+        def transform_in(untransformed, transformed):
+            return (
+                transform_in_kernel(orientations[cell_index], mat_work_array, untransformed, transformed),
+            )
+
+        def transform_out(transformed, untransformed):
+            return (
+                transform_out_kernel(orientations[cell_index], mat_work_array, transformed, untransformed),
+            )
+
+        transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_dat.transform)
+        packed_dat = packed_dat.record_new(_transform=transform)
+    else:
+        # FUSE transforms not defined - orient using old Firedrake rules
+        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+
+    # FIXME: This is awful!
     if _needs_static_permutation(space.finat_element) or permutation is not None:
         nodal_axis_tree, nodal_axis = _packed_nodal_axes(packed_dat.axes, space, depth)
         packed_dat = packed_dat.reshape(nodal_axis_tree)
@@ -247,16 +274,49 @@ def transform_packed_cell_closure_mat(
     row_element = row_space.finat_element
     column_element = column_space.finat_element
 
-    # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    packed_mat = _orient_dofs(
-        packed_mat,
-        row_space,
-        column_space,
-        row_cell_index,
-        column_cell_index,
-        row_depth=row_depth,
-        column_depth=column_depth,
-    )
+    transform_in_kernel, transform_out_kernel = fuse_orientations([row_space, column_space])
+    if transform_in_kernel and transform_out_kernel and packed_mat.dtype == utils.IntType:
+        warnings.warn("Int Type mats cannot be transformed using fuse transforms, using old rules")
+        packed_mat = _orient_dofs(
+            packed_mat,
+            row_space,
+            column_space,
+            row_cell_index,
+            column_cell_index,
+            row_depth=row_depth,
+            column_depth=column_depth,
+        )
+    elif transform_in_kernel and transform_out_kernel:
+        orientations = row_space.mesh().entity_orientations_dat
+        orientations_c = column_space.mesh().entity_orientations_dat
+
+        mat_work_array_row = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.nrows, packed_mat.nrows]), dtype=utils.ScalarType, prefix="trans")
+        mat_work_array_col = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.ncols, packed_mat.ncols]), dtype=utils.ScalarType, prefix="trans")
+
+        def transform_in(untransformed, transformed):
+            return (
+                transform_in_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
+            )
+
+        def transform_out(transformed, untransformed):
+            return (
+                transform_out_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
+            )
+
+        transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
+        packed_mat = packed_mat.record_new(_transform=transform)
+    else:
+        # Do this before the DoF transformations because this occurs at the level of entities, not nodes
+        # FUSE transforms not defined - orient using old Firedrake rules
+        packed_mat = _orient_dofs(
+            packed_mat,
+            row_space,
+            column_space,
+            row_cell_index,
+            column_cell_index,
+            row_depth=row_depth,
+            column_depth=column_depth,
+        )
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         rnodal_axis_tree, rnodal_axis = _packed_nodal_axes(packed_mat.row_axes, row_space, row_depth)
@@ -555,3 +615,342 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
     petscmat.setLGMap(*lgmaps)
     yield
     petscmat.setLGMap(*orig_lgmaps)
+
+
+
+class FuseMatrixApplyBuilder(object):
+
+    build_id = itertools.count()
+
+    def __init__(self, spaces, ns: tuple[int], closures: np.ndarray):
+        self.ns = ns 
+        self.spaces = spaces
+        self.id = next(self.build_id)
+        self.closures = closures
+        self.args = [lp.ValueArg("d", dtype=utils.IntType),
+                     lp.ValueArg("closure_size_acc", dtype=utils.IntType),
+                     lp.ValueArg("o_val", dtype=utils.IntType)]
+        self.args += [lp.GlobalArg(f"o{i}", dtype=utils.IntType, shape=(sum(self.closures)), is_input=True) for i in range(len(self.ns))]
+        self.args += [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(self.ns[i], self.ns[i]), is_input=True, is_output=False) for i in range(len(self.ns))]
+        self.args += [lp.GlobalArg("b", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True),
+                      lp.GlobalArg("res", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True)]
+
+        self.a_list = ",".join([f"a{i}[:,:]" for i in range(len(self.ns))])
+        self.o_list = ",".join([f"o{i}[:]" for i in range(len(self.ns))])
+        self.var_list = [f"o{i}" for i in range(len(self.ns))] + ["d", "i", "o_val", "dim"]
+
+    def get_utility_kernels(self) -> tuple:
+        if len(self.ns) == 1:
+            row_idx, col_idx, iter_idx, all_elems = "j", "", "i", ":"
+            all_idxs = f"{{[{row_idx}]:0 <= j < {self.ns[0]}}}",
+        elif len(self.ns) == 2:
+            row_idx, col_idx, iter_idx, all_elems = "i", "j", "k", ":,:"
+            all_idxs = f"{{[i,j]:0 <= i < {self.ns[0]} and 0 <= j < {self.ns[1]}}}",
+        else:
+            raise NotImplementedError("Fuse orientations cannot handle tensors")
+        a_idx = ",".join([i for i in [row_idx, iter_idx] if i != ""])
+        res_idx = ",".join([i for i in [row_idx, col_idx] if i != ""])
+        b_idx = ",".join([i for i in [iter_idx, col_idx] if i != ""])
+        all_idx = ",".join([i for i in [row_idx, iter_idx, col_idx] if i != ""])
+        matmuls = []
+        if len(self.ns) == 1:
+            # computes res = Ab
+            matmuls += [lp.make_function(
+            f"{{[{all_idx}]:0 <= {all_idx} < {self.ns[0]}}}",
+            f"""
+                res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
+            """, name=f"matmul{self.id}n0", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+        else:
+            # computes res = A B
+            matmuls += [lp.make_function(
+            f"{{[i,j,k]:0 <= i,k < {self.ns[0]} and 0 <= j < {self.ns[1]}}}",
+            f"""
+                res[i,j] =  res[i,j] + a[i, k]*b[k,j]
+            """, name=f"matmul{self.id}n0", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+            # computes res = B revA
+            matmuls += [lp.make_function(
+            f"{{[i,j,k]:0 <= i < {self.ns[0]} and 0 <= j,k < {self.ns[1]}}}",
+            f"""
+                res[i,j] =  res[i,j] + b[i, k]*a[k, j]
+            """, name=f"matmul{self.id}n1", lang_version=op3.lower.LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+
+        set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=self.ns, is_input=True, is_output=True),
+                    lp.GlobalArg("res", dtype=utils.ScalarType, shape=self.ns, is_input=True)]
+        set_knl = lp.make_function(
+            all_idxs,
+            [f"b[{res_idx}] = res[{res_idx}]"],
+            kernel_data=set_args,
+            name=f"set{self.id}",
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget()
+        )
+        zero_knl = lp.make_function(
+            all_idxs,
+            [f"res[{res_idx}] = 0"],
+            [lp.GlobalArg("res", shape=self.ns, dtype=int, is_input=True, is_output=True)],
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget(),
+            name=f"zero{self.id}",
+        )
+        self.all_elems = all_elems
+        return matmuls + [set_knl, zero_knl]
+    
+
+    def construct_switch_statement(self, mats: dict, idx: int) -> str:
+        var_list = []
+        args = []
+        string = []
+        pre_string = []
+        string += f"a{idx} = iden; \n "
+        string += "\nswitch (dim) { \n"
+
+        var_list += ["iden"]
+        args += [lp.TemporaryVariable("iden", initializer=np.identity(self.ns[idx]), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+
+        closure_sizes = self.spaces[idx]._mesh._closure_sizes[self.spaces[idx]._mesh.cell_dimension()]
+        closure_size_acc = 0
+        indent = 0
+        for dim_i, dim in enumerate(list(closure_sizes.keys())[:-1]):
+            string += f"case {dim_i}:\n "
+            indent += 1
+            string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
+            string += [indent*"\t" + "switch (i) { \n"]
+            if isinstance(dim, tuple):
+                dim_str = "_".join([str(d) for d in dim])
+            else:
+                dim_str = str(dim)
+            indent += 1
+            for i in range(closure_sizes[dim]):
+                string += indent*"\t" + f"case {i}:\n "
+                indent += 1
+                string += indent*"\t" + "switch (o_val) { \n"
+                indent += 1
+                for val in sorted(mats[dim][i].keys()):
+                    string += indent*"\t" + f"case {val}:\n "
+                    indent += 1
+                    matname = f"mat{dim_str}_{i}_{val}"
+                    string += indent*"\t" + f"a{idx} = {matname};\n"
+                    string += indent*"\t" + "break;\n"
+                    var_list += [matname]
+                    mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
+                    args += [lp.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+                    indent -= 1
+                indent -= 1
+                string += indent*"\t" + "default: break;}break;\n"
+                indent -= 1
+            string += indent*"\t" + "default: break; }break;\n"
+            closure_size_acc += closure_sizes[dim]
+            indent -= 1
+
+        string += "default: break; }\n"
+        return string, args, var_list
+
+    def debug(self) -> tuple[lp.CInstruction]:
+        if (self.ns[0] == 30) and len(self.ns) == 1:
+            if self.ns[0] == 84:
+                print_range = range(37,43)
+            elif self.ns[0] == 35:
+                print_range = range(22,25)
+            elif self.ns[0] == 30:
+                print_range = range(18, self.ns[0])
+            elif self.ns[0] == 45:
+                print_range = range(18,32)
+            elif self.ns[0] == 20:
+                print_range = [2,3,8,9,16]
+            elif self.ns[0] == 60:
+                print_range = list(np.concat([[i*3, i*3 + 1, i*3 +2] for i in [2,3,8,9,16]]))
+            else:
+                print_range = range(0, self.ns[0])
+            print_insn = lp.CInstruction(tuple(),
+                        f"""printf(\"initial b: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"b[{j}]" for j in print_range)});
+                            printf(\"o: {" ".join('%d' for i in range(sum(self.closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(self.closures)))});
+                            """, assignees=(), read_variables=frozenset([]), id="print")
+            print_insn1 = lp.CInstruction(tuple(),
+                        f"""printf(\"final res: {" ".join('%f' for i in print_range)}\\n\", {', '.join(f"res[{j}]" for j in print_range)});
+                        """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        else:
+            print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+            print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")    
+        return print_insn, print_insn1
+
+    def switch(self, mats, i, name):
+        dim_arg = [lp.ValueArg("dim", dtype=utils.IntType)]
+        switch_string, extra_args, extra_vars = self.construct_switch_statement(mats, i)
+        transform_insn = lp.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(self.var_list + extra_vars), within_inames=frozenset(["i"]), id="assign", depends_on="zero")
+        matmul_insn = f"res[{self.all_elems}] = matmul{self.id}n{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign, inames=i}}"
+        print_insn1 = lp.CInstruction(tuple(),
+                    f"""""", assignees=(), read_variables=frozenset(["res"]), within_inames=frozenset(["i"]), depends_on="matmul", id="print")
+        return lp.make_function(
+            "{[i]:0<= i < d }",
+            [f"res[{self.all_elems}] = zero{self.id}(res) {{id=zero, inames=i}}",
+                transform_insn, matmul_insn, print_insn1, 
+                f"b[{self.all_elems}] = set{self.id}(b[{self.all_elems}], res[{self.all_elems}]) {{id=set, dep=print, inames=i}}"
+                ],
+            name=f"{name}{i}_switch_on_o_{self.id}",
+            kernel_data=dim_arg + self.args + extra_args,
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget())
+
+    def loop_dims(self, direction):
+        closure_arg = [lp.TemporaryVariable("closure_sizes", initializer=np.array(self.closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=lp.AddressSpace(1))]
+        num_switch = len(self.all_elems.split(","))
+        labelling = [ f"{{id=switch{chr(i+65)} " + (",dep=*}" if i == 0 else f",dep=switch{chr(i+64)},dep=*}}") for i in range(num_switch)]
+        switches = [f"""
+                        b[{self.all_elems}], res[{self.all_elems}] = {direction + str(i)}_switch_on_o_{self.id}(dim, d, closure_size_acc, o_val, {self.o_list}, {self.a_list}, b[{self.all_elems}], res[{self.all_elems}]) {labelling[i]}"""
+                    for i in range(num_switch)]
+        return lp.make_function(
+            f"{{[dim]:{0} <= dim <= {len(self.closures) - 1}}}",
+            ["d = closure_sizes[dim] {id=closure}"] + switches +
+            [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}, inames=dim}}"],
+            name=f"{direction}_loop_over_dims_{self.id}",
+            kernel_data=closure_arg + self.args,
+            lang_version=op3.lower.LOOPY_LANG_VERSION, 
+            target=lp.CWithGNULibcTarget())
+    
+    def overall(self, direction):
+        print_insn, print_insn1 = self.debug()
+        return lp.make_kernel(
+        "{:}",
+        [print_insn, 
+        f"b[{self.all_elems}], res[{self.all_elems}] = {direction}_loop_over_dims_{self.id}(0,0,0, {self.o_list}, {self.a_list}, b[{self.all_elems}], res[{self.all_elems}]) {{dep=print,id=loop}}",
+            f"res[{self.all_elems}] = set{self.id}(res[{self.all_elems}], b[{self.all_elems}]) {{id=replace, dep=loop}}",
+            f"b[{self.all_elems}] = zero{self.id}(b[{self.all_elems}]) {{dep=replace, id=zerob}}",
+            print_insn1],
+        name=f"{direction}_transform_{self.id}",
+        kernel_data=self.args[3:],
+        lang_version=op3.lower.LOOPY_LANG_VERSION, 
+        target=lp.CWithGNULibcTarget())
+
+def combine_matrices(matrices):
+    """ Combine matrix dictionaries for Vector Matrices
+        Assumes they all have the same dictionary structure."""
+    n = len(matrices)
+    new_matrices = {}
+    if any([m is None for m in matrices]):
+        raise NotImplementedError("Vector Functions must be either fully FUSE or fully FIAT.")
+    assert all([matrices[0].keys() == matrices[i].keys() for i in range(n)])
+    for dim in matrices[0].keys():
+        new_matrices[dim] = {}
+        assert all([matrices[0][dim].keys() == matrices[i][dim].keys() for i in range(n)])
+        for ent in matrices[0][dim].keys():
+            new_matrices[dim][ent] = {}
+            assert all([matrices[0][dim][ent].keys() == matrices[i][dim][ent].keys() for i in range(n)])
+            for o in matrices[0][dim][ent].keys():
+                combined_n = sum(matrices[i][dim][ent][o].shape[0] for i in range(n))
+                temp = np.zeros((combined_n, combined_n))
+                for i in range(n):
+                    temp[np.ix_(list(range(i, combined_n, n)), list(range(i, combined_n, n)))] = matrices[i][dim][ent][o]
+                new_matrices[dim][ent][o] = temp
+    return new_matrices
+
+@functools.singledispatch
+def check_fuse(element):
+    """Handler for checking if UFL elements have an underlying FUSE definition
+       Returns three bools and two dicts:
+         - Defined by FUSE
+         - FUSE elements has matrix definitions
+         - FUSE element has apply_matrices attribute set
+         - the transformation matrices
+         - the reversed transformation matrices
+         """
+    raise ValueError("No handler provided %s" % type(element))
+
+
+@check_fuse.register(finat.ufl.FiniteElement)
+@check_fuse.register(finat.ufl.BrokenElement)
+def check_fuse_nonfuse(element):
+    return False, False, False, None, None
+
+
+@check_fuse.register(finat.ufl.mixedelement.VectorElement)
+def check_fuse_vector(element):
+    fuse, matrix, apply, mats, reversed_mats = zip(*[check_fuse(component) for component in element.sub_elements])
+    if all([element.sub_elements[0] == se for se in element.sub_elements]) and any(mat is not None for mat in mats):
+        return any(fuse), any(matrix), any(apply), combine_matrices(mats), combine_matrices(reversed_mats)
+    if any(mat is not None for mat in mats):
+        raise NotImplementedError("FUSE matrix combination for Vector elements")
+    return any(fuse), any(matrix), any(apply), None, None
+
+
+@check_fuse.register(finat.ufl.hdivcurl.HDivElement)
+@check_fuse.register(finat.ufl.hdivcurl.HCurlElement)
+def check_fuse_hdivcurl(element):
+    "Transformation of matrices is handled within FUSE"
+    fuse, matrix, apply, mats, reversed_mats = zip(*[check_fuse(element._element)])
+    return any(fuse), any(matrix), any(apply), mats[0], reversed_mats[0]
+
+
+@check_fuse.register(finat.ufl.fuseelement.FuseElement)
+def check_fuse_standard(element):
+    if hasattr(element.triple, "matrices"):
+        return True, True, element.triple.apply_matrices, element.triple.matrices, element.triple.reversed_matrices
+    return True, False, False, None, None
+
+
+@check_fuse.register(finat.ufl.tensorproductelement.TensorProductElement)
+def check_fuse_tensor_prod(element):
+    fuse, matrix, apply, mat, reversed_mat = zip(*[check_fuse(component) for component in element.factor_elements])
+    if hasattr(element, "_triple") and hasattr(element._triple, "matrices"):
+        return True, True, element._triple.apply_matrices, element._triple.matrices, element._triple.reversed_matrices
+    elif any(matrix):
+        raise NotImplementedError("Tensor element matrices should be combined at a fuse level")
+    return any(fuse), any(matrix), any(apply), None, None
+
+@check_fuse.register(finat.ufl.enrichedelement.EnrichedElement)
+def check_fuse_enriched(element):
+    fuse, matrix, apply, mat, reversed_mat = zip(*[check_fuse(component) for component in element._elements])
+    if hasattr(element, "_triple") and hasattr(element._triple, "matrices"):
+        return True, True, element._triple.apply_matrices, element._triple.matrices, element._triple.reversed_matrices
+    elif any(matrix):
+        raise NotImplementedError("Enriched element matrices should be combined at a fuse level")
+    return any(fuse), any(matrix), any(apply), None, None
+
+@op3.cache.memory_cache(heavy=True, get_comm=lambda ss: ss[0].comm)
+def fuse_orientations(spaces: list[WithGeometry]):
+    fuse_defined_spaces, fuse_matrix_spaces, fuse_needs_matrices, mat_list, reversed_mat_list = list(zip(*[check_fuse(space.ufl_element()) for space in spaces]))
+
+    if not all(fuse_defined_spaces):
+        return None, None
+
+    if all(fuse_defined_spaces) and all(fuse_matrix_spaces) and any(fuse_needs_matrices):
+        from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
+        mesh = spaces[0]._mesh
+        mats = []
+        reversed_mats = []
+        ns = tuple()
+        for i, space in enumerate(spaces):
+            fs = space
+            if i == 0:
+                mats += [mat_list[i]]
+                reversed_mats += [reversed_mat_list[i]]
+            elif i == 1:
+                mats += [reversed_mat_list[i]]
+                reversed_mats += [mat_list[i]]
+            t_dim = space._mesh.cell_dimension()
+            os = mats[-1][t_dim][0]
+            ns += (os[next(iter(os.keys()))].shape[0],)
+        
+        closures_dict = mesh._closure_sizes[fs._mesh.cell_dimension()]
+        closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
+
+        builder = FuseMatrixApplyBuilder(spaces, ns, closures)
+        utilities = builder.get_utility_kernels()
+        
+        in_switches = [builder.switch(mats[i], i, name="in") for i in range(len(spaces))]
+        out_switches = [builder.switch(reversed_mats[i], i, name="out") for i in range(len(spaces))]
+
+        in_knl = lp.merge([builder.overall("in"), builder.loop_dims("in")] + in_switches + utilities)
+        out_knl = lp.merge([builder.overall("out"), builder.loop_dims("out")] + out_switches + utilities)
+
+        # b is modified in the transform functions but the result is written to res and therefore is not needed further.
+        transform_in = op3.Function(in_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+        transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+
+        return transform_in, transform_out
+    elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
+        return None, None
+    elif fuse_defined_spaces and sum(fuse_defined_spaces) != sum(fuse_matrix_spaces):
+        raise ValueError("If a fuse space is used, all spaces must be fuse spaces")
+    else:
+        return None, None
+
