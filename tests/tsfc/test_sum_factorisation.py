@@ -227,6 +227,33 @@ def test_sum_factorisation_order() -> None:
     assert ordering == (q0, q1)
 
 
+def test_bernstein_candidate_selection(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Select the least-cost algebraic plan for a Bernstein form."""
+    mesh = Mesh(VectorElement("CG", triangle, 1))
+    space = FunctionSpace(mesh, FiniteElement("Bernstein", triangle, 6))
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    form = inner(grad(u), grad(v)) * dx
+
+    selected, = compile_form(form, parameters={"mode": "spectral"})
+
+    def minimum_cost_plan(
+            variable, candidates, quadrature_indices, index_replacer):
+        return min(
+            candidates,
+            key=lambda candidate: tsfc.spectral._candidate_score(
+                tsfc.spectral._optimise_candidate(
+                    variable, candidate, quadrature_indices,
+                    index_replacer)))
+
+    monkeypatch.setattr(
+        tsfc.spectral, "_select_factorisation_plan", minimum_cost_plan)
+    minimum, = compile_form(form, parameters={"mode": "spectral"})
+
+    assert selected.flop_count == minimum.flop_count
+
+
 if __name__ == "__main__":
     import os
     import sys

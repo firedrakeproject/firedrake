@@ -9,12 +9,11 @@ from gem.node import Memoizer, MemoizerArg, traversal
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import (
-    estimate_cost, factorisation_group_options, hoist_linear_index,
-    replace_division,
+    estimate_cost, hoist_linear_index, replace_division,
     unroll_indexsum,
 )
-from gem.refactorise import (ATOMIC, COMPOUND, OTHER, ExpansionLimitExceeded,
-                             MonomialSum, collect_monomials)
+from gem.refactorise import (ATOMIC, COMPOUND, OTHER, MonomialSum,
+                             collect_factorisation_plans)
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
@@ -23,28 +22,6 @@ from gem.utils import groupby
 Integral = namedtuple('Integral', ['expression',
                                    'quadrature_multiindex',
                                    'argument_indices'])
-FactorisationCandidates = namedtuple(
-    'FactorisationCandidates', ['alternatives', 'fallback'])
-
-
-def _factor_dag_size(monomial_sum):
-    """Count nodes in the irreducible factors of a polynomial.
-
-    Parameters
-    ----------
-    monomial_sum : MonomialSum
-        Polynomial whose atomic and scalar factors are counted.
-
-    Returns
-    -------
-    int
-        Number of distinct GEM nodes reachable from the factors.
-    """
-    factors = tuple(
-        factor
-        for monomial in monomial_sum
-        for factor in (*monomial.atomics, monomial.rest))
-    return len(tuple(traversal(factors)))
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -83,8 +60,8 @@ def _delta_inside(node, self):
 
 def _factorisation_candidates(
         expression, argument_indices,
-        delta_inside) -> FactorisationCandidates:
-    """Build bounded pre-expansion grouping alternatives.
+        delta_inside) -> tuple[MonomialSum, ...]:
+    """Build expanded and map-preserving factorisation plans.
 
     Parameters
     ----------
@@ -97,61 +74,13 @@ def _factorisation_candidates(
 
     Returns
     -------
-    FactorisationCandidates
-        Distinct alternatives and the compact fully grouped fallback.
+    tuple of MonomialSum
+        Distinct contraction plans.
     """
-    layouts = OrderedDict()
-    for term, layout, options in factorisation_group_options(
-            expression, argument_indices):
-        layouts.setdefault(layout, []).append((term, options))
-
-    def collect(records, position, max_monomials=None):
-        result = MonomialSum()
-        for term, options in records:
-            classifier = partial(
-                classify, argument_indices,
-                delta_inside=delta_inside, groups=options[position])
-            monomial_sum, = collect_monomials(
-                [term], classifier, max_monomials=max_monomials)
-            result = MonomialSum.sum(result, monomial_sum)
-            if (max_monomials is not None
-                    and len(result) > max_monomials):
-                raise ExpansionLimitExceeded
-        return result
-
-    compact = tuple(collect(records, -1)
-                    for records in layouts.values())
-    fallback = MonomialSum.sum(*compact)
-    budget = _factor_dag_size(fallback)
-
-    candidates = (MonomialSum(),)
-    for records, grouped in zip(layouts.values(), compact):
-        noptions = len(records[0][1])
-        assert all(len(options) == noptions for _, options in records)
-        alternatives = []
-        for position in range(noptions):
-            if position == noptions - 1:
-                candidate = grouped
-            else:
-                try:
-                    candidate = collect(records, position, budget)
-                except ExpansionLimitExceeded:
-                    continue
-            alternatives.append(candidate)
-
-        combined = OrderedDict()
-        for left in candidates:
-            for right in alternatives:
-                candidate = MonomialSum.sum(left, right)
-                if _factor_dag_size(candidate) <= budget:
-                    combined.setdefault(tuple(candidate), candidate)
-        candidates = tuple(combined.values())
-
-    alternatives = OrderedDict(
-        (tuple(candidate), candidate) for candidate in candidates)
-    alternatives.setdefault(tuple(fallback), fallback)
-    return FactorisationCandidates(
-        tuple(alternatives.values()), fallback)
+    classifier = partial(
+        classify, argument_indices, delta_inside=delta_inside)
+    return collect_factorisation_plans(
+        expression, classifier, argument_indices)
 
 
 def _sum_factorisation_order(
@@ -264,14 +193,14 @@ def _candidate_score(pairs: tuple[tuple, ...]) -> tuple[int, ...]:
 def _select_factorisation_plan(
         variable, candidates, quadrature_indices,
         index_replacer) -> MonomialSum:
-    """Choose the least-cost plan no larger than the compact fallback.
+    """Choose the least-cost admitted factorisation plan.
 
     Parameters
     ----------
     variable : Node
         Assignment variable.
-    candidates : FactorisationCandidates
-        Bounded factorisation alternatives.
+    candidates : tuple of MonomialSum
+        Algebraically equivalent factorisation plans.
     quadrature_indices : tuple of Index
         Preferred quadrature contraction order.
     index_replacer : MemoizerArg
@@ -282,20 +211,10 @@ def _select_factorisation_plan(
     MonomialSum
         Selected factorisation plan.
     """
-    fallback = candidates.fallback
-    fallback_score = _candidate_score(_optimise_candidate(
-        variable, fallback, quadrature_indices, index_replacer))
-    budget = fallback_score[3]
-    best = fallback_score, fallback
-
-    for candidate in candidates.alternatives:
-        if candidate is fallback or _factor_dag_size(candidate) > budget:
-            continue
-        score = _candidate_score(_optimise_candidate(
-            variable, candidate, quadrature_indices, index_replacer))
-        if score[3] <= budget and score < best[0]:
-            best = score, candidate
-    return best[1]
+    return min(
+        candidates,
+        key=lambda candidate: _candidate_score(_optimise_candidate(
+            variable, candidate, quadrature_indices, index_replacer)))
 
 
 def flatten(var_reps, index_cache):
@@ -369,7 +288,7 @@ def flatten(var_reps, index_cache):
 finalise_options = dict(replace_delta=True, remove_componenttensors=False)
 
 
-def classify(argument_indices, expression, delta_inside, groups=frozenset()):
+def classify(argument_indices, expression, delta_inside):
     """Classify one expression for multilinear factorization.
 
     Parameters
@@ -380,16 +299,11 @@ def classify(argument_indices, expression, delta_inside, groups=frozenset()):
         Expression to classify.
     delta_inside : callable
         Predicate detecting delta nodes.
-    groups : frozenset of Node
-        Algebraic groups selected by contraction-plan optimization.
-
     Returns
     -------
     str
         Refactorization label.
     """
-    if expression in groups:
-        return ATOMIC
     n = len(argument_indices.intersection(expression.free_indices))
     if n == 0:
         return OTHER
