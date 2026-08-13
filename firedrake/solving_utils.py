@@ -1,4 +1,5 @@
 import typing
+import weakref
 from itertools import chain
 
 import numpy
@@ -135,6 +136,67 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
+def check_ksp_convergence(ksp: PETSc.KSP) -> None:
+    """Raise an error if a linear solve does not converge.
+
+    The KSP-level counterpart of `check_snes_convergence`, for the linear
+    solves that no SNES drives.
+
+    Parameters
+    ----------
+    ksp
+        The `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the KSP reports a negative converged reason.
+    """
+    r = ksp.getConvergedReason()
+    try:
+        reason = KSPReasons[r]
+    except KeyError:
+        reason = "unknown reason (petsc4py enum incomplete?), try with -ksp_converged_reason"
+    if r < 0:
+        raise ConvergenceError(r"""Linear solve failed to converge after %d iterations.
+Reason:
+   %s""" % (ksp.getIterationNumber(), reason))
+
+
+def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) -> int:
+    """SNES convergence test that stops once the adaptive loop has converged.
+
+    PETSc's `DMAdaptor` runs a fixed number of ``-snes_adapt_sequence`` steps
+    and has no error tolerance of its own. Once the marking callback declines
+    to mark anything, the mesh stops changing. Each remaining step would then
+    solve a problem that is already solved. This test reports convergence
+    immediately, so those steps cost nothing.
+
+    Parameters
+    ----------
+    snes
+        The `PETSc.SNES` that this test examines.
+    it
+        The current nonlinear iteration number.
+    norms
+        The solution, update and residual norms, as PETSc passes them.
+
+    Returns
+    -------
+    The `PETSc.SNES.ConvergedReason` for this iteration.
+    """
+    ctx = dmhooks.get_appctx(snes.getDM())
+    if ctx is not None and ctx._adapt_converged:
+        return PETSc.SNES.ConvergedReason.CONVERGED_ITS
+    # petsc4py exposes no binding for SNESConvergedDefault, so this test puts
+    # it back as the SNES's own test while it delegates to it.
+    snes.setConvergenceTest("default")
+    try:
+        return snes.callConvergenceTest(it, *norms)
+    finally:
+        snes.setConvergenceTest(adaptive_convergence_test)
+
+
 class _SNESContext(object):
     """Context holding information for SNES callbacks.
 
@@ -187,6 +249,19 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
 
+    Notes
+    -----
+    `get_snes` gives the route back from a context to the SNES that solves it,
+    and `set_snes` records that SNES when the solver builds the context. The
+    reference is weak. The SNES owns its DM, and that DM owns this context
+    while a solve runs, so a strong reference here would close a cycle that
+    the garbage collector cannot break.
+
+    Only the context that a solver builds knows its SNES. The contexts that
+    `reconstruct` makes for field splits and coarse multigrid levels do not
+    inherit it, because the Jacobian of the outer SNES describes a different
+    problem from the one that they hold.
+
     """
     @PETSc.Log.EventDecorator()
     def __init__(self, problem,
@@ -222,6 +297,11 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        # True once the marking callback declines to mark anything. This mesh
+        # then needs no more adaptation.
+        self._adapt_converged = False
+        # A weak reference to the SNES solving this problem, see set_snes.
+        self._snes = None
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -340,6 +420,64 @@ class _SNESContext(object):
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    def set_snes(self, snes: PETSc.SNES | None) -> None:
+        """Record the SNES that solves this problem.
+
+        Parameters
+        ----------
+        snes
+            The `PETSc.SNES` that holds this context as its user context, or
+            `None` if it has none. This method keeps only a weak reference, so
+            the caller must own the SNES. A `~.NonlinearVariationalSolver`
+            owns it.
+        """
+        self._snes = None if snes is None else weakref.ref(snes)
+
+    def get_snes(self) -> PETSc.SNES | None:
+        """Return the SNES that solves this problem.
+
+        Returns
+        -------
+        The `PETSc.SNES` that `set_snes` recorded, or `None` if nothing was
+        recorded, or if the garbage collector has since taken that SNES.
+        """
+        return None if self._snes is None else self._snes()
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve against the current Jacobian.
+
+        This method reuses the Jacobian and the preconditioner that the most
+        recent solve assembled, so it costs one linear solve and no new setup.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve against the transposed Jacobian. This requires a
+            preconditioner implementing ``applyTranspose``, which not every
+            Python PC does.
+
+        Raises
+        ------
+        RuntimeError
+            If no SNES was recorded on this context.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.get_snes()
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        solve = ksp.solveTranspose if transpose else ksp.solve
+        with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self, save=False):
+                solve(bvec, xvec)
+        check_ksp_convergence(ksp)
 
     @property
     def transfer_manager(self):

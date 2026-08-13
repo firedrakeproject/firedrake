@@ -432,9 +432,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -460,6 +460,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
+        if marking_callback is not None:
+            self.snes.setConvergenceTest(solving_utils.adaptive_convergence_test)
+
         # Used for custom grid transfer.
         self._transfer_operators = ()
         self._setup = False
@@ -480,11 +483,44 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
+        from firedrake.dwr import DWRMarkingCallback
+        if isinstance(callback, DWRMarkingCallback):
+            with self.inserted_options():
+                callback.setup(self._ctx._problem.u, self.options_prefix)
         self._ctx._marking_callback = callback
 
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u
+
+    def get_goal_functional(self) -> ufl.BaseForm:
+        r"""Return the goal functional of the attached :class:`.DWRMarkingCallback`,
+        on the current (possibly adapted) solution mesh."""
+        from firedrake.dwr import DWRMarkingCallback
+        callback = self._ctx._marking_callback
+        if not isinstance(callback, DWRMarkingCallback):
+            raise AttributeError("This solver has no DWRMarkingCallback attached")
+        return callback.goal_functional
+
+    def get_error_estimate(self) -> float:
+        r"""Return the most recent estimate of the error in the goal functional.
+
+        This is the ``eta`` that approximates :math:`J(u) - J(u_h)`, from the
+        last time the attached :class:`.DWRMarkingCallback` marked. The
+        ``-dwr_atol`` and ``-dwr_rtol`` tolerances apply to it.
+
+        The estimate refers to the mesh that it came from. That is the current
+        mesh only if the solve stopped because it met the tolerances. Otherwise
+        it is the mesh one refinement coarser, because the estimate asked for
+        that refinement, and no estimate covers the refined mesh yet.
+        """
+        from firedrake.dwr import DWRMarkingCallback
+        callback = self._ctx._marking_callback
+        if not isinstance(callback, DWRMarkingCallback):
+            raise AttributeError("This solver has no DWRMarkingCallback attached")
+        if callback.error_estimate is None:
+            raise ValueError("No error estimate is available until the solver has marked")
+        return callback.error_estimate
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
@@ -525,6 +561,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
+        # Reset the adaptive convergence flag, so that a solver that stopped
+        # adapting last time gets to adapt again.
+        self._ctx._adapt_converged = False
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
@@ -555,7 +594,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        # The problem may sit on an adapted mesh since the last solve, so no
+        # cache can hold this vector across calls.
+        work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
@@ -566,6 +607,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                if self.snes.getSolution() != work:
+                    # DMAdaptorAdapt() consumed a reference to work when it put
+                    # a vector of its own in place. The solution vector records
+                    # that exchange, and the DM does not. An adaptation that
+                    # converges at once leaves the DM alone, and still builds
+                    # the vector again.
+                    work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem

@@ -139,9 +139,12 @@ class SetupHooks(object):
 
     You probably don't want to use this directly, instead see
     :class:`~add_hooks` or :func:`add_hook`."""
-    def __init__(self):
+    def __init__(self, appctx=None):
         self._setup = []
         self._teardown = []
+        # The hooks close over this appctx and its DMs, so they replay for it
+        # alone.
+        self.appctx = appctx
 
     def add_setup(self, f):
         self._setup.append(f)
@@ -220,7 +223,10 @@ class add_hooks(object):
     def __init__(self, dm, obj, *, save=True, appctx=None):
         self.dm = dm
         self.obj = obj
-        self.first_time = not hasattr(obj, "setup_hooks")
+        # Saved hooks close over the appctx that built them, so they replay for
+        # that appctx alone. An adapted mesh replaces both.
+        self.first_time = (not hasattr(obj, "setup_hooks")
+                           or obj.setup_hooks.appctx is not appctx)
         self.save = save
         self.appctx = appctx
         if not (self.save or self.first_time):
@@ -234,7 +240,7 @@ class add_hooks(object):
             hooks.setup()
         else:
             # Not yet seen, let's save the relevant information.
-            hooks = SetupHooks()
+            hooks = SetupHooks(self.appctx)
             if self.save:
                 # Remember it for later
                 self.obj.setup_hooks = hooks
@@ -450,23 +456,25 @@ def coarsen(dm, comm):
 
 def _refine_adaptive(dm):
     """
-    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
-    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    Return the DM of the `_SNESContext` on the adaptively-refined mesh.
+    `_SNESContext.marking_callback` marks the cells that this function refines.
     """
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
-
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
+    if ctx._adapt_converged:
+        # PETSc's adaptor has no tolerance of its own, so it asks for the rest
+        # of -snes_adapt_sequence after the callback declares itself satisfied.
+        # Hand the same DM straight back. An estimate here would cost two
+        # solves and give an answer that this function already has.
+        return dm
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    solution_mesh = current_solution.function_space().mesh()
+    mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)
     if hierarchy is None:
         hierarchy = MeshHierarchy(mesh)
@@ -475,9 +483,22 @@ def _refine_adaptive(dm):
     if level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
-        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
+        # Without a callback, nothing tells one cell from another, so this
+        # function refines them all. Adaptive refinement then becomes uniform
+        # refinement, which is what grid sequencing alone asks for.
+        markers = firedrake.Function(firedrake.FunctionSpace(mesh, "DG", 0)).assign(1)
+    else:
+        markers = ctx._marking_callback(ctx, current_solution)
+    if markers is None:
+        # The callback is satisfied with this mesh, so hand the same DM back
+        # unrefined. petsc4py increments the reference count of what this
+        # function returns. DMAdaptorAdapt() then destroys its input, which
+        # consumes that increment, so the count stays balanced. The flag on the
+        # context lets this function and the SNES convergence test skip the
+        # remaining steps of the sequence.
+        ctx._adapt_converged = True
+        return dm
 
-    markers = ctx._marking_callback(ctx, current_solution)
     if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
         raise TypeError(
             f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
@@ -489,9 +510,20 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
+    # DMAdaptorAdapt() always destroys its input DM. Each input DM remains a
+    # level of the mesh hierarchy, so increase the reference count here to keep
+    # the coarse DM alive.
+    dm.incRef()
+
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+    if isinstance(solution_mesh, MeshSequenceGeometry):
+        solution_mesh.set_hierarchy()
+
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    # The refined context describes the same nonlinear problem, so the same
+    # SNES solves it. Only the DM under that SNES changes.
+    refined_ctx.set_snes(ctx.get_snes())
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
