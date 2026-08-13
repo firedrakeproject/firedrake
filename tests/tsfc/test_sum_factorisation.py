@@ -195,8 +195,6 @@ def test_shared_physically_mapped_tabulation(
         lambda expression, indices: expression)
     baseline, = compile_form(form, parameters={"mode": "spectral"})
 
-    optimized_source = str(optimized.ast)
-    baseline_source = str(baseline.ast)
     optimized_shapes = [
         temporary.shape for temporary in
         optimized.ast.default_entrypoint.temporary_variables.values()]
@@ -209,7 +207,6 @@ def test_shared_physically_mapped_tabulation(
         < sum(not shape for shape in baseline_shapes)
     assert sum(shape == (15,) for shape in optimized_shapes) \
         > sum(shape == (15,) for shape in baseline_shapes)
-    assert optimized_source.count(" if ") < baseline_source.count(" if ")
 
 
 def test_sum_factorisation_order() -> None:

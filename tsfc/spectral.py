@@ -91,9 +91,9 @@ def _sum_factorisation_order(
     A quadrature direction belongs earlier when its minimal dependency
     frontier retains fewer non-quadrature indices.  COFFEE can then isolate
     that contraction before introducing more strongly coupled factors.  The
-    support sizes are equal for ordinary tensor products, retaining the
-    established extent-based stable ordering, while nested simplex factors
-    naturally order themselves from least to most coupled.
+    Ordinary tensor products have equal support sizes. They retain the
+    extent-based stable ordering. Nested simplex factors naturally order
+    themselves from least to most coupled.
 
     Parameters
     ----------
