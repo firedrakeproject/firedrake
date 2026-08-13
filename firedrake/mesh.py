@@ -5019,9 +5019,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
-        # Select all entities
-        label_name = "depth"
-        subdomain_id = subdim
+        if subdim != dim:
+            # Select all entities of the submesh dimension.  A codim-0 submesh
+            # is every cell, which submesh_create selects without a label.
+            label_name = "depth"
+            subdomain_id = subdim
     elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL

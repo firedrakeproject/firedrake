@@ -4001,10 +4001,10 @@ def submesh_create(PETSc.DM dm,
         DMPlex representing the mesh topology
     subdim : int
         Topological dimension of the submesh
-    label_name : str
-        Name of the label
-    subdomain_id : int | Sequence
-        Values in the label
+    label_name : str | None
+        Name of the label, or `None` to select every cell
+    subdomain_id : int | Sequence | None
+        Values in the label, unused if ``label_name`` is `None`
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
     comm : PETSc.Comm | None
@@ -4018,38 +4018,44 @@ def submesh_create(PETSc.DM dm,
         PetscInt pStart, pEnd, p, i, stratum_size = 0, label_value = 1
         const PetscInt *stratum_indices = NULL
 
-    # Cast subdomain_id into an iterable
-    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
-        subdomain_id = (subdomain_id,)
-    # Take the union of the all the label values
-    label = dm.getLabel(label_name)
-    points = PETSc.IS()
-    for sub in subdomain_id:
-        if isinstance(sub, Integral):
-            subpoints = label.getStratumIS(sub)
-        elif sub == "on_boundary":
-            subpoints = dm.getStratumIS("exterior_facets", 1)
-        else:
-            raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+    if label_name is None:
+        # Every cell is wanted.  DMPlexFilter selects all of them when given no
+        # label, so building one that marks the whole mesh only to hand it back
+        # would be wasted work.
+        temp_label = None
+    else:
+        # Cast subdomain_id into an iterable
+        if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
+            subdomain_id = (subdomain_id,)
+        # Take the union of the all the label values
+        label = dm.getLabel(label_name)
+        points = PETSc.IS()
+        for sub in subdomain_id:
+            if isinstance(sub, Integral):
+                subpoints = label.getStratumIS(sub)
+            elif sub == "on_boundary":
+                subpoints = dm.getStratumIS("exterior_facets", 1)
+            else:
+                raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+            if points:
+                points = points.union(subpoints)
+            else:
+                points = subpoints
+        # Create temp_label that contains no lower-dimensional points.
+        dm.createLabel(temp_label_name)
+        temp_label = dm.getLabel(temp_label_name)
         if points:
-            points = points.union(subpoints)
-        else:
-            points = subpoints
-    # Create temp_label that contains no lower-dimensional points.
-    dm.createLabel(temp_label_name)
-    temp_label = dm.getLabel(temp_label_name)
-    if points:
-        CHKERR(ISGetSize(points.iset, &stratum_size))
-    if stratum_size > 0:
-        CHKERR(ISGetIndices(points.iset, &stratum_indices))
-        CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
-        for i in range(stratum_size):
-            p = stratum_indices[i]
-            # Only include points on the submesh topological dimension,
-            # culling all lower-dimensional points.
-            if pStart <= p < pEnd:
-                CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
-        CHKERR(ISRestoreIndices(points.iset, &stratum_indices))
+            CHKERR(ISGetSize(points.iset, &stratum_size))
+        if stratum_size > 0:
+            CHKERR(ISGetIndices(points.iset, &stratum_indices))
+            CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
+            for i in range(stratum_size):
+                p = stratum_indices[i]
+                # Only include points on the submesh topological dimension,
+                # culling all lower-dimensional points.
+                if pStart <= p < pEnd:
+                    CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
+            CHKERR(ISRestoreIndices(points.iset, &stratum_indices))
     # Make submesh using temp_label.
     subdm, ownership_transfer_sf = dm.filter(label=temp_label,
                                              value=label_value,
@@ -4057,8 +4063,9 @@ def submesh_create(PETSc.DM dm,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
     # Destroy temp_label.
-    dm.removeLabel(temp_label_name)
-    subdm.removeLabel(temp_label_name)
+    if temp_label is not None:
+        dm.removeLabel(temp_label_name)
+        subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
     return subdm
@@ -4087,6 +4094,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         const PetscInt *ilocal = NULL
         const PetscSFNode *iremote = NULL
         PETSc.IS subpoint_is
+        PETSc.IS all_points
         const PetscInt *subpoint_indices = NULL
         np.ndarray ownership_loss
         np.ndarray ownership_gain
@@ -4108,18 +4116,18 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
 
     if subdm.comm.size == 1:
-        # Undistributed case: relabel every point as core
-        for subp in range(subpStart, subpEnd):
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            if has:
-                continue
-            CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            if has:
-                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            if has:
-                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_core, subp, 1))
+        # Undistributed case: relabel every point as core.  Setting the strata
+        # in bulk keeps this linear in the number of points: DMLabelSetValue
+        # invalidates the label index, which the next DMLabelHasPoint would
+        # rebuild and re-sort, so relabelling point by point costs O(n log n)
+        # each time round.
+        all_points = PETSc.IS().createStride(subpEnd - subpStart,
+                                             first=subpStart, step=1,
+                                             comm=PETSc.COMM_SELF)
+        CHKERR(DMLabelClearStratum(lbl_owned, 1))
+        CHKERR(DMLabelClearStratum(lbl_ghost, 1))
+        CHKERR(DMLabelSetStratumIS(lbl_core, 1, (<PETSc.IS>all_points).iset))
+        all_points.destroy()
     else:
         ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
         ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
