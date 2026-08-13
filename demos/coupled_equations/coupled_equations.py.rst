@@ -21,7 +21,7 @@ The Helmholtz equation is defined on :math:`\Omega_2` as
 
   \nabla u_2 \cdot n &= 0 \ \textrm{on}\ \partial \Omega_2 \setminus \Gamma,
 
-where :math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`. These solutions are known as trial functions.
+where :math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`. These solutions are the trial functions.
 
 The weak forms for the Poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. 
 
@@ -43,7 +43,7 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
 Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the Poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}`. 
 
-The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus, a penalty term is added to :math:`a_{22}`. 
+The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus, a penalty term is also added to :math:`a_{22}`. 
 
 .. math::
 
@@ -59,7 +59,7 @@ Along the shared interface, the two meshes are coupled. These coupling terms are
 
   a_{21}(u_1, v_2) &= -w_2 \int_{\Gamma}\mathcal{I}_{V^2} (u_1) v_2 \ {\rm d} s,
 
-where :math:`w_2 = \frac{w_0}{h}` is a penalty parameter. :math:`w_0` is a constant and :math:`h` the element spacings for the penalty parameter. The penalty constant :math:`w_0` is typically found with trial and error. Additionally, :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` and :math:`\mathcal{I}_{V^1}: V^2 \rightarrow V^1` are cross-mesh interpolation operators, defining the trial function :math:`u_1` in the domain :math:`V^2` and vice versa. :math:`a_{12}` enforces the Neumann boundary condition whereas :math:`a_{21}` enforces the Dirichlet boundary condition.
+where :math:`w_2 = \frac{w_0}{h}` is a penalty parameter. :math:`w_0` is a constant and :math:`h` the element spacings for the penalty parameter. The penalty constant :math:`w_0` is typically found through trial and error. Additionally, :math:`\mathcal{I}_{V^2}: V^1 \rightarrow V^2` and :math:`\mathcal{I}_{V^1}: V^2 \rightarrow V^1` are cross-mesh interpolation operators, defining the trial function :math:`u_1` in the domain :math:`V^2` and vice versa. :math:`a_{12}` enforces the Neumann boundary condition whereas :math:`a_{21}` enforces the Dirichlet boundary condition.
 
 Overall, the variational problem for the coupled equations is: find :math:`(u_1, u_2) \in V^1 \times V^2` such that
 
@@ -71,7 +71,7 @@ Overall, the variational problem for the coupled equations is: find :math:`(u_1,
 Method of Manufactured Solutions (MMS)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The functions :math:`f` and :math:`g` to be passed into the solver are calculated from these exact solutions, obtaining an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
+The method of manufactured solutions (MMS) is used to verify the accuracy of approximated solutions by explicitly specifying a solution for the problem at hand, ensuring that this solution satisfies all conditions set. The functions :math:`f` and :math:`g` to be passed into the solver are calculated from these exact solutions, resulting in an approximated solution. We can then compare the two solutions, analysing the accuracy of the approximated solution. 
 
 For this demo, we define the exact solutions as
 
@@ -130,9 +130,10 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     f1 = -div(grad(u1_exact))
     f2 = -div(grad(u2_exact)) + u2_exact
 
+Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes.
 
-    # Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh,
-    # ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes.
+.. code-block::
+  :dedent: 0
 
     n1 = FacetNormal(mesh1)
     n2 = FacetNormal(mesh2)
@@ -142,9 +143,11 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     ds2 = Measure("ds", domain=mesh2, subdomain_id=1)
 
 
-    # Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, 
-    # with test and trial functions defined on the subspaces of this mixed function space.
+Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.
 
+.. code-block::
+  :dedent: 0
+  
     V1 = FunctionSpace(mesh1, "CG", p)
     V2 = FunctionSpace(mesh2, "CG", p)
     W = V1 * V2
@@ -153,7 +156,10 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     v1, v2 = TestFunctions(W)
 
 
-    # The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. 
+The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. 
+
+.. code-block::
+  :dedent: 0
 
     # Poisson on mesh_1
     A11_form = inner(grad(u1), grad(v1)) * dx1
@@ -163,13 +169,11 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
                 - inner(dot(grad(u2), n2), v2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
 
-    # Intermediate spaces are used to define the coupling terms in the variational problem. 
-    # These coupling terms are calculated by finding the product of the cross-mesh interpolation 
-    # matrices ``B12, B21`` and the mass matrices ``M1, M2``, 
-    # placing the coupling terms in the dual space of ``W``.
-    # Recall that ``A12`` enforces the Neumann boundary condition 
-    # whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
-    
+Intermediate spaces are used to define the coupling terms in the variational problem. These coupling terms are calculated by finding the product of the cross-mesh interpolation matrices ``B12, B21`` and the mass matrices ``M1, M2``, placing the coupling terms in the dual space of ``W``. Recall that ``A12`` enforces the Neumann boundary condition whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
+
+.. code-block::
+  :dedent: 0
+
     # Intermediate spaces
     Q1v = VectorFunctionSpace(mesh1, "CG", p_inner)
     Q2 = FunctionSpace(mesh2, "CG", p_inner)
@@ -189,9 +193,10 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     A21_form = action(M2, B21)
 
     
-    # These definitions are combined to form the overall problem to be solved ``Ax = L``. 
-    # From this method, we return ``A, L, W`` and the exact solutions 
-    # which are mapped onto the function space.
+These definitions are combined to form the overall problem to be solved ``Ax = L``. From this method, we return ``A, L, W`` and the exact solutions which are mapped onto the function space.
+
+.. code-block::
+  :dedent: 0
 
     # RHS
     b1 = inner(f1, v1) * dx1
@@ -356,28 +361,6 @@ Running the above script with ``n1_list = [2,4,8,16,32]``, ``n2_list = [2,4,8,16
 This corresponds to a problem with conforming coupled meshes, converging with rate :math:`O(h^{p+2})` and small error norm values.
 
 This problem can also be solved on non-conforming meshes. As an example, we run the script with ``n1_list = [8,8,8,8,8]``, ``n2_list = [2,4,8,16,32]`` and the same domain dimensions. We now obtain the following error norm and convergence rate values.
-
-.. list-table::
-   :header-rows: 1
-
-   * - h
-     - Error 1
-     - Rate 1
-   * - 0.12500
-     - 1.618352e-05
-     - -
-   * - 0.12500
-     - 3.079616e-07
-     - inf
-   * - 0.12500
-     - 3.139620e-08
-     - inf
-   * - 0.12500
-     - 4.729473e-08
-     - -inf
-   * - 0.12500
-     - 2.266786e-07
-     - -inf
 
 .. list-table::
    :header-rows: 1

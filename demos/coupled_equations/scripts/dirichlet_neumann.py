@@ -15,7 +15,7 @@ PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [16,16,16,16,16]
+n1_list = [8,8,8,8,8]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -35,7 +35,7 @@ for n1,n2 in zip(n1_list, n2_list):
 
 def build_problem(mesh1, mesh2):
     p = 4
-    p_inner = 2
+    p_inner = 4
     w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
@@ -138,8 +138,8 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
         plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
-    e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
-    e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
+    e_1 = errornorm(u1_exact_func, u_1, norm_type="H1")
+    e_2 = errornorm(u2_exact_func, u_2, norm_type="H1")
     h1 = 1.0/n1
     h2 = 1.0/n2
 
@@ -182,7 +182,7 @@ if VERBOSE:
 
     plt.figure(figsize=(8,8))
     plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
-    plt.loglog(h1_array, errors_1, "s-", label="Poisson")
+    #plt.loglog(h1_array, errors_1, "s-", label="Poisson")
     plt.xlabel("h")
     plt.ylabel("L2 error")
     plt.gca().invert_xaxis()
