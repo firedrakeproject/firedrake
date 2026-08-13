@@ -5020,8 +5020,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
         if subdim != dim:
-            # Select all entities of the submesh dimension.  A codim-0 submesh
-            # is every cell, which submesh_create selects without a label.
+            # DMPlexFilter handles label=None, codim=0.
+            # Take an explicit label including all entities otherwise.
             label_name = "depth"
             subdomain_id = subdim
     elif label_name is None:

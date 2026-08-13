@@ -4019,9 +4019,7 @@ def submesh_create(PETSc.DM dm,
         const PetscInt *stratum_indices = NULL
 
     if label_name is None:
-        # Every cell is wanted.  DMPlexFilter selects all of them when given no
-        # label, so building one that marks the whole mesh only to hand it back
-        # would be wasted work.
+        # label=None covers all cells. DMPlexFilter already handles this.
         temp_label = None
     else:
         # Cast subdomain_id into an iterable
@@ -4116,11 +4114,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
 
     if subdm.comm.size == 1:
-        # Undistributed case: relabel every point as core.  Setting the strata
-        # in bulk keeps this linear in the number of points: DMLabelSetValue
-        # invalidates the label index, which the next DMLabelHasPoint would
-        # rebuild and re-sort, so relabelling point by point costs O(n log n)
-        # each time round.
+        # Undistributed case: relabel every point as core
         all_points = PETSc.IS().createStride(subpEnd - subpStart,
                                              first=subpStart, step=1,
                                              comm=PETSc.COMM_SELF)
