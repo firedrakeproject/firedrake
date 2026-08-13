@@ -3959,6 +3959,7 @@ class VertexOnlyMeshSF:
         root_values: np.ndarray,
         leaf_values: np.ndarray,
     ) -> None:
+        # TODO: make these collective
         if root_values.shape[0] != self.nroots:
             raise ValueError("Number of root values does not match number of roots in the SF.")
         if leaf_values.shape[0] < self.leaf_buffer_size:
