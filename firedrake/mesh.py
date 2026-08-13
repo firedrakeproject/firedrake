@@ -3960,12 +3960,13 @@ class VertexOnlyMeshSF:
         leaf_values: np.ndarray,
     ) -> None:
         if root_values.shape[0] != self.nroots:
-            raise ValueError("Array in bad shape")
+            raise ValueError("Number of root values does not match number of roots in the SF.")
+        if leaf_values.shape[0] < self.leaf_buffer_size:
+            raise ValueError("Leaf array is too small for the SF leaf indices.")
         if leaf_values.shape[1:] != root_values.shape[1:]:
-            raise ValueError("`leaf_values` shape does not match `root_values`")
+            raise ValueError("`leaf_values` shape does not match `root_values`.")
         if leaf_values.dtype != root_values.dtype:
-            raise TypeError("`leaf_values` dtype does not match `root_values`")
-
+            raise TypeError("`leaf_values` dtype does not match `root_values`.")
 
     def broadcast(
         self,
@@ -4665,18 +4666,17 @@ def _parent_mesh_embedding(
     # Points in halo cells will be assigned to the rank owning that cell
     not_in_halo = owning_ranks == parent_mesh.comm.rank
 
-    # remove losing leaves from candidate_sf
-    if exclude_halos:
-        embedded_sf = candidate_sf.create_embedded_leaf_sf(keep & not_in_halo)
-    else:
-        embedded_sf = candidate_sf.create_embedded_leaf_sf(keep)
+    # this SF maps roots to their winning candidate leaf
+    winner_sf = candidate_sf.create_embedded_leaf_sf(keep & not_in_halo)
 
-    # we need to remove halos from these reductions so we have a one-to-one map
+    # send winning cell number and ref coords to roots
     winner_cells = np.full(nroots, -1, dtype=IntType)
-    embedded_sf.reduce(parent_cell_nums[not_in_halo], winner_cells)
+    winner_sf.reduce(parent_cell_nums, winner_cells)
 
     winner_ref_coords = np.full((nroots, ref_coords.shape[1]), np.nan, dtype=RealType)
-    embedded_sf.reduce(ref_coords[not_in_halo], winner_ref_coords)
+    winner_sf.reduce(ref_coords, winner_ref_coords)
+
+    embedded_sf = winner_sf if exclude_halos else candidate_sf.create_embedded_leaf_sf(keep)
 
     return (
         embedded_sf,
