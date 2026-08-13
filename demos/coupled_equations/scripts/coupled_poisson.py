@@ -15,8 +15,8 @@ PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [8,8,8,8,8]
-n2_list = [2,4,8,16,32]
+n1_list = [2,7,23,25,30] #[8,8,8,8,8]
+n2_list = [2,7,23,25,30] #[2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
 h1_array = []
@@ -143,8 +143,8 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
         plot(f"poisson_poisson_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
-    e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
-    e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
+    e_1 = errornorm(u1_exact_func, u_1, norm_type="H1")
+    e_2 = errornorm(u2_exact_func, u_2, norm_type="H1")
     h1 = 1.0/n1
     h2 = 1.0/n2
 
