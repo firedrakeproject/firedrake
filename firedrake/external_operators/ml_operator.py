@@ -79,12 +79,23 @@ class MLOperator(AbstractExternalOperator):
     def assemble_jacobian_adjoint_action(self, *args, **kwargs):
         """Assemble the action of the Jacobian adjoint using the AD engine of the ML framework."""
         w = self.argument_slots()[0]
+        # If the operator carries a trailing model-parameters operand (training setup) and we are
+        # differentiating with respect to it, the adjoint Jacobian action corresponds to a reverse
+        # pass through the ML model that accumulates gradients into the model parameters. This is
+        # delegated to the framework-specific ``_backward`` routine. Otherwise (e.g. differentiating
+        # with respect to the model inputs, or for parameter-free operators) we fall back to the
+        # standard vector-Jacobian product.
+        if len(self.derivatives) > 1 and self.derivatives[-1] == 1:
+            return self._backward(w)
         return self._vjp(w)
 
     # -- ML framework-specific methods -- #
 
     def _forward(self):
         raise NotImplementedError("Forward pass not implemented.")
+
+    def _backward(self, y):
+        raise NotImplementedError("Backward pass (training of model parameters) not implemented.")
 
     def _jvp(self):
         raise NotImplementedError("Jacobian-vector product not implemented.")

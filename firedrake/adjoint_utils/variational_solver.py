@@ -157,6 +157,12 @@ class NonlinearVariationalSolverMixin:
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)
+        # Keep a handle on the right-hand side cofunction so that it can be updated
+        # in-place when solving the adjoint equation. Locating it by position in the
+        # residual is not robust: when the adjoint Jacobian contains base form operators
+        # (e.g. external/ML operators), ``action(adj_F, adj_sol)`` is itself a multi-term
+        # ``FormSum`` and the right-hand side is no longer the second component.
+        lvp._ad_adjoint_rhs = right_hand_side
         return lvp
 
     def _build_count_map(self, J, dependencies, F=None):
