@@ -2026,16 +2026,16 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         Parameters
         ----------
-        swarm : PETSc.DMSwarm
-            `PETSc.DMSwarm` representing Particle In Cell (PIC) vertices
-            immersed within a `PETSc.DM` stored in the ``parentmesh``.
+        swarm : FiredrakeDMSwarm
+            DMSwarm representing particle-in-cell vertices immersed within a
+            PETSc DM stored in ``parentmesh``.
         parentmesh : AbstractMeshTopology
             Mesh topology within which the vertex-only mesh topology is immersed.
         name : str
             Name of the mesh topology.
         reorder : bool
             Whether to reorder the mesh entities.
-        input_ordering_swarm : PETSc.DMSwarm
+        input_ordering_swarm : FiredrakeDMSwarm
             The swarm from which the input-ordering vertex-only mesh is constructed.
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_dm_renumbering``; only
@@ -2048,15 +2048,16 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             Name of the entity permutation (reordering); if `None`, automatically generated.
 
         """
-        if MPI.Comm.Compare(parentmesh.comm, swarm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
-            ValueError("Parent mesh communicator and swarm communicator are not congruent")
+        if MPI.Comm.Compare(parentmesh.comm, swarm.dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise ValueError("Parent mesh communicator and swarm communicator are not congruent")
         self._distribution_parameters = {"partition": False,
                                          "partitioner_type": None,
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+        self.swarm = swarm
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
 
-        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+        super().__init__(swarm.dm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._init_particle_ids()
 
     def _distribute(self):
@@ -2098,13 +2099,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     def _renumber_entities(self, reorder):
         if reorder:
-            swarm = self.topology_dm
+            swarm = self.swarm
             parent = self._parent_mesh.topology_dm
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-            cell_id_name = swarm.getCellDMActive().getCellID()
+            cell_id_name = swarm.dm.getCellDMActive().getCellID()
             with (
                 swarm.field(cell_id_name) as swarm_parent_cell_nums,
                 swarm.field("globalindex") as swarm_global_indices,
@@ -2112,7 +2113,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 parent_order = parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart]
                 # sort by parent cell order, with ties broken by point global index
                 perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
-            perm_is = PETSc.IS().create(comm=swarm.comm)
+            perm_is = PETSc.IS().create(comm=swarm.dm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
             return perm_is
@@ -2211,7 +2212,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
         """
-        with self.topology_dm.field("parentcellnum") as parentcellnum_field:
+        with self.swarm.field("parentcellnum") as parentcellnum_field:
             cell_parent_cell_list = parentcellnum_field.ravel().copy()
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
@@ -2230,7 +2231,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
-        with self.topology_dm.field("parentcellbasenum") as parentcellbasenum_field:
+        with self.swarm.field("parentcellbasenum") as parentcellbasenum_field:
             cell_parent_base_cell_list = parentcellbasenum_field.ravel().copy()
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
@@ -2251,7 +2252,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
-        with self.topology_dm.field("parentcellextrusionheight") as parentcellextrusionheight_field:
+        with self.swarm.field("parentcellextrusionheight") as parentcellextrusionheight_field:
             cell_parent_extrusion_height_list = parentcellextrusionheight_field.ravel().copy()
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
@@ -2271,7 +2272,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
-        with self.topology_dm.field("globalindex") as globalindex_field:
+        with self.swarm.field("globalindex") as globalindex_field:
             cell_global_index = globalindex_field.ravel().copy()
         return cell_global_index
 
@@ -2297,7 +2298,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return VertexOnlyMeshTopology(
                 self.input_ordering_swarm,
                 self,
-                name=self.input_ordering_swarm.getName(),
+                name=self.input_ordering_swarm.dm.getName(),
                 reorder=False,
             )
 
@@ -2305,7 +2306,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def _make_input_ordering_sf(swarm, nroots, ilocal):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
-        sf = PETSc.SF().create(comm=swarm.comm)
+        sf = PETSc.SF().create(comm=swarm.dm.comm)
         with (
             swarm.field("inputrank") as input_ranks,
             swarm.field("inputindex") as input_indices,
@@ -2336,7 +2337,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if len(e_p_map) > 0:
             cStart = e_p_map.min()  # smallest swarm point number
             ilocal[e_p_map - cStart] = np.arange(len(e_p_map))
-        return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
+        return VertexOnlyMeshTopology._make_input_ordering_sf(self.swarm, nroots, ilocal)
 
     @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_without_halos_sf(self):
@@ -3877,12 +3878,12 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
             else:
                 raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
     name = name if name is not None else mesh.name + "_immersed_vom"
-    swarm.setName(_generate_default_mesh_topology_name(name))
-    input_ordering_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
+    swarm.dm.setName(_generate_default_mesh_topology_name(name))
+    input_ordering_swarm.dm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
     topology = VertexOnlyMeshTopology(
         swarm,
         mesh.topology,
-        name=swarm.getName(),
+        name=swarm.dm.getName(),
         reorder=reorder,
         input_ordering_swarm=input_ordering_swarm,
     )
@@ -4009,15 +4010,101 @@ class VertexOnlyMeshSF:
         return type(self)(self.sf.createEmbeddedLeafSF(selected_leaf_indices))
 
 
-class FiredrakeDMSwarm(PETSc.DMSwarm):
-    """A DMSwarm with a saved list of added fields"""
+class FiredrakeDMSwarm:
+    """A DMSwarm for use with :func:`VertexOnlyMesh`."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._fields = None
-        self._default_fields = None
-        self._default_extra_fields = None
-        self._other_fields = None
+    def __init__(self, dm: PETSc.DMSwarm, extruded: bool = False):
+        """Initialize a Firedrake DMSwarm.
+
+        Parameters
+        ----------
+        dm : PETSc.DMSwarm
+            The underlying PETSc DMSwarm.
+        extruded : bool
+            Whether the swarm is embedded in an extruded mesh.
+        """
+        if not isinstance(dm, PETSc.DMSwarm):
+            raise TypeError(f"`dm` must be a `PETSc.DMSwarm`, not a {type(dm).__name__}")
+        self.dm = dm
+        self.extruded = extruded
+
+    @classmethod
+    def create(
+        cls,
+        cell_dm: PETSc.DM,
+        tdim: int,
+        gdim: int,
+        extruded: bool,
+        extra_fields: Sequence[tuple] = (),
+    ) -> "FiredrakeDMSwarm":
+        """Create an empty Firedrake DMSwarm.
+
+        Parameters
+        ----------
+        cell_dm : PETSc.DM
+            The PETSc DM containing the cells in which the swarm is embedded.
+        tdim : int
+            The topological dimension of the embedding mesh.
+        gdim : int
+            The geometric dimension of the embedding mesh.
+        extruded : bool
+            Whether the parent mesh is extruded.
+        extra_fields : sequence of tuple
+            Additional ``(name, block_size, dtype)`` fields to register.
+
+        Returns
+        -------
+        FiredrakeDMSwarm
+            The empty swarm with all fields registered.
+        """
+        dm = PETSc.DMSwarm().create(comm=cell_dm.comm)
+        dm.setDimension(gdim)
+        dm.setCoordinateDim(gdim)
+        dm.setCellDM(cell_dm)
+        if not isinstance(cell_dm, PETSc.DMSwarm):
+            dm.setType(PETSc.DMSwarm.Type.PIC)
+
+        dm.registerField("parentcellnum", 1, dtype=IntType)
+        dm.registerField("refcoord", tdim, dtype=RealType)
+        dm.registerField("globalindex", 1, dtype=IntType)
+        dm.registerField("inputrank", 1, dtype=IntType)
+        dm.registerField("inputindex", 1, dtype=IntType)
+        if extruded:
+            dm.registerField("parentcellbasenum", 1, dtype=IntType)
+            dm.registerField("parentcellextrusionheight", 1, dtype=IntType)
+
+        for name, size, dtype in extra_fields:
+            dm.registerField(name, size, dtype=dtype)
+
+        dm.finalizeFieldRegister()
+        return cls(dm, extruded=extruded)
+
+    def set_halo_sf(
+        self,
+        n_owned: int,
+        owner_ranks: np.ndarray,
+        owner_indices: np.ndarray,
+    ) -> None:
+        """Set the point SF connecting halo points to their owners.
+
+        Parameters
+        ----------
+        n_owned : int
+            Number of owned points, which precede halo points in the swarm.
+        owner_ranks : numpy.ndarray
+            Owning MPI rank for each halo point.
+        owner_indices : numpy.ndarray
+            Local swarm index on the owning rank for each halo point.
+        """
+        npoints = self.dm.getLocalSize()
+        local = np.arange(n_owned, npoints, dtype=IntType)
+        remote = np.empty((len(owner_ranks), 2), dtype=IntType)
+        remote[:, 0] = owner_ranks
+        remote[:, 1] = owner_indices
+
+        sf = self.dm.getPointSF()
+        sf.setGraph(npoints, local, remote)
+        self.dm.setPointSF(sf)
 
     @contextmanager
     def field(self, name: str) -> Generator[np.ndarray]:
@@ -4035,172 +4122,79 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
             must not be used after leaving the context.
         """
         # petsc4py will error if you try to access an active field without first restoring it.
-        values = self.getField(name)
+        values = self.dm.getField(name)
         try:
             yield values
         finally:
-            self.restoreField(name)
+            self.dm.restoreField(name)
 
-    @property
-    def fields(self):
-        return self._fields
+    def set_field(self, name: str, values: np.ndarray) -> None:
+        """Set the values of a DMSwarm field.
 
-    @fields.setter
-    def fields(self, fields):
-        if self._fields:
-            raise ValueError("Fields have already been set")
-        self._fields = fields
-
-    @property
-    def default_fields(self):
-        return self._default_fields
-
-    @default_fields.setter
-    def default_fields(self, fields):
-        if self._default_fields:
-            raise ValueError("Default fields have already been set")
-        self._default_fields = fields
-
-    @property
-    def default_extra_fields(self):
-        return self._default_extra_fields
-
-    @default_extra_fields.setter
-    def default_extra_fields(self, fields):
-        if self._default_extra_fields:
-            raise ValueError("Default extra fields have already been set")
-        self._default_extra_fields = fields
-
-    @property
-    def other_fields(self):
-        return self._other_fields
-
-    @other_fields.setter
-    def other_fields(self, fields):
-        if self._other_fields:
-            raise ValueError("Other fields have already been set")
-        self._other_fields = fields
+        Parameters
+        ----------
+        name : str
+            Name of the field.
+        values : numpy.ndarray
+            Values to copy into the field.
+        """
+        with self.field(name) as field:
+            field[...] = np.asarray(values).reshape(field.shape)
 
 
 @PETSc.Log.EventDecorator()
 def _pic_swarm_in_mesh(
-    parent_mesh,
-    coords,
-    fields=None,
-    tolerance=None,
-    redundant=True,
-    exclude_halos=True,
-):
-    """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
+    parent_mesh: MeshGeometry,
+    coords: np.ndarray,
+    fields: Sequence[tuple] | None = None,
+    tolerance: float | None = None,
+    redundant: bool = True,
+    exclude_halos: bool = True,
+) -> tuple[FiredrakeDMSwarm, FiredrakeDMSwarm, int]:
+    """Create a particle-in-cell DMSwarm immersed in a mesh.
 
-    :arg parent_mesh: the :class:`Mesh` within with the DMSwarm should be
-        immersed.
-    :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
-    :kwarg fields: An optional list of named data which can be stored for each
-        point in the DMSwarm. The format should be::
+    Parameters
+    ----------
+    parent_mesh : MeshGeometry
+        The mesh in which to immerse the points.
+    coords : numpy.ndarray
+        Point coordinates with shape ``(npoints, gdim)``.
+    fields : sequence of tuple, optional
+        Additional ``(name, block_size, dtype)`` fields to register on the
+        distributed swarm.
+    tolerance : float, optional
+        Reference-cell tolerance used when locating points.
+    redundant : bool
+        If true, use only the coordinates supplied on MPI rank zero.
+    exclude_halos : bool
+        If true, exclude points in halo cells.
 
-        [(fieldname1, blocksize1, dtype1),
-          ...,
-         (fieldnameN, blocksizeN, dtypeN)]
+    Returns
+    -------
+    FiredrakeDMSwarm
+        The swarm distributed according to the parent mesh.
+    FiredrakeDMSwarm
+        A swarm preserving the input rank and point ordering, including
+        points not found in the parent mesh.
+    int
+        Number of input points not found in the parent mesh on this rank.
 
-        For example, the swarm coordinates themselves are stored in a field
-        named ``DMSwarmPIC_coor`` which, were it not created automatically,
-        would be initialised with ``fields = [("DMSwarmPIC_coor", coordsdim,
-        RealType)]``. All fields must have the same number of points. For more
-        information see `the DMSWARM API reference
-        <https://petsc.org/release/manualpages/DMSwarm/DMSWARM/>_.
-    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
-        cell) for the distance a point can be from a cell and still be
-        considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
-        will scale with the dimension of the mesh. The default is the parent
-        mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's rtree to be rebuilt which can take some
-        time.
-    :kwarg redundant: If True, the DMSwarm will be created using only the
-        points specified on MPI rank 0.
-    :kwarg exclude_halos: If True, the DMSwarm will not contain any points in
-        the mesh halos. If False, it will but the global index of the points
-        in the halos will match a global index of a point which is not in the
-        halo.
-    :returns: (swarm, input_ordering_swarm, n_missing_points)
-        - swarm: the immersed DMSwarm
-        - input_ordering_swarm: a DMSwarm with points in the same order and with the
-            same rank decomposition as the supplied ``coords`` argument. This
-            includes any points which are not found in the parent mesh! Note
-            that if ``redundant=True``, all points in the generated DMSwarm
-            will be found on rank 0 since that was where they were taken from.
-        - n_missing_points: the number of points in the supplied ``coords``
-            argument which were not found in the parent mesh.
-
-    .. note::
-
-        The created DMSwarm uses the communicator of the input Mesh.
-
-    .. note::
-
-        In complex mode the "DMSwarmPIC_coor" field is still saved as a real
-        number unlike the coordinates of a DMPlex which become complex (though
-        usually with zeroed imaginary parts).
-
-    .. note::
-        When running in parallel with ``redundant = False``, ``coords``
-        will redistribute to the mesh partition where they are located. This
-        means that if rank A has ``coords`` {X} that are not found in the
-        mesh cells owned by rank A but are found in the mesh cells owned by
-        rank B, **and rank B has not been supplied with those**, then they will
-        be moved to rank B.
-
-    .. note::
-        If the same coordinates are supplied more than once, they are always
-        assumed to be a new vertex.
-
-    .. note::
-        Three DMSwarm fields are created automatically here:
-
-        #. ``parentcellnum`` which contains the firedrake cell number of the
-           immersed vertex and
-        #. ``refcoord`` which contains the reference coordinate of the immersed
-           vertex in the parent mesh cell.
-        #. ``globalindex`` which contains a unique ID for each DMSwarm point -
-           here this is the index into the ``coords`` array if ``redundant`` is
-           ``True``, otherwise it's an index in rank order, so if rank 0 has 10
-           points, rank 1 has 20 points, and rank 3 has 5 points, then rank 0's
-           points will be numbered 0-9, rank 1's points will be numbered 10-29,
-           and rank 3's points will be numbered 30-34. Note that this ought to
-           be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
-           cannot be set.
-        #. ``inputrank`` which contains the MPI rank at which the ``coords``
-           argument was specified. For ``redundant=True`` this is always 0.
-        #. ``inputindex`` which contains the index of the point in the
-           originally supplied ``coords`` array after it has been redistributed
-           to the correct rank. For ``redundant=True`` this is always the same
-           as ``globalindex`` since we only use the points on rank 0.
-
-        If the parent mesh is extruded, two more fields are created:
-
-        #. ``parentcellbasenum`` which contains the firedrake cell number of the
-            base cell of the immersed vertex and
-        #. ``parentcellextrusionheight`` which contains the extrusion height of
-            the immersed vertex in the parent mesh cell.
-
-        Another two are required for proper functioning of the DMSwarm:
-
-        #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
-        #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
-
-    .. note::
-        All PIC DMSwarm have an associated "Cell DM", if one wishes to interact
-        directly with PETSc's DMSwarm API. For the ``swarm`` output, this is
-        the parent mesh's topology DM (in most cases a DMPlex). For the
-        ``input_ordering_swarm`` output, this is the ``swarm`` itself.
-
+    Notes
+    -----
+    The input-ordering swarm uses the distributed swarm's PETSc DM as its
+    CellDM. Its cell IDs are therefore local indices into the distributed
+    swarm rather than parent-mesh cell numbers.
     """
 
     if tolerance is None:
         tolerance = parent_mesh.tolerance
     else:
         parent_mesh.tolerance = tolerance
+
+    if parent_mesh.extruded and parent_mesh.variable_layers:
+        raise NotImplementedError(
+            "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
+        )
 
     coords = np.asarray(coords, dtype=RealType)
     if redundant and parent_mesh.comm.rank != 0:
@@ -4226,61 +4220,53 @@ def _pic_swarm_in_mesh(
 
     nroots = len(winner_cells)
     missing_roots = winner_ranks == -1
-    n_missing_points = np.count_nonzero(missing_roots)
-    input_owner_ranks = winner_ranks.copy()
-    input_owner_ranks[missing_roots] = parent_mesh.comm.size + 1
+    n_missing_points = int(np.count_nonzero(missing_roots))
+    input_owner_ranks = np.where(
+        missing_roots, parent_mesh.comm.size + 1, winner_ranks
+    )
 
     start_idx = parent_mesh.comm.exscan(nroots) or 0
     global_idxs = start_idx + np.arange(nroots, dtype=IntType)
-    global_idxs_buffer = embedded_sf.broadcast(global_idxs)
-    global_idxs_leaves = global_idxs_buffer[embedded_sf.leaf_indices]
+    global_idxs_leaves = embedded_sf.broadcast(global_idxs)[embedded_sf.leaf_indices]
 
     owned_indices = np.flatnonzero(owner_ranks == parent_mesh.comm.rank)
     halo_indices = np.flatnonzero(owner_ranks != parent_mesh.comm.rank)
     n_owned = len(owned_indices)
-    n_halo = len(halo_indices)
-    all_indices = np.concatenate([owned_indices, halo_indices])
-
-    swarm_parent_cell_nums = parent_cell_nums[all_indices]
-    swarm_reference_coords = reference_coords[all_indices]
-    swarm_global_idxs = global_idxs_leaves[all_indices]
-    swarm_owner_ranks = owner_ranks[all_indices]
-    swarm_input_ranks = embedded_sf.input_ranks[all_indices].astype(IntType)
-    swarm_input_idxs = embedded_sf.input_indices[all_indices].astype(IntType)
-    swarm_physical_coords = physical_coords[all_indices]
-
+    swarm_indices = np.concatenate([owned_indices, halo_indices])
+    swarm_parent_cells = parent_cell_nums[swarm_indices]
     if parent_mesh.extruded:
-        if parent_mesh.variable_layers:
-            raise NotImplementedError(
-                "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
-            )
         swarm_base_cells, swarm_extrusion_heights = _parent_extrusion_numbering(
-            swarm_parent_cell_nums, parent_mesh.layers
+            swarm_parent_cells, parent_mesh.layers
         )
-        plex_swarm_parent_cell_nums = parent_mesh.topology.cell_closure[swarm_base_cells, -1]
+        cell_numbers = swarm_base_cells
     else:
-        plex_swarm_parent_cell_nums = parent_mesh.topology.cell_closure[swarm_parent_cell_nums, -1]
-        swarm_base_cells = None
-        swarm_extrusion_heights = None
+        cell_numbers = swarm_parent_cells
+    cell_ids = parent_mesh.topology.cell_closure[cell_numbers, -1]
 
-    swarm = _dmswarm_create(
-        fields,
-        parent_mesh.comm,
+    swarm = FiredrakeDMSwarm.create(
         parent_mesh.topology.topology_dm,
-        swarm_physical_coords,
-        plex_swarm_parent_cell_nums,
-        swarm_global_idxs,
-        swarm_reference_coords,
-        swarm_parent_cell_nums,
-        swarm_owner_ranks,
-        swarm_input_ranks,
-        swarm_input_idxs,
-        swarm_base_cells,
-        swarm_extrusion_heights,
-        parent_mesh.extruded,
         parent_mesh.topological_dimension,
         parent_mesh.geometric_dimension,
+        parent_mesh.extruded,
+        extra_fields=() if fields is None else fields,
     )
+    swarm.dm.setLocalSizes(len(swarm_indices), -1)
+    cell_id_name = swarm.dm.getCellDMActive().getCellID()
+    swarm.set_field("DMSwarmPIC_coor", physical_coords[swarm_indices])
+    swarm.set_field(cell_id_name, cell_ids)
+    swarm.set_field("parentcellnum", swarm_parent_cells)
+    swarm.set_field("refcoord", reference_coords[swarm_indices])
+    swarm.set_field("globalindex", global_idxs_leaves[swarm_indices])
+    swarm.set_field("DMSwarm_rank", owner_ranks[swarm_indices])
+    swarm.set_field(
+        "inputrank", embedded_sf.input_ranks[swarm_indices].astype(IntType)
+    )
+    swarm.set_field(
+        "inputindex", embedded_sf.input_indices[swarm_indices].astype(IntType)
+    )
+    if parent_mesh.extruded:
+        swarm.set_field("parentcellbasenum", swarm_base_cells)
+        swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
 
     owner_swarm_idx_buf = np.full(embedded_sf.leaf_buffer_size, -1, dtype=IntType)
     owner_swarm_idx_buf[embedded_sf.leaf_indices[owned_indices]] = np.arange(n_owned, dtype=IntType)
@@ -4288,239 +4274,49 @@ def _pic_swarm_in_mesh(
     owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
     embedded_sf.reduce(owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
 
-    owner_swarm_idx_buffer = embedded_sf.broadcast(owner_swarm_idx_roots)
-
-    n_total = n_owned + n_halo
-    sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
-    swarm_remote = np.empty(2 * n_halo, dtype=IntType)
-    swarm_remote[0::2] = owner_ranks[halo_indices]
-    swarm_remote[1::2] = owner_swarm_idx_buffer[embedded_sf.leaf_indices[halo_indices]]
-    swarm_point_sf = swarm.getPointSF()
-    swarm_point_sf.setGraph(n_total, sf_halo_local, swarm_remote)
-    swarm.setPointSF(swarm_point_sf)
-
-    if parent_mesh.extruded:
-        original_ordering_base_cells, original_ordering_extrusion_heights = _parent_extrusion_numbering(
-            winner_cells, parent_mesh.layers
-        )
-    else:
-        original_ordering_base_cells = None
-        original_ordering_extrusion_heights = None
-
-    original_ordering_swarm = _dmswarm_create(
-        [],
-        parent_mesh.comm,
-        swarm,
-        root_coords,
-        owner_swarm_idx_roots.astype(IntType),
-        global_idxs,
-        winner_ref_coords,
-        winner_cells,
-        input_owner_ranks,
-        np.full(nroots, parent_mesh.comm.rank, dtype=IntType),  # input rank
-        np.arange(nroots, dtype=IntType),  # input index
-        original_ordering_base_cells,
-        original_ordering_extrusion_heights,
-        parent_mesh.extruded,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
+    owner_swarm_idxs = embedded_sf.broadcast(owner_swarm_idx_roots)[
+        embedded_sf.leaf_indices
+    ]
+    swarm.set_halo_sf(
+        n_owned,
+        owner_ranks[halo_indices],
+        owner_swarm_idxs[halo_indices],
     )
 
-    # No halos in original_ordering_swarm: each point is unique to its input rank
-    original_ordering_point_sf = original_ordering_swarm.getPointSF()
-    original_ordering_point_sf.setGraph(nroots, None, [])
-    original_ordering_swarm.setPointSF(original_ordering_point_sf)
+    original_ordering_swarm = FiredrakeDMSwarm.create(
+        swarm.dm,
+        parent_mesh.topological_dimension,
+        parent_mesh.geometric_dimension,
+        parent_mesh.extruded,
+    )
+    original_ordering_swarm.dm.setLocalSizes(nroots, -1)
+    cell_id_name = original_ordering_swarm.dm.getCellDMActive().getCellID()
+    original_ordering_swarm.set_field("DMSwarmPIC_coor", root_coords)
+    original_ordering_swarm.set_field(
+        cell_id_name, owner_swarm_idx_roots.astype(IntType)
+    )
+    original_ordering_swarm.set_field("parentcellnum", winner_cells)
+    original_ordering_swarm.set_field("refcoord", winner_ref_coords)
+    original_ordering_swarm.set_field("globalindex", global_idxs)
+    original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
+    original_ordering_swarm.set_field(
+        "inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType)
+    )
+    original_ordering_swarm.set_field(
+        "inputindex", np.arange(nroots, dtype=IntType)
+    )
+    if parent_mesh.extruded:
+        base_cells, extrusion_heights = _parent_extrusion_numbering(
+            winner_cells, parent_mesh.layers
+        )
+        original_ordering_swarm.set_field("parentcellbasenum", base_cells)
+        original_ordering_swarm.set_field(
+            "parentcellextrusionheight", extrusion_heights
+        )
+    empty = np.empty(0, dtype=IntType)
+    original_ordering_swarm.set_halo_sf(nroots, empty, empty)
 
     return swarm, original_ordering_swarm, n_missing_points
-
-
-@PETSc.Log.EventDecorator()
-def _dmswarm_create(
-    fields,
-    comm,
-    plex,
-    coords,
-    plex_parent_cell_nums,
-    coords_idxs,
-    reference_coords,
-    parent_cell_nums,
-    ranks,
-    input_ranks,
-    input_coords_idxs,
-    base_parent_cell_nums,
-    extrusion_heights,
-    extruded,
-    tdim,
-    gdim,
-):
-
-    """
-    Create a PIC DMSwarm (or DMSwarm that looks like it's a PIC DMSwarm) using
-    the given data.
-
-    Parameters
-    ----------
-
-    fields : list of tuples
-        List of tuples of the form (name, number of components, type) for any
-        additional fields to be added to the DMSwarm. The default fields are
-        automatically added and do not need to be specified here. Can be an
-        empty list if no additional fields are required.
-    comm : MPI communicator
-        The MPI communicator to use when creating the DMSwarm.
-    plex : PETSc DM
-        The DM to set as the "CellDM" of the DMSwarm - i.e. the DMPlex or
-        DMSwarm of the parent mesh.
-    coords : numpy array of RealType with shape (npoints, gdim)
-        The coordinates of the particles in the DMSwarm.
-    plex_parent_cell_nums : numpy array of IntType with shape (npoints,)
-        Array to be used as the "parentcellnum" field of the DMSwarm.
-    coords_idxs : numpy array of IntType with shape (npoints,)
-        Array to be used as the "globalindex" field of the DMSwarm.
-    reference_coords : numpy array of RealType with shape (npoints, tdim)
-        Array to be used as the "refcoord" field of the DMSwarm.
-    parent_cell_nums : numpy array of IntType with shape (npoints,)
-        Array to be used as the "parentcellnum" field of the DMSwarm.
-    ranks : numpy array of IntType with shape (npoints,)
-        Array to be used as the "DMSwarm_rank" field of the DMSwarm.
-    input_ranks : numpy array of IntType with shape (npoints,)
-        Array to be used as the "inputrank" field of the DMSwarm.
-    input_coords_idxs : numpy array of IntType with shape (npoints,)
-        Array to be used as the "inputindex" field of the DMSwarm.
-    base_parent_cell_nums : numpy array of IntType with shape (npoints,) (or None)
-        Optional array to be used as the "parentcellbasenum" field of the
-        DMSwarm. Must be provided if extruded=True.
-    extrusion_heights : numpy array of IntType with shape (npoints,) (or None)
-        Optional array to be used as the "parentcellextrusionheight" field of
-        the DMSwarm. Must be provided if extruded=True.
-    extruded : bool
-        Whether the parent mesh is extruded.
-    tdim : int
-        The topological dimension of the parent mesh.
-    gdim : int
-        The geometric dimension of the parent mesh.
-
-    Returns
-    -------
-    swarm : PETSc DMSwarm
-        The created DMSwarm.
-
-    Notes
-    -----
-    When the `plex` is a DMSwarm, the created DMSwarm isn't actually a PIC
-    DMSwarm, but it has all the associated fields of a PIC DMSwarm. This is
-    because PIC DMSwarms cannot have their "CellDM" set to a DMSwarm, so we
-    fake it!
-    """
-
-    # These are created by default for a PIC DMSwarm
-    default_fields = [
-        ("DMSwarmPIC_coor", gdim, RealType),
-        ("DMSwarm_rank", 1, IntType),
-    ]
-
-    default_extra_fields = [
-        ("parentcellnum", 1, IntType),
-        ("refcoord", tdim, RealType),
-        ("globalindex", 1, IntType),
-        ("inputrank", 1, IntType),
-        ("inputindex", 1, IntType),
-    ]
-
-    if extruded:
-        default_extra_fields += [
-            ("parentcellbasenum", 1, IntType),
-            ("parentcellextrusionheight", 1, IntType),
-        ]
-
-    other_fields = fields
-    if other_fields is None:
-        other_fields = []
-
-    _, coordsdim = coords.shape
-
-    # Create a DMSWARM
-    swarm = FiredrakeDMSwarm().create(comm=comm)
-
-    # save the fields on the swarm
-    swarm.fields = default_fields + default_extra_fields + other_fields
-    swarm.default_fields = default_fields
-    swarm.default_extra_fields = default_extra_fields
-    swarm.other_fields = other_fields
-
-    plexdim = plex.getDimension()
-    if plexdim != tdim or plexdim != gdim:
-        # This is a Firedrake extruded or immersed mesh, so we need to use the
-        # mesh geometric dimension when we create the swarm. In this
-        # case DMSwarmMigate() will not work.
-        swarmdim = gdim
-    else:
-        swarmdim = plexdim
-
-    # Set swarm DM dimension to match DMPlex dimension
-    # NB: Unlike a DMPlex, this does not correspond to the topological
-    #     dimension of a mesh (which would be 0). In all PETSc examples
-    #     the dimension of the DMSwarm is set to match that of the
-    #     DMPlex used with swarm.setCellDM. As noted above, for an
-    #     extruded mesh this will stop DMSwarmMigrate() from working.
-    swarm.setDimension(swarmdim)
-
-    # Set coordinates dimension
-    swarm.setCoordinateDim(coordsdim)
-
-    # Link to DMPlex cells information for when swarm.migrate() is used
-    swarm.setCellDM(plex)
-
-    # Set to Particle In Cell (PIC) type
-    if not isinstance(plex, PETSc.DMSwarm):
-        swarm.setType(PETSc.DMSwarm.Type.PIC)
-
-    # Register any fields
-    for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
-        swarm.registerField(name, size, dtype=dtype)
-    swarm.finalizeFieldRegister()
-    # Note that no new fields can now be associated with the DMSWARM.
-
-    num_vertices = len(coords)
-    swarm.setLocalSizes(num_vertices, -1)
-
-    # Add point coordinates. This amounts to our own implementation of
-    # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
-    # doesn't always exactly coincide with that of DMPlex: in most cases the
-    # plex_parent_cell_nums and parent_cell_nums (parentcellnum field), the
-    # latter being the numbering used by firedrake, refer fundamentally to the
-    # same cells. For extruded meshes the DMPlex dimension is based on the
-    # topological dimension of the base mesh.
-
-    cell_id_name = swarm.getCellDMActive().getCellID()
-    with (
-        swarm.field("DMSwarmPIC_coor") as swarm_coords,
-        swarm.field(cell_id_name) as swarm_parent_cell_nums,
-        swarm.field("parentcellnum") as field_parent_cell_nums,
-        swarm.field("refcoord") as field_reference_coords,
-        swarm.field("globalindex") as field_global_index,
-        swarm.field("DMSwarm_rank") as field_rank,
-        swarm.field("inputrank") as field_input_rank,
-        swarm.field("inputindex") as field_input_index,
-    ):
-        swarm_coords[...] = coords
-        swarm_parent_cell_nums[:, 0] = plex_parent_cell_nums
-        field_parent_cell_nums[:, 0] = parent_cell_nums
-        field_reference_coords[...] = reference_coords
-        field_global_index[:, 0] = coords_idxs
-        field_rank[:, 0] = ranks
-        field_input_rank[:, 0] = input_ranks
-        field_input_index[:, 0] = input_coords_idxs
-
-    if extruded:
-        with (
-            swarm.field("parentcellbasenum") as field_base_parent_cell_nums,
-            swarm.field("parentcellextrusionheight") as field_extrusion_heights,
-        ):
-            field_base_parent_cell_nums[:, 0] = base_parent_cell_nums
-            field_extrusion_heights[:, 0] = extrusion_heights
-
-    return swarm
 
 
 def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
