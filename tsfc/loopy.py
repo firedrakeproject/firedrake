@@ -126,6 +126,7 @@ class LoopyContext(object):
         self.tabulated = (None, ())  # axes and inames of the preceding tabulation
         self.index_parents = {}  # iname -> parent inames bounding a jagged index
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
+        self.compact_indices = {}  # temporary -> compact index layout
         self.name_gen = UniqueNameGenerator()
         self.target = target
         self.loop_priorities = set()  # used to avoid disadvantageous loop interchanges
@@ -175,6 +176,13 @@ class LoopyContext(object):
     # Generate pym variable or subscript
     def pymbolic_variable(self, node):
         pym = self._gem_to_pym_var(node)
+        if node in self.compact_indices:
+            indices = tuple(
+                gem.simplex_lattice_rank(item, self.active_indices)
+                if isinstance(item, tuple)
+                else self.active_indices[item]
+                for item in self.compact_indices[node])
+            return p.Subscript(pym, indices) if indices else pym
         if node in self.indices:
             indices = self.fetch_multiindex(self.indices[node])
             if indices:
@@ -241,8 +249,11 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
         if isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
-            shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
+            shape, layout = gem.compact_index_layout(
+                tuple(ctx.indices[temp]))
+            shape += temp.shape
             data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            ctx.compact_indices[temp] = layout
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
