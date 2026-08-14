@@ -2,6 +2,7 @@ import numpy
 import pytest
 
 import gem
+import gem.coffee
 import tsfc.spectral
 from gem.gem import one
 from gem.refactorise import MonomialSum
@@ -175,7 +176,7 @@ def test_vector_laplace_action(cell, order):
 
 def test_shared_physically_mapped_tabulation(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Check that a mapped tabulation is shared by both argument axes.
+    """Share a mapped tabulation between both argument axes.
 
     Parameters
     ----------
@@ -191,8 +192,8 @@ def test_shared_physically_mapped_tabulation(
 
     optimized, = compile_form(form, parameters={"mode": "spectral"})
     monkeypatch.setattr(
-        tsfc.spectral, "hoist_linear_index",
-        lambda expression, indices: expression)
+        gem.coffee, "_share_linear_maps",
+        lambda monomial_sum, indices: monomial_sum)
     baseline, = compile_form(form, parameters={"mode": "spectral"})
 
     optimized_shapes = [

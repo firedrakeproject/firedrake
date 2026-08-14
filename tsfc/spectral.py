@@ -9,8 +9,7 @@ from gem.node import Memoizer, MemoizerArg, traversal
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import (
-    estimate_cost, hoist_linear_index, replace_division,
-    unroll_indexsum,
+    estimate_cost, replace_division, unroll_indexsum,
 )
 from gem.refactorise import (ATOMIC, COMPOUND, OTHER, MonomialSum,
                              collect_factorisation_plans)
@@ -280,8 +279,6 @@ def flatten(var_reps, index_cache):
             sum_indices, monomial_sum)
         # Apply sum factorisation combined with COFFEE technology
         expression = sum_factorise(variable, sum_indices, monomial_sum)
-        expression = hoist_linear_index(
-            expression, variable.free_indices)
         yield (variable, expression)
 
 
