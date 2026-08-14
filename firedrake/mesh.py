@@ -3844,27 +3844,24 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         tolerance = mesh.tolerance
     else:
         mesh.tolerance = tolerance
+
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
+
     if reorder is None:
         reorder = parameters["reorder_meshes"]
+
     gdim = mesh.geometric_dimension
     _, pdim = vertexcoords.shape
+
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    # Currently we take responsibility for locating the mesh cells in which the
-    # vertices lie.
-    #
-    # In the future we hope to update the coordinates field correctly so that
-    # the DMSwarm PIC can immerse itself in the DMPlex. We can also hopefully
-    # provide a callback for PETSc to use to find the parent cell id. We would
-    # add `DMLocatePoints` as an `op` to `DMShell` types and do
-    # `DMSwarmSetCellDM(yourdmshell)` which has `DMLocatePoints_Shell`
-    # implemented. Whether one or both of these is needed is unclear.
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
+
     swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
+
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
         n_missing_points_global = mesh.comm.allreduce(n_missing_points, op=MPI.SUM)
@@ -3877,9 +3874,11 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
                 warn(str(error))
             else:
                 raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
+
     name = name if name is not None else mesh.name + "_immersed_vom"
     swarm.dm.setName(_generate_default_mesh_topology_name(name))
     input_ordering_swarm.dm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
+
     topology = VertexOnlyMeshTopology(
         swarm,
         mesh.topology,
@@ -4094,7 +4093,7 @@ class FiredrakeDMSwarm:
         owner_ranks : numpy.ndarray
             Owning MPI rank for each halo point.
         owner_indices : numpy.ndarray
-            Local swarm index on the owning rank for each halo point.
+            Local index on the owning rank for each halo point.
         """
         npoints = self.dm.getLocalSize()
         local = np.arange(n_owned, npoints, dtype=IntType)
@@ -4196,11 +4195,9 @@ def _pic_swarm_in_mesh(
             "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
         )
 
-    coords = np.asarray(coords, dtype=RealType)
+    # in the redundant=True case we discard all the points not on rank zero
     if redundant and parent_mesh.comm.rank != 0:
-        root_coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
-    else:
-        root_coords = coords
+        coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
 
     (
         embedded_sf,
@@ -4213,7 +4210,7 @@ def _pic_swarm_in_mesh(
         physical_coords,
     ) = _parent_mesh_embedding(
         parent_mesh,
-        root_coords,
+        coords,
         tolerance,
         exclude_halos=exclude_halos,
     )
@@ -4277,6 +4274,7 @@ def _pic_swarm_in_mesh(
         owner_swarm_idxs[halo_indices],
     )
 
+    # Now we create the corresponding input-ordering swarm.
     original_ordering_swarm = FiredrakeDMSwarm.create(
         swarm.dm,
         parent_mesh.topological_dimension,
@@ -4285,7 +4283,7 @@ def _pic_swarm_in_mesh(
     )
     original_ordering_swarm.dm.setLocalSizes(nroots, -1)
     cell_id_name = original_ordering_swarm.dm.getCellDMActive().getCellID()
-    original_ordering_swarm.set_field("DMSwarmPIC_coor", root_coords)
+    original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
     original_ordering_swarm.set_field(cell_id_name, owner_swarm_idx_roots.astype(IntType))
     original_ordering_swarm.set_field("parentcellnum", winner_cells)
     original_ordering_swarm.set_field("refcoord", winner_ref_coords)
@@ -4297,6 +4295,8 @@ def _pic_swarm_in_mesh(
         base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
         original_ordering_swarm.set_field("parentcellbasenum", base_cells)
         original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
+
+    # no halos in input-ordering swarm
     empty = np.empty(0, dtype=IntType)
     original_ordering_swarm.set_halo_sf(nroots, empty, empty)
 
