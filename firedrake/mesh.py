@@ -4258,12 +4258,8 @@ def _pic_swarm_in_mesh(
     swarm.set_field("refcoord", reference_coords[swarm_indices])
     swarm.set_field("globalindex", global_idxs_leaves[swarm_indices])
     swarm.set_field("DMSwarm_rank", owner_ranks[swarm_indices])
-    swarm.set_field(
-        "inputrank", embedded_sf.input_ranks[swarm_indices].astype(IntType)
-    )
-    swarm.set_field(
-        "inputindex", embedded_sf.input_indices[swarm_indices].astype(IntType)
-    )
+    swarm.set_field("inputrank", embedded_sf.input_ranks[swarm_indices].astype(IntType))
+    swarm.set_field("inputindex", embedded_sf.input_indices[swarm_indices].astype(IntType))
     if parent_mesh.extruded:
         swarm.set_field("parentcellbasenum", swarm_base_cells)
         swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
@@ -4274,9 +4270,7 @@ def _pic_swarm_in_mesh(
     owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
     embedded_sf.reduce(owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
 
-    owner_swarm_idxs = embedded_sf.broadcast(owner_swarm_idx_roots)[
-        embedded_sf.leaf_indices
-    ]
+    owner_swarm_idxs = embedded_sf.broadcast(owner_swarm_idx_roots)[embedded_sf.leaf_indices]
     swarm.set_halo_sf(
         n_owned,
         owner_ranks[halo_indices],
@@ -4292,27 +4286,17 @@ def _pic_swarm_in_mesh(
     original_ordering_swarm.dm.setLocalSizes(nroots, -1)
     cell_id_name = original_ordering_swarm.dm.getCellDMActive().getCellID()
     original_ordering_swarm.set_field("DMSwarmPIC_coor", root_coords)
-    original_ordering_swarm.set_field(
-        cell_id_name, owner_swarm_idx_roots.astype(IntType)
-    )
+    original_ordering_swarm.set_field(cell_id_name, owner_swarm_idx_roots.astype(IntType))
     original_ordering_swarm.set_field("parentcellnum", winner_cells)
     original_ordering_swarm.set_field("refcoord", winner_ref_coords)
     original_ordering_swarm.set_field("globalindex", global_idxs)
     original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
-    original_ordering_swarm.set_field(
-        "inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType)
-    )
-    original_ordering_swarm.set_field(
-        "inputindex", np.arange(nroots, dtype=IntType)
-    )
+    original_ordering_swarm.set_field("inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType))
+    original_ordering_swarm.set_field("inputindex", np.arange(nroots, dtype=IntType))
     if parent_mesh.extruded:
-        base_cells, extrusion_heights = _parent_extrusion_numbering(
-            winner_cells, parent_mesh.layers
-        )
+        base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
         original_ordering_swarm.set_field("parentcellbasenum", base_cells)
-        original_ordering_swarm.set_field(
-            "parentcellextrusionheight", extrusion_heights
-        )
+        original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
     empty = np.empty(0, dtype=IntType)
     original_ordering_swarm.set_halo_sf(nroots, empty, empty)
 
