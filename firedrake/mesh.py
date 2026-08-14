@@ -3936,18 +3936,22 @@ class VertexOnlyMeshSF:
         return cls(sf)
 
     @contextmanager
-    def _mpi_unit(self, root_values: np.ndarray):
-        dtype = root_values.dtype
-        base_type = MPI._typedict[dtype.char]
-        unit_size = np.prod(root_values.shape[1:])
+    def _mpi_unit(self, values: np.ndarray):
+        item_count = np.prod(values.shape[1:])
 
-        if unit_size == 1:
+        try:
+            base_type = MPI._typedict[values.dtype.char]
+        except KeyError:
+            base_type = MPI.BYTE
+            item_count *= values.dtype.itemsize
+
+        if item_count == 1:
             # No need to create contiguous unit
             # freeing is handled automatically
             yield base_type
             return
 
-        unit = base_type.Create_contiguous(unit_size)
+        unit = base_type.Create_contiguous(item_count)
         unit.Commit()
         try:
             yield unit
