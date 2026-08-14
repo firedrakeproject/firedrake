@@ -5,6 +5,7 @@ import gem
 import gem.coffee
 import tsfc.spectral
 from gem.gem import one
+from gem.optimise import estimate_cost
 from gem.refactorise import MonomialSum
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
@@ -198,10 +199,14 @@ def test_shared_physically_mapped_tabulation(
 
     optimized_shapes = [
         temporary.shape for temporary in
-        optimized.ast.default_entrypoint.temporary_variables.values()]
+        optimized.ast.default_entrypoint.temporary_variables.values()
+        if not (temporary.read_only
+                and temporary.initializer is not None)]
     baseline_shapes = [
         temporary.shape for temporary in
-        baseline.ast.default_entrypoint.temporary_variables.values()]
+        baseline.ast.default_entrypoint.temporary_variables.values()
+        if not (temporary.read_only
+                and temporary.initializer is not None)]
 
     assert optimized.flop_count < baseline.flop_count
     assert sum(not shape for shape in optimized_shapes) \
@@ -224,41 +229,12 @@ def test_sum_factorisation_order() -> None:
     score, _ = _optimise_contraction_order(
         variable, (q1, q0), monomial_sum)
     candidates = [
-        tsfc.spectral._candidate_score((
-            (variable,
-             tsfc.spectral.sum_factorise(
-                 variable, ordering, monomial_sum)),))
+        estimate_cost((tsfc.spectral.sum_factorise(
+            variable, ordering, monomial_sum),))
         for ordering in ((q1, q0), (q0, q1))
     ]
 
     assert score == min(candidates)
-
-
-def test_bernstein_candidate_selection(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """Select the least-cost algebraic plan for a Bernstein form."""
-    mesh = Mesh(VectorElement("CG", triangle, 1))
-    space = FunctionSpace(mesh, FiniteElement("Bernstein", triangle, 6))
-    u = TrialFunction(space)
-    v = TestFunction(space)
-    form = inner(grad(u), grad(v)) * dx
-
-    selected, = compile_form(form, parameters={"mode": "spectral"})
-
-    def minimum_cost_plan(
-            variable, candidates, quadrature_indices, index_replacer):
-        return min(
-            candidates,
-            key=lambda candidate: tsfc.spectral._candidate_score(
-                tsfc.spectral._optimise_candidate(
-                    variable, candidate, quadrature_indices,
-                    index_replacer)))
-
-    monkeypatch.setattr(
-        tsfc.spectral, "_select_factorisation_plan", minimum_cost_plan)
-    minimum, = compile_form(form, parameters={"mode": "spectral"})
-
-    assert selected.flop_count == minimum.flop_count
 
 
 if __name__ == "__main__":

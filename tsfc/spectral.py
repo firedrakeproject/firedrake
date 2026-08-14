@@ -1,3 +1,14 @@
+"""Apply structure-preserving optimization to finite element integrals.
+
+The order of transformations is part of the algorithm.  Argument
+factorization first identifies finite element linear maps without expanding
+their basis transformations.  Delta cancellation then exposes the legal
+contractions.  Sum factorization places quadrature reductions, and COFFEE
+eliminates scalar sharing at every reduction level.  In this form,
+sum-factorization is generalized code motion on a spectral loop nest rather
+than a separate algebraic optimization pipeline.
+"""
+
 from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
 from itertools import chain, permutations, zip_longest
@@ -11,7 +22,7 @@ from gem.optimise import (
     estimate_cost, replace_division, unroll_indexsum,
 )
 from gem.refactorise import (ATOMIC, COMPOUND, OTHER, MonomialSum,
-                             collect_factorisation_plans)
+                             collect_monomials)
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
@@ -56,31 +67,6 @@ def _delta_inside(node, self):
                for child in node.children)
 
 
-def _factorisation_candidates(
-        expression, argument_indices,
-        delta_inside) -> tuple[MonomialSum, ...]:
-    """Build expanded and map-preserving factorisation plans.
-
-    Parameters
-    ----------
-    expression : Node
-        Multilinear integrand to factorize.
-    argument_indices : set of Index
-        Free argument indices.
-    delta_inside : callable
-        Memoized predicate detecting delta nodes.
-
-    Returns
-    -------
-    tuple of MonomialSum
-        Distinct contraction plans.
-    """
-    classifier = partial(
-        classify, argument_indices, delta_inside=delta_inside)
-    return collect_factorisation_plans(
-        expression, classifier, argument_indices)
-
-
 def _optimise_contraction_order(
         variable: Node, indices, monomial_sum: MonomialSum
 ) -> tuple[tuple[int, ...], Node]:
@@ -119,93 +105,6 @@ def _optimise_contraction_order(
          for expression in plans),
         key=lambda plan: plan[0],
     )
-
-
-def _optimise_candidate(
-        variable, monomial_sum, quadrature_indices,
-        index_replacer) -> tuple[tuple, ...]:
-    """Apply delta elimination and contraction optimization to one plan.
-
-    Parameters
-    ----------
-    variable : Node
-        Assignment variable.
-    monomial_sum : MonomialSum
-        Candidate polynomial representation.
-    quadrature_indices : tuple of Index
-        Preferred quadrature contraction order.
-    index_replacer : MemoizerArg
-        Shared index-substitution mapper.
-
-    Returns
-    -------
-    tuple
-        Optimized assignment pairs for cost evaluation.
-    """
-    narrow_variables = OrderedDict()
-    simplified = defaultdict(MonomialSum)
-    for monomial in monomial_sum:
-        var, indices, atomics, rest = delta_elimination(
-            variable, *monomial, index_replacer)
-        narrow_variables.setdefault(var)
-        simplified[var].add(indices, atomics, rest)
-
-    pairs = []
-    for var in narrow_variables:
-        candidate = simplified[var]
-        contracted = set(chain.from_iterable(
-            monomial.sum_indices for monomial in candidate))
-        ordering = tuple(index for index in quadrature_indices
-                         if index in contracted)
-        _, expression = _optimise_contraction_order(
-            var, ordering, candidate)
-        pairs.append((var, expression))
-    return tuple(pairs)
-
-
-def _candidate_score(pairs: tuple[tuple, ...]) -> tuple[int, ...]:
-    """Estimate work and storage in a GEM contraction candidate.
-
-    Parameters
-    ----------
-    pairs
-        Assignment pairs to schedule.
-
-    Returns
-    -------
-    tuple of int
-        Operations, total contraction storage, largest contraction, and
-        expression-node count. Lexicographic ordering prioritizes arithmetic
-        work.
-    """
-    return estimate_cost(expression for _, expression in pairs)
-
-
-def _select_factorisation_plan(
-        variable, candidates, quadrature_indices,
-        index_replacer) -> MonomialSum:
-    """Choose the least-cost admitted factorisation plan.
-
-    Parameters
-    ----------
-    variable : Node
-        Assignment variable.
-    candidates : tuple of MonomialSum
-        Algebraically equivalent factorisation plans.
-    quadrature_indices : tuple of Index
-        Preferred quadrature contraction order.
-    index_replacer : MemoizerArg
-        Shared index-substitution mapper.
-
-    Returns
-    -------
-    MonomialSum
-        Selected factorisation plan.
-    """
-    return min(
-        candidates,
-        key=lambda candidate: _candidate_score(_optimise_candidate(
-            variable, candidate, quadrature_indices, index_replacer)))
 
 
 def flatten(var_reps, index_cache):
@@ -249,12 +148,11 @@ def flatten(var_reps, index_cache):
     for free_indices, pair_group in groupby(pairs, group_key):
         variables, expressions = zip(*pair_group)
         argument_indices = set(free_indices)
-        for variable, expression in zip(variables, expressions):
-            candidate_groups = _factorisation_candidates(
-                expression, argument_indices, delta_inside)
-            monomial_sum = _select_factorisation_plan(
-                variable, candidate_groups, quadrature_indices,
-                index_replacer)
+        classifier = partial(
+            classify, argument_indices, delta_inside=delta_inside)
+        monomial_sums = collect_monomials(
+            expressions, classifier, argument_indices)
+        for variable, monomial_sum in zip(variables, monomial_sums):
             for monomial in monomial_sum:
                 var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
                 narrow_variables.setdefault(var)
