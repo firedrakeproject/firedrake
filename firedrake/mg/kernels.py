@@ -446,7 +446,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      scalar_type=parameters["scalar_type"])
 
     macro_context = fem.PointSetContext(**macro_cfg)
-    fexpr, = fem.compile_ufl(ReferenceValue(f), macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
@@ -514,6 +513,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
+    fexpr, = fem.compile_ufl(ReferenceValue(f), macro_context)
     fexpr = gem.Indexed(fexpr, tensor_indices)
     inner_prod = gem.Product(phi_c, fexpr)
 
