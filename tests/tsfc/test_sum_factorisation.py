@@ -13,7 +13,7 @@ from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
 from tsfc import compile_form
-from tsfc.spectral import _sum_factorisation_order
+from tsfc.spectral import _optimise_contraction_order
 
 
 def helmholtz(cell, degree):
@@ -211,18 +211,27 @@ def test_shared_physically_mapped_tabulation(
 
 
 def test_sum_factorisation_order() -> None:
-    """Contract the quadrature direction with least argument support first."""
+    """Select the least-cost quadrature contraction ordering."""
     i, j, q0, q1 = (gem.Index(extent=4) for _ in range(4))
     inner = gem.Indexed(gem.Variable("inner", (4, 4)), (i, q0))
     outer = gem.Indexed(
         gem.Variable("outer", (4, 4, 4)), (i, j, q1))
+    variable = gem.Indexed(
+        gem.Variable("result", (4, 4)), (i, j))
     monomial_sum = MonomialSum()
     monomial_sum.add((q0, q1), (inner * outer,), one)
 
-    ordering = _sum_factorisation_order(
-        (q1, q0), monomial_sum)
+    score, _ = _optimise_contraction_order(
+        variable, (q1, q0), monomial_sum)
+    candidates = [
+        tsfc.spectral._candidate_score((
+            (variable,
+             tsfc.spectral.sum_factorise(
+                 variable, ordering, monomial_sum)),))
+        for ordering in ((q1, q0), (q0, q1))
+    ]
 
-    assert ordering == (q0, q1)
+    assert score == min(candidates)
 
 
 def test_bernstein_candidate_selection(

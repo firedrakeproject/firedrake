@@ -1,11 +1,10 @@
 from collections import OrderedDict, defaultdict, namedtuple
-from collections.abc import Iterable
 from functools import partial
-from itertools import chain, zip_longest
-import math
+from itertools import chain, permutations, zip_longest
 
-from gem.gem import Conditional, Delta, Index, Indexed, Sum, index_sum, one
-from gem.node import Memoizer, MemoizerArg, traversal
+from gem.gem import (Conditional, Delta, Indexed, Node, Sum,
+                     index_sum, one)
+from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import (
@@ -82,20 +81,15 @@ def _factorisation_candidates(
         expression, classifier, argument_indices)
 
 
-def _sum_factorisation_order(
-        indices: Iterable[Index],
-        monomial_sum: MonomialSum) -> tuple[Index, ...]:
-    """Order quadrature contractions by their retained index support.
-
-    A quadrature direction belongs earlier when its minimal dependency
-    frontier retains fewer non-quadrature indices.  COFFEE can then isolate
-    that contraction before introducing more strongly coupled factors.
-    Ordinary tensor products have equal support sizes. They retain the
-    extent-based stable ordering. Nested factors naturally order themselves
-    from least to most coupled.
+def _optimise_contraction_order(
+        variable: Node, indices, monomial_sum: MonomialSum
+) -> tuple[tuple[int, ...], Node]:
+    """Choose the least-cost quadrature contraction ordering.
 
     Parameters
     ----------
+    variable : Node
+        Assignment variable whose indices identify multilinear axes.
     indices : iterable of Index
         Quadrature indices to contract.
     monomial_sum : MonomialSum
@@ -103,29 +97,28 @@ def _sum_factorisation_order(
 
     Returns
     -------
-    tuple of Index
-        Contraction indices from outermost to innermost stage.
+    score
+        Estimated operations, storage, and expression size.
+    expression
+        Factorized GEM expression for the selected ordering.
+
+    Notes
+    -----
+    The search is exhaustive in the number of quadrature axes. Finite
+    element integration supplies one axis per reference-cell direction, so
+    this space is independent of polynomial degree.
+
     """
     indices = tuple(indices)
-    contraction_indices = frozenset(indices)
-    factors = tuple(
-        factor
-        for monomial in monomial_sum
-        for factor in (*monomial.atomics, monomial.rest))
-    nodes = tuple(traversal(factors))
-
-    def support_size(index: Index) -> int:
-        support = set()
-        for node in nodes:
-            if (index in node.free_indices
-                    and not any(index in child.free_indices
-                                for child in node.children)):
-                support.update(
-                    set(node.free_indices) - contraction_indices)
-        return math.prod(argument.extent for argument in support)
-
-    return tuple(sorted(
-        indices, key=lambda index: (support_size(index), index.extent)))
+    plans = (
+        sum_factorise(variable, ordering, monomial_sum)
+        for ordering in permutations(indices)
+    )
+    return min(
+        ((estimate_cost((expression,)), expression)
+         for expression in plans),
+        key=lambda plan: plan[0],
+    )
 
 
 def _optimise_candidate(
@@ -162,12 +155,11 @@ def _optimise_candidate(
         candidate = simplified[var]
         contracted = set(chain.from_iterable(
             monomial.sum_indices for monomial in candidate))
-        ordering = sorted(
-            (index for index in quadrature_indices
-             if index in contracted),
-            key=lambda index: index.extent)
-        pairs.append((
-            var, sum_factorise(var, ordering, candidate)))
+        ordering = tuple(index for index in quadrature_indices
+                         if index in contracted)
+        _, expression = _optimise_contraction_order(
+            var, ordering, candidate)
+        pairs.append((var, expression))
     return tuple(pairs)
 
 
@@ -275,10 +267,9 @@ def flatten(var_reps, index_cache):
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
         # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        sum_indices = _sum_factorisation_order(
-            sum_indices, monomial_sum)
         # Apply sum factorisation combined with COFFEE technology
-        expression = sum_factorise(variable, sum_indices, monomial_sum)
+        _, expression = _optimise_contraction_order(
+            variable, sum_indices, monomial_sum)
         yield (variable, expression)
 
 
