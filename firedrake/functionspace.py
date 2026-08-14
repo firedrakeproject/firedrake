@@ -17,7 +17,8 @@ import numbers
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
-           "VectorFunctionSpace", "TensorFunctionSpace", "RestrictedFunctionSpace")
+           "VectorFunctionSpace", "TensorFunctionSpace", "RestrictedFunctionSpace",
+           "SubspaceDecomposition")
 
 
 @PETSc.Log.EventDecorator()
@@ -349,4 +350,44 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
     return make_space(impl.RestrictedFunctionSpace(function_space.topological,
                                                    boundary_set=boundary_set,
                                                    name=name),
+                      mesh)
+
+
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
+def SubspaceDecomposition(function_space, label, name=None):
+    """Decompose a function space into one subspace per stratum of a label.
+
+    Parameters
+    ----------
+    function_space : WithGeometry
+        The space to decompose.
+    label : PETSc.DMLabel
+        The label that marks the subspaces. A point takes one copy of its
+        dofs from every stratum that marks it, so a function may jump between
+        strata. An unmarked point takes no dofs, so the space covers only the
+        marked region.
+    name : str
+        An optional name for the function space.
+
+    Returns
+    -------
+    WithGeometry
+        The decomposed space.
+
+    Raises
+    ------
+    TypeError
+        If ``function_space`` is not a primal or dual space.
+
+    Notes
+    -----
+    Mark every point that carries dofs, not the cells alone.
+    ``DMPlexLabelComplete`` extends a cell marking to its closure.
+    """
+    if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
+        raise TypeError(f"Can't decompose a {type(function_space).__name__}")
+
+    make_space = type(function_space)
+    mesh = function_space.mesh()
+    return make_space(impl.SubspaceDecomposition(function_space.topological, label, name=name),
                       mesh)

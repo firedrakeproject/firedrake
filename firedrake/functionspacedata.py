@@ -74,35 +74,55 @@ def get_global_numbering(mesh, key, global_numbering=None):
     This numbering associates function space nodes with topological
     entities.
 
-    :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple where
+    Parameters
+    ----------
+    mesh :
+        The mesh to use.
+    key :
+        a (nodes_per_entity, real_tensorproduct, boundary_set, layout) tuple where
         nodes_per_entity is a tuple of the number of nodes per topological
         entity; real_tensorproduct is True if the function space is a
         degenerate fs x Real tensorproduct; boundary_set is a set of boundary
-        markers, indicating sub-domains a boundary condition is specified on.
-    :returns: A new PETSc Section.
+        markers, indicating sub-domains a boundary condition is specified on;
+        layout is a :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
+
+    Returns
+    -------
+        A new PETSc Section.
     """
     if global_numbering:
         return global_numbering
-    nodes_per_entity, real_tensorproduct, boundary_set = key
-    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set=boundary_set)
+    nodes_per_entity, real_tensorproduct, boundary_set, layout = key
+    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set=boundary_set,
+                               layout=layout)
 
 
 @cached
 def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
-    :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple
+    Parameters
+    ----------
+    mesh :
+        The mesh to use.
+    key :
+        a (nodes_per_entity, real_tensorproduct, boundary_set, layout) tuple
         where nodes_per_entity is a tuple of the number of nodes per
         topological entity; real_tensorproduct is True if the function space is
         a degenerate fs x Real tensorproduct; boundary_set is a set of boundary
-        markers, indicating sub-domains a boundary condition is specified on.
-    :returns: A :class:`pyop2.Set` for the function space nodes.
+        markers, indicating sub-domains a boundary condition is specified on;
+        layout is a :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
+
+    Returns
+    -------
+        A :class:`pyop2.Set` for the function space nodes.
     """
-    nodes_per_entity, real_tensorproduct, _ = key
+    nodes_per_entity, real_tensorproduct, _, layout = key
     global_numbering, constrained_size = get_global_numbering(mesh, key)
-    node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
+    node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct,
+                                     layout=layout)
     halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm, constrained_size=constrained_size)
     extruded = mesh.cell_set._extruded
@@ -113,19 +133,33 @@ def get_node_set(mesh, key):
     return node_set
 
 
-def get_cell_node_list(mesh, entity_dofs, entity_permutations, global_numbering, offsets):
+def get_cell_node_list(mesh, entity_dofs, entity_permutations, global_numbering, offsets, layout=None):
     """Get the cell->node list for specified dof layout.
 
-    :arg mesh: The mesh to use.
-    :arg entity_dofs: The FInAT entity_dofs dict.
-    :arg entity_permutations: The FInAT entity_permutations dict.
-    :arg global_numbering: The PETSc Section describing node layout
+    Parameters
+    ----------
+    mesh :
+        The mesh to use.
+    entity_dofs :
+        The FInAT entity_dofs dict.
+    entity_permutations :
+        The FInAT entity_permutations dict.
+    global_numbering :
+        The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
-    :arg offsets: layer offsets for each entity (maybe ignored).
-    :returns: A numpy array mapping mesh cells to function space
+    offsets :
+        layer offsets for each entity (maybe ignored).
+    layout :
+        A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
+
+    Returns
+    -------
+        A numpy array mapping mesh cells to function space
         nodes.
     """
-    return mesh.make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets)
+    return mesh.make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets,
+                                    layout=layout)
 
 
 def get_facet_node_list(mesh, kind, cell_node_list, offsets):
@@ -148,22 +182,38 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
 
 
 @cached
-def get_entity_node_lists(mesh, key, entity_dofs, entity_permutations, global_numbering, offsets):
+def get_entity_node_lists(mesh, key, entity_dofs, entity_permutations, global_numbering, offsets,
+                          layout=None):
     """Get the map from mesh entity sets to function space nodes.
 
-    :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
-        boundary_set) tuple.
-    :arg entity_dofs: FInAT entity dofs.
-    :arg entity_permutations: FInAT entity permutations.
-    :arg global_numbering: The PETSc Section describing node layout
+    Parameters
+    ----------
+    mesh :
+        The mesh to use.
+    key :
+        a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
+        boundary_set, layout) tuple.
+    entity_dofs :
+        FInAT entity dofs.
+    entity_permutations :
+        FInAT entity permutations.
+    global_numbering :
+        The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
-    :arg offsets: layer offsets for each entity (maybe ignored).
-    :returns: A dict mapping mesh entity sets to numpy arrays of
+    offsets :
+        layer offsets for each entity (maybe ignored).
+    layout :
+        A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
+
+    Returns
+    -------
+        A dict mapping mesh entity sets to numpy arrays of
         function space nodes.
     """
     # set->node lists are specific to the sorted entity_dofs.
-    cell_node_list = get_cell_node_list(mesh, entity_dofs, entity_permutations, global_numbering, offsets)
+    cell_node_list = get_cell_node_list(mesh, entity_dofs, entity_permutations, global_numbering, offsets,
+                                        layout=layout)
     interior_facet_node_list = partial(get_facet_node_list, mesh, "interior_facets", cell_node_list, offsets)
     exterior_facet_node_list = partial(get_facet_node_list, mesh, "exterior_facets", cell_node_list, offsets)
 
@@ -307,11 +357,11 @@ def get_facet_closure_nodes(mesh, key, V):
     """Function space nodes in the closure of facets with a given
     marker.
     :arg mesh: Mesh to cache on
-    :arg key: (edofs, sub_domain, boundary_set) tuple
+    :arg key: (edofs, sub_domain, boundary_set, layout) tuple
     :arg V: function space.
     :returns: numpy array of unique nodes in the closure of facets
        with provided markers (both interior and exterior)."""
-    _, sub_domain, boundary_set = key
+    _, sub_domain, boundary_set, layout = key
     if sub_domain not in {"on_boundary", "top", "bottom"}:
         valid = set(mesh.interior_facets.unique_markers)
         valid |= set(mesh.exterior_facets.unique_markers)
@@ -399,23 +449,33 @@ class FunctionSpaceData(object):
     """Function spaces with the same entity dofs share data.  This class
     stores that shared data.  It is cached on the mesh.
 
-    :arg mesh: The mesh to share the data on.
-    :arg ufl_element: The UFL element.
-    :arg boundary_set: The set of subdomains that a Dirichlet boundary condition
+    Parameters
+    ----------
+    mesh :
+        The mesh to share the data on.
+    ufl_element :
+        The UFL element.
+    boundary_set :
+        The set of subdomains that a Dirichlet boundary condition
         will act on. This is None if the function space is not a
         :class:`.RestrictedFunctionSpace`.
+    layout :
+        A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
     """
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset", "offset_quotient",
-                 "extruded", "mesh", "global_numbering", "boundary_set")
+                 "extruded", "mesh", "global_numbering", "boundary_set",
+                 "layout")
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, ufl_element, boundary_set=None):
+    def __init__(self, mesh, ufl_element, boundary_set=None, layout=None):
         if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
         self.boundary_set = boundary_set
+        self.layout = layout
 
         finat_element = create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
@@ -428,7 +488,7 @@ class FunctionSpaceData(object):
 
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
-        key = (nodes_per_entity, real_tensorproduct, boundary_set)
+        key = (nodes_per_entity, real_tensorproduct, boundary_set, layout)
         # These are keyed only on nodes per topological entity.
         global_numbering, constrained_size = get_global_numbering(mesh, key)
         node_set = get_node_set(mesh, key)
@@ -442,7 +502,7 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set))
+        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set, layout))
 
         if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
             self.offset = eutils.calculate_dof_offset(finat_element)
@@ -453,7 +513,7 @@ class FunctionSpaceData(object):
         else:
             self.offset_quotient = None
 
-        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set), entity_dofs, entity_permutations, global_numbering, self.offset)
+        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set, layout), entity_dofs, entity_permutations, global_numbering, self.offset, layout=layout)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
@@ -490,7 +550,8 @@ class FunctionSpaceData(object):
                 sdkey = sub_domain
             else:
                 sdkey = as_tuple(sub_domain)
-            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, V.boundary_set)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey,
+                   V.boundary_set, V.layout)
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
@@ -521,21 +582,36 @@ class FunctionSpaceData(object):
 
 
 @PETSc.Log.EventDecorator()
-def get_shared_data(mesh, ufl_element, boundary_set=None):
+def get_shared_data(mesh, ufl_element, boundary_set=None, layout=None):
     """Return the ``FunctionSpaceData`` for the given
     element.
 
-    :arg mesh: The mesh to build the function space data on.
-    :arg ufl_element: A UFL element.
-    :arg boundary_set: A set of boundary markers, indicating the subdomains a
+    Parameters
+    ----------
+    mesh :
+        The mesh to build the function space data on.
+    ufl_element :
+        A UFL element.
+    boundary_set :
+        A set of boundary markers, indicating the subdomains a
         boundary condition is specified on.
-    :raises ValueError: if mesh or ufl_element are invalid.
-    :returns: a ``FunctionSpaceData`` object with the shared
+    layout :
+        A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space.
+
+    Returns
+    -------
+        a ``FunctionSpaceData`` object with the shared
         data.
+
+    Raises
+    ------
+    ValueError
+        if mesh or ufl_element are invalid.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
         raise ValueError("%s is not an AbstractMeshTopology" % mesh)
     if not isinstance(ufl_element, finat.ufl.finiteelement.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(ufl_element))
-    return FunctionSpaceData(mesh, ufl_element, boundary_set)
+    return FunctionSpaceData(mesh, ufl_element, boundary_set, layout)

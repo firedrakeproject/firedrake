@@ -1277,23 +1277,36 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary_set=None):
+def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary_set=None,
+                   point_multiplicity=None):
     """Create the section describing a global numbering.
 
-    :arg mesh: The mesh.
-    :arg nodes_per_entity: Number of nodes on each
+    Parameters
+    ----------
+    mesh :
+        The mesh.
+    nodes_per_entity :
+        Number of nodes on each
         type of topological entity of the mesh.  Or, if the mesh is
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
-    :arg on_base: If True, assume extruded space is actually Foo x Real.
-    :arg boundary_set: A set of boundary markers, indicating the sub-domains
+    on_base :
+        If True, assume extruded space is actually Foo x Real.
+    boundary_set :
+        A set of boundary markers, indicating the sub-domains
         a boundary condition is specified on.
-    :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
+    block_size :
+        The integer by which nodes_per_entity is uniformly multiplied
         to get the true data layout.
+    point_multiplicity :
+        The number of copies of its dofs that each point of the chart holds,
+        or None for one copy each. A point with zero copies then carries no dofs.
 
-    :returns: A PETSc Section providing the number of dofs, and offset
+    Returns
+    -------
+        A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
-    :returns: An integer providing the total number of constrained nodes in the
+        An integer providing the total number of constrained nodes in the
         Section.
     """
     # We don't use DMPlexCreateSection because we only ever put one
@@ -1303,7 +1316,9 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         PETSc.Section section
         PETSc.IS renumbering
         PetscInt i, p, layers, offset_top, pStart, pEnd, dof, j, k
-        PetscInt dimension, ndof
+        PetscInt dimension, ndof, chartStart
+        PetscInt[::1] multiplicity
+        bint restricted
         PetscInt *dof_array = NULL
         const PetscInt *entity_point_map
         np.ndarray nodes
@@ -1340,6 +1355,12 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     section = PETSc.Section().create(comm=mesh.comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
+    chartStart = pStart
+    restricted = point_multiplicity is not None
+    if restricted:
+        if extruded:
+            raise NotImplementedError("Subspace decomposition is not implemented for extrusion")
+        multiplicity = point_multiplicity
 
     if boundary_set and not extruded:
         renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
@@ -1358,7 +1379,11 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 else:
                     layers = layer_extents[p, 1] - layer_extents[p, 0]
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
-            CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
+            if restricted:
+                CHKERR(PetscSectionSetDof(section.sec, p,
+                                          block_size * ndof * multiplicity[p - chartStart]))
+            else:
+                CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
 
     if boundary_set and extruded and variable:
         raise NotImplementedError("Not implemented for variable layer extrusion")
@@ -1486,16 +1511,31 @@ def get_cell_nodes(mesh,
                    PETSc.Section global_numbering,
                    entity_dofs,
                    entity_permutations,
-                   np.ndarray offset):
+                   np.ndarray offset,
+                   layout=None):
     """
     Builds the DoF mapping.
 
-    :arg mesh: The mesh
-    :arg global_numbering: Section describing the global DoF numbering
-    :arg entity_dofs: FInAT element entity dofs for the cell
-    :arg entity_permutations: FInAT element entity permutations for the cell
-    :arg offset: offsets for each entity dof walking up a column.
+    Parameters
+    ----------
+    mesh :
+        The mesh
+    global_numbering :
+        Section describing the global DoF numbering
+    entity_dofs :
+        FInAT element entity dofs for the cell
+    entity_permutations :
+        FInAT element entity permutations for the cell
+    offset :
+        offsets for each entity dof walking up a column.
+    layout :
+        A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+        whole space. A cell reads the copy of each closure point's dofs
+        belonging to its own stratum. A row of -1 marks a cell outside
+        every stratum.
 
+    Notes
+    -----
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
     finally the cell. For quadrilateral meshes, edges corresponding to
@@ -1508,16 +1548,20 @@ def get_cell_nodes(mesh,
         PetscInt nclosure, c, cStart, cEnd, cell, entity, i
         PetscInt dofs_per_cell, ndofs, off, j, k, orient
         PetscInt entity_permutations_size, num_orientations_size, perm_offset
+        PetscInt stratum, copy, m, row, chartStart
         int *ceil_ndofs = NULL
         int *flat_index = NULL
         np.ndarray layer_extents
         np.ndarray entity_orientations_np
-        bint is_swarm, variable, extruded_periodic_1_layer
+        bint is_swarm, variable, extruded_periodic_1_layer, restricted
         PetscInt[:, ::1] cell_closures
         PetscInt[:, ::1] entity_orientations
         PetscInt[:, ::1] cell_nodes
         PetscInt[::1] entity_permutations_c
         PetscInt[::1] num_orientations_c
+        PetscInt[::1] cell_strata
+        PetscInt[::1] strata_offsets
+        PetscInt[::1] point_strata
 
     dm = mesh.topology_dm
     is_swarm = isinstance(dm, PETSc.DMSwarm)
@@ -1561,8 +1605,20 @@ def get_cell_nodes(mesh,
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
     cell_numbering = mesh._cell_numbering
+    restricted = layout is not None
+    if restricted:
+        chartStart = layout.chart[0]
+        cell_strata = layout.cell_strata(cStart, cEnd)
+        strata_offsets = layout.offsets
+        point_strata = layout.strata
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        stratum = cell_strata[c - cStart] if restricted else -1
+        if restricted and stratum < 0:
+            # This cell lies outside every stratum, so the subspace skips it
+            for j in range(dofs_per_cell):
+                cell_nodes[cell, j] = -1
+            continue
         k = 0
         perm_offset = 0
         for i in range(nclosure):
@@ -1571,6 +1627,15 @@ def get_cell_nodes(mesh,
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                if restricted:
+                    # Step over the copies that the lower strata of this point own
+                    row = entity - chartStart
+                    copy = 0
+                    for m in range(strata_offsets[row], strata_offsets[row + 1]):
+                        if point_strata[m] == stratum:
+                            copy = m - strata_offsets[row]
+                            break
+                    off += copy * ceil_ndofs[i]
                 # The cell we're looking at the entity through is
                 # higher than the lowest cell the column touches, so
                 # we need to offset by the difference from the bottom.

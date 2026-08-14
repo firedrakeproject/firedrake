@@ -22,6 +22,7 @@ from firedrake import dmhooks
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
+from firedrake.subspace import SubspaceLayout
 from functools import cached_property
 
 
@@ -585,7 +586,7 @@ class FunctionSpace:
 
     def set_shared_data(self):
         element = self.ufl_element()
-        sdata = get_shared_data(self._mesh, element)
+        sdata = get_shared_data(self._mesh, element, layout=self.layout)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -612,6 +613,10 @@ class FunctionSpace:
 
     parent = None
     r"""The parent space if this space was extracted from one, or ``None``."""
+
+    layout = None
+    r"""The :class:`~firedrake.subspace.SubspaceLayout` that a label's strata
+    induce on this space, or ``None`` if this space covers the whole mesh."""
 
     component = None
     r"""The component of this space in its parent VectorElement space, or
@@ -1025,6 +1030,64 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
+
+
+class SubspaceDecomposition(FunctionSpace):
+    r"""A function space split into subspaces by a label.
+
+    The space holds dofs only on the marked region. Each stratum owns its own
+    copy of the dofs it shares with another stratum. A function of this space
+    is therefore continuous within a stratum, and free to jump between strata.
+
+    Parameters
+    ----------
+    function_space : FunctionSpace
+        The space to decompose.
+    label : PETSc.DMLabel
+        The label that marks the subspaces. Each stratum gives one subspace.
+    name : str
+        An optional name for this space.
+
+    Notes
+    -----
+    Mark every point that carries dofs, not the cells alone.
+    ``DMPlexLabelComplete`` extends a cell marking to its closure. An interface
+    point then lies in every stratum that touches it. This class reads the
+    strata as it finds them.
+    """
+
+    def __init__(self, function_space, label, name=None):
+        self.layout = SubspaceLayout(function_space._mesh.topology_dm, label)
+        self.label = label
+        super().__init__(function_space._mesh.topology,
+                         function_space.ufl_element(), function_space.name)
+        self._label = f"subspace_{label.getName()}_"
+        self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
+                                                     function_space.ufl_element(),
+                                                     label=self._label)
+        self.function_space = function_space
+        self.topological = self
+        self.name = name or function_space.name
+
+    def __eq__(self, other):
+        if not isinstance(other, SubspaceDecomposition):
+            return False
+        return self.function_space == other.function_space and \
+            self.layout is other.layout
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(%r, name=%r, label=%r)" % (
+            str(self.function_space), self.name, self.label.getName())
+
+    def __hash__(self):
+        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
+                     id(self.layout)))
+
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+        return lgmap or self.dof_dset.lgmap
+
+    def collapse(self):
+        return type(self)(self.function_space.collapse(), self.label)
 
 
 class MixedFunctionSpace(object):

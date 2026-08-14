@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from firedrake import *
 from firedrake.functionspace import DualSpace
@@ -356,3 +357,107 @@ def test_mixed_broken_space(mesh):
     expected = FunctionSpace(mesh, broken_elem)
 
     assert broken == expected
+
+
+def split_label(mesh, name="split_test"):
+    """Mark the left half of the mesh with stratum 1 and the right half with 2."""
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    left = assemble(interpolate(conditional(x < 0.5, 1.0, 0.0), DG0))
+    right = assemble(interpolate(conditional(x < 0.5, 0.0, 1.0), DG0))
+    mesh.topology.mark_entities(left.topological, 1, name)
+    mesh.topology.mark_entities(right.topological, 2, name)
+    plex = mesh.topology_dm
+    plex.labelComplete(plex.getLabel(name))
+    return plex.getLabel(name)
+
+
+def half_label(mesh, name="half_test"):
+    """Mark only the left half of the mesh, leaving the right half unmarked."""
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    left = assemble(interpolate(conditional(x < 0.5, 1.0, 0.0), DG0))
+    mesh.topology.mark_entities(left.topological, 1, name)
+    plex = mesh.topology_dm
+    plex.labelComplete(plex.getLabel(name))
+    return plex.getLabel(name)
+
+
+def test_subspace_decomposition_duplicates_interface_dofs():
+    """Each stratum gets its own copy of the dofs on the interface."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = SubspaceDecomposition(V, split_label(mesh))
+    # 25 vertices, of which the 5 on x = 0.5 gain a second copy
+    assert V.dof_dset.layout_vec.getSize() == 25
+    assert W.dof_dset.layout_vec.getSize() == 30
+
+
+def test_subspace_decomposition_breaks_continuity_between_strata():
+    """The mass matrix of a decomposed space is block diagonal over the strata."""
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = SubspaceDecomposition(V, split_label(mesh))
+
+    M = assemble(inner(TrialFunction(W), TestFunction(W)) * dx).M.values
+    ncomp, component = connected_components(csr_matrix(abs(M) > 1e-14), directed=False)
+    assert ncomp == 2
+    assert sorted(np.bincount(component)) == [15, 15]
+
+
+def test_subspace_decomposition_preserves_the_integral():
+    """Duplicating the interface dofs does not change the measure of the domain."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = SubspaceDecomposition(V, split_label(mesh))
+    one = Function(W).assign(1.0)
+    assert abs(assemble(inner(one, one) * dx) - 1.0) < 1e-12
+
+
+def test_subspace_decomposition_restricts_to_the_marked_region():
+    """One stratum on half the mesh gives a space that holds no dofs elsewhere."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = SubspaceDecomposition(V, half_label(mesh))
+    # 3 columns of 5 vertices lie in the closure of the left half
+    assert R.dof_dset.layout_vec.getSize() == 15
+    one = Function(R).assign(1.0)
+    assert abs(assemble(inner(one, one) * dx) - 0.5) < 1e-12
+
+
+def test_subspace_decomposition_has_its_own_boundary_nodes():
+    """The boundary nodes of a decomposition count every copy of a point."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = SubspaceDecomposition(V, split_label(mesh))
+    # The interface meets the boundary at 2 of the 16 boundary vertices, and
+    # each of those two takes a second copy
+    assert DirichletBC(V, 0, "on_boundary").nodes.size == 16
+    assert DirichletBC(W, 0, "on_boundary").nodes.size == 18
+
+
+def test_subspace_decomposition_rejects_a_cell_in_two_strata():
+    """A cell of two strata needs an iteration set this class does not build."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    everywhere = Function(DG0).assign(1.0)
+    mesh.topology.mark_entities(everywhere.topological, 1, "overlap_test")
+    mesh.topology.mark_entities(everywhere.topological, 2, "overlap_test")
+    plex = mesh.topology_dm
+    with pytest.raises(NotImplementedError):
+        SubspaceDecomposition(V, plex.getLabel("overlap_test"))
+
+
+@pytest.mark.parallel([1, 3])
+def test_subspace_decomposition_agrees_in_parallel():
+    """The decomposition has the same size and measure at any process count."""
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = SubspaceDecomposition(V, split_label(mesh))
+    assert W.dof_dset.layout_vec.getSize() == 30
+    one = Function(W).assign(1.0)
+    assert abs(assemble(inner(one, one) * dx) - 1.0) < 1e-12

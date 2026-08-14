@@ -755,37 +755,73 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1, boundary_set=None):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1, boundary_set=None,
+                       layout=None):
         """Create a PETSc Section describing a function space.
 
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
-        :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
+        Parameters
+        ----------
+        nodes_per_entity :
+            number of function space nodes per topological entity.
+        real_tensorproduct :
+            If True, assume extruded space is actually Foo x Real.
+        block_size :
+            The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
-        :arg boundary_set: A set of boundary markers, indicating the subdomains
+        boundary_set :
+            A set of boundary markers, indicating the subdomains
             a boundary condition is specified on.
-        :returns: a new PETSc Section.
-        """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
+        layout :
+            A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+            whole space.
 
-    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
+        Returns
+        -------
+            a new PETSc Section.
+        """
+        point_multiplicity = None if layout is None else layout.multiplicity
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set,
+                                       point_multiplicity=point_multiplicity)
+
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False, layout=None):
         """Compute node classes given nodes per entity.
 
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in each of core, owned, and ghost classes.
+        Parameters
+        ----------
+        nodes_per_entity :
+            number of function space nodes per topological entity.
+        layout :
+            A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+            whole space.
+
+        Returns
+        -------
+            the number of nodes in each of core, owned, and ghost classes.
         """
+        if layout is not None:
+            return layout.node_classes(self.topology_dm, nodes_per_entity)
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets, layout=None):
         """Builds the DoF mapping.
 
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof (may be None).
+        Parameters
+        ----------
+        global_numbering :
+            Section describing the global DoF numbering
+        entity_dofs :
+            FInAT element entity DoFs
+        entity_permutations :
+            FInAT element entity permutations
+        offsets :
+            layer offsets for each entity dof (may be None).
+        layout :
+            A :class:`~firedrake.subspace.SubspaceLayout`, or None for a
+            whole space.
         """
         return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, entity_permutations, offsets)
+                                       entity_dofs, entity_permutations, offsets,
+                                       layout=layout)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1886,14 +1922,24 @@ class ExtrudedMeshTopology(MeshTopology):
                        base.local_facet_dat.data_ro_with_halos,
                        unique_markers=base.unique_markers)
 
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
+    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets, layout=None):
         """Builds the DoF mapping.
 
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof.
+        Parameters
+        ----------
+        global_numbering :
+            Section describing the global DoF numbering
+        entity_dofs :
+            FInAT element entity DoFs
+        entity_permutations :
+            FInAT element entity permutations
+        offsets :
+            layer offsets for each entity dof.
+        layout :
+            Must be None. An extruded mesh has no subspace decomposition.
         """
+        if layout is not None:
+            raise NotImplementedError("Subspace decomposition is not implemented for extrusion")
         if entity_permutations is None:
             # FInAT entity_permutations not yet implemented
             entity_dofs = eutils.flat_entity_dofs(entity_dofs)
@@ -1929,12 +1975,22 @@ class ExtrudedMeshTopology(MeshTopology):
         )
 
     @PETSc.Log.EventDecorator()
-    def node_classes(self, nodes_per_entity, real_tensorproduct=False):
+    def node_classes(self, nodes_per_entity, real_tensorproduct=False, layout=None):
         """Compute node classes given nodes per entity.
 
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in each of core, owned, and ghost classes.
+        Parameters
+        ----------
+        nodes_per_entity :
+            number of function space nodes per topological entity.
+        layout :
+            Must be None. An extruded mesh has no subspace decomposition.
+
+        Returns
+        -------
+            the number of nodes in each of core, owned, and ghost classes.
         """
+        if layout is not None:
+            raise NotImplementedError("Subspace decomposition is not implemented for extrusion")
         if real_tensorproduct:
             nodes = np.asarray(nodes_per_entity)
             nodes_per_entity = sum(nodes[:, i] for i in range(2))
