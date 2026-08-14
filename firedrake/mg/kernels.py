@@ -518,6 +518,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     inner_prod = gem.Product(phi_c, fexpr)
 
     if Vf.ufl_element().mapping() == "symmetries":
+        # Symmetric elements only store independent components.
+        # The L2 inner product adds entrywise products of every component of the full tensor.
+        # We work with the reference components so we need to scale by their multiplicities.
         symmetry = Vf.ufl_element().symmetry()
         multiplicity = defaultdict(int)
         for idx in numpy.ndindex(Vf.value_shape):
