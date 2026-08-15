@@ -1,23 +1,23 @@
-from itertools import repeat
-
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.facet_split import get_restriction_indices
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
+from firedrake.subspace import subspace, complete_strata, parent_local_to_global_map
+from firedrake.utils import IntType
+from firedrake.cython import dmcommon
 from functools import cached_property
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
-from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
-from finat.ufl import BrokenElement, TensorElement, VectorElement
 from pyop2.mpi import COMM_SELF
+from ufl import H1, H2, HCurl, curl, div, dx, inner, replace
+from finat.ufl import TensorElement, VectorElement
 from pyop2.utils import as_tuple
 import numpy
 
@@ -32,7 +32,8 @@ class BDDCPC(PCBase):
     Internally, this PC creates a PETSc PCBDDC object that can be controlled by
     the options:
     - ``'bddc_cellwise'`` to set up a MatIS on cellwise subdomains if P.type == python,
-    - ``'bddc_matfree'`` to set up a matrix-free MatIS if A.type == python,
+    - ``'bddc_subdomain_size'`` to divide the cells of each process into subdomains
+    of the given size in cells, if P.type == python,
     - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
     - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
@@ -66,24 +67,37 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
-        matfree = opts.getBool("matfree", False)
 
         # Set operators
         assemblers = []
+        cellwise = opts.getBool("cellwise", False)
+        subdomain_size = opts.getInt("subdomain_size", 0)
+        if cellwise and subdomain_size > 0:
+            raise ValueError(
+                "Set either 'bddc_cellwise' or 'bddc_subdomain_size', not both. "
+                "Cellwise subdomains are a 'bddc_subdomain_size' of one.")
+        label = partition_cells(V.mesh().unique(), subdomain_size) if subdomain_size > 0 else None
+
         A, P = pc.getOperators()
         if P.type == "python":
-            # Reconstruct P as MatIS
-            cellwise = opts.getBool("cellwise", False)
-            P, assembleP = create_matis(P, "aij", cellwise=cellwise)
+            # Reconstruct P as a MatIS on the subspaces of the subdomains
+            ctx = P.getPythonContext()
+            v_arg, u_arg = ctx.a.arguments()
+            parents = (v_arg.function_space(), u_arg.function_space())
+            Wv, Wu = (subspace(Vsub, cellwise=cellwise, label=label) for Vsub in parents)
+            form = replace(ctx.a, {v_arg: TestFunction(Wv), u_arg: TrialFunction(Wu)})
+            if cellwise:
+                # A broken space carries no dofs on a facet, so the closure of
+                # the marked facets finds none of them
+                bcs = tuple(BrokenDirichletBC(bc.reconstruct(g=0)) for bc in ctx.bcs)
+            else:
+                bcs = tuple(bc.reconstruct(V=Wv, g=0) for bc in ctx.bcs)
+            P, assembleP = assemble_matis(form, bcs, parents)
             assemblers.append(assembleP)
 
         if P.type != "is":
             raise ValueError(f"Expecting P to be either 'matfree' or 'is', not {P.type}.")
 
-        if A.type == "python" and matfree:
-            # Reconstruct A as MatIS
-            A, assembleA = create_matis(A, "matfree", cellwise=P.getISAllowRepeated())
-            assemblers.append(assembleA)
         bddcpc.setOperators(A, P)
         self.assemblers = assemblers
 
@@ -96,6 +110,12 @@ class BDDCPC(PCBase):
         if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not V.finat_element.has_pointwise_dual_basis):
             opts["pc_bddc_use_local_mat_graph"] = False
             rem_opts.append("pc_bddc_use_local_mat_graph")
+
+        # The local matrix is block diagonal across the strata, so its
+        # components are the subdomains
+        if label is not None and "pc_bddc_detect_disconnected" not in opts:
+            opts["pc_bddc_detect_disconnected"] = True
+            rem_opts.append("pc_bddc_detect_disconnected")
 
         # Get context from DM
         ctx = get_appctx(dm)
@@ -141,9 +161,8 @@ class BDDCPC(PCBase):
         use_gradient = opts.getBool("use_discrete_gradient", tdim >= 3 and V.finat_element.formdegree == 1)
 
         if use_divergence:
-            allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
-            divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
+            divergence = get_divergence(V, mat_type="is", cellwise=cellwise, label=label)
             try:
                 div_args, div_kwargs = divergence
             except ValueError:
@@ -205,96 +224,317 @@ class BrokenDirichletBC(DirichletBC):
         return numpy.flatnonzero(u.dat.data)
 
 
-def create_matis(a, local_mat_type, cellwise=False, bcs=()):
+def partition_cells(mesh, target_size, name="subdomains"):
+    """Divide the cells that each process holds into connected subdomains.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        The mesh, distributed or not.
+    target_size : int
+        The wanted number of cells per subdomain. A process holding ``n`` cells
+        asks for ``round(n / target_size)`` subdomains, at least one and at
+        most one per cell.
+    name : str
+        The name of the label.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        A label marking the closure of each subdomain. No subdomain spans a
+        process boundary, and each process numbers its own apart from those of
+        the others, so a shared point carries the same set of strata wherever
+        it appears.
+
+    Raises
+    ------
+    ValueError
+        If ``target_size`` is less than one, or if a partitioner is needed and
+        PETSc was built without one.
+
+    Notes
+    -----
+    A graph partitioner divides the dual graph of the owned cells, so the
+    subdomain size is a target and not a guarantee. A partitioner may also
+    return a part that is empty, or one that is not connected. An empty
+    stratum carries no dofs, and ``-pc_bddc_detect_disconnected`` splits a
+    disconnected one, so neither needs handling here.
+    """
+    if target_size < 1:
+        raise ValueError(f"Subdomain size must be at least 1, not {target_size}")
+
+    ncells = mesh.cell_set.size
+    nsub = min(max(1, round(ncells / target_size)), max(ncells, 1))
+    if nsub <= 1:
+        ids = numpy.zeros(ncells, dtype=IntType)
+        nsub = 1
+    elif nsub == ncells:
+        ids = numpy.arange(ncells, dtype=IntType)
+    elif DEFAULT_PARTITIONER == "simple":
+        raise ValueError(
+            "Splitting a process into several subdomains needs a graph partitioner, "
+            "but PETSc was built without any of parmetis, ptscotch or chaco. "
+            "Reconfigure PETSc, or leave the subdomain size unset to get one "
+            "subdomain per process.")
+    else:
+        ids = apply_partitioner(*dual_graph(mesh), nsub)
+
+    # Number this process's strata apart from those of the others
+    ids += mesh.comm.scan(nsub) - nsub
+
+    # Mark the closure of the owned cells alone, so that this process
+    # contributes only its own strata to a shared point
+    plex = mesh.topology_dm
+    cStart, cEnd = plex.getHeightStratum(0)
+    cells = numpy.full(cEnd - cStart, -1, dtype=IntType)
+    cells[mesh.topology.cell_closure[:ncells, -1] - cStart] = ids
+    return complete_strata(mesh, dmcommon.create_subdomain_label(plex, cells, name))
+
+
+def dual_graph(mesh):
+    """Return the dual graph of the cells a process owns, in CSR format.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        The mesh, distributed or not.
+
+    Returns
+    -------
+    xadj : numpy.ndarray
+        The start of the adjacency list of each cell, with ``ncells + 1``
+        entries.
+    adjncy : numpy.ndarray
+        The cells adjacent to each cell, one list after another.
+
+    Notes
+    -----
+    Two cells are adjacent if they share a facet. A facet onto the halo joins
+    an owned cell to a cell this process does not partition, so it drops out.
+    """
+    ncells = mesh.cell_set.size
+    facet_cell = mesh.interior_facets.facet_cell.reshape(-1, 2)
+    facet_cell = facet_cell[(facet_cell < ncells).all(axis=1)]
+
+    src = numpy.concatenate([facet_cell[:, 0], facet_cell[:, 1]])
+    dst = numpy.concatenate([facet_cell[:, 1], facet_cell[:, 0]])
+    order = numpy.argsort(src, kind="stable")
+
+    xadj = numpy.zeros(ncells + 1, dtype=IntType)
+    numpy.cumsum(numpy.bincount(src, minlength=ncells), out=xadj[1:])
+    return xadj, dst[order].astype(IntType)
+
+
+def apply_partitioner(xadj, adjncy, nsub):
+    """Divide a CSR graph into ``nsub`` parts.
+
+    Parameters
+    ----------
+    xadj, adjncy : numpy.ndarray
+        The graph in CSR format, as `dual_graph` returns it.
+    nsub : int
+        The number of parts.
+
+    Returns
+    -------
+    numpy.ndarray
+        The part of each vertex. A part may be empty, and may be disconnected.
+    """
+    nvtx = xadj.size - 1
+    values = numpy.ones(adjncy.size, dtype=PETSc.ScalarType)
+    adj = PETSc.Mat().createAIJWithArrays((nvtx, nvtx), (xadj, adjncy, values),
+                                          comm=COMM_SELF)
+    adj.assemble()
+
+    # MatPartitioningSetNParts has no petsc4py binding, so the part count goes
+    # through the options database
+    prefix = "firedrake_partition_cells_"
+    opts = PETSc.Options(prefix)
+    opts["mat_partitioning_nparts"] = nsub
+    try:
+        part = PETSc.MatPartitioning().create(comm=COMM_SELF)
+        part.setOptionsPrefix(prefix)
+        part.setAdjacency(adj)
+        part.setType(DEFAULT_PARTITIONER)
+        part.setFromOptions()
+        iset = PETSc.IS()
+        part.apply(iset)
+        ids = iset.getIndices().astype(IntType)
+        iset.destroy()
+        part.destroy()
+    finally:
+        del opts["mat_partitioning_nparts"]
+        adj.destroy()
+    return ids
+
+
+def assemble_matis(form, bcs, parents):
+    """Assemble a form posed on subdomain spaces as a ``Mat`` of type ``is``.
+
+    Parameters
+    ----------
+    form : ufl.Form
+        A bilinear form on the subdomain spaces.
+    bcs : tuple
+        The homogeneous Dirichlet conditions, on the subdomain spaces.
+    parents : tuple
+        The space each argument of ``form`` was decomposed from.
+
+    Returns
+    -------
+    PETSc.Mat
+        A ``Mat`` of type ``is`` on ``parents``, holding one block per
+        subdomain of this process.
+    callable
+        A callable that assembles the ``Mat`` again.
+
+    Notes
+    -----
+    A subdomain space already duplicates the dofs on an interface, so the form
+    assembles straight into the local matrix that ``MatIS`` wants. The map
+    onto ``parents`` then names the same global dof for every copy, which is
+    what makes the subdomain matrices sum to the operator.
+    """
     from firedrake.assemble import get_assembler
 
-    def local_mesh(mesh):
-        key = "local_submesh"
-        cache = mesh._shared_data_cache["local_submesh_cache"]
-        try:
-            return cache[key]
-        except KeyError:
-            if mesh.comm.size > 1:
-                submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
-            else:
-                submesh = None
-            return cache.setdefault(key, submesh)
-
-    def local_space(V, cellwise):
-        mesh = local_mesh(V.mesh().unique())
-        element = BrokenElement(V.ufl_element()) if cellwise else None
-        return V.reconstruct(mesh=mesh, element=element)
-
-    def local_argument(arg, cellwise):
-        return arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
-
-    def local_integral(it):
-        extra_domain_integral_type_map = dict(it.extra_domain_integral_type_map())
-        extra_domain_integral_type_map[it.ufl_domain()] = it.integral_type()
-        return it.reconstruct(domain=local_mesh(it.ufl_domain()),
-                              extra_domain_integral_type_map=extra_domain_integral_type_map)
-
-    def local_bc(bc, cellwise):
-        V = bc.function_space()
-        Vsub = local_space(V, False)
-        sub_domain = list(bc.sub_domain)
-        if "on_boundary" in sub_domain:
-            sub_domain.remove("on_boundary")
-            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
-
-        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
-        sub_domain = list(set(sub_domain) & set(valid_markers))
-        bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
-        if cellwise:
-            bc = BrokenDirichletBC(bc)
-        return bc
-
-    def local_to_global_map(V, cellwise):
-        u = Function(V)
-        shp = u.dat.data_ro.shape
-        u.dat.data_wo[...] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange()).reshape(shp)
-
-        Vsub = local_space(V, False)
-        usub = Function(Vsub).assign(u)
-        if cellwise:
-            usub = broken_function(usub.function_space(), val=usub.dat)
-        indices = usub.dat.data_ro.astype(PETSc.IntType)
-        return PETSc.LGMap().create(indices, comm=V.comm)
-
-    if isinstance(a, Form):
-        form = a
-        args = a.arguments()
-        comm = args[0].function_space().comm
-        sizes = tuple(arg.function_space().dof_dset.layout_vec.getSizes() for arg in args)
-    elif isinstance(a, PETSc.Mat):
-        assert a.type == "python"
-        ctx = a.getPythonContext()
-        form = ctx.a
-        bcs = ctx.bcs
-        comm = a.comm
-        sizes = a.getSizes()
-
-    local_form = replace(form, {arg: local_argument(arg, cellwise) for arg in form.arguments()})
-    local_form = Form(list(map(local_integral, local_form.integrals())))
-    local_bcs = tuple(map(local_bc, bcs, repeat(cellwise)))
-
-    assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
+    assembler = get_assembler(form, bcs=bcs, mat_type="is")
     tensor = assembler.assemble()
 
-    rmap = local_to_global_map(form.arguments()[0].function_space(), cellwise)
-    cmap = local_to_global_map(form.arguments()[1].function_space(), cellwise)
+    W = tuple(arg.function_space() for arg in form.arguments())
+    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in parents)
+    lgmaps = tuple(map(parent_local_to_global_map, W, parents))
 
-    Amatis = PETSc.Mat().createIS(sizes, comm=comm)
-    Amatis.setISAllowRepeated(cellwise)
-    Amatis.setLGMap(rmap, cmap)
-    Amatis.setISLocalMat(tensor.petscmat)
-    Amatis.setUp()
-    Amatis.assemble()
+    localmat = tensor.petscmat.getISLocalMat()
+    matis = PETSc.Mat().createIS(sizes, comm=parents[0].comm)
+    matis.setISAllowRepeated(any(Wsub != Vsub for Wsub, Vsub in zip(W, parents)))
+    matis.setLGMap(*lgmaps)
+    matis.setISLocalMat(localmat)
+    matis.setUp()
+    matis.assemble()
+
+    set_bc_diagonal = bc_diagonal_setter(localmat, W[0], bcs, lgmaps[0], parents[0])
+    set_bc_diagonal()
 
     def update():
         assembler.assemble(tensor=tensor)
-        Amatis.assemble()
-    return Amatis, update
+        set_bc_diagonal()
+        matis.assemble()
+    return matis, update
+
+
+def subdomain_multiplicity(lgmap, parent) -> numpy.ndarray:
+    """Count the subdomains that hold each local node of a subspace.
+
+    Parameters
+    ----------
+    lgmap : PETSc.LGMap
+        The map from the local nodes of the subspace to the global nodes of
+        ``parent``, as `~firedrake.subspace.parent_local_to_global_map`
+        returns it.
+    parent : WithGeometry
+        The space that the subspace was built from.
+
+    Returns
+    -------
+    numpy.ndarray
+        The number of subdomains holding the node that each local node
+        duplicates, counting those of the other processes. A node that the
+        map leaves out takes a count of zero.
+
+    Notes
+    -----
+    ``MatIS`` keeps the same count in ``is->counter``, and builds it the same
+    way: it adds a one from every copy onto the global node, then reads the
+    total back onto each copy.
+    """
+    indices = lgmap.block_indices
+    held = indices >= 0
+    mine = indices[held].astype(PETSc.IntType)
+
+    counts = PETSc.Vec().create(comm=parent.comm)
+    counts.setSizes((parent.dof_dset.size, None))
+    counts.setUp()
+    counts.setValues(mine, numpy.ones(mine.size, dtype=PETSc.ScalarType),
+                     addv=PETSc.InsertMode.ADD_VALUES)
+    counts.assemble()
+
+    iset = PETSc.IS().createGeneral(mine, comm=parent.comm)
+    total = PETSc.Vec().createSeq(mine.size, comm=COMM_SELF)
+    scatter = PETSc.Scatter().create(counts, iset, total, None)
+    scatter.scatter(counts, total, addv=PETSc.InsertMode.INSERT_VALUES,
+                    mode=PETSc.ScatterMode.FORWARD)
+
+    multiplicity = numpy.zeros(indices.size, dtype=PETSc.RealType)
+    multiplicity[held] = total.getArray().real
+    scatter.destroy()
+    total.destroy()
+    iset.destroy()
+    counts.destroy()
+    return multiplicity
+
+
+def bc_diagonal_setter(mat, W, bcs, lgmap, parent):
+    """Return a callable that writes the Dirichlet diagonal the operator needs.
+
+    Parameters
+    ----------
+    mat : PETSc.Mat
+        The local matrix of the ``MatIS``.
+    W : WithGeometry
+        The subspace that the rows of ``mat`` belong to.
+    bcs : tuple
+        The homogeneous Dirichlet conditions, on ``W``.
+    lgmap : PETSc.LGMap
+        The map from the rows of ``mat`` to the global nodes of ``parent``.
+    parent : WithGeometry
+        The space that ``W`` was built from.
+
+    Returns
+    -------
+    callable
+        A function of no arguments that writes the diagonal. Call it after
+        every assembly, since the assembler writes the ones again each time.
+
+    Notes
+    -----
+    The assembler writes a one on each copy of a constrained node, so the
+    subdomain matrices sum to the number of copies instead of to one. Writing
+    the reciprocal of that number on every copy makes them sum to one.
+
+    ``PCBDDC`` gets the same treatment from PETSc itself, in
+    ``MatISZeroRowsColumnsLocal``. That divides by the count of the map the
+    ``MatIS`` carried while the assembler applied the conditions, which names
+    a distinct node for every copy, so the division was by one.
+    """
+    def noop():
+        pass
+
+    nrows, ncols = mat.getSize()
+    if not bcs or nrows != ncols:
+        return noop
+
+    marker = Function(W)
+    for bc in bcs:
+        bc.set(marker, 1)
+    marked = marker.dat.data_ro_with_halos.reshape(-1) > 0.5
+
+    # A ``MatIS`` drops the nodes that its map masks out, so the rows of the
+    # local matrix number the nodes that the map keeps
+    bs = W.block_size
+    held = lgmap.block_indices >= 0
+    node_rows = numpy.cumsum(held) - 1
+    dof_rows = bs * numpy.repeat(node_rows, bs) + numpy.tile(numpy.arange(bs), held.size)
+
+    take = marked & numpy.repeat(held, bs)
+    rows = dof_rows[take].astype(PETSc.IntType)
+    values = 1.0 / numpy.repeat(subdomain_multiplicity(lgmap, parent), bs)[take]
+
+    def set_bc_diagonal():
+        diagonal = mat.getDiagonal()
+        diagonal.getArray()[rows] = values
+        mat.setDiagonal(diagonal)
+        diagonal.destroy()
+    return set_bc_diagonal
 
 
 def get_restricted_dofs(V, domain):
@@ -304,24 +544,41 @@ def get_restricted_dofs(V, domain):
     return PETSc.IS().createGeneral(indices, comm=V.comm)
 
 
-def get_divergence_mat(V, mat_type="is", allow_repeated=False):
+def get_divergence_mat(V, mat_type="is", cellwise=False, label=None):
+    """Assemble the exterior derivative of ``V`` tested against a cellwise constant.
+
+    Parameters
+    ----------
+    V : WithGeometry
+        The solution space, in H(div) or in 2D H(curl).
+    mat_type : str
+        The ``Mat`` type to assemble.
+    cellwise : bool
+        Whether to take each cell as a subdomain of its own.
+    label : PETSc.DMLabel
+        A label whose strata mark the subdomains, or None to take the cells of
+        a process as one subdomain.
+
+    Returns
+    -------
+    tuple
+        The arguments and keyword arguments of `PETSc.PC.setBDDCDivergenceMat`.
+    """
     from firedrake import assemble
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
-        form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
-        if mat_type == "is" and allow_repeated:
-            B, _ = create_matis(form, "aij", allow_repeated)
-        else:
-            B = assemble(form, mat_type=mat_type).petscmat
-    else:
-        B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
-        Jdet = JacobianDeterminant(V.mesh())
-        s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
-        with s.dat.vec as svec:
-            B.diagonalScale(svec, None)
+    # The exterior derivative of a 2D H(curl) space is its curl
+    derivative = curl if V.ufl_element().sobolev_space == HCurl else div
 
+    parents = (Q, V)
+    if mat_type == "is":
+        Wq, Wv = (subspace(Vsub, cellwise=cellwise, label=label) for Vsub in parents)
+        form = inner(derivative(TrialFunction(Wv)), TestFunction(Wq)) * dx
+        B, _ = assemble_matis(form, (), parents)
+    else:
+        form = inner(derivative(TrialFunction(V)), TestFunction(Q)) * dx
+        B = assemble(form, mat_type=mat_type).petscmat
     return (B,), {}
 
 

@@ -310,25 +310,41 @@ def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("cellwise", (True, False))
-@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
-def test_create_matis(local_mat_type, cellwise):
-    from firedrake.preconditioners.bddc import create_matis
-    mesh = UnitSquareMesh(4, 4)
-    V = FunctionSpace(mesh, "CG", 1)
-    a = inner(grad(TrialFunction(V)), grad(TestFunction(V)))*dx
-    A = assemble(a, mat_type="matfree").petscmat
+@pytest.mark.parametrize("bcs", (False, True), ids=("nobcs", "bcs"))
+@pytest.mark.parametrize("subdomains", ("process", "cellwise", "partitioned"))
+@pytest.mark.parametrize("extruded", (False, True), ids=("plane", "extruded"))
+def test_assemble_matis(subdomains, bcs, extruded):
+    """The subdomain matrices sum to the operator, however the cells divide."""
+    from firedrake.preconditioners.bddc import assemble_matis, partition_cells
+    from firedrake.preconditioners.bddc import BrokenDirichletBC
+    from firedrake.subspace import subspace
+    if extruded and subdomains == "partitioned":
+        pytest.skip("SubspaceDecomposition does not support extrusion")
 
-    A, assembler = create_matis(A, local_mat_type, cellwise=cellwise)
-    B = assemble(a, mat_type=local_mat_type).petscmat
-    if local_mat_type == "matfree":
-        Ax, x = A.createVecs()
-        Bx, _ = B.createVecs()
-        x.setRandom()
-        A.mult(x, Ax)
-        B.mult(x, Bx)
-        assert np.allclose(Ax.array, Bx.array)
+    mesh = UnitSquareMesh(4, 4)
+    if extruded:
+        # An extruded map stores one layer, so the parent map must reach the rest
+        mesh = ExtrudedMesh(mesh, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    cellwise = subdomains == "cellwise"
+
+    label = partition_cells(mesh, 4) if subdomains == "partitioned" else None
+    W = subspace(V, cellwise=cellwise, label=label)
+    assert (W is V) == (subdomains == "process")
+
+    # An inhomogeneous condition must survive the move onto the subspace
+    bc = DirichletBC(V, Function(V).interpolate(SpatialCoordinate(mesh)[0]), "on_boundary")
+    if not bcs:
+        local_bcs, ref_bcs = (), ()
+    elif cellwise:
+        local_bcs, ref_bcs = (BrokenDirichletBC(bc.reconstruct(g=0)),), (bc,)
     else:
-        A.convert("aij")
-        B.axpy(-1, A)
-        assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)
+        local_bcs, ref_bcs = (bc.reconstruct(V=W, g=0),), (bc,)
+
+    A, _ = assemble_matis(inner(grad(TrialFunction(W)), grad(TestFunction(W)))*dx,
+                          local_bcs, (V, V))
+    B = assemble(inner(grad(TrialFunction(V)), grad(TestFunction(V)))*dx, bcs=ref_bcs).petscmat
+
+    A.convert("aij")
+    B.axpy(-1, A)
+    assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)
