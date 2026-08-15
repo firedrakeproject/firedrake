@@ -106,6 +106,72 @@ def _optimise_contraction_order(
     )
 
 
+def _optimise_plan(
+        pairs: tuple[tuple[Node, Node], ...],
+        quadrature_indices: tuple,
+        preserve_maps: bool) -> tuple[tuple[Node, Node], ...]:
+    """Optimize one representation of the finite element linear maps.
+
+    Parameters
+    ----------
+    pairs
+        Output variables and their integral expressions.
+    quadrature_indices
+        Quadrature indices in deterministic source order.
+    preserve_maps
+        Keep one-axis sums as finite element linear operands when true;
+        expose their scalar polynomial structure when false.
+
+    Returns
+    -------
+    tuple of tuple
+        Optimized output variables and GEM expressions.
+
+    Notes
+    -----
+    Preserving a linear map exposes tabulation reuse and map-level code
+    motion.  Expanding it exposes scalar factorization.  These
+    transformations are not composable in general, so plan selection must
+    compare their optimized contraction trees.
+
+    """
+    index_replacer = MemoizerArg(filtered_replace_indices)
+    delta_inside = Memoizer(_delta_inside)
+    narrow_variables = OrderedDict()
+    delta_simplified = defaultdict(MonomialSum)
+
+    groups = groupby(
+        pairs, key=lambda pair: frozenset(pair[0].free_indices))
+    for free_indices, pair_group in groups:
+        variables, expressions = zip(*pair_group)
+        argument_indices = set(free_indices)
+        classifier = partial(
+            classify, argument_indices, delta_inside=delta_inside)
+        monomial_sums = collect_monomials(
+            expressions, classifier,
+            argument_indices if preserve_maps else ())
+        for variable, monomial_sum in zip(variables, monomial_sums):
+            for monomial in monomial_sum:
+                var, indices, atomics, rest = delta_elimination(
+                    variable, *monomial, index_replacer)
+                narrow_variables.setdefault(var)
+                delta_simplified[var].add(
+                    indices, atomics, rest)
+
+    result = []
+    for variable in narrow_variables:
+        monomial_sum = delta_simplified[variable]
+        contracted = set(chain.from_iterable(
+            monomial.sum_indices for monomial in monomial_sum))
+        indices = tuple(
+            index for index in quadrature_indices
+            if index in contracted)
+        _, expression = _optimise_contraction_order(
+            variable, indices, monomial_sum)
+        result.append((variable, expression))
+    return tuple(result)
+
+
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
@@ -129,45 +195,15 @@ def flatten(var_reps, index_cache):
 
     # Split Concatenate nodes
     pairs = unconcatenate(pairs, cache=index_cache)
-
-    def group_key(pair):
-        variable, expression = pair
-        return frozenset(variable.free_indices)
-
-    # Common memoizer to remove ComponentTensors
-    index_replacer = MemoizerArg(filtered_replace_indices)
-    # Common memoizer to test for Deltas inside expressions
-    delta_inside = Memoizer(_delta_inside)
-    # Variable ordering after delta cancellation
-    narrow_variables = OrderedDict()
-    # Assignments are variable -> MonomialSum map
-    delta_simplified = defaultdict(MonomialSum)
     quadrature_indices = tuple(quadrature_indices)
-    # Group assignment pairs by argument indices
-    for free_indices, pair_group in groupby(pairs, group_key):
-        variables, expressions = zip(*pair_group)
-        argument_indices = set(free_indices)
-        classifier = partial(
-            classify, argument_indices, delta_inside=delta_inside)
-        monomial_sums = collect_monomials(
-            expressions, classifier, argument_indices)
-        for variable, monomial_sum in zip(variables, monomial_sums):
-            for monomial in monomial_sum:
-                var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
-                narrow_variables.setdefault(var)
-                delta_simplified[var].add(s, a, r)
-
-    # Final factorisation
-    for variable in narrow_variables:
-        monomial_sum = delta_simplified[variable]
-        # Collect sum indices applicable to the current MonomialSum
-        sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
-        # Put them in a deterministic order
-        sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Apply sum factorisation combined with COFFEE technology
-        _, expression = _optimise_contraction_order(
-            variable, sum_indices, monomial_sum)
-        yield (variable, expression)
+    plans = tuple(
+        _optimise_plan(tuple(pairs), quadrature_indices, preserve_maps)
+        for preserve_maps in (False, True))
+    plan = min(
+        plans,
+        key=lambda plan: estimate_cost(
+            expression for _, expression in plan))
+    yield from plan
 
 
 finalise_options = dict(replace_delta=True, remove_componenttensors=False)

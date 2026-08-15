@@ -221,6 +221,42 @@ def test_shared_physically_mapped_tabulation(
     assert [shape for shape in optimized_shapes if shape] == [(15,)] * 7
 
 
+def test_linear_map_representation_is_costed(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Do not preserve a linear map when expansion costs fewer FLOPs.
+
+    Parameters
+    ----------
+    monkeypatch
+        Pytest fixture used to force the expanded representation for
+        comparison.
+
+    Notes
+    -----
+    A Bernstein tabulation is separable, so preserving every one-axis sum
+    produces a compact loop nest but can hide profitable scalar
+    factorization.  Plan selection must compare that representation with the
+    expanded polynomial instead of committing to either transformation.
+
+    """
+    mesh = Mesh(VectorElement("CG", triangle, 1))
+    element = FiniteElement("Bernstein", triangle, 2)
+    space = FunctionSpace(mesh, element)
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    form = inner(grad(u), grad(v)) * dx(scheme="canonical")
+
+    optimized, = compile_form(form, parameters={"mode": "spectral"})
+    collect_monomials = tsfc.spectral.collect_monomials
+    monkeypatch.setattr(
+        tsfc.spectral, "collect_monomials",
+        lambda expressions, classifier, _: collect_monomials(
+            expressions, classifier))
+    expanded, = compile_form(form, parameters={"mode": "spectral"})
+
+    assert optimized.flop_count <= expanded.flop_count
+
+
 def test_sum_factorisation_order() -> None:
     """Select the least-cost quadrature contraction ordering."""
     i, j, q0, q1 = (gem.Index(extent=4) for _ in range(4))
