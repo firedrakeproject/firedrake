@@ -1881,6 +1881,137 @@ def complete_facet_labels(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def label_point_strata(PETSc.DMLabel label, PetscInt pStart, PetscInt pEnd):
+    """Return the strata of a label that mark each point of a chart.
+
+    Parameters
+    ----------
+    label : PETSc.DMLabel
+        The label. Its strata may overlap.
+    pStart, pEnd : PetscInt
+        The first point of the chart, and one past the last.
+
+    Returns
+    -------
+    values : numpy.ndarray
+        The strata of the label, in increasing order.
+    multiplicity : numpy.ndarray
+        The number of strata that mark each point of the chart.
+    offsets : numpy.ndarray
+        The start of each point's row of strata, with ``pEnd - pStart + 1``
+        entries.
+    strata : numpy.ndarray
+        The strata of each point, one sorted row per point.
+
+    Notes
+    -----
+    Walking the label by stratum resolves each one through PETSc's constant
+    time value to stratum map, where asking each point for its value in turn
+    would scan every stratum.
+    """
+    cdef:
+        PETSc.PetscIS stratum_is = NULL
+        PetscInt nvalues, v, i, p, size, npoints, total = 0
+        const PetscInt *points = NULL
+        PetscInt[::1] values, multiplicity, offsets, strata, filled
+        np.ndarray values_np, multiplicity_np, offsets_np, strata_np
+
+    values_np = np.sort(label.getValueIS().indices).astype(IntType)
+    values = values_np
+    nvalues = values_np.size
+
+    npoints = pEnd - pStart
+    multiplicity_np = np.zeros(npoints, dtype=IntType)
+    offsets_np = np.zeros(npoints + 1, dtype=IntType)
+    multiplicity = multiplicity_np
+    offsets = offsets_np
+
+    for v in range(nvalues):
+        CHKERR(DMLabelGetStratumSize(<DMLabel>label.dmlabel, values[v], &size))
+        if size == 0:
+            continue
+        CHKERR(DMLabelGetStratumIS(<DMLabel>label.dmlabel, values[v], &stratum_is))
+        CHKERR(ISGetIndices(stratum_is, &points))
+        for i in range(size):
+            multiplicity[points[i] - pStart] += 1
+        CHKERR(ISRestoreIndices(stratum_is, &points))
+        CHKERR(ISDestroy(&stratum_is))
+        total += size
+
+    for p in range(npoints):
+        offsets[p + 1] = offsets[p] + multiplicity[p]
+
+    strata_np = np.empty(total, dtype=IntType)
+    strata = strata_np
+    filled = np.zeros(npoints, dtype=IntType)
+    # The values ascend, so each point's row comes out sorted
+    for v in range(nvalues):
+        CHKERR(DMLabelGetStratumSize(<DMLabel>label.dmlabel, values[v], &size))
+        if size == 0:
+            continue
+        CHKERR(DMLabelGetStratumIS(<DMLabel>label.dmlabel, values[v], &stratum_is))
+        CHKERR(ISGetIndices(stratum_is, &points))
+        for i in range(size):
+            p = points[i] - pStart
+            strata[offsets[p] + filled[p]] = values[v]
+            filled[p] += 1
+        CHKERR(ISRestoreIndices(stratum_is, &points))
+        CHKERR(ISDestroy(&stratum_is))
+
+    return values_np, multiplicity_np, offsets_np, strata_np
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def create_subdomain_label(PETSc.DM dm, np.ndarray cell_subdomains, name):
+    """Mark the closure of each cell with the subdomain that holds the cell.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The topological DM.
+    cell_subdomains : numpy.ndarray
+        The subdomain of each cell of the height zero stratum, in plex order.
+        A cell of ``-1`` belongs to no subdomain, and takes no dofs.
+    name : str
+        The name of the label.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        A label whose strata mark the closure of each subdomain. A point on an
+        interface lies in every stratum that touches it, which is what a
+        `~firedrake.subspace.SubspaceLayout` reads as its dof multiplicity.
+
+    Notes
+    -----
+    Marking the closure of each cell leaves the label already complete, so the
+    caller needs no further ``DMPlexLabelComplete``.
+    """
+    cdef:
+        PETSc.DMLabel label
+        PetscInt cStart, cEnd, c, i, nclosure, value
+        PetscInt *closure = NULL
+        PetscInt[::1] subdomains = cell_subdomains
+
+    label = PETSc.DMLabel().create(name, comm=PETSc.COMM_SELF)
+    # Creating the strata in one pass keeps the label linear in their number,
+    # where creating them one at a time grows its arrays once each
+    label.addStrata(np.unique(cell_subdomains[cell_subdomains >= 0]))
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    for c in range(cStart, cEnd):
+        value = subdomains[c - cStart]
+        if value < 0:
+            continue
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
+        for i in range(nclosure):
+            CHKERR(DMLabelSetValue(<DMLabel>label.dmlabel, closure[2*i], value))
+        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
+    return label
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def cell_facet_labeling(PETSc.DM plex,
                         PETSc.Section cell_numbering,
                         np.ndarray cell_closures):

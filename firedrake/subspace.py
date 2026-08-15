@@ -13,12 +13,14 @@ strata as it finds them, and never completes a label itself.
 """
 
 import numpy
+from mpi4py import MPI
 
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
 
-__all__ = ("SubspaceLayout",)
+__all__ = ("SubspaceLayout", "subspace", "complete_strata",
+           "parent_local_to_global_map")
 
 
 class SubspaceLayout:
@@ -43,36 +45,16 @@ class SubspaceLayout:
     """
 
     def __init__(self, dm: PETSc.DM, label: PETSc.DMLabel):
+        from firedrake.cython import dmcommon
+
         pStart, pEnd = dm.getChart()
-        values = numpy.sort(label.getValueIS().indices).astype(IntType)
-
-        points = []
-        strata = []
-        for value in values:
-            if label.getStratumSize(value) == 0:
-                continue
-            marked = label.getStratumIS(value).indices
-            points.append(marked)
-            strata.append(numpy.full(marked.size, value, dtype=IntType))
-        if not points:
+        values, multiplicity, offsets, strata = dmcommon.label_point_strata(label, pStart, pEnd)
+        if strata.size == 0:
             raise ValueError("The label marks no points, so the subspace is empty")
-
-        points = numpy.concatenate(points).astype(IntType)
-        strata = numpy.concatenate(strata)
-        # Order the memberships by point, and by stratum within each point, so
-        # that a point's strata form one sorted row
-        order = numpy.lexsort((strata, points))
-        points = points[order]
-        strata = strata[order]
-
-        npoints = pEnd - pStart
-        multiplicity = numpy.bincount(points - pStart, minlength=npoints)
-        offsets = numpy.zeros(npoints + 1, dtype=IntType)
-        numpy.cumsum(multiplicity, out=offsets[1:])
 
         self.chart = (pStart, pEnd)
         self.values = values
-        self.multiplicity = multiplicity.astype(IntType)
+        self.multiplicity = multiplicity
         """The number of dof copies each point of the chart carries."""
         self.offsets = offsets
         """The start of each point's row of strata, with ``npoints + 1`` entries."""
@@ -160,3 +142,228 @@ class SubspaceLayout:
         held = counts > 0
         strata[held] = self.strata[starts[held]]
         return strata
+
+
+def subspace(V, cellwise: bool = False, label=None):
+    """Return the subspace that gives each subdomain its own copy of the dofs.
+
+    Parameters
+    ----------
+    V : WithGeometry
+        The space to break apart.
+    cellwise : bool
+        Whether to take each cell as a subdomain of its own.
+    label : PETSc.DMLabel
+        A label whose strata mark the subdomains, or None to take the cells of
+        a process as one subdomain.
+
+    Returns
+    -------
+    WithGeometry
+        A subspace that duplicates the dofs on a subdomain interface, one copy
+        per subdomain that touches it. This is ``V`` itself when a process
+        holds a single subdomain.
+    """
+    if label is not None:
+        from firedrake.functionspace import SubspaceDecomposition
+        return SubspaceDecomposition(V, label)
+    elif cellwise:
+        return V.broken_space()
+    else:
+        return V
+
+
+def complete_strata(mesh, label, name=None) -> PETSc.DMLabel:
+    """Complete the strata of a shared point with those of the other processes.
+
+    Parameters
+    ----------
+    mesh : MeshTopology
+        The mesh whose points the label marks.
+    label : PETSc.DMLabel
+        A label in which each process marks the closure of its own cells only,
+        so that no stratum spans a process boundary.
+    name : str
+        The name of the new label, by default that of ``label``.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        The same label, with a shared point carrying the same strata on every
+        process that holds it.
+
+    Notes
+    -----
+    ``DMPlexLabelComplete`` extends a marking across the closure of a point.
+    This extends one across the processes that hold the point.
+
+    A subdomain refines the partition that distributed the mesh, so no two
+    processes contribute the same stratum to a shared point. Their counts at
+    that point add up instead of overlapping, and the point star forest can
+    therefore sum them onto the owner and hand the total back.
+
+    The strata themselves travel as one row per point, of a fixed width that
+    the largest of those totals sets. The owner merges the rows of every
+    process holding the point, then broadcasts the merged row back.
+
+    Without this, two processes disagree on how many dofs a shared point
+    carries, and the global section built from their local ones is wrong.
+    """
+    from firedrake.cython import dmcommon
+
+    plex = mesh.topology_dm
+    sf = plex.getPointSF()
+    pStart, pEnd = plex.getChart()
+    npoints = pEnd - pStart
+    unit = MPI._typedict[numpy.dtype(IntType).char]
+
+    _, multiplicity, offsets, strata = dmcommon.label_point_strata(label, pStart, pEnd)
+
+    # The contributions do not overlap, so the counts of a shared point add up
+    total = multiplicity.copy()
+    sf.reduceBegin(unit, multiplicity, total, MPI.SUM)
+    sf.reduceEnd(unit, multiplicity, total, MPI.SUM)
+    sf.bcastBegin(unit, total, total, MPI.REPLACE)
+    sf.bcastEnd(unit, total, total, MPI.REPLACE)
+    width = max(mesh.comm.allreduce(int(total.max(initial=0)), op=MPI.MAX), 1)
+
+    rows = _pack_rows(npoints, width, multiplicity, offsets, strata)
+
+    # A single process shares no point, so its own strata are already complete
+    if mesh.comm.size > 1:
+        rows = _merge_shared_rows(sf, rows, unit)
+
+    return _label_from_rows(name or label.getName(), pStart, rows)
+
+
+def _merge_shared_rows(sf, rows, unit) -> numpy.ndarray:
+    """Merge the rows of strata that the processes sharing a point hold.
+
+    Parameters
+    ----------
+    sf : PETSc.SF
+        The point star forest of the mesh, whose graph names the sharers of
+        each point.
+    rows : numpy.ndarray
+        The strata of each point, one fixed width row per point.
+    unit : MPI.Datatype
+        The datatype of one entry of ``rows``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, with a shared point carrying the strata of every
+        process that holds it.
+
+    Notes
+    -----
+    The owner of a point collects the rows of its sharers, merges them, and
+    broadcasts the merged row back.
+    """
+    npoints, width = rows.shape
+    block = unit.Create_contiguous(width)
+    block.Commit()
+    try:
+        degree = sf.computeDegree()
+        gathered = numpy.full((int(degree.sum()), width), -1, dtype=IntType)
+        sf.gatherBegin(block, rows, gathered)
+        sf.gatherEnd(block, rows, gathered)
+
+        points = numpy.concatenate([numpy.repeat(numpy.arange(npoints, dtype=IntType), width),
+                                    numpy.repeat(numpy.repeat(numpy.arange(npoints, dtype=IntType),
+                                                              degree), width)])
+        values = numpy.concatenate([rows.ravel(), gathered.ravel()])
+        held = values >= 0
+        points, values = points[held], values[held]
+        order = numpy.lexsort((values, points))
+        points, values = points[order], values[order]
+        keep = numpy.ones(points.size, dtype=bool)
+        keep[1:] = (points[1:] != points[:-1]) | (values[1:] != values[:-1])
+        points, values = points[keep], values[keep]
+
+        multiplicity = numpy.bincount(points, minlength=npoints).astype(IntType)
+        offsets = numpy.zeros(npoints + 1, dtype=IntType)
+        numpy.cumsum(multiplicity, out=offsets[1:])
+        rows = _pack_rows(npoints, width, multiplicity, offsets, values)
+
+        sf.bcastBegin(block, rows, rows, MPI.REPLACE)
+        sf.bcastEnd(block, rows, rows, MPI.REPLACE)
+    finally:
+        block.Free()
+    return rows
+
+
+def _pack_rows(npoints, width, multiplicity, offsets, strata) -> numpy.ndarray:
+    """Lay a compressed sparse row array out as one fixed width row per point."""
+    rows = numpy.full((npoints, width), -1, dtype=IntType)
+    point = numpy.repeat(numpy.arange(npoints, dtype=IntType), multiplicity)
+    column = numpy.arange(strata.size, dtype=IntType) - numpy.repeat(offsets[:-1], multiplicity)
+    rows[point, column] = strata
+    return rows
+
+
+def _label_from_rows(name, pStart, rows) -> PETSc.DMLabel:
+    """Build a label from one fixed width row of strata per point."""
+    npoints, width = rows.shape
+    points = numpy.repeat(numpy.arange(pStart, pStart + npoints, dtype=IntType), width)
+    values = rows.ravel()
+    held = values >= 0
+    points, values = points[held], values[held]
+    order = numpy.argsort(values, kind="stable")
+    points, values = points[order], values[order]
+
+    label = PETSc.DMLabel().create(name, comm=PETSc.COMM_SELF)
+    unique, starts = numpy.unique(values, return_index=True)
+    label.addStrata(unique)
+    # One pass per stratum, since a label resolves a stratum in constant time
+    # but scans them all to answer for a point
+    for value, points_of in zip(unique, numpy.split(points, starts[1:])):
+        label.setStratumIS(value, PETSc.IS().createGeneral(points_of, comm=PETSc.COMM_SELF))
+    return label
+
+
+def parent_local_to_global_map(space, parent) -> PETSc.LGMap:
+    """Map the local nodes of a subspace to the global nodes of its parent.
+
+    Parameters
+    ----------
+    space : WithGeometry
+        A subspace of ``parent``, such as a decomposition or a broken space.
+        Its nodes may duplicate a node of the parent, and may leave one out.
+    parent : WithGeometry
+        The space that ``space`` was built from.
+
+    Returns
+    -------
+    PETSc.LGMap
+        The global node of the parent that each local node of ``space``
+        duplicates. A node that no owned cell touches at all takes ``-1``.
+
+    Notes
+    -----
+    A subdomain matrix assembled on ``space`` sums to the operator on
+    ``parent`` under this map, which is what ``MatIS`` asks of its own map.
+
+    The two spaces share a mesh and an element, so entry ``(c, j)`` of either
+    cell node map names the same node of the same cell. One scatter of the
+    parent's global numbers through the subspace's map therefore builds the
+    whole map, with no loop over cells.
+
+    An extruded cell node map stores the base layer alone, so the two maps
+    walk their columns in step, through the same
+    `~pyop2.types.mat.layer_nodes` that `~pyop2.types.mat.mask_ghost_cells`
+    uses. The mask comes from that same function, which also decides the size
+    of the local matrix, so the two cannot disagree on which nodes the
+    subdomain holds.
+    """
+    from pyop2.types.mat import layer_nodes, mask_ghost_cells
+
+    cell_nodes = space.cell_node_map()
+    parent_cell_nodes = parent.cell_node_map()
+    indices = numpy.full(space.node_set.total_size, -1, dtype=IntType)
+    for nodes, parent_nodes in zip(layer_nodes(cell_nodes, cell_nodes.values_with_halo),
+                                   layer_nodes(parent_cell_nodes, parent_cell_nodes.values_with_halo)):
+        held = nodes >= 0
+        indices[nodes[held]] = parent.dof_dset.lgmap.block_indices[parent_nodes[held]]
+    indices[mask_ghost_cells(cell_nodes)] = -1
+    return PETSc.LGMap().create(indices, bsize=parent.block_size, comm=parent.comm)

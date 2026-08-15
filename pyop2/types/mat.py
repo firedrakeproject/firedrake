@@ -1,7 +1,7 @@
 import abc
 import ctypes
 import itertools
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import numpy as np
 from petsc4py import PETSc
@@ -342,34 +342,83 @@ def masked_lgmap(lgmap, mask, block=True):
     return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
+def layer_nodes(cell_node_map, values: np.ndarray) -> Iterator[np.ndarray]:
+    """Yield the nodes that each layer of an extruded map reaches.
+
+    Parameters
+    ----------
+    cell_node_map : Map
+        The map that ``values`` was read from. Its ``offset`` walks a node up
+        the column, and its ``offset_quotient`` wraps the top of a periodic
+        extrusion back onto the bottom.
+    values : numpy.ndarray
+        Nodes of the base layer, of a shape that broadcasts against ``offset``.
+
+    Yields
+    ------
+    numpy.ndarray
+        A fresh array of the nodes of one layer, from the bottom up. A map that
+        is not extruded yields ``values`` alone.
+
+    Raises
+    ------
+    NotImplementedError
+        If the mesh is extruded with a variable number of layers, since one
+        shift then no longer serves every column.
+    """
+    offset = cell_node_map.offset
+    if offset is None:
+        yield values
+        return
+    if not cell_node_map.iterset.constant_layers:
+        raise NotImplementedError("An extrusion with variable layers has no single shift per layer.")
+
+    quotient = cell_node_map.offset_quotient
+    layers = cell_node_map.iterset.layers
+    for layer in range(layers-1):
+        shift = layer * offset
+        if quotient is not None and layer == layers-2:
+            # Periodic extruded case
+            shift = shift - quotient
+        yield values + shift
+
+
 def mask_ghost_cells(cell_node_map):
-    """Return the local indices of the nodes that belong to ghost cells."""
+    """Return the local indices of the nodes that no owned cell touches.
+
+    Parameters
+    ----------
+    cell_node_map : Map
+        The map from the cells of a mesh to the nodes of a space.
+
+    Returns
+    -------
+    numpy.ndarray
+        The local indices to mask out of a local to global map.
+
+    Raises
+    ------
+    NotImplementedError
+        If the mesh is extruded with a variable number of layers and the cells
+        carry a halo.
+
+    Notes
+    -----
+    A ``MatIS`` holds one subdomain matrix per process, and that subdomain is
+    the set of owned cells. A node that only a halo cell touches belongs to
+    another subdomain, so masking it out of the local to global map keeps it
+    out of the local matrix. A node that no cell touches at all is masked for
+    the same reason.
+    """
     own_cells = cell_node_map.iterset.size
     owned = cell_node_map.values[:own_cells]
-    ghost = cell_node_map.values_with_halo[own_cells:]
-    offset = cell_node_map.offset
-    if offset is None or ghost.size == 0:
-        # Non-extruded case
-        mask = np.setdiff1d(ghost, owned)
-    elif cell_node_map.iterset.constant_layers:
-        # Extruded case
-        mask_pieces = []
-        owned = owned.copy()
-        ghost = ghost.copy()
-        quotient = cell_node_map.offset_quotient
-        layers = cell_node_map.iterset.layers
-        for i in range(layers-1):
-            if quotient is not None and i == layers-2:
-                # Periodic extruded case
-                owned -= quotient
-                ghost -= quotient
-            mask_pieces.append(np.setdiff1d(ghost, owned))
-            owned += offset
-            ghost += offset
-        mask = np.concatenate(mask_pieces)
-    else:
+    nodes = np.arange(cell_node_map.toset.total_size, dtype=owned.dtype)
+    if cell_node_map.offset is not None and not cell_node_map.iterset.constant_layers:
+        if cell_node_map.values_with_halo[own_cells:].size == 0:
+            # Variable layers, but no halo to leave out
+            return np.empty(0, dtype=owned.dtype)
         raise NotImplementedError("MatIS does not support variable extrusion with overlap.")
-    return mask
+    return np.setdiff1d(nodes, np.concatenate(list(layer_nodes(cell_node_map, owned))))
 
 
 def unghosted_lgmap(dset, node_maps):
