@@ -5,7 +5,7 @@ import gem
 import gem.coffee
 import tsfc.spectral
 from gem.gem import one
-from gem.optimise import estimate_cost
+from gem.contraction import estimate_cost
 from gem.refactorise import MonomialSum
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,

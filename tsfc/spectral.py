@@ -15,12 +15,11 @@ from itertools import chain, permutations, zip_longest
 
 from gem.gem import (Conditional, Delta, Indexed, Node, Sum,
                      index_sum, one)
+from gem.contraction import estimate_cost
 from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
-from gem.optimise import (
-    estimate_cost, replace_division, unroll_indexsum,
-)
+from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import (ATOMIC, COMPOUND, OTHER, MonomialSum,
                              collect_monomials)
 from gem.unconcatenate import unconcatenate
