@@ -3930,8 +3930,8 @@ class VertexOnlyMeshSF:
                 root_coordinates,
                 comm,
             )
-            sf = PETSc.SF().create(comm=comm)
-            sf.setGraph(len(root_coordinates), None, remote)
+        sf = PETSc.SF().create(comm=parent_mesh.comm)
+        sf.setGraph(len(root_coordinates), None, remote)
 
         return cls(sf)
 
