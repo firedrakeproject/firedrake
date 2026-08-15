@@ -187,7 +187,8 @@ def test_shared_physically_mapped_tabulation(
     Notes
     -----
     Johnson--Mercier has six mapped basis outputs in two dimensions.  The
-    seventh writable vector holds geometry data.  Algebra shared while
+    seventh writable vector holds geometry data, and the eighth holds the
+    coefficients of the basis transformation.  Algebra shared while
     constructing those outputs belongs inside their common basis-row loop
     and must therefore remain scalar.
     """
@@ -218,7 +219,7 @@ def test_shared_physically_mapped_tabulation(
     assert optimized.flop_count < baseline.flop_count
     assert sum(not shape for shape in optimized_shapes) \
         < sum(not shape for shape in baseline_shapes)
-    assert [shape for shape in optimized_shapes if shape] == [(15,)] * 7
+    assert [shape for shape in optimized_shapes if shape] == [(15,)] * 8
 
 
 def test_linear_map_representation_is_costed(

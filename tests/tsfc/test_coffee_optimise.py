@@ -45,30 +45,30 @@ def test_loop_optimise():
 
     Z = Variable('z', ())
 
-    # Bj*Ek + Bj*Fk => (Ek + Fk)*Bj
+    # Bj*Ek + Bj*Fk => Bj*(Ek + Fk)
     expr = Sum(Product(Bj, Ek), Product(Bj, Fk))
     result, = optimise_expressions([expr], (j, k))
-    expected = Product(Sum(Ek, Fk), Bj)
+    expected = Product(Bj, Sum(Ek, Fk))
     assert result == expected
 
     # Bj*Ek + Bj*Fk + Bj*Gk + Cj*Ek + Cj*Fk =>
-    # (Ek + Fk + Gk)*Bj + (Ek+Fk)*Cj
+    # Bj*(Ek + Fk + Gk) + Cj*(Ek + Fk)
     expr = Sum(Sum(Sum(Sum(Product(Bj, Ek), Product(Bj, Fk)), Product(Bj, Gk)),
                    Product(Cj, Ek)), Product(Cj, Fk))
     result, = optimise_expressions([expr], (j, k))
-    expected = Sum(Product(Sum(Sum(Ek, Fk), Gk), Bj), Product(Sum(Ek, Fk), Cj))
+    expected = Sum(Product(Bj, Sum(Sum(Ek, Fk), Gk)), Product(Cj, Sum(Ek, Fk)))
     assert result == expected
 
     # Z*A1i*Bj*Ek + Z*A2i*Bj*Ek + A3i*Bj*Ek + Z*A1i*Bj*Fk =>
-    # Bj*(Ek*(Z*A1i + Z*A2i) + A3i) + Z*A1i*Fk)
+    # Bj*(Ek*(Z*A1i + Z*A2i + A3i) + Fk*(Z*A1i))
 
     expr = Sum(Sum(Sum(Product(Z, Product(A1i, Product(Bj, Ek))),
                        Product(Z, Product(A2i, Product(Bj, Ek)))),
                    Product(A3i, Product(Bj, Ek))),
                Product(Z, Product(A1i, Product(Bj, Fk))))
     result, = optimise_expressions([expr], (j, k))
-    expected = Product(Sum(Product(Ek, Sum(Sum(Product(Z, A1i), Product(Z, A2i)), A3i)),
-                           Product(Fk, Product(Z, A1i))), Bj)
+    expected = Product(Bj, Sum(Product(Ek, Sum(Sum(Product(Z, A1i), Product(Z, A2i)), A3i)),
+                               Product(Fk, Product(Z, A1i))))
     assert result == expected
 
 
