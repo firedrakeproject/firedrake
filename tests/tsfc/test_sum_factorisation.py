@@ -183,6 +183,13 @@ def test_shared_physically_mapped_tabulation(
     ----------
     monkeypatch
         Pytest fixture used to disable the sharing pass for comparison.
+
+    Notes
+    -----
+    Johnson--Mercier has six mapped basis outputs in two dimensions.  The
+    seventh writable vector holds geometry data.  Algebra shared while
+    constructing those outputs belongs inside their common basis-row loop
+    and must therefore remain scalar.
     """
     mesh = Mesh(VectorElement("CG", triangle, 1))
     element = FiniteElement("Johnson-Mercier", triangle, 1)
@@ -211,8 +218,7 @@ def test_shared_physically_mapped_tabulation(
     assert optimized.flop_count < baseline.flop_count
     assert sum(not shape for shape in optimized_shapes) \
         < sum(not shape for shape in baseline_shapes)
-    assert sum(shape == (15,) for shape in optimized_shapes) \
-        > sum(shape == (15,) for shape in baseline_shapes)
+    assert [shape for shape in optimized_shapes if shape] == [(15,)] * 7
 
 
 def test_sum_factorisation_order() -> None:

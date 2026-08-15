@@ -411,10 +411,19 @@ def statement_evaluate(leaf, ctx):
     elif isinstance(expr, gem.Constant):
         return []
     elif isinstance(expr, gem.ComponentTensor):
-        idx = ctx.gem_to_pym_multiindex(expr.multiindex)
+        implicit_indices = {}
+        value_indices = []
+        for index in expr.multiindex:
+            if index in ctx.active_indices:
+                value_indices.append(ctx.active_indices[index])
+            else:
+                value, = ctx.gem_to_pym_multiindex((index,))
+                implicit_indices[index] = value
+                value_indices.append(value)
+        value_indices = tuple(value_indices)
         var, sub_idx = ctx.pymbolic_variable_and_destruct(expr)
-        lhs = p.Subscript(var, sub_idx + idx)
-        with active_indices(dict(zip(expr.multiindex, idx)), ctx) as ctx_active:
+        lhs = p.Subscript(var, sub_idx + value_indices)
+        with active_indices(implicit_indices, ctx) as ctx_active:
             return [lp.Assignment(lhs, expression(expr.children[0], ctx_active), within_inames=ctx_active.active_inames())]
     elif isinstance(expr, gem.Inverse):
         idx = ctx.pymbolic_multiindex(expr.shape)
