@@ -13,15 +13,16 @@ from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
 from itertools import chain, permutations, zip_longest
 
-from gem.gem import (Conditional, Delta, Indexed, Node, Sum,
-                     index_sum, one)
+import numpy
+
+from gem import impero_utils
+from gem.gem import Conditional, Delta, Indexed, Node, Sum, index_sum, one
 from gem.contraction import estimate_cost
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import filtered_replace_indices
+from gem.optimise import constant_fold_zero, filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
-from gem.refactorise import (ATOMIC, COMPOUND, OTHER, MonomialSum,
-                             collect_monomials)
+from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
@@ -30,6 +31,11 @@ from gem.utils import groupby
 Integral = namedtuple('Integral', ['expression',
                                    'quadrature_multiindex',
                                    'argument_indices'])
+
+Plan = tuple[tuple[Node, Node], ...]
+
+# Cache-resident working set: 8192 doubles = 64 KiB of contraction temporaries.
+storage_budget = 8192
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -66,58 +72,53 @@ def _delta_inside(node, self):
                for child in node.children)
 
 
-def _optimise_contraction_order(
-        variable: Node, indices, monomial_sum: MonomialSum
-) -> tuple[tuple[int, ...], Node]:
-    """Choose the least-cost quadrature contraction ordering.
+def _declared_storage(plan: Plan, quadrature_indices: tuple) -> int:
+    """Count the temporary entries this plan makes Impero declare.
+
+    Only a schedule fixes how wide a temporary must be, because that width
+    follows from the loop nest a value outlives, which an expression DAG
+    does not record.
 
     Parameters
     ----------
-    variable : Node
-        Assignment variable whose indices identify multilinear axes.
-    indices : iterable of Index
-        Quadrature indices to contract.
-    monomial_sum : MonomialSum
-        Factorized integrand.
+    plan
+        Output variables and their factorized GEM expressions.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
 
     Returns
     -------
-    score
-        Estimated operations, storage, and expression size.
-    expression
-        Factorized GEM expression for the selected ordering.
-
-    Notes
-    -----
-    The search is exhaustive in the number of quadrature axes. Finite
-    element integration supplies one axis per reference-cell direction, so
-    this space is independent of polynomial degree.
+    int
+        Scalar entries in the temporaries, or zero if the plan schedules
+        to nothing.
 
     """
-    indices = tuple(indices)
-    plans = (
-        sum_factorise(variable, ordering, monomial_sum)
-        for ordering in permutations(indices)
-    )
-    return min(
-        ((estimate_cost((expression,)), expression)
-         for expression in plans),
-        key=lambda plan: plan[0],
-    )
+    variables = [variable for variable, _ in plan]
+    expressions = impero_utils.preprocess_gem(
+        constant_fold_zero([expression for _, expression in plan]),
+        **finalise_options)
+    ordering = quadrature_indices + tuple(chain.from_iterable(
+        variable.index_ordering() for variable in variables))
+    try:
+        impero_c = impero_utils.compile_gem(
+            list(zip(variables, expressions)), ordering, remove_zeros=True)
+    except impero_utils.NoopError:
+        return 0
+    return sum(
+        numpy.prod([index.extent for index in impero_c.indices[temporary]],
+                   dtype=int)
+        for temporary in impero_c.temporaries)
 
 
-def _optimise_plan(
+def _factorise(
         pairs: tuple[tuple[Node, Node], ...],
-        quadrature_indices: tuple,
-        preserve_maps: bool) -> tuple[tuple[Node, Node], ...]:
-    """Optimize one representation of the finite element linear maps.
+        preserve_maps: bool) -> tuple[tuple[Node, MonomialSum], ...]:
+    """Argument factorize and delta cancel one representation of the maps.
 
     Parameters
     ----------
     pairs
         Output variables and their integral expressions.
-    quadrature_indices
-        Quadrature indices in deterministic source order.
     preserve_maps
         Keep one-axis sums as finite element linear operands when true;
         expose their scalar polynomial structure when false.
@@ -125,14 +126,7 @@ def _optimise_plan(
     Returns
     -------
     tuple of tuple
-        Optimized output variables and GEM expressions.
-
-    Notes
-    -----
-    Preserving a linear map exposes tabulation reuse and map-level code
-    motion.  Expanding it exposes scalar factorization.  These
-    transformations are not composable in general, so plan selection must
-    compare their optimized contraction trees.
+        Output variables and their delta-cancelled monomial sums.
 
     """
     index_replacer = MemoizerArg(filtered_replace_indices)
@@ -158,18 +152,106 @@ def _optimise_plan(
                 delta_simplified[var].add(
                     indices, atomics, rest)
 
-    result = []
-    for variable in narrow_variables:
-        monomial_sum = delta_simplified[variable]
-        contracted = set(chain.from_iterable(
+    return tuple((variable, delta_simplified[variable])
+                 for variable in narrow_variables)
+
+
+def _plans(
+        assignments: tuple[tuple[Node, MonomialSum], ...],
+        quadrature_indices: tuple) -> tuple[Plan, Plan]:
+    """Place quadrature reductions, one plan per contraction strategy.
+
+    Separate orderings minimize arithmetic; one shared ordering spans the
+    assignments over a single loop nest, keeping the values they share
+    narrow.  Both searches are exhaustive in the quadrature axes, of which
+    a reference cell supplies one per direction.
+
+    Parameters
+    ----------
+    assignments
+        Output variables and their delta-cancelled monomial sums.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
+
+    Returns
+    -------
+    separate
+        Plan giving each assignment its cheapest ordering.
+    shared
+        Plan contracting every assignment in one common ordering.
+
+    """
+    contracted = []
+    for _, monomial_sum in assignments:
+        summed = set(chain.from_iterable(
             monomial.sum_indices for monomial in monomial_sum))
-        indices = tuple(
-            index for index in quadrature_indices
-            if index in contracted)
-        _, expression = _optimise_contraction_order(
-            variable, indices, monomial_sum)
-        result.append((variable, expression))
-    return tuple(result)
+        contracted.append(
+            tuple(index for index in quadrature_indices if index in summed))
+
+    factorised = {
+        (position, ordering): sum_factorise(variable, ordering, monomial_sum)
+        for position, (variable, monomial_sum) in enumerate(assignments)
+        for ordering in permutations(contracted[position])}
+
+    def plan(orderings) -> Plan:
+        return tuple(
+            (variable, factorised[position, orderings[position]])
+            for position, (variable, _) in enumerate(assignments))
+
+    separate = plan([
+        min(permutations(axes),
+            key=lambda ordering, p=position: estimate_cost(
+                (factorised[p, ordering],)))
+        for position, axes in enumerate(contracted)])
+    shared = min(
+        (plan([tuple(index for index in ordering if index in axes)
+               for axes in contracted])
+         for ordering in permutations(quadrature_indices)),
+        key=lambda candidate: estimate_cost(
+            expression for _, expression in candidate))
+    return separate, shared
+
+
+def _select_plan(
+        pairs: tuple[tuple[Node, Node], ...],
+        quadrature_indices: tuple) -> Plan:
+    """Minimize arithmetic among plans whose temporaries fit the budget.
+
+    Preserving a linear map exposes tabulation reuse, expanding it exposes
+    scalar factorization, and neither dominates.  Overflowing cache is a
+    cliff rather than a gradient, so storage bounds the search instead of
+    trading against arithmetic.  When no plan fits, take the narrowest.
+
+    Parameters
+    ----------
+    pairs
+        Output variables and their integral expressions.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
+
+    Returns
+    -------
+    Plan
+        Optimized output variables and GEM expressions.
+
+    """
+    candidates = list(dict.fromkeys(
+        plan
+        for preserve_maps in (False, True)
+        for plan in _plans(_factorise(pairs, preserve_maps),
+                           quadrature_indices)))
+    if len(candidates) == 1:
+        return candidates[0]
+
+    storage = {plan: _declared_storage(plan, quadrature_indices)
+               for plan in candidates}
+    feasible = [plan for plan in candidates
+                if storage[plan] <= storage_budget]
+    if not feasible:
+        return min(candidates, key=storage.get)
+    return min(feasible,
+               key=lambda plan: estimate_cost(
+                   expression for _, expression in plan))
 
 
 def flatten(var_reps, index_cache):
@@ -195,15 +277,8 @@ def flatten(var_reps, index_cache):
 
     # Split Concatenate nodes
     pairs = unconcatenate(pairs, cache=index_cache)
-    quadrature_indices = tuple(quadrature_indices)
-    plans = tuple(
-        _optimise_plan(tuple(pairs), quadrature_indices, preserve_maps)
-        for preserve_maps in (False, True))
-    plan = min(
-        plans,
-        key=lambda plan: estimate_cost(
-            expression for _, expression in plan))
-    yield from plan
+
+    return _select_plan(tuple(pairs), tuple(quadrature_indices))
 
 
 finalise_options = dict(replace_delta=True, remove_componenttensors=False)

@@ -7,14 +7,14 @@ import tsfc.spectral
 from gem.gem import one
 from gem.contraction import estimate_cost
 from gem.refactorise import MonomialSum
-from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
+from ufl import (Coefficient, Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
                  quadrilateral, curl, dot, div, grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
 from tsfc import compile_form
-from tsfc.spectral import _optimise_contraction_order
+from tsfc.spectral import _plans
 
 
 def helmholtz(cell, degree):
@@ -269,15 +269,46 @@ def test_sum_factorisation_order() -> None:
     monomial_sum = MonomialSum()
     monomial_sum.add((q0, q1), (inner * outer,), one)
 
-    score, _ = _optimise_contraction_order(
-        variable, (q1, q0), monomial_sum)
+    separate, _ = _plans(((variable, monomial_sum),), (q1, q0))
+    (_, expression), = separate
     candidates = [
         estimate_cost((tsfc.spectral.sum_factorise(
             variable, ordering, monomial_sum),))
         for ordering in ((q1, q0), (q0, q1))
     ]
 
-    assert score == min(candidates)
+    assert estimate_cost((expression,)) == min(candidates)
+
+
+def test_shared_contraction_ordering_bounds_storage(monkeypatch) -> None:
+    """Share one contraction ordering when separate ones cost storage."""
+    cell = TensorProductCell(quadrilateral, interval)
+    mesh = Mesh(VectorElement('Q', cell, 1))
+    space = FunctionSpace(mesh, FiniteElement('NCE', cell, 3))
+    u = TrialFunction(space)
+    v = TestFunction(space)
+    form = action(dot(curl(u), curl(v)) * dx, Coefficient(space))
+
+    def stored(kernel):
+        temporaries = kernel.ast.default_entrypoint.temporary_variables
+        return sum(
+            numpy.prod(temporary.shape, dtype=int)
+            for temporary in temporaries.values()
+            if temporary.shape and not (temporary.read_only
+                                        and temporary.initializer is not None))
+
+    chosen, = compile_form(form, parameters={'mode': 'spectral'})
+
+    # Deny the selection its shared-ordering candidate, leaving the plan
+    # that lets every assignment minimise its own arithmetic.
+    plans = tsfc.spectral._plans
+    monkeypatch.setattr(
+        tsfc.spectral, '_plans',
+        lambda assignments, quadrature_indices: 2 * plans(
+            assignments, quadrature_indices)[:1])
+    separate, = compile_form(form, parameters={'mode': 'spectral'})
+
+    assert stored(chosen) < stored(separate)
 
 
 if __name__ == "__main__":
