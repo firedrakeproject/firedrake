@@ -3,27 +3,11 @@
 
 import argparse
 import cProfile
-import os
 import pstats
-import tempfile
 import time
 import types
 
-import numpy
-
-
-def isolate_caches() -> None:
-    """Point the TSFC and PyOP2 caches at a fresh directory.
-
-    Notes
-    -----
-    Must run before ``import firedrake``, which fills these variables in if
-    they are unset.  Johnson--Mercier assembly is almost entirely code
-    generation, so a warm disk cache hides the quantity being measured.
-    """
-    cache = tempfile.mkdtemp(prefix="johnson-mercier-")
-    os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"] = os.path.join(cache, "tsfc")
-    os.environ["PYOP2_CACHE_DIR"] = os.path.join(cache, "pyop2")
+from metrics import isolate_caches, kernel_metrics, time_kernel
 
 
 def build_form(dim: int, size: int) -> tuple[object, object]:
@@ -69,112 +53,6 @@ def compile_target(form: object) -> object:
     return compile_form(form, parameters={"mode": "spectral"})[0]
 
 
-def temporary_metrics(
-        kernel: object) -> tuple[int, int, int, int, int, int]:
-    """Separate writable intermediates from immutable tables.
-
-    Parameters
-    ----------
-    kernel
-        Compiled TSFC kernel.
-
-    Returns
-    -------
-    scalar_count
-        Number of scalar temporaries.
-    mutable_array_count
-        Number of writable array temporaries.
-    mutable_elements
-        Total entries in writable array temporaries.
-    largest_mutable_array
-        Entries in the largest writable array temporary.
-    table_count
-        Number of read-only initialized arrays.
-    table_elements
-        Total entries in read-only initialized arrays.
-
-    Notes
-    -----
-    Loopy represents compile-time quadrature and tabulation data as
-    initialized temporary variables.  Those arrays are kernel inputs in the
-    finite element algorithm, not writable contraction intermediates, so
-    combining them would overstate the working set created by factorization.
-    """
-    temporaries = kernel.ast.default_entrypoint.temporary_variables.values()
-    temporaries = tuple(temporaries)
-    mutable = [
-        temporary for temporary in temporaries
-        if temporary.shape
-        and not (temporary.read_only and temporary.initializer is not None)
-    ]
-    tables = [
-        temporary for temporary in temporaries
-        if temporary.shape
-        and temporary.read_only and temporary.initializer is not None
-    ]
-    mutable_sizes = [
-        numpy.prod(temporary.shape, dtype=int) for temporary in mutable
-    ]
-    table_sizes = [
-        numpy.prod(temporary.shape, dtype=int) for temporary in tables
-    ]
-    return (
-        sum(not temporary.shape for temporary in temporaries),
-        len(mutable_sizes),
-        sum(mutable_sizes),
-        max(mutable_sizes, default=0),
-        len(table_sizes),
-        sum(table_sizes),
-    )
-
-
-def time_kernel(form: object, repeats: int) -> float:
-    """Time repeated calls to the compiled cell kernel.
-
-    Parameters
-    ----------
-    form
-        The bilinear form.
-    repeats
-        Number of calls to average over.
-
-    Returns
-    -------
-    float
-        Mean seconds per call to the generated code.
-
-    Notes
-    -----
-    Calling the compiled function directly measures the cell loop without
-    the Python and PETSc work that surrounds a call to ``assemble``.
-    """
-    from firedrake import assemble
-    from pyop2.global_kernel import GlobalKernel, compile_global_kernel
-
-    calls = []
-    original = GlobalKernel.__call__
-
-    def record(self, comm, *arguments):
-        calls.append((self, comm, arguments))
-        return original(self, comm, *arguments)
-
-    GlobalKernel.__call__ = record
-    try:
-        assemble(form)
-    finally:
-        GlobalKernel.__call__ = original
-
-    kernel, comm, arguments = max(
-        calls, key=lambda call: call[0].local_kernel.num_flops)
-    execute = compile_global_kernel(kernel, comm)
-
-    execute(*arguments)
-    start = time.perf_counter()
-    for _ in range(repeats):
-        execute(*arguments)
-    return (time.perf_counter() - start) / repeats
-
-
 def measure(dim: int, size: int, repeats: int) -> types.SimpleNamespace:
     """Time compilation, cold assembly and the generated cell kernel.
 
@@ -203,26 +81,14 @@ def measure(dim: int, size: int, repeats: int) -> types.SimpleNamespace:
     assemble(form)
     cold = time.perf_counter() - start
 
-    warm = time_kernel(form, repeats)
-
-    (nscalar, nmutable, nmutable_elements, largest_mutable,
-     ntables, ntable_elements) = temporary_metrics(kernel)
-    return types.SimpleNamespace(
-        dim=dim,
-        dofs=space.dim(),
-        cells=space.mesh().num_cells(),
-        compile_time=compile_time,
-        cold=cold,
-        warm=warm,
-        flops=kernel.flop_count,
-        nscalar=nscalar,
-        nmutable=nmutable,
-        nmutable_elements=nmutable_elements,
-        largest_mutable=largest_mutable,
-        ntables=ntables,
-        ntable_elements=ntable_elements,
-        ast_lines=len(str(kernel.ast).splitlines()),
-    )
+    run = kernel_metrics(kernel)
+    run.dim = dim
+    run.dofs = space.dim()
+    run.cells = space.mesh().num_cells()
+    run.compile_time = compile_time
+    run.cold = cold
+    run.warm = time_kernel(form, {"mode": "spectral"}, repeats)
+    return run
 
 
 def profile(dim: int, size: int, count: int) -> None:
@@ -260,7 +126,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.warm_cache:
-        isolate_caches()
+        isolate_caches("johnson-mercier-")
 
     if args.profile:
         for dim in args.dims:
