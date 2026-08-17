@@ -22,7 +22,7 @@ from pyop3.axis_tree.tree import (
 from pyop3.index_tree.tree import (
     AffineSliceComponent,
     CalledMap,
-    LoopIndex,
+    LoopContextFreeLoopIndex,
     RegionSliceComponent,
     ScalarIndex,
     Slice,
@@ -667,7 +667,7 @@ def _index_axes_per_index(index: Index, /, *args, **kwargs) -> tuple[pyop3.axis_
 
 
 @_index_axes_per_index.register
-def _(loop_index: LoopIndex, /, *args, **kwargs):
+def _(loop_index: LoopContextFreeLoopIndex, /, *args, **kwargs):
     """
     This function should return {None: [(path0, expr0), (path1, expr1)]}
     where path0 and path1 are "equivalent"

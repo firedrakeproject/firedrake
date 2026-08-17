@@ -326,7 +326,7 @@ class ClosureOrdering(enum.Enum):
 
 # TODO: The interface isn't quite right here. These attributes are codependent.
 # @op3.record.frozenrecord()
-class MeshLoopIndex(op3.LoopIndex):
+class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
     """Object representing a loop over mesh entities."""
 
     def __init__(
@@ -997,7 +997,6 @@ class AbstractMeshTopology(abc.ABC):
         )
 
     @property
-    @utils.deprecated("_plex_to_entity_numbering_sec('cell')")
     def _cell_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering_sec("cell")
 

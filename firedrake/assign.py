@@ -285,9 +285,8 @@ class Assigner:
             #
             #     for i
             #       dat1[i] <- dat2[g(f(i))]
-            # FIXME: This is wrong for mixed things - currently .nodes just gives us the root axis
-            loop_index = self.assignee.function_space().nodes[self.subset].iter()
-            op3_assignee = self.assignee.dat[self.subset][loop_index]
+            loop_index = self.assignee.function_space().nodal_axes[self.subset].iter()
+            op3_assignee = self.assignee.dat[loop_index]
         else:
             loop_index = None
             op3_assignee = self.assignee.dat[self.subset]

@@ -787,7 +787,7 @@ class SameMeshInterpolator(Interpolator):
         if (
             isinstance(tensor, Cofunction)
             and isinstance(self.dual_arg, Cofunction)
-            and tensor.dat == self.dual_arg.dat
+            and set(tensor.dat).intersection(set(self.dual_arg.dat))
         ):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
@@ -1120,7 +1120,7 @@ def _build_interpolation_callables(
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
-    if any(c.dat == tensor for c in coefficients):
+    if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
         if access is not op3.WRITE:
@@ -1189,14 +1189,6 @@ def _build_interpolation_callables(
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
                 local_kernel_args.append(pack(target_mesh.reference_coordinates, loop_index))
-
-    if any(c.dat == tensor for c in coefficients):
-        output = tensor
-        tensor = op3.Dat.empty_like(tensor)
-        if access is not op3.WRITE:
-            copyin += (lambda: tensor.assign(output, eager=True),)
-        copyout += (lambda: output.assign(tensor, eager=True),)
-
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))

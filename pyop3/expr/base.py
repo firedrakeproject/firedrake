@@ -695,12 +695,12 @@ class LoopIndexVar(TerminalExpression):
         return pyop3.collections.OrderedFrozenSet()
 
     def __init__(self, loop_index, axis) -> None:
-        from pyop3 import LoopIndex
+        from pyop3 import LoopContextFreeLoopIndex
 
         # we must be linear at this point
         assert len(axis.components) == 1
 
-        assert isinstance(loop_index, LoopIndex)
+        assert isinstance(loop_index, LoopContextFreeLoopIndex)
         assert axis.component.sf is None
         object.__setattr__(self, "loop_index", loop_index)
         object.__setattr__(self, "axis", axis)

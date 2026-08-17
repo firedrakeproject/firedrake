@@ -14,7 +14,7 @@ from firedrake.petsc import PETSc
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
 
 
-class VectorSpaceBasis(object):
+class VectorSpaceBasis:
     r"""Build a basis for a vector space.
 
     You can use this basis to express the null space of a singular operator.

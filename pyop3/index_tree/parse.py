@@ -154,6 +154,7 @@ def _(called_map: pyop3.index_tree.tree.AbstractCalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(slice)
 @collect_loop_contexts.register(EllipsisType)
 @collect_loop_contexts.register(numbers.Number)
+@collect_loop_contexts.register(pyop3.index_tree.tree.LoopContextFreeLoopIndex)
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
@@ -181,6 +182,7 @@ def _(index_tree: IndexTree, /, *args, **kwargs) -> tuple[IndexTree]:
 
 
 @_as_index_forest.register(Index)
+@_as_index_forest.register(LoopIndex)
 def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
     cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=idict())
     return tuple(IndexTree(cf_index) for cf_index in cf_indices)
@@ -526,6 +528,7 @@ def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractNonUnitAxisTree, path
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 
+@_as_context_free_indices.register(pyop3.index_tree.tree.LoopContextFreeLoopIndex)
 @_as_context_free_indices.register(Slice)
 @_as_context_free_indices.register(ScalarIndex)
 def _(index, /, loop_context: Mapping, **kwargs) -> tuple[Index]:
@@ -534,12 +537,12 @@ def _(index, /, loop_context: Mapping, **kwargs) -> tuple[Index]:
 
 @_as_context_free_indices.register(LoopIndex)
 def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
-    if loop_index.is_context_free:
-        return (loop_index,)
-    else:
-        path = loop_context[loop_index.id]
-        linear_iterset = loop_index.iterset.linearize(path)
-        return (loop_index.record_new(iterset=linear_iterset),)
+    path = loop_context[loop_index.id]
+    linear_iterset = loop_index.iterset.linearize(path)
+    cf_loop_index = pyop3.index_tree.LoopContextFreeLoopIndex(
+        iterset=linear_iterset, label=loop_index.label
+    )
+    return (cf_loop_index,)
 
 
 @_as_context_free_indices.register

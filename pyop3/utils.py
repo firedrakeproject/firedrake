@@ -69,18 +69,6 @@ def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_
             return generator(default_prefix)
 
 
-def generate_name(prefix: str):
-    return _unique_name_generator(prefix)
-
-
-_unique_name_generator = UniqueNameGenerator()
-"""Generator for creating globally unique names."""
-
-
-def unique_id(obj) -> str:
-    return _unique_id_generator(type(obj).__name__)
-
-
 # NOTE: Python 3.13 has warnings.deprecated
 def deprecated(prefer=None, internal=False):
     def decorator(fn):

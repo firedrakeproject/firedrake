@@ -45,7 +45,6 @@ from pyop3.index_tree.tree import (
     AffineSliceComponent,
     IndexTree,
     LoopIndex,
-    LoopIndexIdT,
     Slice,
 )
 from pyop3.insn.base import ArrayAccessType, loop_
@@ -60,7 +59,6 @@ if typing.TYPE_CHECKING:
     from pyop3.axis_tree import AxisLabelT
 
     AxisVarMapT = Mapping[AxisLabelT, int]
-    LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
 
 
 class ExpressionVisitor(NodeVisitor):
@@ -75,7 +73,7 @@ class ExpressionVisitor(NodeVisitor):
 
 
 # TODO: use overloadedexpressionevaluator
-def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None, name_vars=idict()) -> Any:
+def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices = None, name_vars=idict()) -> Any:
     if axis_vars is None:
         axis_vars = {}
     if loop_indices is None:
@@ -112,7 +110,7 @@ def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> A
 
 
 @_evaluate.register(pyop3.expr.LoopIndexVar)
-def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
+def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:

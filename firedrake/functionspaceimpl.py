@@ -891,7 +891,6 @@ class AbstractFunctionSpace:
         return self._iterset_to_node_map_dat("interior_facet")
 
     @property
-    @deprecated("cell_node_map_dat.data_ro")
     def cell_node_list(self) -> numpy.ndarray:
         if is_mixed(self) or self.parent:
             warnings.warn(
@@ -901,7 +900,6 @@ class AbstractFunctionSpace:
         return self.cell_node_map_dat.data_ro
 
     @property
-    @deprecated("exterior_facet_node_map_dat.data_ro")
     def exterior_facet_node_list(self) -> numpy.ndarray:
         if is_mixed(self) or self.parent:
             warnings.warn(
@@ -911,7 +909,6 @@ class AbstractFunctionSpace:
         return self.exterior_facet_node_map_dat.data_ro
 
     @property
-    @deprecated("interior_facet_node_map_dat.data_ro")
     def interior_facet_node_list(self) -> numpy.ndarray:
         if is_mixed(self) or self.parent:
             warnings.warn(

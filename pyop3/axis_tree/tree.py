@@ -921,12 +921,15 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         return self.iter()
 
     def iter(self, *, eager=False) -> LoopIndex | GeneratorType[IteratorIndexT]:
-        from pyop3 import LoopIndex
+        import pyop3
 
         if eager:
+            raise NotImplementedError
             return _iter_axis_tree(self)
+        elif self.is_linear:
+            return pyop3.LoopContextFreeLoopIndex(self)
         else:
-            return LoopIndex(self)
+            return pyop3.LoopIndex(self)
 
     def as_tree(self) -> Self:
         return self

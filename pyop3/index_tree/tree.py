@@ -294,7 +294,7 @@ class TabulatedMapComponent(MapComponent):
         from pyop3.expr import as_linear_buffer_expression
 
         if label is DECIDE:
-            label = utils.generate_name("mapcomponent")
+            label = utils.unique_name("mapcomponent")
 
         if not isinstance(array, Dat):
             raise NotImplementedError
@@ -359,11 +359,50 @@ class UnitIndex(AxisIndependentIndex):
     # }}}
 
 
-LoopIndexIdT = Hashable
+class AbstractLoopIndex(pyop3.obj.Object):
+    __abstract_record_attrs = ("iterset", "label")
+
+    @abc.abstractmethod
+    def context_free(self):
+        pass
+
+    # ick, remove
+    @property
+    def id(self):
+        return self.label
 
 
 @pyop3.record.frozenrecord()
-class LoopIndex(UnitIndex):
+class LoopIndex(AbstractLoopIndex):
+
+    iterset: AbstractNonUnitAxisTree
+    label: LabelT
+
+    def get_instruction_executor_cache_key(self, visitor):
+        return (
+            type(self),
+            visitor(self.iterset),
+            visitor.renamer.add_type(type(self), self.label),
+        )
+
+    def __init__(self, iterset, label=None):
+        if label is None:
+            label = utils.unique_name(type(self).__name__)
+        object.__setattr__(self, "iterset", iterset)
+        object.__setattr__(self, "label", label)
+
+    def context_free(self):
+        if self.is_context_free:
+            return LoopContextFreeLoopIndex(self.iterset, self.label)
+        else:
+            raise TypeError
+
+    def is_context_free(self):
+        return self.iterset.is_linear
+
+
+@pyop3.record.frozenrecord()
+class LoopContextFreeLoopIndex(AbstractLoopIndex, UnitIndex):
     """
     Parameters
     ----------
@@ -389,9 +428,14 @@ class LoopIndex(UnitIndex):
     def collect_buffers(self, visitor):
         return visitor(self.iterset)
 
-    def __init__(self, iterset: AbstractNonUnitAxisTree) -> None:
+    def __init__(self, iterset: AbstractNonUnitAxisTree, label=None) -> None:
+        if label is None:
+            label = utils.unique_name(type(self).__name__)
         object.__setattr__(self, "iterset", iterset)
-        object.__setattr__(self, "label", self.unique_id())
+        object.__setattr__(self, "label", label)
+
+    def __record_post_init(self):
+        assert self.iterset.is_linear
 
     # }}}
 
@@ -401,25 +445,16 @@ class LoopIndex(UnitIndex):
 
     dtype = IntType
 
-    # ick, remove
-    @property
-    def id(self):
-        return self.label
-
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
     # index trees
     @property
     def component_labels(self) -> tuple:
-        if not self.is_context_free:  # TODO: decorator?
-            pyop3.debug.warn_todo("Need a custom context free loop index type - the generic case cannot go in an index tree I think")
-            # custom exception type
-            # raise ValueError("only valid (context-free) in single component case")
-
         return (0,)
 
-    @property
-    def is_context_free(self):
-        return len(self.iterset.leaf_paths) == 1
+    def context_free(self):
+        return self
+
+    is_context_free = True
 
     # TODO: don't think this is useful any more, certainly a confusing name
     @property
@@ -459,7 +494,7 @@ class ScalarIndex(UnitIndex):
 
     def __init__(self, axis, component, value, label=DECIDE) -> None:
         if label is DECIDE:
-            label = utils.generate_name("scalar")
+            label = utils.unique_name("scalar")
 
         object.__setattr__(self, "axis", axis)
         object.__setattr__(self, "component", component)
@@ -529,7 +564,7 @@ class Slice(Index):
             )
         else:
             if label is DECIDE:
-                label = utils.generate_name("slice")
+                label = utils.unique_name("slice")
 
             if any(c.label is DECIDE for c in components):
                 if not all(c.label is DECIDE for c in components):
@@ -775,7 +810,7 @@ class CalledMap(AbstractCalledMap):
 
     def __init__(self, map, from_index, *, id=None, label=DECIDE) -> None:
         if label is DECIDE:
-            label = utils.generate_name("map")
+            label = utils.unique_name("map")
 
         object.__setattr__(self, "_map", map)
         object.__setattr__(self, "_index", from_index)
@@ -892,7 +927,7 @@ class UnitCalledMap(UnitIndex, AbstractCalledMap):
     # FIXME: do i need label?
     def __init__(self, map, index, label=DECIDE):
         if label is DECIDE:
-            label = utils.generate_name("map")
+            label = utils.unique_name("map")
         object.__setattr__(self, "_map", map)
         object.__setattr__(self, "_index", index)
         object.__setattr__(self, "label", label)

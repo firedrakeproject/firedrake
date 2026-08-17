@@ -517,7 +517,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "MatSetValues" in str(self):
+        # if "expression_kernel" in str(self):
         #     breakpoint()
             # import pyop3.debug
             # pyop3.debug.maybe_breakpoint()
@@ -642,7 +642,7 @@ class CompiledCodeExecutor:
         str_.append(sep)
 
         for arg in self.executable.code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.kernel_name_to_buffer_info[arg.name][0])
+            size, buffer = self._buffer_str(self.kernel_name_to_buffer_info[arg.name].buffer)
             str_.append(f"{arg.name} {size} : {buffer}")
 
         str_.append(sep)

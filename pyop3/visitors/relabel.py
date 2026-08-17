@@ -124,7 +124,7 @@ class Relabeler(IdentityVisitor):
     # {{{ pyop3.index_tree
 
     @process.register
-    def _(self, loop_index: pyop3.index_tree.LoopIndex, /):
+    def _(self, loop_index: pyop3.index_tree.AbstractLoopIndex, /):
         return loop_index.record_new(
             iterset=self(loop_index.iterset),
             label=self._get_label(type(loop_index), loop_index.label),
