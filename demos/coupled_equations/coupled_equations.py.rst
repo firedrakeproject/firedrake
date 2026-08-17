@@ -23,7 +23,8 @@ The Helmholtz equation is defined on :math:`\Omega_2` as
 
 where :math:`f \ \textrm{and}\ g` are known functions and :math:`u_1, u_2 \in V^1, V^2` are the solutions to these equations in some function spaces :math:`V^1 \ \textrm{and}\ V^2`. These solutions are the trial functions.
 
-The weak forms for the Poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. From the weak forms, variational problems can be defined. 
+The weak forms for the Poisson and Helmholtz equations defined above are derived from multiplying each equation by an arbitrary test function :math:`v \in V` and integrating by parts. Further details on this process can be found in `Mixed formulation for the Poisson equation`_ and `Simple Helmholtz equation`_. 
+
 
 For the Poisson equation, the variational problem involves finding :math:`u_1 \in V^1` such that :math:`a_{11}(u_1, v_1) = L_1(v_1) \ \textrm{for all}\ v_1 \in V^1` where
 
@@ -41,9 +42,9 @@ Similarly, the variational problem for the Helmholtz equation involves finding :
 
   L_2 (v_2) &= \int_{\Omega_2}g v_2  \ {\rm d} x.
 
-Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the Poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}`. 
+Along the shared interface :math:`\Gamma`, we enforce a Neumann boundary condition :math:`\frac{\partial u_1}{\partial n} = \frac{\partial u_2}{\partial n}` on the Poisson equation and a Dirichlet boundary condition :math:`u_1 = u_2` on the Helmholtz equation. This is primarily accomplished through the coupling terms :math:`a_{12}` and :math:`a_{21}` as well as on :math:`a_{22}`. 
 
-The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. Thus, a penalty term is also added to :math:`a_{22}`. 
+The Dirichlet boundary condition is weakly defined using Nitsche's method, allowing for more accurate approximations of the solution. This adds a penalty term to :math:`a_{22}`.
 
 .. math::
 
@@ -66,6 +67,20 @@ Overall, the variational problem for the coupled equations is: find :math:`(u_1,
 .. math::
 
   a_{11}(u_1,v_1) + a_{12}(u_2,v_1) + a_{22}(u_2,v_2) + a_{21}(u_1,v_2) = L_1(v_1) + L_2(v_2) \ \textrm{for all}\ (v_1, v_2) \in V^1 \times V^2.
+
+This overall variational problem can be represented as the following matrix equation where :math:`a_{11}` and :math:`a_{22}` represent the diagonals of a matrix :math:`A`, :math:`a_{12}` and :math:`a_{21}` represent the coupling terms between the two equations, and :math:`L_1(v_1)` and :math:`L_2(v_2)` are the right-hand side terms. 
+
+.. math::
+  \begin{pmatrix}
+  a_{11} & a_{12}\\
+  a_{21} & a_{22}
+  \end{pmatrix} \begin{pmatrix}
+  u_1 \\
+  u_2
+  \end{pmatrix} = \begin{pmatrix}
+  L_1(v_1) \\
+  L_2(v_2)
+  \end{pmatrix}
 
 
 Method of Manufactured Solutions (MMS)
@@ -130,7 +145,7 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
     f1 = -div(grad(u1_exact))
     f2 = -div(grad(u2_exact)) + u2_exact
 
-Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the edges of the meshes.
+Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the shared edge of the meshes. The shared edge is specified by the ``subdomain_id`` term.
 
 .. code-block::
   :dedent: 0
@@ -169,7 +184,7 @@ The matrices ``A11`` and ``A22`` are defined directly on the above function spac
                 - inner(dot(grad(u2), n2), v2) * ds2 \
                 + w2 * inner(u2, v2) * ds2
 
-Intermediate spaces are used to define the coupling terms in the variational problem. These coupling terms are calculated by finding the product of the cross-mesh interpolation matrices ``B12, B21`` and the mass matrices ``M1, M2``, placing the coupling terms in the dual space of ``W``. Recall that ``A12`` enforces the Neumann boundary condition whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
+Intermediate spaces are used to define the coupling terms in the variational problem. These coupling terms are computed as the product of the cross-mesh interpolation matrices ``B12`` and ``B21`` with the corresponding mass matrices ``M1`` and ``M2``. Thus, the coupling term is represented in the dual space of ``W``. Recall that ``A12`` enforces the Neumann boundary condition whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
 
 .. code-block::
   :dedent: 0
@@ -193,7 +208,7 @@ Intermediate spaces are used to define the coupling terms in the variational pro
     A21_form = action(M2, B21)
 
     
-These definitions are combined to form the overall problem to be solved ``Ax = L``. From this method, we return ``A, L, W`` and the exact solutions which are mapped onto the function space.
+These terms are combined to form the variables ``A`` and ``L`` in the overall variational problem, ``Ax = L``. From this method, we return ``A, L, W`` and the exact solutions mapped onto the function space.
 
 .. code-block::
   :dedent: 0
@@ -210,7 +225,7 @@ These definitions are combined to form the overall problem to be solved ``Ax = L
 
     return A, L, W, u1_exact_func, u2_exact_func
 
-The resulting solution can be plotted by calling ``plot()``. Matplotlib is required for plotting with this method and Firedrake's `trisurf`_ is used to produce a three-dimensional surface plot. ::
+The resulting solution can be plotted by calling ``plot()``. Matplotlib and Firedrake's `trisurf`_ are used to produce a three-dimensional surface plot. ::
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import trisurf
@@ -228,7 +243,7 @@ The resulting solution can be plotted by calling ``plot()``. Matplotlib is requi
     plt.tight_layout()
     plt.savefig(filename)
 
-Utilising both methods mentioned above, the coupled problem can be solved for each specified mesh size as shown below and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
+Utilising both methods above, the coupled problem can be solved for each specified mesh size and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
 
   for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
@@ -259,6 +274,11 @@ Utilising both methods mentioned above, the coupled problem can be solved for ea
     errors_1.append(e_1)
     errors_2.append(e_2)
 
+Below is an example plot produced, with ``n1`` = ``n2`` = 32. These plots can be used to verify that the shared interface is correctly coupled.
+
+.. image:: dirichlet_neumann_example_32_32.png
+  :scale: 50
+  :align: center
 
 Convergence Analysis
 --------------------
@@ -358,9 +378,13 @@ Running the above script with ``n1_list = [2,4,8,16,32]``, ``n2_list = [2,4,8,16
      - 1.791455e-11
      - 5.9974
 
-This corresponds to a problem with conforming coupled meshes, converging with rate :math:`O(h^{p+2})` and small error norm values.
+This corresponds to a problem with conforming coupled meshes, converging with rate :math:`O(h^{p+2})` and small error norm values. The log-log plot of the step size ``h`` against the error norm shows an approximately linear relationship with a negative gradient, consistent with the convergence rates calculated in the table above.
 
-This problem can also be solved on non-conforming meshes. As an example, we run the script with ``n1_list = [8,8,8,8,8]``, ``n2_list = [2,4,8,16,32]`` and the same domain dimensions. We now obtain the following error norm and convergence rate values.
+.. image:: Logloggraph.png
+  :scale: 50
+  :align: center
+
+This problem can also be solved on non-conforming meshes. As an example, we run the script with ``n1_list = [8,8,8,8,8]``, ``n2_list = [2,4,8,16,32]`` and the same domain dimensions. We now obtain the following error norm and convergence rate values for ``n2``.
 
 .. list-table::
    :header-rows: 1
