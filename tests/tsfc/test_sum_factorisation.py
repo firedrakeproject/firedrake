@@ -71,20 +71,6 @@ def count_flops(form):
 
 
 def count_storage(form):
-    """Count the scalar entries a kernel writes to its temporaries.
-
-    Parameters
-    ----------
-    form
-        Form to compile in spectral mode.
-
-    Returns
-    -------
-    int
-        Entries of every temporary the kernel writes.  Read-only tables
-        carry their own initializer and cost tabulation, not contraction
-        storage, so they are excluded.
-    """
     kernel, = compile_form(form, parameters=dict(mode='spectral'))
     temporaries = kernel.ast.default_entrypoint.temporary_variables
     return sum(numpy.prod(temporary.shape, dtype=int)
