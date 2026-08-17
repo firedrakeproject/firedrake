@@ -1084,7 +1084,7 @@ class ParloopFormAssembler(FormAssembler):
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             if isinstance(self, ExplicitMatrixAssembler):
-                with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
+                with modified_lgmaps(subtensor, lgmaps):
                     parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
                 parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
@@ -1855,16 +1855,21 @@ class ParloopBuilder:
         return (self._local_knl.indices,)
 
     def _filter_bcs(self, row, col):
+        assert False, "old code"
+        if row is None:
+            ...
+        if col is None:
+            ...
         assert len(self._form.arguments()) == 2 and not self._diagonal
-        if len(self.test_function_space) > 1:
+        if is_mixed(self.test_function_space):
             bcrow = tuple(bc for bc in self._bcs
                           if bc.function_space_index() == row)
         else:
             bcrow = self._bcs
 
-        if len(self.trial_function_space) > 1:
+        if is_mixed(self.trial_function_space):
             bccol = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == col
+                          if (bc.function_space_index() == col)
                           and isinstance(bc, DirichletBC))
         else:
             bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
@@ -1879,36 +1884,52 @@ class ParloopBuilder:
         if len(self._form.arguments()) != 2 or self._diagonal:
             return None
 
+        # Matrix types for which lgmap setting does not make sense.
+        # One cannot set the lgmaps for a MATIS as the mat is defined by the
+        # lgmaps and hence changing them will destroy the matrix. Boundary
+        # conditions are instead applied as a post-processing step.
+        skip_mat_types = {"is", "python"}
+
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
         column_space = column_arg.function_space()
-        petscmat = matrix.petscmat
-
         i, j = indices
-        if petscmat.type == PETSc.Mat.Type.NEST:
-            if is_mixed(row_space):
-                if i is None:
-                    raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
-                row_space = row_space[i]
-                inest = i
+
+        row_bcs = self._bcs
+        col_bcs = [bc for bc in self._bcs if isinstance(bc, DirichletBC)]
+
+        if matrix.petscmat.type == PETSc.Mat.Type.NEST:
+            # For MATNESTS return an lgmap pair for each block in the form,
+            # keyed by nest indices.
+            if is_mixed(row_space) and i is None:
+                ii = list(range(len(row_space)))
             else:
-                inest = 0
-            if is_mixed(column_space):
-                if j is None:
-                    raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
-                column_space = column_space[j]
-                jnest = j
+                ii = [i]
+            if is_mixed(column_space) and j is None:
+                jj = list(range(len(column_space)))
             else:
-                jnest = 0
-            petscmat = petscmat.getNestSubMatrix(inest, jnest)
-            i = None
-            j = None
-        if petscmat.type == PETSc.Mat.Type.PYTHON:
+                jj = [j]
+
+            lgmaps = {}
+            for i, j in itertools.product(ii, jj):
+                if matrix.petscmat.getNestSubMatrix(i, j).type in skip_mat_types:
+                    continue
+                else:
+                    # MATNESTS require lgmaps that only address the current block
+                    row_lgmap = row_space[i].lgmap(row_bcs, warn_unused=False)
+                    column_lgmap = column_space[j].lgmap(col_bcs, warn_unused=False)
+                    lgmap = (row_lgmap, column_lgmap)
+                lgmaps[i, j] = lgmap
+            return lgmaps
+
+        elif matrix.petscmat.type in skip_mat_types:
             return None
 
-        # TODO: it's annoying that we have to do this in a global sense?
-        row_bcs, column_bcs = self._filter_bcs(*indices)
-        return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
+        else:
+            # Not a MATNEST, only a single lgmap pair to consider
+            row_lgmap = row_space.lgmap(row_bcs, i, warn_unused=False)
+            column_lgmap = column_space.lgmap(col_bcs, j, warn_unused=False)
+            return (row_lgmap, column_lgmap)
 
     @property
     def _indices(self):

@@ -799,8 +799,13 @@ class AbstractFunctionSpace:
             block_shape = self.shape
         return self.dm_axes.template_vec(block_shape)
 
-    @cached_method()
-    def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
+    def lgmap(
+        self,
+        bcs: Iterable[DirichletBC] = (),
+        index: int | None = None,
+        *,
+        warn_unused: bool = True,
+    ) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         # update this#
@@ -817,6 +822,53 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
+        # filter the boundary conditions to only those that match this space
+        # TODO: the matching here is only done on indices of mixed spaces, we
+        # don't check if the spaces themselves are the same.
+        unused_bcs = set(bcs)
+        if index is None:
+            # the lgmap is for the full space
+            if is_mixed(self):
+                split_bcs = []
+                for subspace in self:
+                    matching_bcs = []
+                    for bc in bcs:
+                        if bc.function_space_index() == subspace.index:
+                            matching_bcs.append(bc)
+                            unused_bcs.discard(bc)
+                    split_bcs.append(((self._labels[subspace.index],), matching_bcs))
+            elif self.index is not None:
+                # we are an indexed part of a mixed function space
+                matching_bcs = []
+                for bc in bcs:
+                    if bc.function_space_index() == self.index:
+                        matching_bcs.append(bc)
+                        unused_bcs.discard(bc)
+                split_bcs = [((), matching_bcs)]
+            else:
+                # not a mixed space, the boundary condition matches
+                matching_bcs = []
+                for bc in bcs:
+                    matching_bcs.append(bc)
+                    unused_bcs.discard(bc)
+                split_bcs = [((), matching_bcs)]
+
+        else:
+            # the lgmap is only for a subspace
+            subspace = self[index]
+            matching_bcs = []
+            for bc in bcs:
+                if bc.function_space_index() == index:
+                    matching_bcs.append(bc)
+                    unused_bcs.discard(bc)
+            split_bcs = [((self._labels[index],), matching_bcs)]
+
+        if warn_unused and unused_bcs:
+            firedrake.logging.warning(
+                "Some boundary conditions did not match the function space and were "
+                "ignored when masking the local to global map"
+            )
+
         lgmap_axes = self.axes
         if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
@@ -824,44 +876,6 @@ class AbstractFunctionSpace:
             lgmap_axes = lgmap_axes.blocked(self.shape)
             block_size = numpy.prod(self.shape)
         lgmap_dat = lgmap_axes.global_numbering.copy(constant=False)
-
-        # track which BCs are used so we can warn if any are missed
-        unused_bcs = set(bcs)
-        if index is None:  # The lgmap is for the full space
-            if is_mixed(self):
-                split_bcs = []
-                for subspace in self:
-                    matching_bcs = []
-                    for bc in bcs:
-                        # if bc.function_space_index() == subspace.index:
-                        if True:
-                            matching_bcs.append(bc)
-                            unused_bcs.discard(bc)
-                    split_bcs.append(((self._labels[subspace.index],), matching_bcs))
-            else:
-                matching_bcs = []
-                for bc in bcs:
-                    # if bc.function_space().topological == self.topological:
-                    if True:
-                        matching_bcs.append(bc)
-                        unused_bcs.discard(bc)
-                split_bcs = [((), matching_bcs)]
-
-        else:  # The lgmap is only for a subspace
-            subspace = self[index]
-            matching_bcs = []
-            for bc in bcs:
-                # if bc.function_space().topological == subspace.topological:
-                if True:
-                    matching_bcs.append(bc)
-                    unused_bcs.discard(bc)
-            split_bcs = [((self._labels[index],), matching_bcs)]
-
-        if unused_bcs:
-            firedrake.logging.warning(
-                "Some boundary conditions did not match the function space and were "
-                "ignored when masking the local to global map"
-            )
 
         for field_idx, bcs_per_field in split_bcs:
             for bc in bcs_per_field:
@@ -871,7 +885,6 @@ class AbstractFunctionSpace:
         return PETSc.LGMap().create(lgmap_dat.data_ro_with_halos, bsize=block_size, comm=self.comm)
 
     # }}}
-
 
     # {{{ maps
 

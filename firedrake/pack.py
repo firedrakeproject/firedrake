@@ -526,32 +526,27 @@ def iter_space(space: WithGeometry):
 
 
 @contextlib.contextmanager
-def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
-    if indices is not None:
-        indices = [
-            i if i is not None else 0
-            for i in indices
-        ]
-
+def modified_lgmaps(mat: op3.Mat, lgmaps):
     if lgmaps is None:
         yield
         return
 
-    petscmat = mat.handle
-    assert mat.buffer.mat is petscmat
-    if petscmat.type == "nest":
-        petscmat = petscmat.getNestSubMatrix(*indices)
-
-    # One cannot set the lgmaps for a MATIS as the mat is defined by the
-    # lgmaps and hence changing them will destroy the matrix. Boundary
-    # conditions are instead applied as a post-processing step.
-    # TODO: it is clearer to not call this function in that case, rather than
-    # silently doing nothing.
-    if petscmat.type == "is":
+    petscmat = mat.buffer.mat
+    if isinstance(lgmaps, collections.abc.Mapping):
+        # MATNEST, apply lgmap pairs to specified blocks
+        orig_lgmaps = {}
+        for (i, j), lgmap_pair in lgmaps.items():
+            submat = petscmat.getNestSubMatrix(i, j)
+            orig_lgmaps[i, j] = submat.getLGMap()
+            submat.setLGMap(*lgmap_pair)
         yield
-        return
+        for (i, j), lgmap_pair in orig_lgmaps.items():
+            submat = petscmat.getNestSubMatrix(i, j)
+            submat.setLGMap(*lgmap_pair)
 
-    orig_lgmaps = petscmat.getLGMap()
-    petscmat.setLGMap(*lgmaps)
-    yield
-    petscmat.setLGMap(*orig_lgmaps)
+    else:
+        # Monolithic matrix, only replace one pair
+        orig_lgmaps = petscmat.getLGMap()
+        petscmat.setLGMap(*lgmaps)
+        yield
+        petscmat.setLGMap(*orig_lgmaps)

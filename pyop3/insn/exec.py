@@ -233,7 +233,7 @@ class InstructionExecutionContext:
             for name, buf_view in executor.kernel_name_to_buffer_info.items():
                 new_buffer_view = pyop3.buffer.IndexedBuffer(
                     arg_buffer_map.get(buf_view.buffer, buf_view.buffer),
-                    buf_view.nest_idxs,
+                    buf_view.nest_indices,
                 )
                 new_kernel_name_to_buffer_info[name] = new_buffer_view
             new_kernel_name_to_buffer_info = idict(new_kernel_name_to_buffer_info)

@@ -1204,7 +1204,7 @@ def _build_interpolation_callables(
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 
     def parloop_callable():
-        with modified_lgmaps(tensor, None, lgmaps):
+        with modified_lgmaps(tensor, lgmaps):
             parloop(compiler_parameters=pyop3_compiler_parameters)
 
     if isinstance(tensor, op3.Mat):

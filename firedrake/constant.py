@@ -117,13 +117,13 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """
         if component in ((), None):
             if self.ufl_shape == ():
-                return self.dat.data_ro[0]
-            return self.dat.data_ro
-        return self.dat.data_ro[component]
+                return self.dat.data_ro_with_halos[0]
+            return self.dat.data_ro_with_halos
+        return self.dat.data_ro_with_halos[component]
 
     def values(self):
         """Return a (flat) view of the value of the Constant."""
-        return self.dat.data_ro.reshape(-1)
+        return self.dat.data_ro_with_halos.reshape(-1)
 
     def function_space(self):
         """Return a null function space."""
@@ -169,7 +169,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
     def __str__(self):
-        return str(self.dat.data_ro)
+        return str(self.dat.data_ro_with_halos)
 
 
 # Unicode handler for Firedrake constants
