@@ -228,6 +228,13 @@ class Compiler(ABC):
     _ldflags = ()
 
     _optflags = ()
+    _safe_optflags = ()
+    """Optimisation flags used when ``safe_math`` is set.
+
+    Should match ``_optflags`` with the relaxed floating point flags removed,
+    so that opting in to IEEE semantics does not silently also give up
+    unrelated optimisations.
+    """
     _debugflags = ()
 
     def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), version=None, debug=False):
@@ -278,10 +285,25 @@ class Compiler(ABC):
         return self._ld
 
     @property
+    def optflags(self) -> tuple[str, ...]:
+        """Optimisation flags, honouring the ``safe_math`` configuration.
+
+        By default this includes ``-ffast-math`` or its equivalent, which
+        grants the compiler licence to reassociate floating point arithmetic
+        and to assume NaN and infinity do not occur. Kernels that are
+        sensitive to either need a way to decline; ``safe_math`` selects
+        ``_safe_optflags`` instead. Devito exposes the same switch under the
+        same name.
+        """
+        if configuration["safe_math"]:
+            return self._safe_optflags
+        return self._optflags
+
+    @property
     def cflags(self) -> tuple[str, ...]:
         return (
             *self._cflags,
-            *(self._debugflags if self._debug else self._optflags),
+            *(self._debugflags if self._debug else self.optflags),
             *self.bugfix_cflags,
             *self._extra_compiler_flags,
             *shlex.split(configuration["cflags"]),
@@ -291,7 +313,7 @@ class Compiler(ABC):
     def cxxflags(self) -> tuple[str, ...]:
         return (
             *self._cxxflags,
-            *(self._debugflags if self._debug else self._optflags),
+            *(self._debugflags if self._debug else self.optflags),
             *self.bugfix_cflags,
             *self._extra_compiler_flags,
             *shlex.split(configuration["cxxflags"]),
@@ -319,6 +341,7 @@ class MacClangCompiler(Compiler):
     _ldflags = ("-dynamiclib",)
 
     _optflags = ("-O3", "-ffast-math", "-march=native")
+    _safe_optflags = ("-O3", "-march=native")
     _debugflags = ("-O0", "-g")
 
 
@@ -326,6 +349,7 @@ class MacClangARMCompiler(MacClangCompiler):
     """A compiler for building a shared library on ARM based Mac systems."""
     # See https://stackoverflow.com/q/65966969
     _optflags = ("-O3", "-ffast-math", "-mcpu=apple-a14")
+    _safe_optflags = ("-O3", "-mcpu=apple-a14")
     # Need to pass -L/opt/homebrew/opt/gcc/lib/gcc/11 to prevent linker error:
     # ld: file not found: @rpath/libgcc_s.1.1.dylib for architecture arm64 This
     # seems to be a homebrew configuration issue somewhere. Hopefully this
@@ -347,6 +371,7 @@ class LinuxGnuCompiler(Compiler):
     _ldflags = ("-shared",)
 
     _optflags = ("-march=native", "-O3", "-ffast-math")
+    _safe_optflags = ("-march=native", "-O3")
     _debugflags = ("-O0", "-g")
 
     @property
@@ -374,6 +399,7 @@ class LinuxClangCompiler(Compiler):
     _ldflags = ("-shared", "-L/usr/lib")
 
     _optflags = ("-march=native", "-O3", "-ffast-math")
+    _safe_optflags = ("-march=native", "-O3")
     _debugflags = ("-O0", "-g")
 
 
@@ -385,7 +411,10 @@ class LinuxIntelCompiler(Compiler):
     _cxxflags = ("-fPIC", "-no-multibyte-chars")
     _ldflags = ("-shared",)
 
+    # -Ofast implies -fp-model=fast, so the safe variant drops to -O3 and asks
+    # for precise semantics explicitly rather than relying on the default.
     _optflags = ("-Ofast", "-xHost")
+    _safe_optflags = ("-O3", "-xHost", "-fp-model=precise")
     _debugflags = ("-O0", "-g")
 
 
@@ -398,6 +427,7 @@ class LinuxCrayCompiler(Compiler):
     _ldflags = ("-shared",)
 
     _optflags = ("-march=native", "-O3", "-ffast-math")
+    _safe_optflags = ("-march=native", "-O3")
     _debugflags = ("-O0", "-g")
 
     @property
