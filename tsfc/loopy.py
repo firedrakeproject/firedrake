@@ -124,6 +124,7 @@ class LoopyContext(object):
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
         self.tabulated = (None, ())  # axes and inames of the preceding tabulation
+        self.index_parents = {}  # iname -> parent inames bounding a jagged index
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
         self.target = target
@@ -258,7 +259,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
 
     # Create domains
-    domains = create_domains(ctx.index_extent.items())
+    domains = create_domains(ctx.index_extent.items(), ctx.index_parents)
 
     # Create loopy kernel
     knl = lp.make_kernel(
@@ -277,16 +278,30 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     return knl, event_name
 
 
-def create_domains(indices):
-    """ Create ISL domains from indices
+def create_domains(indices, index_parents=None):
+    """Create ISL domains for independent and dependent indices.
 
-    :arg indices: iterable of (index_name, extent) pairs
-    :returns: A list of ISL sets representing the iteration domain of the indices."""
+    Parameters
+    ----------
+    indices : iterable of tuple
+        Index names and their static extents.
+    index_parents : mapping, optional
+        Parent inames for simplex-lattice bounds.
 
+    Returns
+    -------
+    list of isl.Set
+        Iteration domains for Loopy.
+    """
     domains = []
     for idx, extent in indices:
-        inames = isl.make_zero_and_vars([idx])
-        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(inames[0] + extent))))
+        parents = index_parents.get(idx, ()) if index_parents else ()
+        inames = isl.make_zero_and_vars([idx], parents)
+        bound = inames[0] + extent
+        for parent in parents:
+            bound = bound - inames[parent]
+        domains.append(inames[0].le_set(inames[idx])
+                       & inames[idx].lt_set(bound))
 
     if not domains:
         domains = [isl.BasicSet("[] -> {[]}")]
@@ -334,6 +349,13 @@ def statement_for(tree, ctx):
     assert extent
     idx = ctx.name_gen(ctx.index_names[tree.index])
     ctx.index_extent[idx] = extent
+    if isinstance(tree.index, gem.JaggedIndex) and \
+            all(parent in ctx.active_indices for parent in tree.index.parents):
+        # Tighten the loop bound of a jagged index nested inside its parents.
+        # If a parent loop is not in scope, the rectangular bound `extent`
+        # remains correct: jagged expressions are zero-padded.
+        ctx.index_parents[idx] = tuple(ctx.active_indices[parent].name
+                                       for parent in tree.index.parents)
     with active_indices({tree.index: p.Variable(idx)}, ctx) as ctx_active:
         return statement(tree.children[0], ctx_active)
 
@@ -378,13 +400,24 @@ def statement_evaluate(leaf, ctx):
     elif isinstance(expr, gem.Constant):
         return []
     elif isinstance(expr, gem.ComponentTensor):
-        axes, idx = ctx.tabulated
-        if axes != expr.multiindex:
-            idx = ctx.gem_to_pym_multiindex(expr.multiindex)
-            ctx.tabulated = (expr.multiindex, idx)
+        implicit_axes = tuple(
+            index for index in expr.multiindex
+            if index not in ctx.active_indices)
+        axes, implicit_values = ctx.tabulated
+        if axes != implicit_axes:
+            implicit_values = ctx.gem_to_pym_multiindex(implicit_axes)
+            ctx.tabulated = (implicit_axes, implicit_values)
+        implicit_indices = dict(zip(implicit_axes, implicit_values))
+        value_indices = []
+        for index in expr.multiindex:
+            if index in ctx.active_indices:
+                value_indices.append(ctx.active_indices[index])
+            else:
+                value_indices.append(implicit_indices[index])
+        value_indices = tuple(value_indices)
         var, sub_idx = ctx.pymbolic_variable_and_destruct(expr)
-        lhs = p.Subscript(var, sub_idx + idx)
-        with active_indices(dict(zip(expr.multiindex, idx)), ctx) as ctx_active:
+        lhs = p.Subscript(var, sub_idx + value_indices)
+        with active_indices(implicit_indices, ctx) as ctx_active:
             return [lp.Assignment(lhs, expression(expr.children[0], ctx_active), within_inames=ctx_active.active_inames())]
     elif isinstance(expr, gem.Inverse):
         idx = ctx.pymbolic_multiindex(expr.shape)
