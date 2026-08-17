@@ -799,16 +799,8 @@ class AbstractFunctionSpace:
             block_shape = self.shape
         return self.dm_axes.template_vec(block_shape)
 
-    def lgmap(
-        self,
-        bcs: Iterable[DirichletBC] = (),
-        index: int | None = None,
-        *,
-        warn_unused: bool = True,
-    ) -> PETSc.LGMap:
+    def lgmap(self, bcs: Iterable[DirichletBC] = ()) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
-
-        # update this#
 
         Parameters
         ----------
@@ -822,52 +814,19 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
-        # filter the boundary conditions to only those that match this space
-        # TODO: the matching here is only done on indices of mixed spaces, we
-        # don't check if the spaces themselves are the same.
-        unused_bcs = set(bcs)
-        if index is None:
-            # the lgmap is for the full space
-            if is_mixed(self):
-                split_bcs = []
-                for subspace in self:
-                    matching_bcs = []
-                    for bc in bcs:
-                        if bc.function_space_index() == subspace.index:
-                            matching_bcs.append(bc)
-                            unused_bcs.discard(bc)
-                    split_bcs.append(((self._labels[subspace.index],), matching_bcs))
-            elif self.index is not None:
-                # we are an indexed part of a mixed function space
-                matching_bcs = []
-                for bc in bcs:
-                    if bc.function_space_index() == self.index:
-                        matching_bcs.append(bc)
-                        unused_bcs.discard(bc)
-                split_bcs = [((), matching_bcs)]
-            else:
-                # not a mixed space, the boundary condition matches
-                matching_bcs = []
-                for bc in bcs:
-                    matching_bcs.append(bc)
-                    unused_bcs.discard(bc)
-                split_bcs = [((), matching_bcs)]
-
-        else:
-            # the lgmap is only for a subspace
-            subspace = self[index]
-            matching_bcs = []
+        # Partition the boundary conditions by which element of the mixed
+        # space they correspond to.
+        # TODO: we should check that the function spaces are compatible
+        split_bcs = collections.defaultdict(list)
+        if self.index is not None:
+            # We are an indexed component of a mixed space. The lgmap is therefore
+            # only for the current block and thus we don't need a field index here.
             for bc in bcs:
-                if bc.function_space_index() == index:
-                    matching_bcs.append(bc)
-                    unused_bcs.discard(bc)
-            split_bcs = [((self._labels[index],), matching_bcs)]
-
-        if warn_unused and unused_bcs:
-            firedrake.logging.warning(
-                "Some boundary conditions did not match the function space and were "
-                "ignored when masking the local to global map"
-            )
+                assert bc.function_space_index() == self.index
+                split_bcs[None].append(bc)
+        else:
+            for bc in bcs:
+                split_bcs[bc.function_space_index()].append(bc)
 
         lgmap_axes = self.axes
         if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
@@ -877,10 +836,14 @@ class AbstractFunctionSpace:
             block_size = numpy.prod(self.shape)
         lgmap_dat = lgmap_axes.global_numbering.copy(constant=False)
 
-        for field_idx, bcs_per_field in split_bcs:
+        for field_idx, bcs_per_field in split_bcs.items():
+            if field_idx is not None:
+                field_label = (self._labels[field_idx],)
+            else:
+                field_label = ()
             for bc in bcs_per_field:
                 component_idx = bc.function_space().component or ()
-                lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
+                lgmap_dat[*field_label, bc.node_set, *component_idx].assign(-1, eager=True)
 
         return PETSc.LGMap().create(lgmap_dat.data_ro_with_halos, bsize=block_size, comm=self.comm)
 

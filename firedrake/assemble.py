@@ -1839,41 +1839,11 @@ class ParloopBuilder:
             packed_args.append(packed_arg)
         return op3.loop(p, self._kinfo.kernel(*packed_args))
 
-    @property
-    def test_function_space(self):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        test, _ = self._form.arguments()
-        return test.function_space()
-
-    @property
-    def trial_function_space(self):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        _, trial = self._form.arguments()
-        return trial.function_space()
-
-    def get_indicess(self):
-        return (self._local_knl.indices,)
-
-    def _filter_bcs(self, row, col):
-        assert False, "old code"
-        if row is None:
-            ...
-        if col is None:
-            ...
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        if is_mixed(self.test_function_space):
-            bcrow = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == row)
+    def _filter_bcs(self, function_space, bcs, index: int | None):
+        if index is not None:
+            return tuple(bc for bc in bcs if bc.function_space_index() == index)
         else:
-            bcrow = self._bcs
-
-        if is_mixed(self.trial_function_space):
-            bccol = tuple(bc for bc in self._bcs
-                          if (bc.function_space_index() == col)
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
-        return bcrow, bccol
+            return bcs
 
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
@@ -1899,27 +1869,24 @@ class ParloopBuilder:
         col_bcs = [bc for bc in self._bcs if isinstance(bc, DirichletBC)]
 
         if matrix.petscmat.type == PETSc.Mat.Type.NEST:
+            ii = list(range(len(row_space))) if i is None else [i]
+            jj = list(range(len(column_space))) if j is None else [j]
+
             # For MATNESTS return an lgmap pair for each block in the form,
             # keyed by nest indices.
-            if is_mixed(row_space) and i is None:
-                ii = list(range(len(row_space)))
-            else:
-                ii = [i]
-            if is_mixed(column_space) and j is None:
-                jj = list(range(len(column_space)))
-            else:
-                jj = [j]
-
             lgmaps = {}
             for i, j in itertools.product(ii, jj):
                 if matrix.petscmat.getNestSubMatrix(i, j).type in skip_mat_types:
                     continue
                 else:
                     # MATNESTS require lgmaps that only address the current block
-                    row_lgmap = row_space[i].lgmap(row_bcs, warn_unused=False)
-                    column_lgmap = column_space[j].lgmap(col_bcs, warn_unused=False)
-                    lgmap = (row_lgmap, column_lgmap)
-                lgmaps[i, j] = lgmap
+                    row_subspace = row_space[i]
+                    col_subspace = column_space[j]
+                    row_bcs_ = self._filter_bcs(row_subspace, row_bcs, i)
+                    col_bcs_ = self._filter_bcs(col_subspace, col_bcs, j)
+                    row_lgmap = row_subspace.lgmap(row_bcs_)
+                    col_lgmap = col_subspace.lgmap(col_bcs_)
+                    lgmaps[i, j] = (row_lgmap, col_lgmap)
             return lgmaps
 
         elif matrix.petscmat.type in skip_mat_types:
@@ -1927,9 +1894,9 @@ class ParloopBuilder:
 
         else:
             # Not a MATNEST, only a single lgmap pair to consider
-            row_lgmap = row_space.lgmap(row_bcs, i, warn_unused=False)
-            column_lgmap = column_space.lgmap(col_bcs, j, warn_unused=False)
-            return (row_lgmap, column_lgmap)
+            row_bcs = self._filter_bcs(row_space, row_bcs, i)
+            col_bcs = self._filter_bcs(column_space, col_bcs, j)
+            return (row_space.lgmap(row_bcs), column_space.lgmap(col_bcs))
 
     @property
     def _indices(self):
