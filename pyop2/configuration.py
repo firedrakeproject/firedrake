@@ -56,6 +56,10 @@ class Configuration(dict):
         (e.g. 4 for AVX2, 8 for AVX512).
     :param debug: Turn on debugging for generated code (turns off
         compiler optimisations).
+    :param safe_math: Compile generated code with IEEE-conforming floating
+        point semantics, dropping ``-ffast-math`` and equivalents.  Slower,
+        but required if a kernel is sensitive to reassociation or relies on
+        NaN or infinity behaviour.  (Default no)
     :param type_check: Should PyOP2 type-check API-calls?  (Default,
         yes)
     :param check_src_hashes: Should PyOP2 check that generated code is
@@ -91,6 +95,8 @@ class Configuration(dict):
             ("PYOP2_SIMD_WIDTH", int, 4),
         "debug":
             ("PYOP2_DEBUG", bool, False),
+        "safe_math":
+            ("PYOP2_SAFE_MATH", bool, False),
         "compute_kernel_flops":
             ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
         "type_check":
