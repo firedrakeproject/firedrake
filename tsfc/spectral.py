@@ -1,10 +1,25 @@
+"""Apply structure-preserving optimization to finite element integrals.
+
+The order of transformations is part of the algorithm.  Argument
+factorization first identifies finite element linear maps without expanding
+their basis transformations.  Delta cancellation then exposes the legal
+contractions.  Sum factorization places quadrature reductions, and COFFEE
+eliminates scalar sharing at every reduction level.  In this form,
+sum-factorization is generalized code motion on a spectral loop nest rather
+than a separate algebraic optimization pipeline.
+"""
+
 from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
-from itertools import chain, zip_longest
+from itertools import chain, permutations, zip_longest
 
-from gem.gem import Delta, Indexed, Sum, index_sum, one
+import numpy
+
+from gem import impero_utils
+from gem.gem import Conditional, Delta, Indexed, Node, Sum, index_sum, one
+from gem.contraction import estimate_cost
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import filtered_replace_indices
+from gem.optimise import constant_fold_zero, filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -16,6 +31,11 @@ from gem.utils import groupby
 Integral = namedtuple('Integral', ['expression',
                                    'quadrature_multiindex',
                                    'argument_indices'])
+
+Plan = tuple[tuple[Node, Node], ...]
+
+# Cache-resident working set: 8192 doubles = 64 KiB of contraction temporaries.
+storage_budget = 8192
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -52,6 +72,188 @@ def _delta_inside(node, self):
                for child in node.children)
 
 
+def _declared_storage(plan: Plan, quadrature_indices: tuple) -> int:
+    """Count the temporary entries this plan makes Impero declare.
+
+    Only a schedule fixes how wide a temporary must be, because that width
+    follows from the loop nest a value outlives, which an expression DAG
+    does not record.
+
+    Parameters
+    ----------
+    plan
+        Output variables and their factorized GEM expressions.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
+
+    Returns
+    -------
+    int
+        Scalar entries in the temporaries, or zero if the plan schedules
+        to nothing.
+
+    """
+    variables = [variable for variable, _ in plan]
+    expressions = impero_utils.preprocess_gem(
+        constant_fold_zero([expression for _, expression in plan]),
+        **finalise_options)
+    ordering = quadrature_indices + tuple(chain.from_iterable(
+        variable.index_ordering() for variable in variables))
+    try:
+        impero_c = impero_utils.compile_gem(
+            list(zip(variables, expressions)), ordering, remove_zeros=True)
+    except impero_utils.NoopError:
+        return 0
+    return sum(
+        numpy.prod([index.extent for index in impero_c.indices[temporary]],
+                   dtype=int)
+        for temporary in impero_c.temporaries)
+
+
+def _factorise(
+        pairs: tuple[tuple[Node, Node], ...],
+        preserve_maps: bool) -> tuple[tuple[Node, MonomialSum], ...]:
+    """Argument factorize and delta cancel one representation of the maps.
+
+    Parameters
+    ----------
+    pairs
+        Output variables and their integral expressions.
+    preserve_maps
+        Keep one-axis sums as finite element linear operands when true;
+        expose their scalar polynomial structure when false.
+
+    Returns
+    -------
+    tuple of tuple
+        Output variables and their delta-cancelled monomial sums.
+
+    """
+    index_replacer = MemoizerArg(filtered_replace_indices)
+    delta_inside = Memoizer(_delta_inside)
+    narrow_variables = OrderedDict()
+    delta_simplified = defaultdict(MonomialSum)
+
+    groups = groupby(
+        pairs, key=lambda pair: frozenset(pair[0].free_indices))
+    for free_indices, pair_group in groups:
+        variables, expressions = zip(*pair_group)
+        argument_indices = set(free_indices)
+        classifier = partial(
+            classify, argument_indices, delta_inside=delta_inside)
+        monomial_sums = collect_monomials(
+            expressions, classifier,
+            argument_indices if preserve_maps else ())
+        for variable, monomial_sum in zip(variables, monomial_sums):
+            for monomial in monomial_sum:
+                var, indices, atomics, rest = delta_elimination(
+                    variable, *monomial, index_replacer)
+                narrow_variables.setdefault(var)
+                delta_simplified[var].add(
+                    indices, atomics, rest)
+
+    return tuple((variable, delta_simplified[variable])
+                 for variable in narrow_variables)
+
+
+def _plans(
+        assignments: tuple[tuple[Node, MonomialSum], ...],
+        quadrature_indices: tuple) -> tuple[Plan, Plan]:
+    """Place quadrature reductions, one plan per contraction strategy.
+
+    Separate orderings minimize arithmetic; one shared ordering spans the
+    assignments over a single loop nest, keeping the values they share
+    narrow.  Both searches are exhaustive in the quadrature axes, of which
+    a reference cell supplies one per direction.
+
+    Parameters
+    ----------
+    assignments
+        Output variables and their delta-cancelled monomial sums.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
+
+    Returns
+    -------
+    separate
+        Plan giving each assignment its cheapest ordering.
+    shared
+        Plan contracting every assignment in one common ordering.
+
+    """
+    contracted = []
+    for _, monomial_sum in assignments:
+        summed = set(chain.from_iterable(
+            monomial.sum_indices for monomial in monomial_sum))
+        contracted.append(
+            tuple(index for index in quadrature_indices if index in summed))
+
+    factorised = {
+        (position, ordering): sum_factorise(variable, ordering, monomial_sum)
+        for position, (variable, monomial_sum) in enumerate(assignments)
+        for ordering in permutations(contracted[position])}
+
+    def plan(orderings) -> Plan:
+        return tuple(
+            (variable, factorised[position, orderings[position]])
+            for position, (variable, _) in enumerate(assignments))
+
+    separate = plan([
+        min(permutations(axes),
+            key=lambda ordering, p=position: estimate_cost(
+                (factorised[p, ordering],)))
+        for position, axes in enumerate(contracted)])
+    shared = min(
+        (plan([tuple(index for index in ordering if index in axes)
+               for axes in contracted])
+         for ordering in permutations(quadrature_indices)),
+        key=lambda candidate: estimate_cost(
+            expression for _, expression in candidate))
+    return separate, shared
+
+
+def _select_plan(
+        pairs: tuple[tuple[Node, Node], ...],
+        quadrature_indices: tuple) -> Plan:
+    """Minimize arithmetic among plans whose temporaries fit the budget.
+
+    Preserving a linear map exposes tabulation reuse, expanding it exposes
+    scalar factorization, and neither dominates.  Overflowing cache is a
+    cliff rather than a gradient, so storage bounds the search instead of
+    trading against arithmetic.  When no plan fits, take the narrowest.
+
+    Parameters
+    ----------
+    pairs
+        Output variables and their integral expressions.
+    quadrature_indices
+        Every quadrature index of the integral, in source order.
+
+    Returns
+    -------
+    Plan
+        Optimized output variables and GEM expressions.
+
+    """
+    candidates = list(dict.fromkeys(
+        plan
+        for preserve_maps in (False, True)
+        for plan in _plans(_factorise(pairs, preserve_maps),
+                           quadrature_indices)))
+    if len(candidates) == 1:
+        return candidates[0]
+
+    storage = {plan: _declared_storage(plan, quadrature_indices)
+               for plan in candidates}
+    feasible = [plan for plan in candidates
+                if storage[plan] <= storage_budget]
+    if not feasible:
+        return min(candidates, key=storage.get)
+    return min(feasible,
+               key=lambda plan: estimate_cost(
+                   expression for _, expression in plan))
+
+
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
@@ -76,60 +278,36 @@ def flatten(var_reps, index_cache):
     # Split Concatenate nodes
     pairs = unconcatenate(pairs, cache=index_cache)
 
-    def group_key(pair):
-        variable, expression = pair
-        return frozenset(variable.free_indices)
-
-    # Common memoizer to remove ComponentTensors
-    index_replacer = MemoizerArg(filtered_replace_indices)
-    # Common memoizer to test for Deltas inside expressions
-    delta_inside = Memoizer(_delta_inside)
-    # Variable ordering after delta cancellation
-    narrow_variables = OrderedDict()
-    # Assignments are variable -> MonomialSum map
-    delta_simplified = defaultdict(MonomialSum)
-    # Group assignment pairs by argument indices
-    for free_indices, pair_group in groupby(pairs, group_key):
-        variables, expressions = zip(*pair_group)
-        # Argument factorise expressions
-        classifier = partial(classify, set(free_indices), delta_inside=delta_inside)
-        monomial_sums = collect_monomials(expressions, classifier)
-        # For each monomial, apply delta cancellation and insert
-        # result into delta_simplified.
-        for variable, monomial_sum in zip(variables, monomial_sums):
-            for monomial in monomial_sum:
-                var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
-                narrow_variables.setdefault(var)
-                delta_simplified[var].add(s, a, r)
-
-    # Final factorisation
-    for variable in narrow_variables:
-        monomial_sum = delta_simplified[variable]
-        # Collect sum indices applicable to the current MonomialSum
-        sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
-        # Put them in a deterministic order
-        sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Sort for increasing index extent, this obtains the good
-        # factorisation for triangle x interval cells.  Python sort is
-        # stable, so in the common case when index extents are equal,
-        # the previous deterministic ordering applies which is good
-        # for getting smaller temporaries.
-        sum_indices = sorted(sum_indices, key=lambda index: index.extent)
-        # Apply sum factorisation combined with COFFEE technology
-        expression = sum_factorise(variable, sum_indices, monomial_sum)
-        yield (variable, expression)
+    return _select_plan(tuple(pairs), tuple(quadrature_indices))
 
 
-finalise_options = dict(replace_delta=False)
+finalise_options = dict(replace_delta=True, remove_componenttensors=False)
 
 
 def classify(argument_indices, expression, delta_inside):
-    """Classifier for argument factorisation"""
+    """Classify one expression for multilinear factorization.
+
+    Parameters
+    ----------
+    argument_indices : set of Index
+        Free argument indices.
+    expression : Node
+        Expression to classify.
+    delta_inside : callable
+        Predicate detecting delta nodes.
+    Returns
+    -------
+    str
+        Refactorization label.
+    """
     n = len(argument_indices.intersection(expression.free_indices))
     if n == 0:
         return OTHER
     elif n == 1:
-        if isinstance(expression, (Delta, Indexed)) and not delta_inside(expression):
+        if isinstance(expression, Conditional):
+            return ATOMIC
+        if isinstance(expression, (Delta, Indexed)) \
+                and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND
@@ -162,36 +340,14 @@ def delta_elimination(variable, sum_indices, args, rest, index_replacer):
     variable = factors.pop()
     args = [f for f in factors if f != one]
 
-    assert set(var_indices) == set(variable.free_indices)
+    assert set(var_indices) <= set(variable.free_indices)
+    # A delta may replace a variable index by a contraction index.  That
+    # index now describes a scatter in the assignment, not a sum.
+    sum_indices = [i for i in sum_indices if i not in variable.free_indices]
     return variable, sum_indices, args, rest
 
 
 def sum_factorise(variable, tail_ordering, monomial_sum):
-    if tail_ordering:
-        key_ordering = OrderedDict()
-        sub_monosums = defaultdict(MonomialSum)
-        for sum_indices, atomics, rest in monomial_sum:
-            # Pull out those sum indices that are not contained in the
-            # tail ordering, together with those atomics which do not
-            # share free indices with the tail ordering.
-            #
-            # Based on this, split the monomial sum, then recursively
-            # optimise each sub monomial sum with the first tail index
-            # removed.
-            tail_indices = tuple(i for i in sum_indices if i in tail_ordering)
-            tail_atomics = tuple(a for a in atomics
-                                 if set(tail_indices) & set(a.free_indices))
-            head_indices = tuple(i for i in sum_indices if i not in tail_ordering)
-            head_atomics = tuple(a for a in atomics if a not in tail_atomics)
-            key = (head_indices, head_atomics)
-            key_ordering.setdefault(key)
-            sub_monosums[key].add(tail_indices, tail_atomics, rest)
-        sub_monosums = [(k, sub_monosums[k]) for k in key_ordering]
-
-        monomial_sum = MonomialSum()
-        for (sum_indices, atomics), monosum in sub_monosums:
-            new_rest = sum_factorise(variable, tail_ordering[1:], monosum)
-            monomial_sum.add(sum_indices, atomics, new_rest)
-
-    # Use COFFEE algorithm to optimise the monomial sum
-    return optimise_monomial_sum(monomial_sum, variable.index_ordering())
+    return optimise_monomial_sum(
+        monomial_sum, variable.index_ordering(),
+        tuple(tail_ordering))
