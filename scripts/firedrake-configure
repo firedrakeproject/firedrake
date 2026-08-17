@@ -85,7 +85,8 @@ def main():
         warn(f"""\
 You have selected an older configuration of Firedrake that we no longer test:
 
-  {arch_key_str} (last modified {arch.last_modified})
+  {arch_key_str}
+  (last modified {arch.last_modified})
 
 If you encounter issues please get in touch with the Firedrake team on GitHub or Slack.""")
     elif arch_key in COMMUNITY_ARCHS:
@@ -93,7 +94,8 @@ If you encounter issues please get in touch with the Firedrake team on GitHub or
         warn(f"""\
 You have selected an untested, community-maintained Firedrake configuration:
 
-  {arch_key_str} (last modified {arch.last_modified})
+  {arch_key_str}
+  (last modified {arch.last_modified})
 
 If you encounter issues please contact {arch.maintainer} {arch.contact}.""")
     else:
