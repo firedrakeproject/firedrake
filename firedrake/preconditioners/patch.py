@@ -14,6 +14,7 @@ import firedrake.cython.patchimpl
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
@@ -55,17 +56,40 @@ class EntityNodeMap:
         object.__setattr__(self, "space", space)
         object.__setattr__(self, "integral_type", integral_type)
 
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self.space,
+            self.space.index,
+            self.integral_type,
+        ))
+
+    def __eq__(self, other) -> bool:
+        return (
+            type(other) == type(self)
+            and other.space == self.space
+            and other.space.index == self.space.index
+            and other.integral_type == self.integral_type
+        )
+
     dtype = PETSc.IntType
 
     @property
     def values(self) -> np.ndarray:
+        if self.space.index is not None:
+            parent_space = self.space.parent
+            selector = (slice(None), parent_space._labels[self.space.index])
+        else:
+            parent_space = self.space
+            selector = (Ellipsis,)
+
         match self.integral_type:
             case "cell":
-                return self.space.cell_node_map_dat.data_ro
+                return parent_space.cell_dof_map_dat[selector].data_ro
             case "interior_facet":
-                return self.space.interior_facet_node_map_dat.data_ro
+                return parent_space.interior_facet_dof_map_dat[selector].data_ro
             case "exterior_facet":
-                return self.space.exterior_facet_node_map_dat.data_ro
+                return parent_space.exterior_facet_dof_map_dat[selector].data_ro
             case _:
                 raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
 
@@ -76,7 +100,7 @@ class EntityNodeMap:
 
     @property
     def cdim(self) -> int:
-        return self.space.block_size
+        return 1
 
 
 class PatchCallable:
@@ -227,6 +251,7 @@ class PatchCallable:
         elif self.kinfo.integral_type == "exterior_facet":
             add_dat(self._mesh.exterior_facet_local_facet_indices, 1)
 
+        # breakpoint()
         return args, names, state_index
 
     @cached_property
@@ -448,9 +473,6 @@ PetscErrorCode ComputeJacobian(PC pc,
     whichPoints     = filtpoints;
     activeDofsArray = filtdofs;
   }}
-
-  for (int i=0; i<npoints; i++) printf("%d, ", whichPoints[i]);
-  printf("\\n");
 
   if (npoints)
     {self._wrapper_kernel_call_insn};
@@ -964,24 +986,39 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
-        if len(V) > 1:
-            # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
-            # like the cell node list instead of things like DMs, ISes and Sections.
-            # This means that things fall apart for mixed because we interleave the spaces.
-            # The answer is to use 'field_ises' for the mixed DM and such to convert
-            # the field-local sections into 'global' offsets.
-            # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
-            # NOTE: we might be OK if we set offsets and block sizes to zero
-            raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
+        # if len(V) > 1:
+        #     # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
+        #     # like the cell node list instead of things like DMs, ISes and Sections.
+        #     # This means that things fall apart for mixed because we interleave the spaces.
+        #     # The answer is to use 'field_ises' for the mixed DM and such to convert
+        #     # the field-local sections into 'global' offsets.
+        #     # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
+        #     # NOTE: we might be OK if we set offsets and block sizes to zero
+        #     raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
         if any(Vsub.boundary_set for Vsub in V):
             # same reasoning as above but for restricted function spaces
             raise NotImplementedError("PCPatch+RFS requires IS-related fixes in PETSc")
 
         dms = [Vsub.dm for Vsub in V]
+
+        # serial test
+
         block_sizes = [Vsub.block_size for Vsub in V]
-        cell_node_maps = [Vsub.cell_node_map_dat.data_ro for Vsub in V]
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
+        cell_node_maps = [W.cell_node_list for W in V]
+
+
+        # parallel attempt
+
+        # block_sizes = [1 for Vsub in V]
+        # if is_mixed(V):
+        #     cell_node_maps = [V.cell_dof_map_dat[:, label].data_ro for label in V._labels]
+        # else:
+        #     cell_node_maps = [V.cell_dof_map_dat.data_ro]
+        # offsets = numpy.zeros(len(V)+1, dtype=PETSc.IntType)
+        # offsets[-1] = V.axes.local_size
+        # breakpoint()
         patch.setPatchDiscretisationInfo(
             dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
         )
@@ -1043,6 +1080,7 @@ class PatchPC(PCBase, PatchBase):
         patch.setOperators(A, P)
 
     def apply(self, pc, x, y):
+        # breakpoint()
         self.patch.apply(x, y)
 
     def applyTranspose(self, pc, x, y):

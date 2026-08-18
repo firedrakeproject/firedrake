@@ -39,7 +39,7 @@ class ArrayReference:
         # Note that the 'dtype' argument is handled by numpy directly
         if copy is False:
             raise ValueError("Casting array references to numpy arrays requires a copy")
-        return self.base[self.indices].reshape((-1, *self.block_size))
+        return self.base[self.indices].reshape((-1, *self.block_shape))
 
     @property
     def _block_size(self) -> int:
