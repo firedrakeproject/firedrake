@@ -17,3 +17,4 @@ Introductory Tutorials
    A linear shallow water equations example using a Strang timestepping scheme.<demos/extruded_shallow_water.py>
    A linear wave equation with optional mass lumping.<demos/linear_wave_equation.py>
    Creating Firedrake-compatible meshes in Gmsh.<demos/immersed_fem.py>
+   Creating periodic meshes.<demos/periodic_meshes.py>
