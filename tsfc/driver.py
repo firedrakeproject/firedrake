@@ -347,24 +347,17 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         coordinate_mapping = None
     evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
 
-    # Index splitting cache, shared by every unconcatenate() call below so
-    # that a Concatenate index is always split the same way.
-    concatenate_cache = {}
+    unconcatenate_cache = {}
 
     # Compute the action against the dual argument
     if isinstance(dual_arg, ufl.Cofunction):
         gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
-        # The basis indices are about to be contracted away, so any
-        # Concatenate node expressing the block structure of the dual basis
-        # must be split now: unconcatenate() can only split along indices
-        # that are still free in the assignment.  This is the same pattern
-        # as coefficient evaluation in tsfc.fem.
         dual_expr, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
         summands = [gem.IndexSum(gem.Product(expr, var), var.index_ordering())
                     for var, expr in unconcatenate([(dual_expr, evaluation)],
-                                                   cache=concatenate_cache)]
+                                                   cache=unconcatenate_cache)]
         evaluation = gem.optimise.make_sum(summands)
         basis_indices = ()
     else:
@@ -389,7 +382,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
-    pairs = unconcatenate([(return_expr, evaluation)], cache=concatenate_cache)
+    pairs = unconcatenate([(return_expr, evaluation)], cache=unconcatenate_cache)
     impero_c = impero_utils.compile_gem(pairs, return_indices)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
