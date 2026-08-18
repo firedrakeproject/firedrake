@@ -4019,41 +4019,41 @@ def submesh_create(PETSc.DM dm,
         const PetscInt *stratum_indices = NULL
 
     if label_name is None:
-        # label=None covers all cells. DMPlexFilter already handles this.
-        temp_label = None
-    else:
-        # Cast subdomain_id into an iterable
-        if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
-            subdomain_id = (subdomain_id,)
-        # Take the union of the all the label values
-        label = dm.getLabel(label_name)
-        points = PETSc.IS()
-        for sub in subdomain_id:
-            if isinstance(sub, Integral):
-                subpoints = label.getStratumIS(sub)
-            elif sub == "on_boundary":
-                subpoints = dm.getStratumIS("exterior_facets", 1)
-            else:
-                raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
-            if points:
-                points = points.union(subpoints)
-            else:
-                points = subpoints
-        # Create temp_label that contains no lower-dimensional points.
-        dm.createLabel(temp_label_name)
-        temp_label = dm.getLabel(temp_label_name)
+        # Default to all entities of the given dimension.
+        label_name = "depth"
+        subdomain_id = subdim
+    # Cast subdomain_id into an iterable
+    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
+        subdomain_id = (subdomain_id,)
+    # Take the union of the all the label values
+    label = dm.getLabel(label_name)
+    points = PETSc.IS()
+    for sub in subdomain_id:
+        if isinstance(sub, Integral):
+            subpoints = label.getStratumIS(sub)
+        elif sub == "on_boundary":
+            subpoints = dm.getStratumIS("exterior_facets", 1)
+        else:
+            raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
         if points:
-            CHKERR(ISGetSize(points.iset, &stratum_size))
-        if stratum_size > 0:
-            CHKERR(ISGetIndices(points.iset, &stratum_indices))
-            CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
-            for i in range(stratum_size):
-                p = stratum_indices[i]
-                # Only include points on the submesh topological dimension,
-                # culling all lower-dimensional points.
-                if pStart <= p < pEnd:
-                    CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
-            CHKERR(ISRestoreIndices(points.iset, &stratum_indices))
+            points = points.union(subpoints)
+        else:
+            points = subpoints
+    # Create temp_label that contains no lower-dimensional points.
+    dm.createLabel(temp_label_name)
+    temp_label = dm.getLabel(temp_label_name)
+    if points:
+        CHKERR(ISGetSize(points.iset, &stratum_size))
+    if stratum_size > 0:
+        CHKERR(ISGetIndices(points.iset, &stratum_indices))
+        CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
+        for i in range(stratum_size):
+            p = stratum_indices[i]
+            # Only include points on the submesh topological dimension,
+            # culling all lower-dimensional points.
+            if pStart <= p < pEnd:
+                CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
+        CHKERR(ISRestoreIndices(points.iset, &stratum_indices))
     # Make submesh using temp_label.
     subdm, ownership_transfer_sf = dm.filter(label=temp_label,
                                              value=label_value,
@@ -4061,9 +4061,8 @@ def submesh_create(PETSc.DM dm,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
     # Destroy temp_label.
-    if temp_label is not None:
-        dm.removeLabel(temp_label_name)
-        subdm.removeLabel(temp_label_name)
+    dm.removeLabel(temp_label_name)
+    subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
     return subdm

@@ -5023,11 +5023,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
-        if subdim != dim:
-            # DMPlexFilter handles label=None, codim=0.
-            # Take an explicit label including all entities otherwise.
-            label_name = "depth"
-            subdomain_id = subdim
     elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL
