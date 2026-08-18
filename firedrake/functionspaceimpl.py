@@ -553,6 +553,7 @@ class WithGeometryBase:
                 ufl_element = finat.ufl.TensorElement(ufl_element, shape=self.value_shape)
         return self.collapse().reconstruct(element=ufl_element)
 
+    @cached_method()
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,

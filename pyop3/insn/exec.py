@@ -168,36 +168,6 @@ class InstructionExecutionContext:
 
         executable(new_buffers)
 
-    def preprocess(self) -> Instruction:
-        import pyop3.visitors
-
-        from .visitors import (
-            expand_loop_contexts,
-            expand_transforms,
-            insert_literals,
-        )
-
-        if self._preprocessed is None:
-            insn = self.root_insn
-            insn = expand_loop_contexts(insn)
-
-            # bad name, this expands all transformations and pack/unpacks for called functions
-            # 'flatten?'
-            # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
-            old_insn = insn
-            insn = expand_transforms(insn)
-            while insn != old_insn:
-                old_insn = insn
-                insn = expand_transforms(insn)
-
-            insn = pyop3.visitors.concretize(insn)
-            insn = insert_literals(insn)
-            insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
-
-            self._preprocessed = insn
-
-        return self._preprocessed
-
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
         executor, orig_arguments = self._compile()
@@ -316,6 +286,36 @@ class InstructionExecutionContext:
         executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents, self.comm)
 
         return executor, self.root_insn.global_arguments
+
+    def preprocess(self) -> Instruction:
+        import pyop3.visitors
+
+        from .visitors import (
+            expand_loop_contexts,
+            expand_transforms,
+            insert_literals,
+        )
+
+        if self._preprocessed is None:
+            insn = self.root_insn
+            insn = expand_loop_contexts(insn)
+
+            # bad name, this expands all transformations and pack/unpacks for called functions
+            # 'flatten?'
+            # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
+            old_insn = insn
+            insn = expand_transforms(insn)
+            while insn != old_insn:
+                old_insn = insn
+                insn = expand_transforms(insn)
+
+            insn = pyop3.visitors.concretize(insn)
+            insn = insert_literals(insn)
+            insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
+
+            self._preprocessed = insn
+
+        return self._preprocessed
 
     @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:

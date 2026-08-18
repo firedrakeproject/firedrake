@@ -1038,23 +1038,7 @@ def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **k
     return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 
-@_lower_expr.register
-def _(
-    scalar: pyop3.expr.Scalar,
-    /,
-    iname_maps,
-    loop_indices,
-    context,
-    *,
-    intent,
-    **kwargs,
-) -> pym.Expression:
-    assert False, "Old code?"
-    name_in_kernel = context.add_buffer(scalar.buffer_view, intent)
-    return pym.subscript(pym.var(name_in_kernel), (0,))
-
-
-@_lower_expr.register
+@_lower_expr.register(pyop3.expr.ScalarBufferExpression)
 def _(
     expr: pyop3.expr.ScalarBufferExpression,
     /,
@@ -1064,7 +1048,7 @@ def _(
     *,
     intent,
     **kwargs,
-) -> pym.Expression:
+) -> pym.ExpressionNode:
     return lower_buffer_access(expr.buffer_view, [0], iname_maps, loop_indices, context, intent=intent)
 
 

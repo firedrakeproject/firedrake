@@ -1,6 +1,7 @@
 import functools
 import itertools
 import numbers
+from typing import Any
 
 import numpy as np
 from immutabledict import immutabledict as idict

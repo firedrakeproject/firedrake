@@ -293,9 +293,6 @@ class TabulatedMapComponent(MapComponent):
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
-        if label is DECIDE:
-            label = utils.unique_name("mapcomponent")
-
         if not isinstance(array, Dat):
             raise NotImplementedError
         assert array.axes.is_linear
@@ -710,7 +707,23 @@ class Map(AbstractMap):
             # lazy unique name
             name = f"_Map_{self.counter}"
             self.counter += 1
-        object.__setattr__(self, "connectivity", utils.freeze(connectivity))
+
+        new_connectivity = {}
+        for key, map_cptss in connectivity.items():
+            new_map_cptss = []
+            for map_cpts in map_cptss:
+                if utils.strictly_all(mc.label is DECIDE for mc in map_cpts):
+                    new_map_cpts = [
+                        mc.record_new(label=i)
+                        for i, mc in enumerate(map_cpts)
+                    ]
+                else:
+                    new_map_cpts = map_cpts
+                new_map_cptss.append(tuple(new_map_cpts))
+            new_connectivity[key] = tuple(new_map_cptss)
+        connectivity = idict(new_connectivity)
+
+        object.__setattr__(self, "connectivity", connectivity)
         object.__setattr__(self, "name", name)
 
     # }}}
@@ -749,6 +762,7 @@ class ScalarMap(AbstractMap):
         for entries in self.connectivity.values():
             for entry in entries:
                 assert isinstance(entry, MapComponent)
+                assert entry.label is not DECIDE
                 assert entry.arity == 1
                 # hacky way to catch if we are passing in something flat or not
                 assert isinstance(entry.array.layout, AxisVar)

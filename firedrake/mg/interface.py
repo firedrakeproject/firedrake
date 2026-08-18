@@ -3,6 +3,7 @@ import pyop3 as op3
 from firedrake import ufl_expr, dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
 from . import utils
@@ -34,6 +35,7 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda c, f: extract_mesh_topologies(c.function_space().mesh()))
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
@@ -114,6 +116,7 @@ def prolong(coarse, fine):
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda f, c: extract_mesh_topologies(c.function_space().mesh()))
 def restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
@@ -192,6 +195,7 @@ def restrict(fine_dual, coarse_dual):
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda f, c: extract_mesh_topologies(c.function_space().mesh()))
 def inject(fine, coarse):
     check_arguments(coarse, fine)
     Vf = fine.function_space()
