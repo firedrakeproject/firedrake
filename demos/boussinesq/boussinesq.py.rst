@@ -174,7 +174,7 @@ implements a boundary condition that fixes a field at a single point. ::
            super().__init__(V, g, bc_point)
 
        @functools.cached_property
-       def nodes(self):
+       def _nodes(self):
            V = self.function_space()
 
            point = [tuple(self.sub_domain)]
@@ -185,7 +185,7 @@ implements a boundary condition that fixes a field at a single point. ::
            # Take the basis function with the largest abs value at bc_point
            v = TestFunction(V)
            F = assemble(interpolate(inner(v, v), Fvom))
-           with F.vec_ro as Fvec:
+           with F.dat.vec_ro as Fvec:
                max_index, _ = Fvec.max()
            nodes = V._lgmap.applyInverse([max_index])
            nodes = nodes[nodes >= 0]

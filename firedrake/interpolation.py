@@ -787,7 +787,7 @@ class SameMeshInterpolator(Interpolator):
         if (
             isinstance(tensor, Cofunction)
             and isinstance(self.dual_arg, Cofunction)
-            and set(tensor.dat).intersection(set(self.dual_arg.dat))
+            and tensor.dat.buffer == self.dual_arg.dat.buffer
         ):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
