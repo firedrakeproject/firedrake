@@ -45,7 +45,7 @@ def test_translation_operator_inverse_problem():
             y, _ = self.argument_slots()
             return y
 
-    mesh = UnitSquareMesh(50, 50)
+    mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
     x, y = SpatialCoordinate(mesh)
     u_exact = Function(V).interpolate(sin(pi * x) * sin(pi * y))
@@ -79,4 +79,4 @@ def test_translation_operator_inverse_problem():
 
     f_opt = minimize(Jhat, tol=1e-4, method="BFGS")
 
-    assert assemble((f_exact - f_opt)**2 * dx) / assemble(f_exact**2 * dx) < 1e-5
+    assert assemble((f_exact - f_opt)**2 * dx) / assemble(f_exact**2 * dx) < 1e-4

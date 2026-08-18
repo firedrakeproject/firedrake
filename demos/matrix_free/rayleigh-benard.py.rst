@@ -14,6 +14,11 @@ temperature. ::
 
   N = 128
 
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      N = 16
+
   M = UnitSquareMesh(N, N)
 
   V = VectorFunctionSpace(M, "CG", 2)
