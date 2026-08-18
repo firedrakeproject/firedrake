@@ -56,6 +56,7 @@ SERIAL_DEMOS = [
     Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
     Demo(('nonlinear_pc', 'nonlinear_pc_allen_cahn'), []),
     Demo(('reynolds_robust_navier_stokes_hdiv', 'reynolds_robust_navier_stokes_hdiv'), ["vtk"]),
+    Demo(('plate_bending_mitc', 'plate_bending_mitc'), ["vtk"]),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),

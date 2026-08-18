@@ -160,6 +160,8 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
+        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/interp-mixed
+        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/ufl.git@pbrubeck/interpolate-holes
         firedrake-clean
         pip list
 
