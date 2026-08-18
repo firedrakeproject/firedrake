@@ -53,7 +53,7 @@ def test_transpose_nullspace():
         a = inner(grad(u), grad(v))*dx
         L = conj(v)*dx
 
-        nullspace = VectorSpaceBasis(constant=True)
+        nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
         u = Function(V)
         u.interpolate(SpatialCoordinate(mesh)[0])
         # Solver diverges with indefinite PC if we don't remove
@@ -179,7 +179,7 @@ def test_near_nullspace(tmpdir):
 
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % w_nns_log,
+        'ksp_monitor': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -187,7 +187,7 @@ def test_near_nullspace(tmpdir):
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
+        'ksp_monitor': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -270,7 +270,7 @@ def test_nullspace_mixed_multiple_components():
     uv_nullspace = VectorSpaceBasis([ux0, uy0])
     uv_nullspace.orthonormalize()
 
-    p_nullspace = VectorSpaceBasis(constant=True)
+    p_nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
 
     mix_nullspace = MixedVectorSpaceBasis(Z, [uv_nullspace, p_nullspace])
 
@@ -342,7 +342,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     near_nullmodes.orthonormalize()
     near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
 
-    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
 
     w = Function(W)
     solver_parameters = {
