@@ -228,6 +228,7 @@ These terms are combined to form the variables ``A`` and ``L`` in the overall va
 The resulting solution can be plotted by calling ``plot()``. Matplotlib and Firedrake's `trisurf`_ are used to produce a three-dimensional surface plot. ::
 
   import matplotlib.pyplot as plt
+  import numpy as np
   from firedrake.pyplot import trisurf
 
   def plot(filename, u_1, u_2):
