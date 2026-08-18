@@ -1286,8 +1286,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
 
     (OS.FEDORA_44_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): CommunityArch(
         name="default",
-        maintainer="TODO",
-        contact="TODO",
+        maintainer="Thomas Duvernay",
+        contact="at thomas.duvernay@proton.me",
         last_modified="2026-08-17",
         system_packages=[
             "@development-tools",
@@ -1301,7 +1301,8 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
             "python3-pip",
 
             # PETSc external packages
-            "fftw-devel", "fftw-openmpi-devel",
+            "fftw-devel",
+            "fftw-openmpi-devel",
             "hdf5-openmpi-devel",
             "hwloc-devel",
             "hypre-openmpi-devel",
