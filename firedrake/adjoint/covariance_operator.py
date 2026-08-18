@@ -1002,7 +1002,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
         h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         k = v.function_space().ufl_element().degree()
-        alpha_h = Constant(5 * (k+1)**2)/h_avg
+        alpha_h = Constant(10 * (k+1)**2)/h_avg
         return (
             inner(u, v)*dx + kappa*(
                 inner(grad(u), grad(v))*dx
