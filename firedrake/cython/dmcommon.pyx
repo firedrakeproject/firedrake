@@ -4001,10 +4001,10 @@ def submesh_create(PETSc.DM dm,
         DMPlex representing the mesh topology
     subdim : int
         Topological dimension of the submesh
-    label_name : str | None
-        Name of the label, or `None` to select every cell
-    subdomain_id : int | Sequence | None
-        Values in the label, unused if ``label_name`` is `None`
+    label_name : str
+        Name of the label
+    subdomain_id : int | Sequence
+        Values in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
     comm : PETSc.Comm | None
@@ -4018,10 +4018,6 @@ def submesh_create(PETSc.DM dm,
         PetscInt pStart, pEnd, p, i, stratum_size = 0, label_value = 1
         const PetscInt *stratum_indices = NULL
 
-    if label_name is None:
-        # Default to all entities of the given dimension.
-        label_name = "depth"
-        subdomain_id = subdim
     # Cast subdomain_id into an iterable
     if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
         subdomain_id = (subdomain_id,)

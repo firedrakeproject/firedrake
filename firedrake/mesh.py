@@ -5023,6 +5023,9 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
     elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL
