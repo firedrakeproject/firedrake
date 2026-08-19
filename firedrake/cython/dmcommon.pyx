@@ -3988,7 +3988,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
-                   PetscInt subdim,
+                   subdim,
                    label_name,
                    subdomain_id,
                    PetscBool ignore_label_halo,
