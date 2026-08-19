@@ -2732,7 +2732,10 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
-        return op3.Map(connectivity, name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point")
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point",
+        )
 
     @cached_property
     def submesh_parent_to_child_map(self):
@@ -2744,7 +2747,10 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
-        return op3.Map(connectivity, name=f"{self.name}_parent_{self.submesh_parent.name}_child_map_point_point")
+        return op3.ScalarMap(
+            connectivity,
+            name=f"{self.name}_parent_{self.submesh_parent.name}_child_map_point_point",
+        )
 
     @cached_property
     def _submesh_to_parent_plex_index_map(self) -> np.ndarray[IntType]:
@@ -3096,6 +3102,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _point_to_base_point_array(self) -> np.ndarray:
+        # NOTE: This is using an already renumbered thing. The plex numbering
+        # is more complicated.
         return np.repeat(
             np.arange(self._base_mesh.num_points, dtype=IntType),
             2*(self.layers-1) + 1,

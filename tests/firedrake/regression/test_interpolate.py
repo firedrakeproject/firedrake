@@ -440,7 +440,6 @@ def test_zeroform(degree, cofunc):
     assert np.allclose(norm_i, norm)
 
 
-@pytest.mark.skip(reason="pyop3 MAX not implemented")
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)

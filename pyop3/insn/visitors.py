@@ -22,7 +22,7 @@ from pyop3.buffer import (
     ConcreteBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, READ, RW, WRITE
+from pyop3.constants import INC, READ, RW, WRITE, MAX_RW
 from pyop3.expr import (
     Dat,
     LinearDatBufferExpression,
@@ -139,13 +139,6 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     def _(self, insn_list: pyop3.insn.InstructionList):
         return type(insn_list)([insn_ for insn in insn_list for insn_ in enlist(self._apply(insn))])
 
-    # # TODO: Should be the same as Assignment
-    # @_apply.register
-    # def _(self, assignment: PetscMatInstruction):
-    #     # FIXME: Probably will not work for things like mat[x, y].assign(dat[z])
-    #     # where the expression is indexed.
-    #     return (assignment,)
-
     @_apply.register
     def _(self, assignment: pyop3.insn.Assignment):
         # I think this is fine...
@@ -228,6 +221,8 @@ def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
 @_requires_pack_unpack.register(Scalar)
 @_requires_pack_unpack.register(pyop3.expr.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
+    if scalar.transform:
+        raise NotImplementedError
     return False
 
 
@@ -302,7 +297,6 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
         arg_unpack_insns = []
 
         # function calls need materialised arrays
-        # FIXME: INC'd globals with transforms (ie parents) have to be materialised
         if _requires_pack_unpack(func_arg):
             local_tensor = func_arg.materialize()
 
@@ -313,10 +307,14 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
-            else:
-                assert intent == INC
+            elif intent == INC:
                 arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
+            elif intent == MAX_RW:
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max"))
+            else:
+                raise NotImplementedError(f"Intent {intent} not handled")
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
         elif isinstance(func_arg, pyop3.expr.OpaqueTerminal):
@@ -382,22 +380,30 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         assignment.expression, ArrayAccessType.READ
     )
 
-    if assignment.assignment_type == AssignmentType.WRITE:
-        access_type = ArrayAccessType.WRITE
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
-        access_type = ArrayAccessType.INC
+    # AssignmentType and ArrayAccessType are different things because
+    # you can't have assignment with READ mode. This should get cleaned up.
+    match assignment.assignment_type:
+        case AssignmentType.WRITE:
+            access_type = ArrayAccessType.WRITE
+        case AssignmentType.INC:
+            access_type = ArrayAccessType.INC
+        case AssignmentType.MAX:
+            access_type = ArrayAccessType.MAX
+        case AssignmentType.MIN:
+            access_type = ArrayAccessType.MIN
+        case _:
+            raise AssertionError
     bare_assignee, assignee_insns = pyop3.expr.visitors.expand_transforms(
         assignment.assignee, access_type
     )
 
     assignment_type = assignment.assignment_type
-    if assignment_type == AssignmentType.INC and assignee_insns:
+    if assignment_type != AssignmentType.WRITE and assignee_insns:
         # If we are emitting assignee transformation instruction for an
         # increment assignment then the final instruction must be the
         # increment into the global data structure. This means that we
         # should only write here, not increment.
-        assert assignee_insns[-1].assignment_type == AssignmentType.INC
+        assert assignee_insns[-1].assignment_type != AssignmentType.WRITE
         assignment_type = AssignmentType.WRITE
 
     # PETSc matrix assignment requires the expression to be a materialised

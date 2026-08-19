@@ -142,6 +142,36 @@ class ASMPatchPC(PCBase):
         if hasattr(self, "asmpc"):
             self.asmpc.destroy()
 
+    # TODO: This function only exists to be a central place to catch deprecated behaviour.
+    # We should be able to remove it when the deprecation cycle is complete.
+    def _get_columns_option(self, opts, mesh):
+        # NOTE: What if we extrude multiple times? How can we specify different column types?
+        # Or is that just a bad idea?
+
+        if opts.hasName("column"):
+            columns = opts.getBool("column")
+            if columns and not mesh.extruded:
+                raise ValueError("Can only pass 'columns' on an extruded mesh")
+        else:
+            if mesh.extruded:
+                warnings.warn(
+                    f"""\
+**IMPORTANT**
+
+You are using {type(self).__name__} on an extruded mesh without specifying
+the 'columns' option. The current behaviour is for the patch to be over the
+base mesh and covering the full column. THIS IS GOING TO CHANGE AS THE DEFAULT
+BEHAVIOUR. In future releases of Firedrake the patches will by default only
+cover the DoFs immediately surrounding the vertex.
+
+To continue to keep this behaviour you have to pass the option <prefix>_column=1.""",
+                    FutureWarning,
+                )
+                columns = True
+            else:
+                columns = False
+        return columns
+
 
 class ASMStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implemented as an
@@ -176,7 +206,7 @@ class ASMStarPC(ASMPatchPC):
         use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
-        if _get_columns_option(opts, mesh):
+        if self._get_columns_option(opts, mesh):
             mesh_dm = mesh._base_mesh.topology_dm
             sections = [Vsub._base_mesh_section for Vsub in V]
         else:
@@ -221,7 +251,7 @@ class ASMVankaPC(ASMPatchPC):
 
         opts = PETSc.Options(self.prefix)
 
-        if _get_columns_option(opts, mesh):
+        if self._get_columns_option(opts, mesh):
             mesh_dm = mesh._base_mesh.topology_dm
             sections = [Vsub._base_mesh_section for Vsub in V]
         else:
@@ -398,7 +428,7 @@ class ASMExtrudedStarPC(ASMStarPC):
     :class:`ASMPatchPC`.
 
     This class is deprecated. You should use ASMStarPC passing the option
-    column = 0 instead.
+    column=0 instead.
 
     ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
@@ -421,6 +451,13 @@ class ASMExtrudedStarPC(ASMStarPC):
             FutureWarning,
         )
         super().__init__(*args, **kwargs)
+
+    def _get_columns_option(self, opts, mesh):
+        if opts.hasName("column"):
+            raise ValueError(
+                "Cannot pass 'column' to ASMExtrudedStarPC."
+            )
+        return False
 
 
 def get_local_ises_indices(V):
@@ -457,47 +494,24 @@ def validate_overlap(mesh, patch_dim, patch_type):
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
 
 
-# TODO: This function only exists to be a central place to catch deprecated behaviour.
-# We should be able to remove it when the deprecation cycle is complete.
-def _get_columns_option(opts, mesh):
-    # NOTE: What if we extrude multiple times? How can we specify different column types?
-    # Or is that just a bad idea?
-
-    if opts.hasName("column"):
-        columns = opts.getBool("column")
-        if columns and not mesh.extruded:
-            raise ValueError("Can only pass 'columns' on an extruded mesh")
-    else:
-        if mesh.extruded:
-            warnings.warn(
-                f"""\
-**IMPORTANT**
-
-You are using {type(self).__name__} on an extruded mesh without specifying
-the 'columns' option. The current behaviour is for the patch to be over the
-base mesh and covering the full column. THIS IS GOING TO CHANGE AS THE DEFAULT
-BEHAVIOUR. In future releases of Firedrake the patches will by default only
-cover the DoFs immediately surrounding the vertex.
-
-To continue to keep this behaviour you have to pass the option 'PREFIX + column = 1'.""",
-                FutureWarning,
-            )
-            columns = True
-        else:
-            columns = False
-    return columns
-
-
-def get_colors(mesh_dm, use_coloring, depth, distance=1):
+def get_colors(mesh_dm, use_coloring, depth, distance):
     """Returns a coloring of the mesh entities.
 
-    :arg mesh_dm: the DMPlex
-    :arg use_coloring: if True computes the coloring,
-        otherwise each entity gets its own color
-    :arg depth: the entity dimension
-    :arg distance: the coloring distance
+    Parameters
+    ----------
+    mesh_dm
+        the DMPlex
+    use_coloring
+        if True computes the coloring, otherwise each entity gets its own color
+    depth
+        the entity dimension
+    distance
+        The coloring distance
 
-    :returns: an iterable of PETSc.IS or int defining each color
+    Returns
+    -------
+    colors
+        An iterable of PETSc.IS or int defining each color.
     """
     if use_coloring:
         opts_modified = False

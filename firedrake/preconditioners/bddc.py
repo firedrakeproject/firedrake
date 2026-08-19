@@ -2,7 +2,6 @@ from itertools import repeat
 from functools import cached_property
 
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.facet_split import get_restriction_indices
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
@@ -110,10 +109,8 @@ class BDDCPC(PCBase):
             boundary_nodes = numpy.unique(numpy.concatenate(list(map(V.boundary_nodes, ("on_boundary", "top", "bottom")))))
         else:
             boundary_nodes = V.boundary_nodes("on_boundary")
-        if len(bcs) == 0:
-            dir_nodes = numpy.empty(0, dtype=boundary_nodes.dtype)
-        else:
-            dir_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
+        dir_nodes = numpy.flatnonzero(V.lgmap(bcs).indices < 0).astype(PETSc.IntType)
+        dir_nodes = dir_nodes[dir_nodes < V.axes.buffer_size(include_ghosts=False)]
         neu_nodes = numpy.setdiff1d(boundary_nodes, dir_nodes)
 
         dir_nodes = V.lgmap().apply(dir_nodes)
@@ -268,7 +265,7 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
         form = a
         args = a.arguments()
         comm = args[0].function_space().comm
-        sizes = tuple(arg.function_space().dof_dset.layout_vec.getSizes() for arg in args)
+        sizes = tuple(arg.function_space().template_vec.getSizes() for arg in args)
     elif isinstance(a, PETSc.Mat):
         assert a.type == "python"
         ctx = a.getPythonContext()

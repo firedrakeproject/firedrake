@@ -657,8 +657,14 @@ class AbstractFunctionSpace:
 
     @property
     def nodes(self) -> op3.Axis:
-        # FIXME: For a mixed thing this gives us back the wrong thing!
-        return self.nodal_axes.root
+        if is_mixed(self):
+            return op3.AxisTree.from_nest({
+                self.field_axis: [
+                    subspace.nodes for subspace in self
+                ]
+            })
+        else:
+            return self.nodal_axes.root
 
     @cached_property
     @_mesh_cached
@@ -1883,10 +1889,6 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.layout, self.ufl_element(),
                      self.boundary_set))
-
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-        raise NotImplementedError
-        return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)

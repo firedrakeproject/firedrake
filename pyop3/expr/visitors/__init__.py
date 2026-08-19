@@ -974,15 +974,18 @@ def _(agg_tensor: pyop3.expr.AggregateMat, /, access_type):
             temporary[ix].assign(submat)
             for ix, submat in agg_tensor
         )
-    elif access_type == ArrayAccessType.WRITE:
-        insns = tuple(
-            submat.assign(temporary[ix])
-            for ix, submat in agg_tensor
-        )
     else:
-        assert access_type == ArrayAccessType.INC
+        match access_type:
+            case ArrayAccessType.WRITE:
+                mode = "write"
+            case ArrayAccessType.INC:
+                mode = "inc"
+            case ArrayAccessType.MAX:
+                mode = "max"
+            case ArrayAccessType.MIN:
+                mode = "min"
         insns = tuple(
-            submat.iassign(temporary[ix])
+            submat.assign(temporary[ix], mode)
             for ix, submat in agg_tensor
         )
     return temporary, insns

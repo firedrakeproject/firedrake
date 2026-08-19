@@ -933,8 +933,17 @@ def add_leaf_assignment(
         paths=paths,
     )
 
-    if assignment.assignment_type == AssignmentType.INC:
-        rexpr = lexpr + rexpr
+    match assignment.assignment_type:
+        case AssignmentType.WRITE:
+            pass
+        case AssignmentType.INC:
+            rexpr = lexpr + rexpr
+        case AssignmentType.MAX:
+            rexpr = pym.Variable("max")(lexpr, rexpr)
+        case AssignmentType.MIN:
+            rexpr = pym.Variable("min")(lexpr, rexpr)
+        case _:
+            raise NotImplementedError
 
     if codegen_context.mask_array_accesses:
         # a[off_a] = off_b < 0 ? a[off_a] : b[off_b]

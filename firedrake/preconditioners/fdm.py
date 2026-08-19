@@ -5,7 +5,6 @@ from functools import cached_property, partial
 from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
@@ -142,10 +141,8 @@ class FDMPC(PCBase):
                 self._assemble_A(tensor=self.A)
                 Amat = self.A.petscmat
 
-            if len(bcs) > 0:
-                self.bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
-            else:
-                self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+            bc_nodes = numpy.flatnonzero(V.lgmap(bcs).indices < 0).astype(PETSc.IntType)
+            self.bc_nodes = bc_nodes[bc_nodes < V.axes.buffer_size(include_ghosts=False)]
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line. Since PC allows the user to specify

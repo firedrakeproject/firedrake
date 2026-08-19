@@ -348,11 +348,6 @@ class Function(pyop3.obj.Object):
         lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
             raise ValueError("Wrong number of access descriptors given")
-        for lpy_arg, access in zip(lpy_args, access_descrs):
-            if access in {MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE} and lpy_arg.shape != (
-                1,
-            ):
-                raise ValueError("Reduction operations are only valid for scalars")
 
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
@@ -618,6 +613,8 @@ class NullInstruction(TerminalInstruction):
 class AssignmentType(enum.Enum):
     WRITE = "write"
     INC = "inc"
+    MAX = "max"
+    MIN = "min"
 
 
 def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
@@ -626,6 +623,10 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             return Intent.WRITE
         case AssignmentType.INC:
             return Intent.INC
+        case AssignmentType.MAX:
+            return Intent.MAX_WRITE  # not obvious why it's WRITE here
+        case AssignmentType.MIN:
+            return Intent.MIN_WRITE
         case _:
             raise AssertionError(f"{assignment_type} not recognised")
 
@@ -642,35 +643,9 @@ class AbstractAssignmentLike(TerminalInstruction):
     def compiler_options(self) -> pyop3.compile.CompilerOptions:
         return pyop3.compile.CompilerOptions()
 
-    # NOTE: Wrong type here...
     @cached_property
-    def shape(self) -> tuple[AxisTree, ...]:
+    def shape(self):
         return pyop3.expr.visitors.get_shape(self.assignee)
-
-        # the below doesn't really work, need shapes to match exactly
-        # assignee_shapes = pyop3.expr.visitors.get_shape(self.assignee)
-        # expr_shapes = pyop3.expr.visitors.get_shape(self.expression)
-        #
-        # # sometimes the expression may not be matrix-valued
-        # if len(assignee_shapes) != len(expr_shapes):
-        #     assert len(assignee_shapes) == 2 and len(expr_shapes) == 1
-        #     expr_shapes = expr_shapes * 2
-        #
-        # # Set 'only_unit' here because we are happy for 'expr_shapes' to be
-        # # different to 'assignee_shape' up to unit axes. For example, we
-        # # want to allow the operation
-        # #
-        # #     loop(p, dat1[p].assign(dat2[f(p)])
-        # #
-        # # even though dat2[f(p)] will have an extra axis introduced by
-        # # the map. Provided f(p) only has size 1 the LHS and RHS are
-        # # still the same shape.
-        # return tuple(
-        #     pyop3.axis_tree.merge_axis_trees([assignee_shape, expr_shape], only_unit=True)
-        #     for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True)
-        # )
-
-
 
 
 class AbstractAssignment(AbstractAssignmentLike):
@@ -889,12 +864,13 @@ def exscan(*args, eager: bool = False, **kwargs):
 
 
 
-# TODO: With Python 3.11 can be made a StrEnum
-# The idea is basically RW isn't allowed here
-class ArrayAccessType(enum.Enum):
+# The idea is basically RW isn't allowed here but READ is (unlike AssignmentType)
+class ArrayAccessType(enum.StrEnum):
     READ = "read"
     WRITE = "write"
     INC = "inc"
+    MAX = "max"
+    MIN = "min"
 
 
 def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:

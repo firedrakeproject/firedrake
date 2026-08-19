@@ -123,14 +123,14 @@ class Tensor(TerminalExpression, abc.ABC):
         self,
         other: ExpressionT,
         /,
+        mode: Literal["write", "inc", "max", "min"] = "write",
         *,
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
     ) -> pyop3.insn.Assignment | None:
-        return self._assign(other, "write", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
+        return self._assign(other, mode, eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
-    @PETSc.Log.EventDecorator()
     def iassign(
         self,
         other: ExpressionT,
@@ -146,7 +146,7 @@ class Tensor(TerminalExpression, abc.ABC):
         self,
         other: ExpressionT,
         /,
-        mode: Literal["write", "inc"],
+        mode: Literal["write", "inc", "max", "min"],
         *,
         eager: bool,
         eager_strategy: Literal["array", "compile"] | None,

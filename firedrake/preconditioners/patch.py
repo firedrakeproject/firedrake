@@ -653,52 +653,6 @@ def make_patch_callables(form: ufl.Form, state: Function | None) -> tuple[
     return cell_callable, interior_facet_callable, exterior_facet_callable
 
 
-def bcdofs(bc, ghost=True):
-    assert False, "old, wrong code"
-    # Return the global dofs fixed by a DirichletBC
-    # in the numbering given by concatenation of all the
-    # subspaces of a mixed function space
-    Z = bc.function_space()
-    while Z.parent is not None:
-        Z = Z.parent
-
-    indices = bc._indices
-    offset = 0
-
-    if isinstance(Z.ufl_element(), MixedElement) and Z.comm.size > 1:
-        raise NotImplementedError("This is incorrect for mixed in parallel now that we interleave")
-
-    for (i, idx) in enumerate(indices):
-        if isinstance(Z.ufl_element(), VectorElement):
-            offset += idx
-            assert i == len(indices)-1  # assert we're at the end of the chain
-            assert Z.sub(idx).block_size == 1
-        elif isinstance(Z.ufl_element(), MixedElement):
-            if ghost:
-                offset += sum(Z.sub(j).dof_count for j in range(idx))
-            else:
-                # offset += sum(Z.sub(j).axes.owned.local_size * Z.sub(j).block_size for j in range(idx))
-                offset += sum(Z.sub(j).axes.local_size * Z.sub(j).block_size for j in range(idx))
-        else:
-            raise NotImplementedError("How are you taking a .sub?")
-
-        Z = Z.sub(idx)
-
-    if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
-        bs = Z.parent.block_size
-        start = 0
-        stop = 1
-    else:
-        bs = Z.block_size
-        start = 0
-        stop = bs
-    nodes = bc.nodes
-    if not ghost:
-        nodes = nodes[nodes < Z.axes.owned.local_size]
-
-    return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
-
-
 def select_entity(p, dm=None, exclude=None):
     """Filter entities based on some label.
 
@@ -890,10 +844,8 @@ class PatchBase(PCSNESBase):
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
-        if V.comm.size > 1:
-            raise NotImplementedError("ghost and global bcs differ in parallel")
-        ghost_bc_nodes = numpy.where(V.lgmap(bcs).indices < 0)
-        global_bc_nodes = ghost_bc_nodes
+        ghost_bc_nodes = numpy.flatnonzero(V.lgmap(bcs).indices < 0).astype(PETSc.IntType)
+        global_bc_nodes = ghost_bc_nodes[ghost_bc_nodes < V.axes.buffer_size(include_ghosts=False)]
 
         # We need to set C function pointer callbacks for PCPatch to work.
         # Although petsc4py provides a high-level Python wrapper for them,
@@ -984,47 +936,10 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
-        # if len(V) > 1:
-        #     # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
-        #     # like the cell node list instead of things like DMs, ISes and Sections.
-        #     # This means that things fall apart for mixed because we interleave the spaces.
-        #     # The answer is to use 'field_ises' for the mixed DM and such to convert
-        #     # the field-local sections into 'global' offsets.
-        #     # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
-        #     # NOTE: we might be OK if we set offsets and block sizes to zero
-        #     raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
-
-        dms = [Vsub.dm for Vsub in V]
-
-        # serial test
-
-        block_sizes = [Vsub.block_size for Vsub in V]
-        offsets = numpy.append([0], numpy.cumsum([W.dof_count
-                                                  for W in V])).astype(PETSc.IntType)
-        cell_node_maps = [W.cell_node_list for W in V]
-
-
-        # parallel attempt
-
-        # block_sizes = [1 for Vsub in V]
-        # if is_mixed(V):
-        #     cell_node_maps = [V.cell_dof_map_dat[:, label].data_ro for label in V._labels]
-        # else:
-        #     cell_node_maps = [V.cell_dof_map_dat.data_ro]
-        # offsets = numpy.zeros(len(V)+1, dtype=PETSc.IntType)
-        # offsets[-1] = V.axes.local_size
-
-        # map_axes = V.cell_dof_map_dat.axes
-        # ndofs_per_cell = map_axes.subtree({map_axes.root.label: map_axes.root.component.label}).size
-        # cell_dof_map = V.cell_dof_map_dat.data_ro.reshape((-1, ndofs_per_cell))
-        #
-        # dms = [V.dm]
-        # block_sizes = [1]
-        # offsets = [0, 666]
-        # cell_node_maps = [cell_dof_map]
-        # breakpoint()
+        dms = [V_.dm for V_ in V]
+        cell_dof_maps = [V_.cell_dof_map_dat.data_ro for V_ in V]
         patch.setPatchDiscretisationInfo(
-            dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
+            dms, V.local_ises, cell_dof_maps, ghost_bc_nodes, global_bc_nodes
         )
 
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
