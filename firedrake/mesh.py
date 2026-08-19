@@ -5003,34 +5003,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
 
-    if subdomain_id == "on_boundary":
-        if subdim is None:
-            subdim = mesh.topological_dimension - 1
-        elif subdim != mesh.topological_dimension - 1:
-            raise ValueError('subdomain_id="on_boundary" requires subdim=dim-1')
-        if label_name is None:
-            label_name = "exterior_facets"
-        elif label_name != "exterior_facets":
-            raise ValueError('subdomain_id="on_boundary" requires label_name="exterior_facets"')
-        subdomain_id = 1
-
-    if subdim is None:
-        subdim = mesh.topological_dimension
-    plex = mesh.topology_dm
-    dim = plex.getDimension()
-    if subdim not in {dim, dim - 1}:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-    if subdomain_id is None:
-        if label_name is not None:
-            raise ValueError("subdomain_id=None requires label_name=None.")
-        # Select all entities
-        label_name = "depth"
-        subdomain_id = subdim
-    elif label_name is None:
-        if subdim == dim:
-            label_name = dmcommon.CELL_SETS_LABEL
-        elif subdim == dim - 1:
-            label_name = dmcommon.FACE_SETS_LABEL
     subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm
