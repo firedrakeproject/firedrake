@@ -5003,7 +5003,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
 
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+    subplex = dmcommon.submesh_create(mesh.topology_dm, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
