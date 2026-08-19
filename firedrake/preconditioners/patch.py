@@ -74,7 +74,7 @@ class EntityNodeMap:
 
     dtype = PETSc.IntType
 
-    @property
+    @cached_property
     def values(self) -> np.ndarray:
         if self.space.index is not None:
             parent_space = self.space.parent
@@ -408,17 +408,6 @@ void wrapper_kernel({args_sig})
 
     {local_kernel_call_insn}
 
-//printf("temp\\n");
-//for (int32_t k=0; k<{row_size}*{column_size}; k++)
-//  printf("%f ", t_0[k]);
-//printf("\\n");
-
-
-//printf("\\n");
-//for (int32_t k=0; k<21; k++)
-//  printf("%d ", activeDofsArray[21*i+k]);
-//printf("\\n");
-
 {textwrap.indent(unpack_insn, " "*4)}
   }}
 }}
@@ -485,17 +474,8 @@ PetscErrorCode ComputeJacobian(PC pc,
     activeDofsArray = filtdofs;
   }}
 
-  // ISView(points, NULL);  // the same
-  // for (int i=0; i<ndof; i++)  // the same
-  //  printf("%d ", dofArray[i]);
   if (npoints)
     {self._wrapper_kernel_call_insn};
-
-  //MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY);
-  //MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY);
-  //PetscReal norm;
-  //MatNorm(J, NORM_1, &norm);
-  //printf("norm: %f\\n", norm);
 
   if (ctx->point2facet) {{
     PetscCall(PetscFree(filtpoints));

@@ -49,8 +49,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         f = Function(V)
         fval = numpy.full(V.sub(i).value_shape, 1.0, dtype=float)
         f.sub(i).interpolate(Constant(fval))
-        # a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
-        a = (inner(grad(u), grad(v)))*dx
+        a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
         L = inner(Constant(rhs), v)*dx
         bcs = [DirichletBC(Q, 0, "on_boundary")
                for Q in V.subspaces]
@@ -69,9 +68,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                         "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
-
     jacobi.solve()
-
     jacobi_history = jacobi.snes.ksp.getConvergenceHistory()
 
     patch = LinearVariationalSolver(problem,
@@ -88,12 +85,9 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
                                                        "ksp_monitor": None})
-
     patch.snes.ksp.setConvergenceHistory()
-
     uh.assign(0)
     patch.solve()
-
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)
