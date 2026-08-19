@@ -83,27 +83,22 @@ def _get_collection_types(gdim, tdim):
     raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
-def _cycle(nodes):
-    r"""Order the vertices of each entity into a cycle around its perimeter
-
-    FInAT numbers the vertices of a quadrilateral lexicographically, putting 1
-    and 2 diagonally opposite each other; exchanging the last two makes the
-    polygon simple. Entities with any other number of vertices are simplices,
-    which are already in order.
-    """
-    nodes = np.asarray(nodes)
-    if nodes.shape[-1] == 4:
-        return nodes[..., [0, 1, 3, 2]]
-    return nodes
-
-
 def _entity_node_list(cell, dimension):
     r"""Local node numbers of each entity of the given dimension of a cell
+
+    The vertices of each entity come out in a cycle around its perimeter. FInAT
+    numbers the vertices of a quadrilateral lexicographically, putting 1 and 2
+    diagonally opposite each other; exchanging the last two makes the polygon
+    simple. Entities with any other number of vertices are simplices, which are
+    already in order.
 
     :return: array of shape ``(num_entities, num_vertices_per_entity)``
     """
     entities = cell.get_topology()[dimension]
-    return _cycle([entities[key] for key in sorted(entities)])
+    nodes = np.array([entities[key] for key in sorted(entities)])
+    if nodes.shape[-1] == 4:
+        return nodes[:, [0, 1, 3, 2]]
+    return nodes
 
 
 def _extrude(nodes, offset, num_layers):
@@ -116,18 +111,6 @@ def _extrude(nodes, offset, num_layers):
     offset = np.broadcast_to(offset, nodes.shape)
     layers = np.arange(num_layers).reshape(1, -1, 1)
     return (nodes[:, None, :] + offset[:, None, :] * layers).reshape(-1, nodes.shape[-1])
-
-
-def _entity_dimensions(tdim, extruded):
-    r"""Dimensions of the cell, the vertical facets, and the horizontal facets
-
-    Tensor product cells index their entities by a pair of horizontal and
-    vertical dimensions. The horizontal facets bound the bottom and top of each
-    column of cells, so there are none unless the mesh is extruded.
-    """
-    if extruded:
-        return (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
-    return tdim, tdim - 1, None
 
 
 @PETSc.Log.EventDecorator()
@@ -176,7 +159,13 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         coordinates = assemble(interpolate(coordinates, V))
 
     cell = coordinates.function_space().finat_element.cell
-    cell_dim, facet_dim, horiz_facet_dim = _entity_dimensions(tdim, mesh.extruded)
+    # Tensor product cells index their entities by a pair of horizontal and
+    # vertical dimensions. The horizontal facets bound the bottom and top of
+    # each column of cells, so there are none unless the mesh is extruded.
+    if mesh.extruded:
+        cell_dim, facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+    else:
+        cell_dim, facet_dim, horiz_facet_dim = tdim, tdim - 1, None
     num_layers = mesh.layers - 1 if mesh.extruded else 1
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
