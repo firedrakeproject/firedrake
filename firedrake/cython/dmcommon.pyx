@@ -4000,8 +4000,8 @@ def submesh_create(PETSc.DM dm,
     dm : PETSc.DM
         DMPlex representing the mesh topology
     subdim : int | None
-        Topological dimension of the submesh, or None to be infered from other kwargs.
-        See :func:`~mesh.Submesh`.
+        Topological dimension of the submesh, or None to be inferred from other kwargs.
+        See :func:`~.mesh.Submesh`.
     label_name : str | None
         Name of the label, or `None` to select every cell
     subdomain_id : int | Sequence | None
@@ -4035,8 +4035,8 @@ def submesh_create(PETSc.DM dm,
     if subdim is None:
         subdim = dim
     if subdim not in {dim, dim - 1}:
-        raise NotImplementedError(f"Submesh construction is only implemented for codimension 0 or 1. 
-                                    Found submesh dim ({subdim}) and parent dim ({dim})")
+        raise NotImplementedError(f"Submesh construction is only implemented for codimension 0 or 1. "
+                                   "Found submesh dim ({subdim}) and parent dim ({dim})")
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
