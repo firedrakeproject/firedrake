@@ -183,8 +183,6 @@ def test_fn_plotter_extruded_mesh_multiple_layers():
 
 @pytest.mark.skipplot
 @pytest.mark.parametrize("family,degree", [("CG", 2), ("DG", 1)])
-@pytest.mark.xfail(reason="FunctionPlotter ignores the vertical node offset of "
-                          "the function space on extruded meshes")
 def test_fn_plotter_extruded_mesh_offsets(family, degree):
     # Only spaces whose nodes are numbered consecutively up a column have a
     # vertical offset of 1; CG2 has an offset of 2 and DQ1 an offset of 4.

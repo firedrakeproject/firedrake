@@ -113,6 +113,22 @@ def _entity_node_list(cell, dimension):
     return _cycle([entities[key] for key in sorted(entities)])
 
 
+def _extrude(nodes, offset, num_layers):
+    r"""Replicate the nodes of the bottom layer of an extruded mesh up the columns
+
+    :arg nodes: array of node numbers of the entities in the bottom layer
+    :arg offset: increment of each node number between successive layers,
+        either one value per node or a full array of the same shape as ``nodes``
+    :arg num_layers: number of layers of cells in each column
+    :return: array of node numbers of the entities in every layer, with the
+        entities of each column contiguous
+    """
+    nodes = np.asarray(nodes)
+    offset = np.broadcast_to(offset, nodes.shape)
+    layers = np.arange(num_layers).reshape(1, -1, 1)
+    return (nodes[:, None, :] + offset[:, None, :] * layers).reshape(-1, nodes.shape[-1])
+
+
 @PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
@@ -995,8 +1011,9 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.layers:
-            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
+        if mesh.extruded:
+            cell_node_list = _extrude(cell_node_list, Q.cell_node_map().offset,
+                                      mesh.layers - 1)
         data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1
