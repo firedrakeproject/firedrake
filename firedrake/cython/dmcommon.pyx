@@ -4087,6 +4087,8 @@ def submesh_create(PETSc.DM dm,
                                              ignoreHalo=ignore_label_halo,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
+    if subdm.getDimension() != subdim:
+        raise RuntimeError(f"Found subplex dim ({subdm.getDimension()}) != expected ({subdim})")
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)

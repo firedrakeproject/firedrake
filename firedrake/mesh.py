@@ -5009,7 +5009,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     name = name or _generate_default_submesh_name(mesh.name)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
-        raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
     if reorder is None:
         # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
