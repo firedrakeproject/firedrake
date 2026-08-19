@@ -83,6 +83,36 @@ def _get_collection_types(gdim, tdim):
     raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
+def _cycle(nodes):
+    r"""Order the vertices of an entity into a cycle around its perimeter
+
+    FInAT numbers the vertices of a tensor product entity lexicographically, so
+    a quadrilateral comes out with vertices 1 and 2 diagonally opposite each
+    other; exchanging the last two vertices makes the polygon simple. Every
+    entity that this is applied to -- a cell of a 2D mesh, or a facet -- is a
+    simplex if it has any other number of vertices.
+
+    :arg nodes: array of node numbers, one entity per row
+    :return: array of the same shape with the vertices of each entity in order
+    """
+    nodes = np.asarray(nodes)
+    if nodes.shape[-1] == 4:
+        return nodes[..., [0, 1, 3, 2]]
+    return nodes
+
+
+def _entity_node_list(cell, dimension):
+    r"""Local node numbers of each entity of a given dimension of a cell
+
+    :arg cell: the reference cell of the coordinate element
+    :arg dimension: dimension of the entities to return; a tuple of horizontal
+        and vertical dimensions if the cell is a tensor product
+    :return: array of shape ``(num_entities, num_vertices_per_entity)``
+    """
+    entities = cell.get_topology()[dimension]
+    return _cycle([entities[key] for key in sorted(entities)])
+
+
 @PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
@@ -103,7 +133,6 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname == "quadrilateral"
 
     if mesh.extruded:
         raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
@@ -122,13 +151,16 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(interpolate(coordinates, V))
 
+    cell = coordinates.function_space().finat_element.cell
+
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
         cell_node_map = coordinates.cell_node_map().values_with_halo
-        idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
+        idx = _entity_node_list(cell, tdim)[0]
+        idx = np.append(idx, idx[0])
         vertices = coords[cell_node_map[:, idx]]
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
@@ -140,29 +172,30 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         axes.add_collection(interior_collection)
         result.append(interior_collection)
 
+    # Add colored lines/polygons for the boundary facets. Each facet is drawn
+    # from the nodes of the cell it belongs to that lie on it.
+    facet_node_list = _entity_node_list(cell, tdim - 1)
+
     def facet_data(typ):
         if typ == "interior":
             facets = mesh.interior_facets
             node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values_with_halo[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
+            nodes = node_map.values_with_halo[:, :node_map.arity//2]
+            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, 0]
         elif typ == "exterior":
             facets = mesh.exterior_facets
+            nodes = coordinates.exterior_facet_node_map().values_with_halo
             local_facet_ids = facets.local_facet_dat.data_ro_with_halos
-            node_map = coordinates.exterior_facet_node_map().values_with_halo
         else:
             raise ValueError("Unhandled facet type")
-        mask = np.zeros(node_map.shape, dtype=bool)
-        for facet_index, local_facet_index in enumerate(local_facet_ids):
-            mask[facet_index, topology[tdim - 1][local_facet_index]] = True
-        faces = node_map[mask].reshape(-1, tdim)
+        faces = np.take_along_axis(nodes, facet_node_list[local_facet_ids], axis=1)
         return facets, faces
 
-    # Add colored lines/polygons for the boundary facets
-    topology = coordinates.function_space().finat_element.cell.get_topology()
+    facet_data = {typ: facet_data(typ) for typ in ["interior", "exterior"]}
 
     markers = mesh.exterior_facets.unique_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
+    boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
         # matplotlib.cm.get_cmap was deprecated in Matplotlib 3.9, see:
@@ -176,14 +209,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     else:
         colors = matplotlib.colors.to_rgba_array(boundary_colors)
 
-    boundary_kw = dict(boundary_kw)
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
         vertices = []
-        for typ in ["interior", "exterior"]:
-            facets, faces = facet_data(typ)
+        for facets, faces in facet_data.values():
             face_indices = facets.subset(int(marker)).indices
             marker_faces = faces[face_indices, :]
             vertices.append(coords[marker_faces])

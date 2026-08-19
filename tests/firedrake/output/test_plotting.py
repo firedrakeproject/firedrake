@@ -432,8 +432,6 @@ def test_triplot_extruded_horizontal_boundaries():
 
 
 @pytest.mark.skipplot
-@pytest.mark.xfail(reason="triplot assumes that facets are simplices, so the "
-                          "quadrilateral facets of a hexahedron are mangled")
 def test_triplot_hex_mesh():
     mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
     fig = plt.figure()
@@ -456,7 +454,6 @@ def test_triplot_hex_mesh():
 
 
 @pytest.mark.skipplot
-@pytest.mark.xfail(reason="triplot pops the colours out of the caller's boundary_kw")
 def test_triplot_kwargs_not_mutated():
     mesh = UnitSquareMesh(4, 4)
     interior_kw = {'linewidths': 0.5}
