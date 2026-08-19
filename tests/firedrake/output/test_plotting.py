@@ -402,7 +402,6 @@ def test_triplot_manifold_mesh():
 
 
 @pytest.mark.skipplot
-@pytest.mark.xfail(reason="Extruded plotting not implemented")
 def test_triplot_extruded():
     # The annulus is a periodic extrusion of an interval, so its inner and
     # outer boundaries are the markers of the base mesh on vertical facets.
@@ -415,7 +414,6 @@ def test_triplot_extruded():
 
 
 @pytest.mark.skipplot
-@pytest.mark.xfail(reason="Extruded plotting not implemented")
 def test_triplot_extruded_horizontal_boundaries():
     # Extruding a closed base mesh leaves the bottom and top of the columns as
     # the only boundaries of the domain.

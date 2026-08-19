@@ -84,16 +84,12 @@ def _get_collection_types(gdim, tdim):
 
 
 def _cycle(nodes):
-    r"""Order the vertices of an entity into a cycle around its perimeter
+    r"""Order the vertices of each entity into a cycle around its perimeter
 
-    FInAT numbers the vertices of a tensor product entity lexicographically, so
-    a quadrilateral comes out with vertices 1 and 2 diagonally opposite each
-    other; exchanging the last two vertices makes the polygon simple. Every
-    entity that this is applied to -- a cell of a 2D mesh, or a facet -- is a
-    simplex if it has any other number of vertices.
-
-    :arg nodes: array of node numbers, one entity per row
-    :return: array of the same shape with the vertices of each entity in order
+    FInAT numbers the vertices of a quadrilateral lexicographically, putting 1
+    and 2 diagonally opposite each other; exchanging the last two makes the
+    polygon simple. Entities with any other number of vertices are simplices,
+    which are already in order.
     """
     nodes = np.asarray(nodes)
     if nodes.shape[-1] == 4:
@@ -102,11 +98,8 @@ def _cycle(nodes):
 
 
 def _entity_node_list(cell, dimension):
-    r"""Local node numbers of each entity of a given dimension of a cell
+    r"""Local node numbers of each entity of the given dimension of a cell
 
-    :arg cell: the reference cell of the coordinate element
-    :arg dimension: dimension of the entities to return; a tuple of horizontal
-        and vertical dimensions if the cell is a tensor product
     :return: array of shape ``(num_entities, num_vertices_per_entity)``
     """
     entities = cell.get_topology()[dimension]
@@ -114,19 +107,27 @@ def _entity_node_list(cell, dimension):
 
 
 def _extrude(nodes, offset, num_layers):
-    r"""Replicate the nodes of the bottom layer of an extruded mesh up the columns
+    r"""Replicate the entities of the bottom layer up the columns of an extruded mesh
 
-    :arg nodes: array of node numbers of the entities in the bottom layer
-    :arg offset: increment of each node number between successive layers,
-        either one value per node or a full array of the same shape as ``nodes``
-    :arg num_layers: number of layers of cells in each column
-    :return: array of node numbers of the entities in every layer, with the
-        entities of each column contiguous
+    The ``offset`` between successive layers broadcasts against ``nodes``. The
+    entities of each column come out contiguous.
     """
     nodes = np.asarray(nodes)
     offset = np.broadcast_to(offset, nodes.shape)
     layers = np.arange(num_layers).reshape(1, -1, 1)
     return (nodes[:, None, :] + offset[:, None, :] * layers).reshape(-1, nodes.shape[-1])
+
+
+def _entity_dimensions(tdim, extruded):
+    r"""Dimensions of the cell, the vertical facets, and the horizontal facets
+
+    Tensor product cells index their entities by a pair of horizontal and
+    vertical dimensions. The horizontal facets bound the bottom and top of each
+    column of cells, so there are none unless the mesh is extruded.
+    """
+    if extruded:
+        return (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+    return tdim, tdim - 1, None
 
 
 @PETSc.Log.EventDecorator()
@@ -140,6 +141,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :class:`LineCollection <matplotlib.collections.LineCollection>` and
     related types.
 
+    On an extruded mesh, the markers of the base mesh colour the vertical
+    facets, and the bottom and top of the columns of cells are coloured under
+    the markers ``"bottom"`` and ``"top"``, matching the subdomain ids of the
+    :data:`~.ds_b` and :data:`~.ds_t` measures. A periodic extrusion identifies
+    the bottom with the top, so neither is drawn.
+
     :arg mesh: mesh to be plotted
     :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot mesh
     :arg interior_kw: keyword arguments to apply when plotting the mesh interior
@@ -150,8 +157,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
 
-    if mesh.extruded:
-        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
+    if mesh.extruded and mesh.variable_layers:
+        raise NotImplementedError("Visualizing variable layer extruded meshes "
+                                  "not implemented yet!")
 
     if axes is None:
         figure = plt.figure()
@@ -162,22 +170,28 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
-    if element.degree() != 1:
+    if coordinates.function_space().finat_element.space_dimension() != mesh.ufl_cell().num_vertices:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(interpolate(coordinates, V))
 
     cell = coordinates.function_space().finat_element.cell
+    cell_dim, facet_dim, horiz_facet_dim = _entity_dimensions(tdim, mesh.extruded)
+    num_layers = mesh.layers - 1 if mesh.extruded else 1
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
+    cell_node_map = coordinates.cell_node_map()
+    cell_nodes = cell_node_map.values_with_halo
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values_with_halo
-        idx = _entity_node_list(cell, tdim)[0]
+        idx = _entity_node_list(cell, cell_dim)[0]
         idx = np.append(idx, idx[0])
-        vertices = coords[cell_node_map[:, idx]]
+        cells = cell_nodes[:, idx]
+        if mesh.extruded:
+            cells = _extrude(cells, cell_node_map.offset[idx], num_layers)
+        vertices = coords[cells]
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
         interior_kw["linewidths"] = interior_kw.get("linewidths", 1.0)
@@ -190,7 +204,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     # Add colored lines/polygons for the boundary facets. Each facet is drawn
     # from the nodes of the cell it belongs to that lie on it.
-    facet_node_list = _entity_node_list(cell, tdim - 1)
+    facet_node_list = _entity_node_list(cell, facet_dim)
 
     def facet_data(typ):
         if typ == "interior":
@@ -200,16 +214,43 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
             local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, 0]
         elif typ == "exterior":
             facets = mesh.exterior_facets
-            nodes = coordinates.exterior_facet_node_map().values_with_halo
+            node_map = coordinates.exterior_facet_node_map()
+            nodes = node_map.values_with_halo
             local_facet_ids = facets.local_facet_dat.data_ro_with_halos
         else:
             raise ValueError("Unhandled facet type")
-        faces = np.take_along_axis(nodes, facet_node_list[local_facet_ids], axis=1)
+        selection = facet_node_list[local_facet_ids]
+        faces = np.take_along_axis(nodes, selection, axis=1)
+        if mesh.extruded:
+            faces = _extrude(faces, node_map.offset[selection], num_layers)
         return facets, faces
 
     facet_data = {typ: facet_data(typ) for typ in ["interior", "exterior"]}
 
-    markers = mesh.exterior_facets.unique_markers
+    # The bottom and top of an extruded mesh are not facets of the base mesh,
+    # so they are drawn from the cells of the lowest and highest layer instead.
+    # A periodic extrusion identifies the two, leaving no boundary there.
+    horizontal_markers = ["bottom", "top"] if (mesh.extruded
+                                               and not mesh.extruded_periodic) else []
+
+    def marker_faces(marker):
+        if marker in horizontal_markers:
+            layer = 0 if marker == "bottom" else num_layers - 1
+            idx = _entity_node_list(cell, horiz_facet_dim)[horizontal_markers.index(marker)]
+            return cell_nodes[:, idx] + layer * cell_node_map.offset[idx]
+
+        faces = []
+        for facets, extruded_faces in facet_data.values():
+            indices = facets.subset(int(marker)).indices
+            if mesh.extruded:
+                # Every facet of the base mesh was extruded into `num_layers`
+                # facets lying consecutively in the array.
+                indices = (num_layers * indices[:, None]
+                           + np.arange(num_layers)).reshape(-1)
+            faces.append(extruded_faces[indices, :])
+        return np.concatenate(faces)
+
+    markers = list(mesh.exterior_facets.unique_markers) + horizontal_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
@@ -229,12 +270,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
-        vertices = []
-        for facets, faces in facet_data.values():
-            face_indices = facets.subset(int(marker)).indices
-            marker_faces = faces[face_indices, :]
-            vertices.append(coords[marker_faces])
-        vertices = np.concatenate(vertices)
+        vertices = coords[marker_faces(marker)]
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
         marker_collection = BoundaryCollection(vertices, **_boundary_kw)
         axes.add_collection(marker_collection)
