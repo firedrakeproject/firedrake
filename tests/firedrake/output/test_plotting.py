@@ -182,6 +182,27 @@ def test_fn_plotter_extruded_mesh_multiple_layers():
 
 
 @pytest.mark.skipplot
+@pytest.mark.parametrize("family,degree", [("CG", 2), ("DG", 1)])
+@pytest.mark.xfail(reason="FunctionPlotter ignores the vertical node offset of "
+                          "the function space on extruded meshes")
+def test_fn_plotter_extruded_mesh_offsets(family, degree):
+    # Only spaces whose nodes are numbered consecutively up a column have a
+    # vertical offset of 1; CG2 has an offset of 2 and DQ1 an offset of 4.
+    mesh = ExtrudedMesh(UnitIntervalMesh(4), 3)
+    x, y = SpatialCoordinate(mesh)
+
+    fn_plotter = FunctionPlotter(mesh, num_sample_points=10)
+    coords = fn_plotter(mesh.coordinates).reshape(-1, 2)
+
+    V = FunctionSpace(mesh, family, degree)
+    u = assemble(interpolate(x + 2 * y, V))
+
+    # A linear function is in every one of these spaces, so sampling it must
+    # reproduce it exactly at the sample points.
+    assert np.allclose(fn_plotter(u), coords[:, 0] + 2 * coords[:, 1])
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
@@ -371,3 +392,80 @@ def test_tripcolor_movie():
 
     # Use a method of the animation to prevent warning about it being unused
     movie.to_jshtml()
+
+
+@pytest.mark.skipplot
+@pytest.mark.xfail(reason="Plotting 1D manifolds embedded into 2D not implemented")
+def test_triplot_manifold_mesh():
+    mesh = CircleManifoldMesh(16)
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+
+
+@pytest.mark.skipplot
+@pytest.mark.xfail(reason="Extruded plotting not implemented")
+def test_triplot_extruded():
+    # The annulus is a periodic extrusion of an interval, so its inner and
+    # outer boundaries are the markers of the base mesh on vertical facets.
+    mesh = AnnulusMesh(2, 1, nr=4, nt=32)
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert len(legend.get_texts()) == 2
+
+
+@pytest.mark.skipplot
+@pytest.mark.xfail(reason="Extruded plotting not implemented")
+def test_triplot_extruded_horizontal_boundaries():
+    # Extruding a closed base mesh leaves the bottom and top of the columns as
+    # the only boundaries of the domain.
+    circle = CircleManifoldMesh(32, radius=1.0)
+    mesh = ExtrudedMesh(circle, layers=4, layer_height=0.15, extrusion_type="radial")
+
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert [text.get_text() for text in legend.get_texts()] == ["bottom", "top"]
+
+
+@pytest.mark.skipplot
+@pytest.mark.xfail(reason="triplot assumes that facets are simplices, so the "
+                          "quadrilateral facets of a hexahedron are mangled")
+def test_triplot_hex_mesh():
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert len(legend.get_texts()) == 6
+
+    # The paths of a Poly3DCollection are only populated once the polygons have
+    # been projected onto the viewing plane.
+    fig.canvas.draw()
+
+    # Every facet of a hexahedron is a quadrilateral, so each of the 6 * 2 * 2
+    # boundary facets must be drawn as a polygon with four distinct vertices.
+    paths = [path for collection in collections for path in collection.get_paths()]
+    assert len(paths) == 24
+    for path in paths:
+        assert len(np.unique(path.vertices, axis=0)) == 4
+
+
+@pytest.mark.skipplot
+@pytest.mark.xfail(reason="triplot pops the colours out of the caller's boundary_kw")
+def test_triplot_kwargs_not_mutated():
+    mesh = UnitSquareMesh(4, 4)
+    interior_kw = {'linewidths': 0.5}
+    boundary_kw = {'linewidths': 2.0, 'colors': ['tab:blue', 'tab:orange',
+                                                 'tab:green', 'tab:red']}
+
+    fig, axes = plt.subplots()
+    triplot(mesh, axes=axes, interior_kw=interior_kw, boundary_kw=boundary_kw)
+
+    assert interior_kw == {'linewidths': 0.5}
+    assert boundary_kw == {'linewidths': 2.0, 'colors': ['tab:blue', 'tab:orange',
+                                                         'tab:green', 'tab:red']}
