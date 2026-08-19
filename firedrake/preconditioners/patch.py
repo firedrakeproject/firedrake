@@ -408,6 +408,17 @@ void wrapper_kernel({args_sig})
 
     {local_kernel_call_insn}
 
+//printf("temp\\n");
+//for (int32_t k=0; k<{row_size}*{column_size}; k++)
+//  printf("%f ", t_0[k]);
+//printf("\\n");
+
+
+//printf("\\n");
+//for (int32_t k=0; k<21; k++)
+//  printf("%d ", activeDofsArray[21*i+k]);
+//printf("\\n");
+
 {textwrap.indent(unpack_insn, " "*4)}
   }}
 }}
@@ -474,8 +485,17 @@ PetscErrorCode ComputeJacobian(PC pc,
     activeDofsArray = filtdofs;
   }}
 
+  // ISView(points, NULL);  // the same
+  // for (int i=0; i<ndof; i++)  // the same
+  //  printf("%d ", dofArray[i]);
   if (npoints)
     {self._wrapper_kernel_call_insn};
+
+  //MatAssemblyBegin(J, MAT_FINAL_ASSEMBLY);
+  //MatAssemblyEnd(J, MAT_FINAL_ASSEMBLY);
+  //PetscReal norm;
+  //MatNorm(J, NORM_1, &norm);
+  //printf("norm: %f\\n", norm);
 
   if (ctx->point2facet) {{
     PetscCall(PetscFree(filtpoints));
@@ -654,6 +674,7 @@ def make_patch_callables(form: ufl.Form, state: Function | None) -> tuple[
 
 
 def bcdofs(bc, ghost=True):
+    assert False, "old, wrong code"
     # Return the global dofs fixed by a DirichletBC
     # in the numbering given by concatenation of all the
     # subspaces of a mixed function space
@@ -664,6 +685,9 @@ def bcdofs(bc, ghost=True):
     indices = bc._indices
     offset = 0
 
+    if isinstance(Z.ufl_element(), MixedElement) and Z.comm.size > 1:
+        raise NotImplementedError("This is incorrect for mixed in parallel now that we interleave")
+
     for (i, idx) in enumerate(indices):
         if isinstance(Z.ufl_element(), VectorElement):
             offset += idx
@@ -673,6 +697,7 @@ def bcdofs(bc, ghost=True):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
             else:
+                # offset += sum(Z.sub(j).axes.owned.local_size * Z.sub(j).block_size for j in range(idx))
                 offset += sum(Z.sub(j).axes.local_size * Z.sub(j).block_size for j in range(idx))
         else:
             raise NotImplementedError("How are you taking a .sub?")
@@ -885,17 +910,10 @@ class PatchBase(PCSNESBase):
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
-        if len(bcs) > 0:
-            ghost_bc_nodes = numpy.unique(
-                numpy.concatenate([bcdofs(bc, ghost=True) for bc in bcs],
-                                  dtype=PETSc.IntType)
-            )
-            global_bc_nodes = numpy.unique(
-                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
-                                  dtype=PETSc.IntType))
-        else:
-            ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-            global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+        if V.comm.size > 1:
+            raise NotImplementedError("ghost and global bcs differ in parallel")
+        ghost_bc_nodes = numpy.where(V.lgmap(bcs).indices < 0)
+        global_bc_nodes = ghost_bc_nodes
 
         # We need to set C function pointer callbacks for PCPatch to work.
         # Although petsc4py provides a high-level Python wrapper for them,
@@ -995,9 +1013,6 @@ class PatchBase(PCSNESBase):
         #     # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
         #     # NOTE: we might be OK if we set offsets and block sizes to zero
         #     raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
-        if any(Vsub.boundary_set for Vsub in V):
-            # same reasoning as above but for restricted function spaces
-            raise NotImplementedError("PCPatch+RFS requires IS-related fixes in PETSc")
 
         dms = [Vsub.dm for Vsub in V]
 
@@ -1018,6 +1033,15 @@ class PatchBase(PCSNESBase):
         #     cell_node_maps = [V.cell_dof_map_dat.data_ro]
         # offsets = numpy.zeros(len(V)+1, dtype=PETSc.IntType)
         # offsets[-1] = V.axes.local_size
+
+        # map_axes = V.cell_dof_map_dat.axes
+        # ndofs_per_cell = map_axes.subtree({map_axes.root.label: map_axes.root.component.label}).size
+        # cell_dof_map = V.cell_dof_map_dat.data_ro.reshape((-1, ndofs_per_cell))
+        #
+        # dms = [V.dm]
+        # block_sizes = [1]
+        # offsets = [0, 666]
+        # cell_node_maps = [cell_dof_map]
         # breakpoint()
         patch.setPatchDiscretisationInfo(
             dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
@@ -1080,8 +1104,8 @@ class PatchPC(PCBase, PatchBase):
         patch.setOperators(A, P)
 
     def apply(self, pc, x, y):
-        # breakpoint()
         self.patch.apply(x, y)
+        # breakpoint()
 
     def applyTranspose(self, pc, x, y):
         self.patch.applyTranspose(x, y)
