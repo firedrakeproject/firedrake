@@ -4429,6 +4429,10 @@ def _parent_mesh_embedding(
     # keep only points which are visible on this rank (they were found in a cell)
     keep = parent_cell_nums != -1
 
+    # TODO: try packing these next two reduction into (distance, -owner_rank) and reduce with MPI.MINLOC
+    # don't think PETSc has the fast pack/unpack operations in SF for this, so we'd
+    # have to create our own numpy dtype to do this...
+
     # keep points which attain the minimum L1 distance out of all candidates
     root_distance_min = np.full(nroots, np.inf, dtype=RealType)
     candidate_sf.reduce(
@@ -4453,6 +4457,8 @@ def _parent_mesh_embedding(
 
     # this SF maps roots to their winning candidate leaf
     winner_sf = candidate_sf.create_embedded_leaf_sf(keep & not_in_halo)
+
+    # Try packing these two reductions and do a single reduction
 
     # send winning cell number and ref coords to roots
     winner_cells = np.full(nroots, -1, dtype=IntType)
