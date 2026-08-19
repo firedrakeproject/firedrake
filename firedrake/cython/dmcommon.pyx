@@ -3988,7 +3988,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
-                   PetscInt subdim,
+                   subdim,
                    label_name,
                    subdomain_id,
                    PetscBool ignore_label_halo,
@@ -3999,12 +3999,13 @@ def submesh_create(PETSc.DM dm,
     ----------
     dm : PETSc.DM
         DMPlex representing the mesh topology
-    subdim : int
-        Topological dimension of the submesh
-    label_name : str
-        Name of the label
-    subdomain_id : int | Sequence
-        Values in the label
+    subdim : int | None
+        Topological dimension of the submesh, or None to be inferred from other kwargs.
+        See :func:`~.mesh.Submesh`.
+    label_name : str | None
+        Name of the label, or `None` to select every cell
+    subdomain_id : int | Sequence | None
+        Values in the label, unused if ``label_name`` is `None`
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
     comm : PETSc.Comm | None
@@ -4017,6 +4018,36 @@ def submesh_create(PETSc.DM dm,
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
         PetscInt pStart, pEnd, p, i, stratum_size = 0, label_value = 1
         const PetscInt *stratum_indices = NULL
+
+    # Parse default subdim, label_name, and subdomain_id
+    dim = dm.getDimension()
+    if subdomain_id == "on_boundary":
+        if subdim is None:
+            subdim = dim - 1
+        elif subdim != dim - 1:
+            raise ValueError('subdomain_id="on_boundary" requires subdim=dim-1')
+        if label_name is None:
+            label_name = "exterior_facets"
+        elif label_name != "exterior_facets":
+            raise ValueError('subdomain_id="on_boundary" requires label_name="exterior_facets"')
+        subdomain_id = 1
+
+    if subdim is None:
+        subdim = dim
+    if subdim not in {dim, dim - 1}:
+        raise NotImplementedError(f"Submesh construction is only implemented for codimension 0 or 1. "
+                                   "Found submesh dim ({subdim}) and parent dim ({dim})")
+    if subdomain_id is None:
+        if label_name is not None:
+            raise ValueError("subdomain_id=None requires label_name=None.")
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
+    elif label_name is None:
+        if subdim == dim:
+            label_name = CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = FACE_SETS_LABEL
 
     # Cast subdomain_id into an iterable
     if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
@@ -4056,6 +4087,8 @@ def submesh_create(PETSc.DM dm,
                                              ignoreHalo=ignore_label_halo,
                                              sanitizeSubMesh=PETSC_TRUE,
                                              comm=comm)
+    if subdm.getDimension() != subdim:
+        raise RuntimeError(f"Found subplex dim ({subdm.getDimension()}) != expected ({subdim})")
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)
@@ -4087,6 +4120,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         const PetscInt *ilocal = NULL
         const PetscSFNode *iremote = NULL
         PETSc.IS subpoint_is
+        PETSc.IS all_points
         const PetscInt *subpoint_indices = NULL
         np.ndarray ownership_loss
         np.ndarray ownership_gain
@@ -4109,17 +4143,13 @@ def submesh_correct_entity_classes(PETSc.DM dm,
 
     if subdm.comm.size == 1:
         # Undistributed case: relabel every point as core
-        for subp in range(subpStart, subpEnd):
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            if has:
-                continue
-            CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            if has:
-                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            if has:
-                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_core, subp, 1))
+        all_points = PETSc.IS().createStride(subpEnd - subpStart,
+                                             first=subpStart, step=1,
+                                             comm=PETSc.COMM_SELF)
+        CHKERR(DMLabelClearStratum(lbl_owned, 1))
+        CHKERR(DMLabelClearStratum(lbl_ghost, 1))
+        CHKERR(DMLabelSetStratumIS(lbl_core, 1, (<PETSc.IS>all_points).iset))
+        all_points.destroy()
     else:
         ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
         ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
