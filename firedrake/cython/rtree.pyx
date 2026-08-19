@@ -176,8 +176,8 @@ cdef tuple _destination_ranks(
         Target ranks to send points to.
     point_indices : (total_sends,) int32 array
         Indices into `points` determining which points to send.
-    send_counts : (comm_size,) int32 array
-        The number of points to send to each rank.
+    send_counts : (nranks_to,) int32 array
+        Number of points to send to each entry of `toranks`.
     """
     cdef:
         int64_t *ids_out = NULL
@@ -185,9 +185,11 @@ cdef tuple _destination_ranks(
         size_t n_points = points.shape[0]
         size_t i, j
         Py_ssize_t nranks_to = 0
-        Py_ssize_t rank, index, count, offset
+        Py_ssize_t rank, index, offset
         RTreeError err, ids_free_err, offsets_free_err
         np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
+        np.ndarray[np.int32_t, ndim=1, mode="c"] rank_counts
+        np.ndarray[np.int32_t, ndim=1, mode="c"] rank_write_offsets
         np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
 
@@ -204,7 +206,7 @@ cdef tuple _destination_ranks(
         raise RuntimeError("rtree_locate_all_at_points_unique failed")
 
     try:
-        send_counts = np.zeros(comm_size, dtype=np.int32)
+        rank_counts = np.zeros(comm_size, dtype=np.int32)
 
         # Count the points destined for each rank.
         # The candidate ranks for point `i` are
@@ -212,38 +214,33 @@ cdef tuple _destination_ranks(
         for i in range(n_points):
             for j in range(offsets_out[i], offsets_out[i + 1]):
                 rank = <Py_ssize_t>ids_out[j]
-                if send_counts[rank] == 0:
+                if rank_counts[rank] == 0:
                     nranks_to += 1
-                send_counts[rank] += 1
+                rank_counts[rank] += 1
 
         toranks = np.empty(nranks_to, dtype=np.int32)
+        send_counts = np.empty(nranks_to, dtype=np.int32)
+        rank_write_offsets = np.empty(comm_size, dtype=np.int32)
 
         index = 0
         offset = 0
         for rank in range(comm_size):
-            if send_counts[rank] == 0:
+            if rank_counts[rank] == 0:
                 # not sending this rank any points
                 continue
             toranks[index] = <np.int32_t>rank
-            count = send_counts[rank]
-            send_counts[rank] = offset
-            offset += count
+            send_counts[index] = rank_counts[rank]
+            rank_write_offsets[rank] = offset
+            offset += send_counts[index]
             index += 1
 
         point_indices = np.empty(offset, dtype=np.int32)
         for i in range(n_points):
             for j in range(offsets_out[i], offsets_out[i + 1]):
                 rank = <Py_ssize_t>ids_out[j]
-                index = send_counts[rank]
+                index = rank_write_offsets[rank]
                 point_indices[index] = <np.int32_t>i
-                send_counts[rank] += 1
-
-        offset = 0
-        for index in range(nranks_to):
-            rank = toranks[index]
-            count = send_counts[rank] - offset
-            offset += count
-            send_counts[index] = count
+                rank_write_offsets[rank] += 1
     finally:
         ids_free_err = rtree_free_ids(ids_out, offsets_out[n_points])
         offsets_free_err = rtree_free_offsets(offsets_out, n_points + 1)
@@ -286,7 +283,6 @@ def discover_remote_roots(
         MPI_Request *requests = NULL
         PetscMPIInt k, nranks_from, nranks_to, nrequests
         PetscMPIInt count, source_rank, recv_offset = 0
-        PetscMPIInt rank_from = comm.rank
         PetscMPIInt *fromranks = NULL
         void *recv_counts = NULL
         Py_ssize_t i, nleaves = 0, send_offset = 0
@@ -337,6 +333,7 @@ def discover_remote_roots(
             ))
             CHKERRMPI(MPI_Type_commit(&remote_index_type))
 
+        # nonblocking receives
         for k in range(nranks_from):
             source_rank = fromranks[k]
             count = (<PetscMPIInt *>recv_counts)[k]
@@ -353,6 +350,7 @@ def discover_remote_roots(
             ))
             recv_offset += count
 
+        # nonblocking sends
         for k in range(nranks_to):
             count = send_counts[k]
             CHKERRMPI(MPI_Isend(
@@ -360,7 +358,7 @@ def discover_remote_roots(
                 count,
                 MPI_INT,
                 toranks[k],
-                rank_from,
+                comm.rank,
                 mpi_comm,
                 &requests[nranks_from + k],
             ))
