@@ -14,7 +14,7 @@ import matplotlib.patches
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.collections import LineCollection, PathCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
@@ -68,8 +68,11 @@ def _autoscale_view(axes, coords):
 def _get_collection_types(gdim, tdim):
     if gdim == 2:
         if tdim == 1:
-            # Probably a CircleCollection?
-            raise NotImplementedError("Didn't get to this yet...")
+            # The facets of a 1D mesh are points, so its boundary needs a
+            # collection of markers. Only a closed manifold works for now; the
+            # markers of an open one would have to take their offsets in data
+            # coordinates and their colours under `facecolors`.
+            return PathCollection, LineCollection
         elif tdim == 2:
             return LineCollection, PolyCollection
     elif gdim == 3:
@@ -176,7 +179,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
         idx = _entity_node_list(cell, cell_dim)[0]
-        idx = np.append(idx, idx[0])
+        if tdim == 2:
+            # Close the polygon bounding the cell; the cells of a 1D mesh are
+            # already line segments.
+            idx = np.append(idx, idx[0])
         cells = cell_nodes[:, idx]
         if mesh.extruded:
             cells = _extrude(cells, cell_node_map.offset[idx], num_layers)
@@ -184,7 +190,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
         interior_kw["linewidths"] = interior_kw.get("linewidths", 1.0)
-        if gdim == 2:
+        if gdim == 2 and tdim == 2:
             interior_kw["facecolors"] = interior_kw.get("facecolors", "none")
 
         interior_collection = InteriorCollection(vertices, **interior_kw)

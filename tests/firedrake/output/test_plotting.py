@@ -393,7 +393,6 @@ def test_tripcolor_movie():
 
 
 @pytest.mark.skipplot
-@pytest.mark.xfail(reason="Plotting 1D manifolds embedded into 2D not implemented")
 def test_triplot_manifold_mesh():
     mesh = CircleManifoldMesh(16)
     fig, axes = plt.subplots()
