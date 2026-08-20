@@ -400,6 +400,52 @@ def test_triplot_manifold_mesh():
     assert collections
 
 
+def _embedded_interval_mesh(expr, dim):
+    interval = UnitIntervalMesh(6)
+    V = VectorFunctionSpace(interval, "CG", 1, dim=dim)
+    x, = SpatialCoordinate(interval)
+    return Mesh(assemble(interpolate(expr(x), V)))
+
+
+@pytest.mark.skipplot
+def test_triplot_manifold_mesh_with_boundary():
+    # The facets of a 1D mesh are points, so the two ends of an interval
+    # embedded into the plane are drawn as markers rather than as segments.
+    mesh = _embedded_interval_mesh(lambda x: as_vector([x, x**2]), 2)
+
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    legend = axes.legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["1", "2"]
+
+    offsets = np.concatenate([c.get_offsets() for c in collections[1:]])
+    assert np.allclose(np.sort(offsets, axis=0), [[0.0, 0.0], [1.0, 1.0]])
+    fig.canvas.draw()
+
+
+@pytest.mark.skipplot
+def test_triplot_manifold_mesh_3d():
+    # A curve in space is drawn like one in the plane, but its markers have to
+    # be promoted to 3D so that they are sorted by depth along with everything
+    # else in the axes.
+    mesh = _embedded_interval_mesh(
+        lambda x: as_vector([cos(6 * x), sin(6 * x), x]), 3
+    )
+
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    collections = triplot(mesh, axes=axes)
+    legend = axes.legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["1", "2"]
+
+    # The offsets of the markers are projected onto the viewing plane once the
+    # axes have been drawn, so read them beforehand.
+    offsets = np.concatenate([c.get_offsets() for c in collections[1:]])
+    endpoints = [[np.cos(6.0), np.sin(6.0)], [1.0, 0.0]]
+    assert np.allclose(np.sort(offsets, axis=0), np.sort(endpoints, axis=0))
+    fig.canvas.draw()
+
+
 @pytest.mark.skipplot
 def test_triplot_extruded():
     # The annulus is a periodic extrusion of an interval, so its inner and

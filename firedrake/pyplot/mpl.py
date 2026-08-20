@@ -11,12 +11,14 @@ except ModuleNotFoundError as e:
     ) from e
 import matplotlib.colors
 import matplotlib.patches
+import matplotlib.transforms
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
 from matplotlib.collections import LineCollection, PathCollection, PolyCollection
 import mpl_toolkits.mplot3d
-from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import (Line3DCollection, Poly3DCollection,
+                                        patch_collection_2d_to_3d)
 from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
@@ -65,25 +67,54 @@ def _autoscale_view(axes, coords):
             setter(amin, amax)
 
 
-def _get_collection_types(gdim, tdim):
-    if gdim == 2:
-        if tdim == 1:
-            # The facets of a 1D mesh are points, so its boundary needs a
-            # collection of markers. Only a closed manifold works for now; the
-            # markers of an open one would have to take their offsets in data
-            # coordinates and their colours under `facecolors`.
-            return PathCollection, LineCollection
-        elif tdim == 2:
-            return LineCollection, PolyCollection
-    elif gdim == 3:
-        if tdim == 1:
-            raise NotImplementedError("Didn't get to this one yet...")
-        elif tdim == 2:
-            return Line3DCollection, Poly3DCollection
-        elif tdim == 3:
-            return Poly3DCollection, Poly3DCollection
+def _point_collection(axes, vertices, colors=None, **kwargs):
+    r"""Draw a collection of round markers at the given points
 
-    raise ValueError("Geometric dimension must be either 2 or 3!")
+    The markers are sized in points like those of a scatter plot, so their
+    paths live in display space and only their offsets are in data
+    coordinates. The colours arrive under the same keyword that the line
+    collections bounding a 2D mesh take them under.
+    """
+    kwargs.setdefault("sizes", [plt.rcParams["lines.markersize"] ** 2])
+    collection = PathCollection(
+        [Path.unit_circle()],
+        offsets=vertices[:, :2],
+        offset_transform=axes.transData,
+        transform=matplotlib.transforms.IdentityTransform(),
+        facecolors=colors,
+        **kwargs
+    )
+    if vertices.shape[1] == 3:
+        # Shading the markers by depth would take them off the colour that
+        # names them in the legend.
+        patch_collection_2d_to_3d(collection, zs=vertices[:, 2], depthshade=False)
+    return collection
+
+
+def _add_collection(axes, vertices, **kwargs):
+    r"""Draw the mesh entities whose vertices are given and add them to the axes
+
+    The shape of ``vertices`` decides how each entity is drawn: entities with a
+    single vertex become round markers, those with two vertices become line
+    segments, and those with more become polygons. The facets of a 1D mesh are
+    points and those of a 2D mesh are segments, so this covers every entity
+    that a mesh of any dimension is drawn from.
+
+    :arg vertices: array of shape ``(num_entities, num_vertices, gdim)``
+    :return: the matplotlib :class:`Collection <matplotlib.collections.Collection>`
+    """
+    num_vertices, gdim = vertices.shape[1:]
+    if num_vertices == 1:
+        collection = _point_collection(axes, vertices.reshape(-1, gdim), **kwargs)
+    elif num_vertices == 2:
+        segments = LineCollection if gdim == 2 else Line3DCollection
+        collection = segments(vertices, **kwargs)
+    else:
+        polygons = PolyCollection if gdim == 2 else Poly3DCollection
+        collection = polygons(vertices, **kwargs)
+
+    axes.add_collection(collection)
+    return collection
 
 
 def _entity_node_list(cell, dimension):
@@ -141,7 +172,8 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     """
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
-    BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
+    if gdim not in {2, 3}:
+        raise ValueError("Geometric dimension must be either 2 or 3!")
 
     if mesh.extruded and mesh.variable_layers:
         raise NotImplementedError("Visualizing variable layer extruded meshes "
@@ -189,9 +221,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         if gdim == 2 and tdim == 2:
             interior_kw["facecolors"] = interior_kw.get("facecolors", "none")
 
-        interior_collection = InteriorCollection(vertices, **interior_kw)
-        axes.add_collection(interior_collection)
-        result.append(interior_collection)
+        result.append(_add_collection(axes, vertices, **interior_kw))
 
     # Add colored lines/polygons for the boundary facets. Each facet is drawn
     # from the nodes of the cell it belongs to that lie on it.
@@ -258,9 +288,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     for marker, color in zip(markers, colors):
         vertices = coords[marker_faces(marker)]
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
-        marker_collection = BoundaryCollection(vertices, **_boundary_kw)
-        axes.add_collection(marker_collection)
-        result.append(marker_collection)
+        result.append(_add_collection(axes, vertices, **_boundary_kw))
 
     # Dirty hack to enable legends for 3D volume plots. See the function
     # `Poly3DCollection.set_3d_properties`.
