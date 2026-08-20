@@ -216,7 +216,7 @@ refinementTypes = {"uniform": (uniformRefinementRoutine, uniformMapRoutine),
                    "Alfeld": (alfeldRefinementRoutine, alfeldMapRoutine)}
 
 
-def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
+def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None, coarse_facet_label=None):
     """Create a Firedrake mesh hierarchy from Netgen/NGSolve meshes.
 
     :arg mesh: the Netgen/NGSolve mesh
@@ -277,6 +277,16 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     base_ngmesh = mesh.netgen_mesh
     comm = mesh.comm
     for l in range(1, levs+1):
+
+        if coarse_facet_label is not None:
+            # Create a temporary label on all the facets of the coarse dm
+            # to label every coarse facet on the fine dm
+            fstart, fend = cdm.getHeightStratum(1)
+            iset = PETSc.IS().createStride(fend-fstart, first=fstart, comm=cdm.comm)
+            cdm.createLabel("temp_label")
+            label = cdm.getLabel("temp_label")
+            label.setStratumIS(1, iset)
+
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
         # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
         # it first to keep an unoverlapped dm for the next refinement.
@@ -292,6 +302,14 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         # Snap the mesh to the Netgen mesh
         if snap == "geometry":
             snapToNetgenDMPlex(ngmesh, rdm)
+
+        if coarse_facet_label is not None:
+            # Move coarse_facet_label into FACE_SETS_LABEL
+            iset = rdm.getLabel("temp_label").getStratumIS(1)
+            label = rdm.getLabel(dmcommon.FACE_SETS_LABEL)
+            label.setStratumIS(coarse_facet_label, iset)
+            rdm.removeLabel("temp_label")
+            cdm.removeLabel("temp_label")
 
         # We construct a Firedrake mesh from the DMPlex mesh
         parameters = {}
