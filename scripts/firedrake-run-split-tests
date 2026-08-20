@@ -18,7 +18,7 @@ Usage:
   outer process-tree timeout for each split job:
 
     * FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT: maximum wall time for each job
-      (default: 1800s)
+      (default: 3600s)
     * FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER: grace period before forcibly
       killing a timed-out job (default: 60s)
 

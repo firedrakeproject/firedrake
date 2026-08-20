@@ -109,12 +109,6 @@ def flatten(var_reps, index_cache):
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
         # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Sort for increasing index extent, this obtains the good
-        # factorisation for triangle x interval cells.  Python sort is
-        # stable, so in the common case when index extents are equal,
-        # the previous deterministic ordering applies which is good
-        # for getting smaller temporaries.
-        sum_indices = sorted(sum_indices, key=lambda index: index.extent)
         # Apply sum factorisation combined with COFFEE technology
         expression = sum_factorise(variable, sum_indices, monomial_sum)
         yield (variable, expression)

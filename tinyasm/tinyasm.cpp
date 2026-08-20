@@ -267,7 +267,7 @@ PetscErrorCode PCSetup_TinyASM(PC pc) {
     PetscCall(PetscLogEventBegin(PC_tinyasm_setup, pc, 0, 0, 0));
     auto P = pc -> pmat;
     auto blockjacobi = (BlockJacobi *)pc->data;
-    blockjacobi -> updateValuesPerBlock(P);
+    PetscCall(blockjacobi -> updateValuesPerBlock(P));
     PetscCall(PetscLogEventEnd(PC_tinyasm_setup, pc, 0, 0, 0));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -293,7 +293,7 @@ PetscErrorCode PCApply_TinyASM(PC pc, Vec b, Vec x) {
 
     std::fill(blockjacobi->localx.begin(), blockjacobi->localx.end(), 0);
 
-    blockjacobi->solve(blockjacobi->localb.data(), blockjacobi->localx.data());
+    PetscCall(blockjacobi->solve(blockjacobi->localb.data(), blockjacobi->localx.data()));
     PetscCall(VecGetArray(x, &globalx));
     PetscCall(PetscSFReduceBegin(blockjacobi->sf, MPIU_SCALAR, &(blockjacobi->localx[0]), globalx, MPI_SUM));
     PetscCall(PetscSFReduceEnd(blockjacobi->sf, MPIU_SCALAR, &(blockjacobi->localx[0]), globalx, MPI_SUM));
@@ -368,7 +368,7 @@ PetscErrorCode PCCreate_TinyASM(PC pc) {
             VERIFY_PETSC4PY(PyPetsc##P4PYTYPE##_New);                                                                  \
             auto obj = PyPetsc##P4PYTYPE##_New(src);                                                                   \
             if (policy == pybind11::return_value_policy::take_ownership)                                               \
-                PetscObjectDereference((PetscObject)src);                                                              \
+                PETSC_UNUSED PetscErrorCode ierr = PetscObjectDereference((PetscObject)src);                           \
             return pybind11::handle(obj);                                                                              \
         }                                                                                                              \
                                                                                                                        \
@@ -387,10 +387,10 @@ namespace pybind11
 
 
 PYBIND11_MODULE(_tinyasm, m) {
-    PCRegister("tinyasm", PCCreate_TinyASM);
-    PetscLogEventRegister("PCTinyASMSetASMLocalSubdomains", PC_CLASSID, &PC_tinyasm_SetASMLocalSubdomains);
-    PetscLogEventRegister("PCTinyASMSetup", PC_CLASSID, &PC_tinyasm_setup);
-    PetscLogEventRegister("PCTinyASMApply", PC_CLASSID, &PC_tinyasm_apply);
+    PetscCallVoid(PCRegister("tinyasm", PCCreate_TinyASM));
+    PetscCallVoid(PetscLogEventRegister("PCTinyASMSetASMLocalSubdomains", PC_CLASSID, &PC_tinyasm_SetASMLocalSubdomains));
+    PetscCallVoid(PetscLogEventRegister("PCTinyASMSetup", PC_CLASSID, &PC_tinyasm_setup));
+    PetscCallVoid(PetscLogEventRegister("PCTinyASMApply", PC_CLASSID, &PC_tinyasm_apply));
     m.def("SetASMLocalSubdomains",
           [](PC pc, std::vector<IS> ises, std::vector<PetscSF> sfs, std::vector<PetscInt> blocksizes, int localsize) {
               PetscInt p, numDofs;

@@ -59,26 +59,27 @@ def bcs(problem, V):
                                      "ilu",
                                      "lu"))
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
-def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
+def test_assembled_pc_equivalence(V, a, L, bcs, pc_type, pmat_type):
 
     if V.value_size > 1 and pc_type is not None:
         pytest.skip(reason="block matrices do not work yet")
 
     u = Function(V)
 
-    assembled = str(tmpdir.join("assembled"))
-    matrixfree = str(tmpdir.join("matrixfree"))
+    def residuals(parameters):
+        u.assign(0)
+        problem = LinearVariationalProblem(a, L, u, bcs=bcs)
+        solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+        solver.snes.ksp.setConvergenceHistory()
+        solver.solve()
+        return solver.snes.ksp.getConvergenceHistory()
 
     assembled_parameters = {"ksp_type": "cg",
-                            "pc_type": pc_type,
-                            "ksp_monitor_short": "ascii:%s:" % assembled}
-    u.assign(0)
-    solve(a == L, u, bcs=bcs, solver_parameters=assembled_parameters)
+                            "pc_type": pc_type}
 
     matrixfree_parameters = {"mat_type": "matfree",
                              "pmat_type": pmat_type,
-                             "ksp_type": "cg",
-                             "ksp_monitor_short": "ascii:%s:" % matrixfree}
+                             "ksp_type": "cg"}
 
     if pmat_type == "aij":
         matrixfree_parameters["pc_type"] = pc_type
@@ -87,18 +88,13 @@ def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
         matrixfree_parameters["pc_python_type"] = "firedrake.AssembledPC"
         matrixfree_parameters["assembled_pc_type"] = pc_type
 
-    u.assign(0)
-    solve(a == L, u, bcs=bcs, solver_parameters=matrixfree_parameters)
+    expect = residuals(assembled_parameters)
+    actual = residuals(matrixfree_parameters)
 
-    with open(assembled, "r") as f:
-        f.readline()            # Skip over header
-        expect = f.read()
-
-    with open(matrixfree, "r") as f:
-        f.readline()            # Skip over header
-        actual = f.read()
-
-    assert expect == actual
+    # The converged residual sits at the cancellation floor, so scale the
+    # tolerance by the initial residual rather than by each entry.
+    assert len(expect) == len(actual)
+    assert np.allclose(actual, expect, rtol=0, atol=1E-11*expect[0])
 
 
 @pytest.mark.parametrize("bcs", [False, True],

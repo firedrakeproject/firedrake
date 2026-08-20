@@ -111,7 +111,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
                                  dtype=IntType)
 
     for i in range(fine_cells):
-        for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
+        for ll, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
             if coarse_cell < 0:
                 continue
             for j in range(fine_per_cell):
@@ -133,7 +133,6 @@ def create_lgmap(PETSc.DM dm):
         PETSc.LGMap lgmap = PETSc.LGMap()
         PetscInt *indices
         PetscInt i, size
-        PetscInt start, end
 
     # Not necessary on one process
     if dm.comm.size == 1:
@@ -373,7 +372,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     """
     cdef:
         PETSc.DM cdm, fdm
-        PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
+        PetscInt cStart, cEnd, c, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray coarse_to_fine
         np.ndarray fine_to_coarse

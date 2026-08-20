@@ -14,6 +14,7 @@ import numpy as np
 import pybind11
 import petsctools
 from Cython.Build import cythonize
+import Cython.Compiler.Options as cython_options
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
@@ -233,6 +234,8 @@ def extensions():
         sources=sorted(glob("tinyasm/*.cpp")),  # Sort source files for reproducibility
         **(mpi_ + petsc_ + pybind11_)
     ))
+    cython_options.extra_warnings = True
+    cython_options.warning_errors = True
     return cythonize(cython_list) + pybind11_list
 
 

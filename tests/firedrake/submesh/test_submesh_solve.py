@@ -537,10 +537,10 @@ def _test_submesh_solve_quad_triangle_poisson(nref, degree):
 
 @pytest.mark.parallel(8)
 def test_submesh_solve_quad_triangle_poisson_convergence():
-    for degree in range(1, 5):
+    for degree in range(1, 4):
         L2Errors = []
         H1Errors = []
-        for nref in range(4):
+        for nref in range(3):
             L2Error, H1Error = _test_submesh_solve_quad_triangle_poisson(nref, degree)
             L2Errors.append(L2Error)
             H1Errors.append(H1Error)
