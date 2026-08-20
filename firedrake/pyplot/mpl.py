@@ -151,8 +151,8 @@ def _extrude(nodes, offset, num_layers):
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
-    Typically boundary segments will be marked and coloured, but
-    interior facets that are marked will also be coloured.
+    Only the exterior facets are coloured. Markers on interior facets are
+    ignored, so an internal boundary is drawn like the rest of the interior.
 
     The interior and boundary keyword arguments can be any keyword argument for
     :class:`LineCollection <matplotlib.collections.LineCollection>` and
@@ -227,26 +227,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # from the nodes of the cell it belongs to that lie on it.
     facet_node_list = _entity_node_list(cell, facet_dim)
 
-    def facet_data(typ):
-        if typ == "interior":
-            facets = mesh.interior_facets
-            node_map = coordinates.interior_facet_node_map()
-            nodes = node_map.values_with_halo[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, 0]
-        elif typ == "exterior":
-            facets = mesh.exterior_facets
-            node_map = coordinates.exterior_facet_node_map()
-            nodes = node_map.values_with_halo
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
-        else:
-            raise ValueError("Unhandled facet type")
-        selection = facet_node_list[local_facet_ids]
-        faces = np.take_along_axis(nodes, selection, axis=1)
-        if mesh.extruded:
-            faces = _extrude(faces, node_map.offset[selection], num_layers)
-        return facets, faces
-
-    facet_data = {typ: facet_data(typ) for typ in ["interior", "exterior"]}
+    exterior_facets = mesh.exterior_facets
+    node_map = coordinates.exterior_facet_node_map()
+    selection = facet_node_list[exterior_facets.local_facet_dat.data_ro_with_halos]
+    exterior_faces = np.take_along_axis(node_map.values_with_halo, selection, axis=1)
+    if mesh.extruded:
+        exterior_faces = _extrude(exterior_faces, node_map.offset[selection], num_layers)
 
     # The bottom and top of an extruded mesh are not facets of the base mesh,
     # so they are drawn from the cells of the lowest and highest layer instead.
@@ -260,18 +246,15 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
             idx = _entity_node_list(cell, horiz_facet_dim)[horizontal_markers.index(marker)]
             return cell_nodes[:, idx] + layer * cell_node_map.offset[idx]
 
-        faces = []
-        for facets, extruded_faces in facet_data.values():
-            indices = facets.subset(int(marker)).indices
-            if mesh.extruded:
-                # Every facet of the base mesh was extruded into `num_layers`
-                # facets lying consecutively in the array.
-                indices = (num_layers * indices[:, None]
-                           + np.arange(num_layers)).reshape(-1)
-            faces.append(extruded_faces[indices, :])
-        return np.concatenate(faces)
+        indices = exterior_facets.subset(int(marker)).indices
+        if mesh.extruded:
+            # Every facet of the base mesh was extruded into `num_layers`
+            # facets lying consecutively in the array.
+            indices = (num_layers * indices[:, None]
+                       + np.arange(num_layers)).reshape(-1)
+        return exterior_faces[indices, :]
 
-    markers = list(mesh.exterior_facets.unique_markers) + horizontal_markers
+    markers = list(exterior_facets.unique_markers) + horizontal_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
