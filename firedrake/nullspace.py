@@ -203,7 +203,7 @@ class VectorSpaceBasis:
         yield self
 
 
-class MixedVectorSpaceBasis(object):
+class MixedVectorSpaceBasis:
     r"""A basis for a mixed vector space
 
     :arg function_space: the :class:`~.MixedFunctionSpace` this vector
