@@ -19,7 +19,7 @@ class OpaqueTerminal(NamedTerminalExpression):
 
     # {{{ instance attrs
 
-    buffer: pyop3.buffer.AbstractBuffer
+    buffer_view: pyop3.buffer.IndexedBuffer
     name: str
 
     def collect_buffers(self, visitor):
@@ -30,17 +30,28 @@ class OpaqueTerminal(NamedTerminalExpression):
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, buffer, *, name: str | None = None, prefix: str | None = None) -> None:
+    def __init__(self, buffer_view, *, name: str | None = None, prefix: str | None = None) -> None:
         name = pyop3.utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        object.__setattr__(self, "buffer", buffer)
+        if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
+            assert buffer_view.nest_shape() is None
+            buffer_view = pyop3.buffer.IndexedBuffer(buffer_view, ())
+
+        object.__setattr__(self, "buffer_view", buffer_view)
         object.__setattr__(self, "name", name)
+
+    def __record_post_init(self) -> None:
+        assert isinstance(self.buffer_view, pyop3.buffer.IndexedBuffer)
 
     # }}}
 
     @property
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
+
+    @property
+    def buffer(self):
+        return self.buffer_view.buffer
 
     # {{{ interface impls
 

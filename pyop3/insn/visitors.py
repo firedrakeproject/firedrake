@@ -218,8 +218,11 @@ def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
     utils.raise_missing_dispatch_handler(arg)
 
 
+@_requires_pack_unpack.register
+def _(opaque: pyop3.expr.OpaqueTerminal) -> bool:
+    return False
+
 @_requires_pack_unpack.register(Scalar)
-@_requires_pack_unpack.register(pyop3.expr.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
     if scalar.transform:
         raise NotImplementedError
