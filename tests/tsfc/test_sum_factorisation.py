@@ -81,6 +81,11 @@ def count_storage(form):
                                            and temporary.initializer is not None))
 
 
+def count_loops(form):
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    return len(kernel.ast.default_entrypoint.all_inames())
+
+
 @pytest.mark.parametrize(('cell', 'order'),
                          [(quadrilateral, 5),
                           (TensorProductCell(interval, interval), 5),
@@ -236,6 +241,20 @@ def test_preserving_a_map_is_never_worse(cell, degree, expanded):
     selected = count_flops(form)
     expanded()
     assert selected <= count_flops(form)
+
+
+@pytest.mark.parametrize('cell', [triangle, tetrahedron],
+                         ids=lambda cell: cell.cellname)
+@pytest.mark.parametrize('degree', [1, 3])
+def test_shared_map_is_tabulated_in_one_loop(cell, degree, expanded):
+    # A map that both argument axes share is tabulated once, so it must be
+    # tabulated in one loop.  An index per axis fissions the loop nest that
+    # the expanded representation keeps whole, which costs more than the
+    # flops it saves.
+    form = piola_helmholtz(cell, degree)
+    selected = count_loops(form)
+    expanded()
+    assert selected <= count_loops(form)
 
 
 if __name__ == "__main__":
