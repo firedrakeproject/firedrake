@@ -179,10 +179,6 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
         idx = _entity_node_list(cell, cell_dim)[0]
-        if tdim == 2:
-            # Close the polygon bounding the cell; the cells of a 1D mesh are
-            # already line segments.
-            idx = np.append(idx, idx[0])
         cells = cell_nodes[:, idx]
         if mesh.extruded:
             cells = _extrude(cells, cell_node_map.offset[idx], num_layers)
