@@ -168,7 +168,7 @@ runs:
       run: |
         . venv/bin/activate
         : # Head of the stack firedrakeproject/fiat#282 -> #284 -> #281 -> #286
-        pip install --no-deps --force-reinstall \
+        pip install --no-deps --force-reinstall --ignore-installed \
           git+https://github.com/firedrakeproject/fiat.git@pbrubeck/coffee-scalar-factor
         : # The code generators changed, so discard kernels built against main
         firedrake-clean
