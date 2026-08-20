@@ -58,10 +58,23 @@ cdef extern from "petscdmtypes.h" nogil:
         DM_POLYTOPE_UNKNOWN_FACE
         DM_NUM_POLYTOPES
 
-cdef extern from "petscdmplex.h" nogil:
+cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
+    PetscErrorCode DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
+    PetscErrorCode DMLabelDestroyIndex(DMLabel)
+    PetscErrorCode DMLabelDestroy(DMLabel*)
+    PetscErrorCode DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
+    PetscErrorCode DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    PetscErrorCode DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
+    PetscErrorCode DMLabelClearValue(DMLabel, PetscInt, PetscInt)
+    PetscErrorCode DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
+    PetscErrorCode DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
+    PetscErrorCode DMLabelSetStratumIS(DMLabel, PetscInt, PETSc.PetscIS)
+    PetscErrorCode DMLabelClearStratum(DMLabel, PetscInt)
 
+
+cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     PetscErrorCode DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     PetscErrorCode DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -90,21 +103,6 @@ cdef extern from "petscdmplex.h" nogil:
 
     PetscErrorCode DMPlexSetCellType(PETSc.PetscDM, PetscInt, PetscDMPolytopeType)
     PetscErrorCode DMPlexGetCellType(PETSc.PetscDM, PetscInt, PetscDMPolytopeType*)
-
-cdef extern from "petscdmlabel.h" nogil:
-    struct _n_DMLabel
-    ctypedef _n_DMLabel* DMLabel "DMLabel"
-    PetscErrorCode DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
-    PetscErrorCode DMLabelDestroyIndex(DMLabel)
-    PetscErrorCode DMLabelDestroy(DMLabel*)
-    PetscErrorCode DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
-    PetscErrorCode DMLabelSetValue(DMLabel, PetscInt, PetscInt)
-    PetscErrorCode DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
-    PetscErrorCode DMLabelClearValue(DMLabel, PetscInt, PetscInt)
-    PetscErrorCode DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
-    PetscErrorCode DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
-    PetscErrorCode DMLabelSetStratumIS(DMLabel, PetscInt, PETSc.PetscIS)
-    PetscErrorCode DMLabelClearStratum(DMLabel, PetscInt)
 
 cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMCreateLabel(PETSc.PetscDM, char[])

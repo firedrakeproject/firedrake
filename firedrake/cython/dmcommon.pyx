@@ -15,7 +15,7 @@ import pyop3 as op3
 
 from firedrake import utils
 from numbers import Integral
-from collections.abc import Sequence
+from collections.abc import Sequence, Iterable
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -596,8 +596,11 @@ def closure_ordering(mesh, closure_data_plex):
         PETSc.DM dm
         PetscInt tdim, cell, v_start, v_end
         PetscInt nverts_per_cell, nedges_per_cell, nfacets_per_cell
-        PetscInt *verts=NULL,*facets=NULL
-        PetscInt *edge_incident_verts=NULL, *edges=NULL, *global_verts=NULL
+        PetscInt *verts=NULL
+        PetscInt *facets=NULL
+        PetscInt *edge_incident_verts=NULL
+        PetscInt *edges=NULL
+        PetscInt *global_verts=NULL
         PetscInt *facet_closure=NULL
         PetscInt nfacet_closure
         PetscInt *facet_verts=NULL
@@ -1152,7 +1155,7 @@ def make_node_to_node_map(
     pt_to_pt_map: np.ndarray,
     from_sec: PETSc.Section,
     to_sec: PETSc.Section,
-    block_size: numbers.Integral,
+    block_size: Integral,
 ):
     start, end = from_sec.getOffsetRange()
     assert start == 0
@@ -2045,7 +2048,7 @@ def validate_mesh(PETSc.DM dm):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def compute_dm_renumbering(
-    mesh: MeshGeometry,
+    mesh: "MeshGeometry",
     new_to_old_cell_numbering_is: PETSc.IS | None = None,
     # boundary_set=None,
 ) -> PETSc.IS:
