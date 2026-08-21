@@ -197,3 +197,9 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+
+[tool.cython-lint]
+max-line-length = 88 # default
+ignore = [
+  "E501", # line too long
+]

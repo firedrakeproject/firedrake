@@ -58,7 +58,7 @@ class BDDCPC(PCBase):
         prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         dm = pc.getDM()
-        V = get_function_space(dm)
+        V = get_function_space(dm).collapse()
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
