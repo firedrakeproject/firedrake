@@ -92,7 +92,7 @@ Local organising committee
 
 * `David Ham <http://www.imperial.ac.uk/people/david.ham>`_
 * `Colin Cotter <http://www.imperial.ac.uk/people/colin.cotter>`_
-* `Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_
+* Lawrence Mitchell
 
 Sponsors
 --------
