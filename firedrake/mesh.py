@@ -2101,11 +2101,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             swarm = self.swarm
             parent = self._parent_mesh.topology_dm
+            cell_id_name = swarm.dm.getCellDMActive().getCellID()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-            cell_id_name = swarm.dm.getCellDMActive().getCellID()
             with (
                 swarm.field(cell_id_name) as swarm_parent_cell_nums,
                 swarm.field("globalindex") as swarm_global_indices,
@@ -2570,8 +2570,7 @@ values from f.)"""
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         if not mesh.extruded:
             all_coords = coords.dat.data_ro_with_halos[cell_node_list]
-            self._bounding_box_coords = (np.min(all_coords, axis=1), np.max(all_coords, axis=1))
-            return self._bounding_box_coords
+            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)

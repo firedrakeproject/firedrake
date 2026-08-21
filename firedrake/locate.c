@@ -41,9 +41,7 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
         if (ids[i] > (int64_t)PETSC_MAX_INT) {
             return PETSC_ERR_ARG_OUTOFRANGE;
         }
-
         PetscInt candidate = (PetscInt)ids[i];
-
         for (size_t j = 0; j < ncells_ignore; j++) {
             if (candidate == cells_ignore[j]) {
                 cell_ignore_found = true;

@@ -11,7 +11,6 @@ from libc.stdlib cimport free, malloc
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport (
     MPI_Aint,
-    MPI_DATATYPE_NULL,
     MPI_INT,
     MPI_STATUSES_IGNORE,
     MPI_Datatype,
@@ -32,7 +31,6 @@ cdef extern from "rtree-capi.h":
         Success
         NullPointer
         InvalidDimension
-        EmptyNodeEnvelope
 
     ctypedef struct RTreeH:
         pass
@@ -81,7 +79,6 @@ cdef class RTree(object):
     """Python class for holding an Rtree."""
 
     cdef RTreeH* tree
-    cdef object __weakref__
 
     def __cinit__(self, uintptr_t tree_handle):
         self.tree = <RTreeH*>0
@@ -92,7 +89,6 @@ cdef class RTree(object):
     def __dealloc__(self):
         if self.tree != <RTreeH*>0:
             rtree_free(self.tree)
-            self.tree = <RTreeH*>0
 
     @property
     def ctypes(self):
@@ -259,7 +255,7 @@ def discover_remote_roots(
         RTree rtree,
         np.ndarray[np.float64_t, ndim=2, mode="c"] points,
         MPI.Comm comm):
-    """Build the remote-root array for a point-embedding star forest.
+    """Build the remote array for a candidate star forest.
 
     Parameters
     ----------
@@ -267,7 +263,7 @@ def discover_remote_roots(
         The distributed Rtree built by :func:`build_from_aabb` with rank
         numbers as leaf ids.
     points : (n_points, gdim) float64 array
-        Local root-point coordinates.
+        Local point coordinates.
     comm : mpi4py.MPI.Comm
         The MPI communicator.
 
@@ -366,8 +362,7 @@ def discover_remote_roots(
 
         CHKERRMPI(MPI_Waitall(nrequests, requests, MPI_STATUSES_IGNORE))
     finally:
-        if remote_index_type != MPI_DATATYPE_NULL:
-            CHKERRMPI(MPI_Type_free(&remote_index_type))
+        CHKERRMPI(MPI_Type_free(&remote_index_type))
         if requests != NULL:
             free(requests)
         CHKERR(PetscFree(fromranks))
@@ -377,6 +372,7 @@ def discover_remote_roots(
 
 
 def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
+    """Return all bounding boxes at the specified level of the Rtree."""
     cdef:
         double *mins = NULL
         double *maxs = NULL
