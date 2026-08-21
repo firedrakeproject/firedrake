@@ -25,9 +25,9 @@ from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from firedrake.exceptions import PointNotInDomainError
+from firedrake.exceptions import PointNotInDomainError, UnsupportedFunctionMigrationError, FunctionMigrationError
 
 
 __all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
@@ -79,14 +79,40 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self.comm
-            self.dat = val
+            self._dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name())
+            self._dat = function_space.make_dat(val, dtype, self.name())
+
+        # Record the mesh topology version
+        self._mesh_topology_version = self._mesh_topology._topology_version
+        
+        # Register the function on the mesh
+        self._mesh_topology._register_function(self)
 
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
+
+    @property
+    def _mesh_topology(self):
+        """Return the mesh topology on which this coordinateless function is defined."""
+        return self._function_space.topological.mesh()
+
+    @property
+    def dat(self):
+        self._migrate_to_current_topology_version()
+        return self._dat
+
+    @dat.setter
+    def dat(self, value):
+        if value is self._dat:
+            return
+        raise AttributeError("A Function's Dat cannot be replaced directly.")
+
+    def _migrate_to_current_topology_version(self) -> None:
+        """Migrate this coordinateless function's data to the current topology version."""
+        _migrate_dg0_coefficient(self, self._function_space)
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=False):
@@ -281,6 +307,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
+    def _migrate_to_current_topology_version(self):
+        """Migrate the underlying coordinateless data to the current topology."""
+        self._data._migrate_to_current_topology_version()
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
@@ -299,8 +329,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         return val
 
     def __dir__(self):
-        current = super(Function, self).__dir__()
-        return list(dict.fromkeys(dir(self._data) + current))
+            current = super(Function, self).__dir__()
+            return list(dict.fromkeys(dir(self._data) + current))
+
+    @property
+    def dat(self):
+        return self._data.dat
+
+    @dat.setter
+    def dat(self, value):
+        self._data.dat = value
 
     @cached_property
     @FunctionMixin._ad_annotate_subfunctions
@@ -870,3 +908,94 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         comm=function.comm
     )
     return getattr(dll, c_name)
+
+def migrate_dg0_dat(
+    old_cfunc: CoordinatelessFunction,
+    topological_function_space: functionspaceimpl.FunctionSpace,
+    step_sf: PETSc.SF
+) -> CoordinatelessFunction:
+    """Migrate DG0 data through a topology mapping.
+
+    Parameters
+    ----------
+    old_cfunc
+        CoordinatelessFunction containing data on the source topology.
+    topological_function_space
+        Function space on the target topology.
+    step_sf
+        SF mapping points in the target topology to points in the source topology.
+
+    Returns
+    -------
+    CoordinatelessFunction
+        Coefficient containing the migrated data.
+    """
+    from pyop2.mpi import MPI
+    from firedrake.halo import _get_mtype
+
+    old_dat = old_cfunc._dat
+    dim = old_dat.cdim
+
+    old_vals = np.ascontiguousarray(old_dat.data_ro).reshape((-1, dim))
+    old_space = old_cfunc.function_space()
+
+    assert old_space.cell_node_list.shape[1] == 1, \
+        "This Function migration method requires a DG0 Function with exactly one node per cell."
+
+    new_cfunc = CoordinatelessFunction(topological_function_space, val=None, dtype=old_dat.dtype, name=old_cfunc.name())
+
+    nroots, ilocal, remote = step_sf.getGraph()
+    nleaves = len(remote) if ilocal is None else len(ilocal)
+
+    new_vals = np.empty((nleaves, dim), dtype=old_dat.dtype)
+
+    mtype, _ = _get_mtype(old_dat)
+    step_sf.bcastBegin(mtype, old_vals, new_vals, MPI.REPLACE)
+    step_sf.bcastEnd(mtype, old_vals, new_vals, MPI.REPLACE)
+
+    cnl = topological_function_space.cell_node_list
+    new_data = new_cfunc.dat.data_with_halos.reshape((-1, dim))
+    new_data[cnl[:, 0], :] = new_vals
+
+    return new_cfunc
+
+def _migrate_dg0_coefficient(
+    coefficient,
+    topological_function_space
+) -> None:
+    """Migrate a DG0 coefficient to the current topology version.
+
+    Parameters
+    ----------
+    coefficient
+        Coefficient (CoordinatelessFunction or Cofunction) whose data should be migrated.
+    topological_function_space
+        Function space on the current topology.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    UnsupportedFunctionMigrationError
+        If the coefficient's topology does not support migration.
+    """
+    topology = coefficient._mesh_topology
+    latest_topology_version = topology._topology_version
+
+    if latest_topology_version == coefficient._mesh_topology_version:
+        return
+
+    if not isinstance(topology, VertexOnlyMeshTopology):
+        raise UnsupportedFunctionMigrationError(
+            "The mesh topology has changed since this Function was created, \
+            and migration is currently only supported for Functions defined on VertexOnlyMeshes. \
+            Please re-create this Function on the updated mesh."
+        )
+
+    migration_sf = topology._get_migration_sf(coefficient._mesh_topology_version)
+    migrated_dat = migrate_dg0_dat(coefficient, topological_function_space, migration_sf)
+
+    coefficient._dat = migrated_dat._dat
+    coefficient._mesh_topology_version = latest_topology_version
