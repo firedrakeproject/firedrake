@@ -1604,6 +1604,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     # TODO: rename 'global_field_ises' and 'local...'
     @cached_property
+    @_mesh_cached
     def field_ises(self) -> tuple[PETSc.IS]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -2058,13 +2059,13 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace) or len(other) != len(self):
             return False
-        return all(s == o for s, o in zip(self, other))
+        return all(s == o for s, o in zip(self, other)) and self._labels == other._labels
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash(tuple(self))
+        return hash((tuple(self), self._labels))
 
     @cached_property
     def subspaces(self):
@@ -2138,6 +2139,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return self.template_vec.getSize()
 
     @cached_property
+    @_mesh_cached
     def field_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
