@@ -78,3 +78,39 @@ def test_homogeneous_field_linear_convergence():
         solver = LinearVariationalSolver(problem, solver_parameters=params)
         solver.solve()
         assert solver.snes.ksp.getIterationNumber() == expected
+
+
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
+def test_hypre_ads_fieldsplit():
+    mesh = UnitCubeMesh(6, 6, 6)
+    V = FunctionSpace(mesh, "RT", 1)
+    W = V * V
+    sigma = as_vector(TrialFunctions(W))
+    tau = as_vector(TestFunctions(W))
+
+    a = inner(sigma, tau) * dx + inner(div(sigma), div(tau)) * dx
+    rg = RandomGenerator(PCG64(seed=0))
+    L = rg.uniform(W.dual())
+    sol = Function(W)
+
+    # Configure fieldsplit with Hypre ADS for each block
+    params = {
+        "mat_type": "nest",
+        "ksp_type": "cg",
+        "ksp_rtol": 1e-8,
+        "ksp_view_singularvalues": None,
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+        "fieldsplit_ksp_type": "preonly",
+        "fieldsplit_pc_type": "python",
+        "fieldsplit_pc_python_type": "firedrake.HypreADS",
+    }
+    prob = LinearVariationalProblem(a, L, sol)
+    solver = LinearVariationalSolver(prob, solver_parameters=params)
+    solver.solve()
+
+    # Check the condition number
+    ew = solver.snes.ksp.computeEigenvalues().real
+    condition_number = max(abs(ew)) / min(abs(ew))
+    assert condition_number < 2  # current value is 1.3 and without preconditioner > 66
