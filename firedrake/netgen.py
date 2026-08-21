@@ -6,7 +6,7 @@ This file was copied from ngsPETSc.
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.petsc import PETSc
 import firedrake
 
@@ -29,7 +29,7 @@ except ImportError:
             Mesh = type(None)
 
 
-def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
+def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase, Vscalar,
                       netgen_data: np.ndarray):
     """
     Distribute data from the netgen layout into the DMPlex layout.
@@ -62,8 +62,8 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
         dtype = netgen_data.dtype
 
         sfBCInv = sf.createInverse()
-        section = V.dm.getDefaultSection()
-        vec = V.dof_dset.layout_vec
+        section = Vscalar.dm.getDefaultSection()
+        vec = V.template_vec
         section0, vec0 = plex.distributeField(sfBCInv, section, vec)
         vec0.set(0)
         plex_data = None

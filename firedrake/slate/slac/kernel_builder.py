@@ -40,7 +40,11 @@ Context information for creating coefficient temporaries.
 
 
 class LayerCountKernelArg(kernel_args.KernelArg):
-    ...
+    """Argument storing the number of layers in this column of the mesh."""
+
+
+class LayerKernelArg(kernel_args.KernelArg):
+    """Argument storing the current layer up the mesh column."""
 
 
 class CellFacetKernelArg(kernel_args.KernelArg):
@@ -104,20 +108,20 @@ class LocalLoopyKernelBuilder:
         In particular needed for the right shape of scalar tensors.
         """
         if tensor.shape == ():
-            return (1, )  # scalar tensor
+            return (1,)  # scalar tensor
         else:
             return tensor.shape
 
     def extent(self, argument):
         """ Return the value size of a constant or coefficient."""
         if isinstance(argument, Constant):
-            return (argument.dat.cdim, )
+            return (argument.dat.axes.global_size,)
         else:
             element = argument.ufl_element()
             if element.family() == "Real":
-                return (argument.dat.cdim, )
+                return (argument.dat.axes.global_size,)
             else:
-                return (create_element(element).space_dimension(), )
+                return (create_element(element).space_dimension(),)
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -190,19 +194,18 @@ class LocalLoopyKernelBuilder:
         self.bag.needs_mesh_layers = True
         layer = pym.Variable(self.layer_arg_name)
 
-        # TODO: Variable layers
         nlayer = pym.Variable(self.layer_count_name)
-        which = {"interior_facet_horiz_top": pym.Comparison(layer, "<", nlayer[0]),
-                 "interior_facet_horiz_bottom": pym.Comparison(layer, ">", 0),
-                 "exterior_facet_top": pym.Comparison(layer, "==", nlayer[0]),
-                 "exterior_facet_bottom": pym.Comparison(layer, "==", 0)}[integral_type]
+        which = {"interior_facet_horiz_top": pym.Comparison(layer[0], "<", nlayer[0]-1),
+                 "interior_facet_horiz_bottom": pym.Comparison(layer[0], ">", 0),
+                 "exterior_facet_top": pym.Comparison(layer[0], "==", nlayer[0]-1),
+                 "exterior_facet_bottom": pym.Comparison(layer[0], "==", 0)}[integral_type]
 
         return [which]
 
     def facet_integral_predicates(self, mesh, integral_type, kinfo, subdomain_id):
         self.bag.needs_cell_facets = True
-        # Number of recerence cell facets
-        if mesh.cell_set._extruded:
+        # Number of reference cell facets
+        if mesh.extruded:
             self.num_facets = mesh._base_mesh.ufl_cell().num_facets
         else:
             self.num_facets = mesh.ufl_cell().num_facets
@@ -379,7 +382,7 @@ class LocalLoopyKernelBuilder:
         for constant, constant_name in self.bag.constants:
             constant_loopy_arg = loopy.GlobalArg(
                 constant_name,
-                shape=constant.dat.cdim,
+                shape=constant.dat.axes.global_size,
                 dtype=self.tsfc_parameters["scalar_type"]
             )
             args.append(kernel_args.ConstantKernelArg(constant_loopy_arg))
@@ -399,11 +402,11 @@ class LocalLoopyKernelBuilder:
                                                     initializer=np.arange(self.num_facets, dtype=np.uint32),))
 
         if self.bag.needs_mesh_layers:
-            layer_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(),
-                                              dtype=np.int32)
-            args.append(LayerCountKernelArg(layer_loopy_arg))
+            num_layers_loopy_arg = loopy.GlobalArg(self.layer_count_name, shape=(1,), dtype=np.int32)
+            args.append(LayerCountKernelArg(num_layers_loopy_arg))
 
-            tmp_args.append(loopy.ValueArg(self.layer_arg_name, dtype=np.int32))
+            layer_loopy_arg = loopy.GlobalArg(self.layer_arg_name, shape=(1,), dtype=np.int32)
+            args.append(LayerKernelArg(layer_loopy_arg))
 
         for tensor_temp in tensor2temp.values():
             tmp_args.append(tensor_temp)

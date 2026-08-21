@@ -6,10 +6,16 @@ from textwrap import dedent
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
-from pyop2 import op2
+import loopy as lp
+import pyop3 as op3
+import tsfc
+import firedrake
+from firedrake.mesh import extract_mesh_topologies
+from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake.functionspaceimpl import WithGeometry
+from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
@@ -22,6 +28,11 @@ from firedrake import (
     LinearVariationalSolver,
     VertexOnlyMeshTopology,
     PETSc
+)
+
+
+_with_mesh_heavy_cache = op3.cache.with_heavy_caches(
+    lambda self, *a, **kw: extract_mesh_topologies(self.function_space.mesh())
 )
 
 
@@ -61,7 +72,7 @@ class NoiseBackendBase:
 
     See Also
     --------
-    PyOP2NoiseBackend
+    Pyop3NoiseBackend
     PetscNoiseBackend
     VOMNoiseBackend
     WhiteNoiseGenerator
@@ -127,9 +138,9 @@ class NoiseBackendBase:
         return RieszMap(self.function_space, "L2", constant_jacobian=True)
 
 
-class PyOP2NoiseBackend(NoiseBackendBase):
+class Pyop3NoiseBackend(NoiseBackendBase):
     """
-    A PyOP2 based implementation of a mass matrix square root
+    A pyop3 based implementation of a mass matrix square root
     for generating white noise.
 
     See Also
@@ -140,9 +151,13 @@ class PyOP2NoiseBackend(NoiseBackendBase):
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
         super().__init__(V, rng=rng, seed=seed)
+        self._z = Function(self.broken_space)
+        self._b = Cofunction(self.function_space.dual())
 
-        u = TrialFunction(V)
-        v = TestFunction(V)
+    @cached_property
+    def cholesky_kernel(self) -> op3.Function:
+        u = TrialFunction(self._V)
+        v = TestFunction(self._V)
         mass = inner(u, v)*dx
 
         # Create mass expression, assemble and extract kernel
@@ -157,7 +172,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         name = mass_ker.kinfo.kernel.name
         blocksize = mass_ker.kinfo.kernel.code[name].args[0].shape[0]
 
-        cholesky_code = dedent(
+        preamble = dedent(
             f"""\
             extern void dpotrf_(char *UPLO,
                                 int *N,
@@ -178,74 +193,57 @@ class PyOP2NoiseBackend(NoiseBackendBase):
                                int *INCY);
 
             {mass_code}
+            """
+        )
+        cholesky_code = dedent(
+            f"""\
+            char uplo[1];
+            int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
+            int32_t i=0, j=0;
+            uplo[0] = 'u';
+            double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
 
-            void apply_cholesky(double *__restrict__ z,
-                                double *__restrict__ b,
-                                double const *__restrict__ coords)
-            {{
-                char uplo[1];
-                int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
-                int32_t i=0, j=0;
-                uplo[0] = 'u';
-                double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
+            char trans[1];
+            int32_t stride = 1;
+            double scale = 1.0;
+            double zero = 0.0;
 
-                char trans[1];
-                int32_t stride = 1;
-                double scale = 1.0;
-                double zero = 0.0;
+            {mass_ker.kinfo.kernel.name}(H, coords);
 
-                {mass_ker.kinfo.kernel.name}(H, coords);
+            uplo[0] = 'u';
+            dpotrf_(uplo, &N, H, &LDA, &INFO);
+            for (int i = 0; i < N; i++)
+                for (int j = 0; j < N; j++)
+                    if (j>i)
+                        H[i*N + j] = 0.0;
 
-                uplo[0] = 'u';
-                dpotrf_(uplo, &N, H, &LDA, &INFO);
-                for (int i = 0; i < N; i++)
-                    for (int j = 0; j < N; j++)
-                        if (j>i)
-                            H[i*N + j] = 0.0;
-
-                trans[0] = 'T';
-                dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
-            }}
+            trans[0] = 'T';
+            dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
             """
         )
 
-        # Get the BLAS and LAPACK compiler parameters to compile the kernel
-        comm = V.mesh().comm
-        if comm.rank == 0:
-            petsc_variables = petsctools.get_petscvariables()
-            BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-            BLASLAPACK_LIB = comm.bcast(BLASLAPACK_LIB, root=0)
-            BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-            BLASLAPACK_INCLUDE = comm.bcast(BLASLAPACK_INCLUDE, root=0)
-        else:
-            BLASLAPACK_LIB = comm.bcast(None, root=0)
-            BLASLAPACK_INCLUDE = comm.bcast(None, root=0)
-
-        self.cholesky_kernel = op2.Kernel(
-            cholesky_code, "apply_cholesky",
-            include_dirs=BLASLAPACK_INCLUDE.split(),
-            ldargs=BLASLAPACK_LIB.split())
+        return op3.Function.from_c_string(
+            "apply_cholesky",
+            cholesky_code,
+            [
+                ("z", "double", op3.READ),
+                ("b", "double", op3.INC),
+                ("coords", "double", op3.READ),
+            ],
+            preambles=[("20_preamble", preamble)],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
+        )
 
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
         rng = rng or self.rng
 
-        z = rng.standard_normal(self.broken_space)
-        b = Cofunction(self.function_space.dual())
-
-        z_arg = z.dat(op2.READ, self.broken_space.cell_node_map())
-        b_arg = b.dat(op2.INC, self.function_space.cell_node_map())
-
-        mesh = self.function_space.mesh()
-        coords = mesh.coordinates
-        c_arg = coords.dat(op2.READ, coords.cell_node_map())
-
-        op2.par_loop(
-            self.cholesky_kernel,
-            mesh.cell_set,
-            z_arg, b_arg, c_arg
-        )
+        self._z.assign(rng.standard_normal(self.broken_space))
+        self._b.zero()
+        self._loop()
+        b = self._b
 
         if apply_riesz:
             b = b.riesz_representation(self.riesz_map)
@@ -256,6 +254,18 @@ class PyOP2NoiseBackend(NoiseBackendBase):
             tensor = b
 
         return tensor
+
+    @cached_property
+    def _loop(self) -> op3.Loop:
+        mesh = self.function_space.mesh()
+        return op3.loop(
+            c := mesh.iter("cell"),
+            self.cholesky_kernel(
+                pack(self._z, c),
+                pack(self._b, c),
+                pack(mesh.coordinates, c),
+            ),
+        )
 
 
 class PetscNoiseBackend(NoiseBackendBase):
@@ -274,7 +284,18 @@ class PetscNoiseBackend(NoiseBackendBase):
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
+        self.Cz = Cofunction(self.broken_space.dual())
+        self.b = Cofunction(self.function_space.dual())
 
+    @cached_property
+    def interpolator(self):
+        return firedrake.get_interpolator(firedrake.interpolate(TestFunction(self.function_space), self.Cz))
+
+        v, = self.arguments()
+        interp = interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
+
+    @_with_mesh_heavy_cache
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -285,12 +306,15 @@ class PetscNoiseBackend(NoiseBackendBase):
         z = rng.standard_normal(self.broken_space)
         # C z
         self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
+        assemble(self.M, tensor=self.Cz)
         # L C z
-        b = Cofunction(V.dual()).interpolate(Cz)
+        # not sure about self.b
+        self.interpolator.assemble(tensor=self.b)
 
         if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
+            b = self.b.riesz_representation(self.riesz_map)
+        else:
+            b = self.b
 
         if tensor:
             tensor.assign(b)
@@ -365,7 +389,7 @@ class WhiteNoiseGenerator:
     See Also
     --------
     NoiseBackendBase
-    PyOP2NoiseBackend
+    Pyop3NoiseBackend
     PetscNoiseBackend
     VOMNoiseBackend
     CovarianceOperatorBase
@@ -383,7 +407,7 @@ class WhiteNoiseGenerator:
                     f"Cannot use white noise backend {type(backend).__name__}"
                     " with a VertexOnlyMesh. Please use a VOMNoiseBackend.")
         else:
-            backend = backend or PyOP2NoiseBackend(V, rng=rng, seed=seed)
+            backend = backend or Pyop3NoiseBackend(V, rng=rng, seed=seed)
 
         self.backend = backend
         self.function_space = backend.function_space
@@ -1152,7 +1176,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
-    sizes = covariance.function_space().dof_dset.layout_vec.getSizes()
+    sizes = covariance.function_space().template_vec.getSizes()
 
     mat = PETSc.Mat().createPython(
         (sizes, sizes), ctx, comm=ctx.comm)

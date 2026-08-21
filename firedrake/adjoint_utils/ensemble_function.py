@@ -38,7 +38,7 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        with dst.vec_wo() as vec:
+        with dst.vec_wo as vec:
             begin, end = vec.owner_range
             vec.array[:] = src[offset + begin: offset + end]
             offset += vec.size
