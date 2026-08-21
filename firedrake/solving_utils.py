@@ -2,7 +2,6 @@ import typing
 from itertools import chain
 
 import numpy
-import ufl
 
 from pyop2 import op2
 from firedrake import dmhooks
@@ -15,6 +14,7 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
+from ufl import as_vector, replace, split, zero
 
 if typing.TYPE_CHECKING:
     from firedrake.variational_solver import NonlinearVariationalProblem
@@ -268,8 +268,7 @@ class _SNESContext(object):
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+                self.F = replace(self.F, {self._x: zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
@@ -413,11 +412,10 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
-        splits = self._splits.get(tuple(fields))
+        splits = self._splits.get(fields)
         if splits is not None:
             return splits
 
@@ -428,7 +426,7 @@ class _SNESContext(object):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].function_space()
+            V = J.arguments()[-1].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -447,16 +445,13 @@ class _SNESContext(object):
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
-            for i, u in enumerate(us):
+            for i, ui in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field.index(i)]
-                if u.ufl_shape == ():
-                    vec.append(u)
-                else:
-                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
+                    ui = subsplit[field.index(i)]
+                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -500,7 +495,7 @@ class _SNESContext(object):
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
-        return self._splits.setdefault(tuple(fields), splits)
+        return self._splits.setdefault(fields, splits)
 
     @staticmethod
     def form_objective(snes, X):

@@ -8,7 +8,7 @@ from firedrake.tsfc_interface import compile_form as tsfc_compile
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl import Form
+from ufl import Form, ZeroBaseForm
 
 
 ContextKernel = collections.namedtuple("ContextKernel",
@@ -50,6 +50,9 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
     assert tensor.terminal, (
         "Only terminal tensors have forms associated with them!"
     )
+    if isinstance(tensor.form, ZeroBaseForm):
+        return ()
+
     # Sets a default name for the subkernel prefix.
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),

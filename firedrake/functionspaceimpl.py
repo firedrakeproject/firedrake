@@ -1303,6 +1303,26 @@ class ProxyFunctionSpace(FunctionSpace):
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
 
+    def collapse(self) -> "FunctionSpace":
+        """Drop the proxy metadata, returning a plain function space.
+
+        Returns
+        -------
+        FunctionSpace
+            An unindexed space equal to this one.
+
+        Notes
+        -----
+        The proxy metadata (:attr:`index`, :attr:`component`, :attr:`parent`)
+        is what collapsing discards, and it is reported by :meth:`__repr__`.
+        Since UFL hashes terminals by their ``repr`` while
+        :meth:`FunctionSpace.__eq__` ignores that metadata, returning a proxy
+        here would yield a space that compares equal to the plain space but
+        hashes differently, silently breaking lookups keyed on
+        :class:`~ufl.argument.Argument`\\s.
+        """
+        return FunctionSpace(self.mesh(), self.ufl_element(), name=self.name)
+
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
 
@@ -1351,6 +1371,21 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def collapse(self) -> "RestrictedFunctionSpace":
+        """Drop the proxy metadata, returning a plain restricted space.
+
+        Returns
+        -------
+        RestrictedFunctionSpace
+            An unindexed space equal to this one.
+
+        See Also
+        --------
+        ProxyFunctionSpace.collapse
+        """
+        return RestrictedFunctionSpace(self.function_space.collapse(),
+                                       boundary_set=self.boundary_set)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
