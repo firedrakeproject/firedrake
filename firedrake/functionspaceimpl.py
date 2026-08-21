@@ -1659,7 +1659,7 @@ class FunctionSpace(AbstractFunctionSpace):
             else:
                 subelem = drop_last(self.ufl_element())
             base_section = FunctionSpace(self.mesh()._base_mesh, subelem).section
-            pt_to_base_pt = self.mesh()._point_to_base_point_array
+            pt_to_base_pt = self.mesh()._plex_point_to_base_point_array
 
             for pt in range(p_start, p_end):
                 base_pt = pt_to_base_pt[pt]

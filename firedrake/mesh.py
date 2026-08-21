@@ -836,11 +836,13 @@ class AbstractMeshTopology(abc.ABC):
                 # The vertical exterior facets are simply given by all the points coming
                 # from exterior facets in the base mesh.
                 assert isinstance(self, ExtrudedMeshTopology)
-                exterior_vert_plex_indices = self.topology_dm.getLabel("base_exterior_facets").getStratumIS(1)
+                exterior_vert_plex_indices_is = utils.safe_is(
+                    self.topology_dm.getLabel("base_exterior_facets").getStratumIS(1)
+                )
 
                 # Drop non-facet indices (i.e. the extruded vertices)
                 return dmcommon.filter_is(
-                    exterior_vert_plex_indices,
+                    exterior_vert_plex_indices_is,
                     *self.topology_dm.getDepthStratum(self.dimension-1),
                 )
 
@@ -3101,13 +3103,14 @@ class ExtrudedMeshTopology(MeshTopology):
         return np.repeat(orientationss, self.layers-1, axis=0)
 
     @cached_property
-    def _point_to_base_point_array(self) -> np.ndarray:
-        # NOTE: This is using an already renumbered thing. The plex numbering
-        # is more complicated.
-        return np.repeat(
-            np.arange(self._base_mesh.num_points, dtype=IntType),
-            2*(self.layers-1) + 1,
-        )
+    def _plex_point_to_base_point_array(self) -> np.ndarray:
+        # TODO: cythonise
+        point_map = np.empty(self.num_points, dtype=IntType)
+        base_pt_label = self.topology_dm.getLabel("base_point")
+        for base_pt in range(base_pt_label.getNumValues()):
+            extr_pts = base_pt_label.getStratumIS(base_pt).indices
+            point_map[extr_pts] = base_pt
+        return utils.readonly(point_map)
 
     # TODO: implement for regular meshes too
     def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
