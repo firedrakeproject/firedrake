@@ -5,11 +5,26 @@ from firedrake.adjoint_utils.blocks import (
     NonlinearVariationalSolveBlock, CachedSolverBlock)
 from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
-from ufl import replace, Action
+from ufl import replace, Action, ZeroBaseForm, Form
 from ufl.algorithms import expand_derivatives
 from ufl.domain import extract_domains
+from ufl.constantvalue import Zero
 from types import SimpleNamespace
 from collections import namedtuple
+
+
+def _set_arguments_if_zero(form, args):
+    """
+    If form is an empty ufl.Form or ufl.Zero then replace
+    it with a ZeroBaseForm with the provided arguments.
+
+    See: https://github.com/FEniCS/ufl/issues/396
+    """
+    if isinstance(form, Zero):
+        form = ZeroBaseForm(args)
+    if isinstance(form, Form) and form.empty():
+        form = ZeroBaseForm(args)
+    return form
 
 
 ForwardSolveRecomputeCache = namedtuple(
@@ -380,7 +395,7 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_hessian_cache(self):
         from firedrake import (
-            Function, TrialFunction, TestFunction,
+            Function, TrialFunction, TestFunction, Cofunction,
             SpatialCoordinate, MeshGeometry,
         )
 
@@ -446,28 +461,38 @@ class NonlinearVariationalSolverMixin:
             else:
                 dm = TrialFunction(m.function_space())
                 # XXX should we try inverting this back to the way it was before?
-                dFdm = derivative(F, m, dm)
+                dFdm = expand_derivatives(derivative(-F, m, dm))
 
-                dFdm_adj = -expand_derivatives(action(adjoint(dFdm), adj_sol))
-                dFdm_adj2 = -action(adjoint(dFdm), adj2_sol)
+                dFdm_star = adjoint(dFdm)
+                # 0. fully special case Cofunctions
+                if isinstance(m, Cofunction):
+                    dFdm_adj = Action(dFdm_star, adj_sol)
+                    dFdm_adj2 = Action(dFdm_star, adj2_sol)
+                else:
+                    dFdm_adj = action(dFdm_star, adj_sol)
+                    dFdm_adj2 = action(dFdm_star, adj2_sol)
 
-            dFdm_adj2_forms.append(dFdm_adj2)
+            args = (TestFunction(m._ad_function_space()),)
+
+            dFdm_adj2_forms.append(_set_arguments_if_zero(dFdm_adj2, args))
 
             d2Fdudm = derivative(dFdm_adj, u, tlm_output)
-            d2Fdudm_forms.append(expand_derivatives(d2Fdudm))
+            d2Fdudm = expand_derivatives(d2Fdudm)
+
+            d2Fdudm_forms.append(_set_arguments_if_zero(d2Fdudm, args))
 
             d2Fdm2_adj_forms_k = []
             for m2, dm2 in zip(self._ad_forward_cache.replaced_deps,
                                self._ad_tangent_cache.replaced_tlms):
                 d2Fdm2_adj = expand_derivatives(
                     derivative(dFdm_adj, m2, dm2))
-                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+                d2Fdm2_adj_forms_k.append(_set_arguments_if_zero(d2Fdm2_adj, args))
 
             for m2, dm2 in zip(self._ad_forward_cache.meshes,
                                self._ad_tangent_cache.mesh_tlms):
                 X = SpatialCoordinate(m2)
                 d2Fdm2_adj = expand_derivatives(derivative(dFdm_adj, X, dm2))
-                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+                d2Fdm2_adj_forms_k.append(_set_arguments_if_zero(d2Fdm2_adj, args))
 
             d2Fdm2_adj_forms.append(d2Fdm2_adj_forms_k)
 
