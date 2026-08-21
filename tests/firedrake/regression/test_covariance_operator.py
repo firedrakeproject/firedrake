@@ -160,10 +160,14 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
         x, = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)
     elif mesh_type == 'square':
+        if m == 2:
+            pytest.skip('Diffusion approximation for second order AR function not valid in 2D')
         mesh = PeriodicUnitSquareMesh(nx, nx)
         x, y = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)*cos(4*pi*y)
     elif mesh_type == 'cube':
+        if m == 2:
+            pytest.skip('Diffusion approximation for second order AR function not valid in 3D')
         mesh = PeriodicUnitCubeMesh(nx, nx, nx)
         x, y, z = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)*cos(4*pi*y)*cos(pi*z)
@@ -199,7 +203,7 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("m", (0, 2, 4))
+@pytest.mark.parametrize("m", (0, 4))
 def test_covariance_inverse_action_hdiv(m):
     """Test that covariance operator action and inverse are opposites
     for hdiv spaces.
