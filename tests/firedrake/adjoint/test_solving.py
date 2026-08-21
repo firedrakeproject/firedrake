@@ -289,6 +289,37 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+def test_solve_rhs_and_solution_arguments(rg):
+    # solver.solve(x=x, b=b) solves F == b, reading the initial guess from
+    # x and writing the solution into x instead of into problem.u.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    X, Y = SpatialCoordinate(mesh)
+
+    u = Function(V)
+    v = TestFunction(V)
+    F = (inner(u, v) + inner(grad(u), grad(v)) + inner(u**3, v))*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bc))
+
+    g = Function(V).interpolate(sin(pi*X)*sin(pi*Y))
+    x = Function(V)
+    for _ in range(2):
+        b = assemble(inner(g*g*(1 + x), v)*dx)
+        solver.solve(x=x, b=b)
+
+    # The solution is read from the buffer x, not from problem.u.
+    J = assemble(inner(x, x)*dx)
+    rf = ReducedFunctional(J, Control(g))
+
+    h = rg.uniform(V)
+    rates = taylor_to_dict(rf, g, h)
+    assert min(rates["R0"]["Rate"]) > 0.9
+    assert min(rates["R1"]["Rate"]) > 1.9
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
