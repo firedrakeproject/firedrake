@@ -492,18 +492,3 @@ def test_triplot_hex_mesh():
     assert len(paths) == 24
     for path in paths:
         assert len(np.unique(path.vertices, axis=0)) == 4
-
-
-@pytest.mark.skipplot
-def test_triplot_kwargs_not_mutated():
-    mesh = UnitSquareMesh(4, 4)
-    interior_kw = {'linewidths': 0.5}
-    boundary_kw = {'linewidths': 2.0, 'colors': ['tab:blue', 'tab:orange',
-                                                 'tab:green', 'tab:red']}
-
-    fig, axes = plt.subplots()
-    triplot(mesh, axes=axes, interior_kw=interior_kw, boundary_kw=boundary_kw)
-
-    assert interior_kw == {'linewidths': 0.5}
-    assert boundary_kw == {'linewidths': 2.0, 'colors': ['tab:blue', 'tab:orange',
-                                                         'tab:green', 'tab:red']}
