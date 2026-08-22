@@ -4,7 +4,8 @@ from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import filtered_replace_indices
+from gem.optimise import (estimate_cost, factorise_indirect_reductions,
+                          filtered_replace_indices, has_linear_maps)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -52,6 +53,90 @@ def _delta_inside(node, self):
                for child in node.children)
 
 
+def _group_key(pair):
+    variable, expression = pair
+    return frozenset(variable.free_indices)
+
+
+def _preservable(pairs):
+    """Is there a linear map whose preservation could change a plan?
+
+    Parameters
+    ----------
+    pairs : tuple of tuple
+        Output variables and the integrands assigned to them.
+
+    Returns
+    -------
+    bool
+        Whether any assignment contains a sum over one argument axis.
+
+    """
+    return any(
+        has_linear_maps([expression], set(free_indices))
+        for free_indices, pair_group in groupby(pairs, _group_key)
+        for _, expression in pair_group)
+
+
+def _factorise(pairs, quadrature_indices, preserve_maps):
+    """Factorise the arguments of each assignment and place its reductions.
+
+    Parameters
+    ----------
+    pairs : tuple of tuple
+        Output variables and the integrands assigned to them.
+    quadrature_indices : tuple of Index
+        Every quadrature index of the integral, in source order.
+    preserve_maps : bool
+        Keep a sum over one argument axis whole, as a finite element linear
+        map, rather than distributing it into scalar monomials.
+
+    Returns
+    -------
+    tuple of tuple
+        Output variables and their factorised GEM expressions.
+
+    """
+    # Common memoizer to remove ComponentTensors
+    index_replacer = MemoizerArg(filtered_replace_indices)
+    # Common memoizer to test for Deltas inside expressions
+    delta_inside = Memoizer(_delta_inside)
+    # Variable ordering after delta cancellation
+    narrow_variables = OrderedDict()
+    # Assignments are variable -> MonomialSum map
+    delta_simplified = defaultdict(MonomialSum)
+    # Group assignment pairs by argument indices
+    for free_indices, pair_group in groupby(pairs, _group_key):
+        variables, expressions = zip(*pair_group)
+        argument_indices = set(free_indices)
+        classifier = partial(classify, argument_indices, delta_inside=delta_inside)
+        # Argument factorise expressions
+        monomial_sums = collect_monomials(
+            expressions, classifier,
+            argument_indices if preserve_maps else ())
+        # For each monomial, apply delta cancellation and insert
+        # result into delta_simplified.
+        for variable, monomial_sum in zip(variables, monomial_sums):
+            for monomial in monomial_sum:
+                var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
+                narrow_variables.setdefault(var)
+                delta_simplified[var].add(s, a, r)
+
+    # Final factorisation
+    plan = []
+    for variable in narrow_variables:
+        monomial_sum = delta_simplified[variable]
+        # Collect sum indices applicable to the current MonomialSum
+        sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
+        # Put them in a deterministic order
+        sum_indices = [i for i in quadrature_indices if i in sum_indices]
+        # Apply sum factorisation combined with COFFEE technology, then
+        # place each reduction against the whole factorised assignment.
+        expression = sum_factorise(variable, sum_indices, monomial_sum)
+        plan.append((variable, factorise_indirect_reductions(expression)))
+    return tuple(plan)
+
+
 def flatten(var_reps, index_cache):
     quadrature_indices = OrderedDict()
 
@@ -76,45 +161,18 @@ def flatten(var_reps, index_cache):
     # Split Concatenate nodes
     pairs = unconcatenate(pairs, cache=index_cache)
 
-    def group_key(pair):
-        variable, expression = pair
-        return frozenset(variable.free_indices)
-
-    # Common memoizer to remove ComponentTensors
-    index_replacer = MemoizerArg(filtered_replace_indices)
-    # Common memoizer to test for Deltas inside expressions
-    delta_inside = Memoizer(_delta_inside)
-    # Variable ordering after delta cancellation
-    narrow_variables = OrderedDict()
-    # Assignments are variable -> MonomialSum map
-    delta_simplified = defaultdict(MonomialSum)
-    # Group assignment pairs by argument indices
-    for free_indices, pair_group in groupby(pairs, group_key):
-        variables, expressions = zip(*pair_group)
-        # Argument factorise expressions
-        classifier = partial(classify, set(free_indices), delta_inside=delta_inside)
-        monomial_sums = collect_monomials(expressions, classifier)
-        # For each monomial, apply delta cancellation and insert
-        # result into delta_simplified.
-        for variable, monomial_sum in zip(variables, monomial_sums):
-            for monomial in monomial_sum:
-                var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
-                narrow_variables.setdefault(var)
-                delta_simplified[var].add(s, a, r)
-
-    # Final factorisation
-    for variable in narrow_variables:
-        monomial_sum = delta_simplified[variable]
-        # Collect sum indices applicable to the current MonomialSum
-        sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
-        # Put them in a deterministic order
-        sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Apply sum factorisation combined with COFFEE technology
-        expression = sum_factorise(variable, sum_indices, monomial_sum)
-        yield (variable, expression)
+    # Expanding a linear map exposes scalar factorisation across its
+    # entries, preserving one exposes a tabulation that several argument
+    # axes share, and neither dominates.  Cost both and keep the cheaper,
+    # skipping the second factorisation when there is no map to preserve.
+    plans = [_factorise(pairs, quadrature_indices, False)]
+    if _preservable(pairs):
+        plans.append(_factorise(pairs, quadrature_indices, True))
+    return min(plans, key=lambda plan: estimate_cost(
+        expression for _, expression in plan))
 
 
-finalise_options = dict(replace_delta=False)
+finalise_options = dict(replace_delta=False, remove_componenttensors=False)
 
 
 def classify(argument_indices, expression, delta_inside):
