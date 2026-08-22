@@ -2,7 +2,8 @@ from functools import partial, reduce
 
 from gem.node import traversal, Memoizer
 from gem.gem import Failure, Sum, index_sum
-from gem.optimise import replace_division, unroll_indexsum
+from gem.optimise import (factorise_indirect_reductions, replace_division,
+                          unroll_indexsum)
 from gem.refactorise import collect_monomials
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
@@ -78,4 +79,5 @@ def optimise_expressions(expressions, argument_indices):
     classifier = partial(spectral.classify, set(argument_indices),
                          delta_inside=Memoizer(spectral._delta_inside))
     monomial_sums = collect_monomials(expressions, classifier)
-    return [optimise_monomial_sum(ms, argument_indices) for ms in monomial_sums]
+    return [factorise_indirect_reductions(
+        optimise_monomial_sum(ms, argument_indices)) for ms in monomial_sums]

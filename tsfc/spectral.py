@@ -4,8 +4,8 @@ from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import (estimate_cost, filtered_replace_indices,
-                          has_linear_maps)
+from gem.optimise import (estimate_cost, factorise_indirect_reductions,
+                          filtered_replace_indices, has_linear_maps)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -130,8 +130,10 @@ def _factorise(pairs, quadrature_indices, preserve_maps):
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
         # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Apply sum factorisation combined with COFFEE technology
-        plan.append((variable, sum_factorise(variable, sum_indices, monomial_sum)))
+        # Apply sum factorisation combined with COFFEE technology, then
+        # place each reduction against the whole factorised assignment.
+        expression = sum_factorise(variable, sum_indices, monomial_sum)
+        plan.append((variable, factorise_indirect_reductions(expression)))
     return tuple(plan)
 
 
