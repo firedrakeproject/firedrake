@@ -72,8 +72,26 @@ def _point_collection(axes, vertices, colors=None, **kwargs):
 
     The markers are sized in points like those of a scatter plot, so their
     paths live in display space and only their offsets are in data
-    coordinates. The colours arrive under the same keyword that the line
-    collections bounding a 2D mesh take them under.
+    coordinates.
+
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes whose data transform positions the markers.
+    vertices : numpy.ndarray
+        Array of shape ``(num_points, gdim)`` of point coordinates.
+    colors : optional
+        Colour or array of colours for the markers. The colours arrive under
+        the same keyword that the line collections bounding a 2D mesh take
+        them under.
+    **kwargs
+        Additional keyword arguments for
+        :class:`~matplotlib.collections.PathCollection`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The marker collection, converted to 3D if ``gdim`` is 3.
     """
     kwargs.setdefault("sizes", [plt.rcParams["lines.markersize"] ** 2])
     collection = PathCollection(
@@ -100,8 +118,19 @@ def _add_collection(axes, vertices, **kwargs):
     points and those of a 2D mesh are segments, so this covers every entity
     that a mesh of any dimension is drawn from.
 
-    :arg vertices: array of shape ``(num_entities, num_vertices, gdim)``
-    :return: the matplotlib :class:`Collection <matplotlib.collections.Collection>`
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes to add the collection to.
+    vertices : numpy.ndarray
+        Array of shape ``(num_entities, num_vertices, gdim)``.
+    **kwargs
+        Additional keyword arguments for the collection type chosen.
+
+    Returns
+    -------
+    matplotlib.collections.Collection
+        The collection that was added to the axes.
     """
     num_vertices, gdim = vertices.shape[1:]
     if num_vertices == 1:
@@ -126,7 +155,18 @@ def _entity_node_list(cell, dimension):
     simple. Entities with any other number of vertices are simplices, which are
     already in order.
 
-    :return: array of shape ``(num_entities, num_vertices_per_entity)``
+    Parameters
+    ----------
+    cell : FIAT.reference_element.Cell
+        Reference cell whose topology is queried.
+    dimension : int or tuple of int
+        Dimension of the entities to look up. Tensor product cells index their
+        entities by a pair of horizontal and vertical dimensions.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_entities, num_vertices_per_entity)``.
     """
     entities = cell.get_topology()[dimension]
     nodes = np.array([entities[key] for key in sorted(entities)])
@@ -138,8 +178,22 @@ def _entity_node_list(cell, dimension):
 def _extrude(nodes, offset, num_layers):
     r"""Replicate the entities of the bottom layer up the columns of an extruded mesh
 
-    The ``offset`` between successive layers broadcasts against ``nodes``. The
-    entities of each column come out contiguous.
+    Parameters
+    ----------
+    nodes : numpy.ndarray
+        Array of shape ``(num_entities, num_nodes_per_entity)`` of node numbers
+        in the bottom layer.
+    offset : int or numpy.ndarray
+        Increment in node number between successive layers. This broadcasts
+        against ``nodes``.
+    num_layers : int
+        Number of layers of cells in the extruded mesh.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_entities * num_layers, num_nodes_per_entity)``.
+        The entities of each column come out contiguous.
     """
     nodes = np.asarray(nodes)
     offset = np.broadcast_to(offset, nodes.shape)
