@@ -4,7 +4,8 @@ from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import (estimate_cost, factorise_indirect_reductions,
+from gem.optimise import (eliminate_deltas, estimate_cost,
+                          factorise_indirect_reductions,
                           filtered_replace_indices, has_linear_maps)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
@@ -34,6 +35,10 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     """
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
+
+    # Cancel the Deltas that select a basis transformation's columns, so that
+    # monomial collection sees the resulting gather rather than the Delta.
+    expressions = [eliminate_deltas(e) for e in expressions]
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
