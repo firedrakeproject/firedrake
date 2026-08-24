@@ -15,7 +15,7 @@ PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [8,8,8,8,8]
+n1_list = [2,4,8,16,32]
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -34,8 +34,8 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
-    p = 4
-    p_inner = 4
+    p = 1
+    p_inner = 1
     w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
@@ -112,8 +112,6 @@ def plot(filename, u_1, u_2):
     ax = fig.add_subplot(111, projection="3d")
     trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
     trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    #ax.view_init(elev=35, azim=-110)
-    #ax.set_aspect("equalxz")
     plt.tight_layout()
     plt.savefig(filename)
 
@@ -181,12 +179,13 @@ if VERBOSE:
 # PETSc.Sys.Print(f"...")
 
     plt.figure(figsize=(8,8))
-    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz")
-    #plt.loglog(h1_array, errors_1, "s-", label="Poisson")
-    plt.xlabel("h")
-    plt.ylabel("L2 error")
+    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz", linewidth=5)
+    plt.loglog(h1_array, errors_1, "s-", label="Poisson", linewidth=5)
+    plt.xlabel("h", fontsize=30)
+    plt.ylabel("H1 Norm", fontsize=30)
     plt.gca().invert_xaxis()
     plt.grid(False)
-    plt.legend()
-    plt.title("Helmholtz-Poisson Coupling with Dirichlet-Neumann Method")
+    plt.legend(fontsize=20)
+    plt.title("Coupled Helmholtz Poisson Equations", fontsize=24)
+    plt.tight_layout()
     plt.savefig("Logloggraph.png")
