@@ -154,10 +154,12 @@ def test_one_element_thick_mesh():
 
 
 @pytest.mark.parallel([1, 2])
-def test_periodic_one_element_mesh():
+@pytest.mark.parametrize("direction", ["both", "x", "y"])
+@pytest.mark.parametrize("quadrilateral", [True, False])
+def test_periodic_one_element_mesh(direction, quadrilateral):
     Lx = 2*pi
     Ly = 2*pi
-    mesh = PeriodicRectangleMesh(1, 1, Lx, Ly, direction="both", quadrilateral=True)
+    mesh = PeriodicRectangleMesh(1, 1, Lx, Ly, direction=direction, quadrilateral=quadrilateral)
 
     assert abs(integrate_one(mesh) - Lx*Ly) < 1e-3
 
