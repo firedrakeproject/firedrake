@@ -39,9 +39,6 @@ dependencies = [
   "rtree>=1.2",
   "scipy",
   "sympy",
-  # TODO RELEASE
-  # islpy 2026.2 stops converting a BasicSet to a Set implicitly, which loopy
-  # 2025.2 relies on. Lift once loopy releases the fix.
   "islpy<2026.2",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
