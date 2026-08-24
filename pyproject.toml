@@ -25,7 +25,8 @@ dependencies = [
   "h5py>3.12.1",
   "immutabledict",
   "libsupermesh",
-  "loopy>2024.1",
+  # UNDO ME
+  "loopy @ git+https://github.com/inducer/loopy.git@main",
   "numpy",
   "packaging",
   "petsc4py==3.25.0",
