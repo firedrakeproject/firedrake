@@ -11,7 +11,7 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = False
+PLOT = True
 VERBOSE = True
 
 # Variables initialised for convergence analysis
@@ -34,14 +34,17 @@ for n1,n2 in zip(n1_list, n2_list):
     mesh2_list.append(mesh2)
 
 def build_problem(mesh1, mesh2):
-    p = 1
-    p_inner = 1
+    p = 4
+    p_inner = 4
     w2 = Constant(50.0)/CellDiameter(mesh2)  # Nitsche penalty weight
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    u1_exact = x1 * sin(pi * y1) ** 2
-    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    #u1_exact = x1 * sin(pi * y1) ** 2
+    #u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+
+    u1_exact = (x1 * y1**2 * (1-y1)**2) + (x1 * (1-x1) * y1**3 * (1-y1)**3)
+    u2_exact = (y2**2 * (1-y2)**2) * (2*(x2-1)**3 - 3*(x2-1)**2 + 1)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
