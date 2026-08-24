@@ -15,6 +15,7 @@ from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
 from numbers import Integral
 from collections.abc import Sequence
+import pyop2.mpi
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -2158,9 +2159,21 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
     dim = dm.getCoordinateDim()
     coords_shape = ((cEnd-cStart) * ndofs[0], dim)
 
-    if dm.getCellCoordinateSection().getDof(cStart) < ndofs[0] * dim:
+    if cEnd > cStart:
+        closure_size_local = dm.getCellCoordinateSection().getDof(cStart)
+        cell_type_local = dm.getCellType(cStart)
+    else:
+        # empty rank
+        closure_size_local = -1
+        cell_type_local = -1
+
+    with pyop2.mpi.temp_internal_comm(dm.comm) as icomm:
+        closure_size = icomm.allreduce(closure_size_local, MPI.MAX)
+        cell_type = icomm.allreduce(cell_type_local, MPI.MAX)
+
+    if closure_size < ndofs[0] * dim:
         # Fewer cell coordinates available, we must be single-cell periodic
-        if dm.getCellType(cStart) == PETSc.DM.PolytopeType.QUADRILATERAL:
+        if cell_type == PETSc.DM.PolytopeType.QUADRILATERAL:
             # If we have a periodic mesh with only a single cell in the periodic
             # direction then the cell coordinates will be
             #

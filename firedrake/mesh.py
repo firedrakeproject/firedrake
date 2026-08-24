@@ -3140,13 +3140,17 @@ def _fully_localize_coordinates(dm):
     old_cell_vec = dm.getCellCoordinatesLocal()
 
     # Find dofs_per_cell from an existing cell entry
-    dofs_per_cell = None
+    dofs_per_cell = -1
     for c in range(cStart, cEnd):
         dof = cell_sec.getDof(c)
         if dof > 0:
             dofs_per_cell = dof
             break
-    if dofs_per_cell is None:
+
+    # handle empty ranks
+    with temp_internal_comm(dm.comm) as icomm:
+        dofs_per_cell = icomm.allreduce(dofs_per_cell, MPI.MAX)
+    if dofs_per_cell < 0:
         return
 
     # Build new section and vector covering all cells
@@ -3209,11 +3213,13 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     # boundary (sparse localization). Firedrake needs every cell to
     # have an entry, so we expand to full localization.
     if dm.getCoordinatesLocalized():
-        _fully_localize_coordinates(dm)
-    if not dm.getCoordinatesLocalized():
-        element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
+        if dm.getSparseLocalize():
+            _fully_localize_coordinates(dm)
+
+        elem_name = "DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG"
+        element = finat.ufl.VectorElement(elem_name, cell, 1, dim=geometric_dim, variant="equispaced")
     else:
-        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
+        element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
 
     coords = coordinates_from_topology(topology, element)
     mesh = MeshGeometry(coords)
@@ -5047,6 +5053,8 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 
     if not isinstance(topology, ExtrudedMeshTopology) and len(topology.dm_cell_types) > 1:
         return _MultiCellTypeDummyCoordinates(topology, element)
+
+    # breakpoint()
 
     (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)

@@ -966,6 +966,10 @@ def PeriodicRectangleMesh(
         sparseLocalize=False,
         comm=comm
     )
+
+    if nx == 1 and ny == 1:
+        _localize_periodic_single_cell_mesh(plex)
+
     _mark_mesh_boundaries(plex)
     if not quadrilateral:
         plex = _refine_quads_to_triangles(plex, diagonal)
@@ -979,6 +983,42 @@ def PeriodicRectangleMesh(
         permutation_name=permutation_name,
         comm=comm,
     )
+
+
+def _localize_periodic_single_cell_mesh(plex: PETSc.DMPlex) -> None:
+    dg_coord_dm = plex.getCoordinateDM().clone()
+    plex.setCellCoordinateDM(dg_coord_dm)
+    plex.setCoordinateDim(2)
+
+    dg_coord_sec = PETSc.Section().create(comm=plex.comm)
+    dg_coord_sec.setNumFields(1)
+    dg_coord_sec.setFieldComponents(0, 2)
+    if comm.rank == 0:
+        dg_coord_sec.setChart(0, 1)
+        dg_coord_sec.setDof(0, 8)
+        dg_coord_sec.setFieldDof(0, 0, 8)
+    else:
+        dg_coord_sec.setChart(0, 0)
+    dg_coord_sec.setUp()
+    plex.setCellCoordinateSection(2, dg_coord_sec)
+
+    if comm.rank == 0:
+        # PETSc quads are numbered anticlockwise from the bottom left corner
+        dg_coords_array = np.asarray(
+            [[0., 0.], [Lx, 0.], [Lx, Ly], [0., Ly]],
+            dtype=ScalarType,
+        )
+        size = (8, 8)
+    else:
+        dg_coords_array = np.empty((0, 2), dtype=ScalarType)
+        size = (0, 8)
+    dg_coords_vec = PETSc.Vec().createWithArray(
+        dg_coords_array, size, bsize=2, comm=comm,
+    )
+    # Set the global cell coordinates because we don't know what sort of
+    # overlap the plex has and hence the local coordinate vec may be
+    # different on ranks != 0.
+    plex.setCellCoordinatesLocal(dg_coords_vec)
 
 
 @PETSc.Log.EventDecorator()
