@@ -12,9 +12,10 @@ g = Function(V)
 
 gpu = op3.CUDAGPU()
 
-pyop3.debug_flags.hit_assign = True
-g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile", compiler_parameters={"codegen": "mlir"})
 pyop3.debug_flags.hit_assign = False
+g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile", compiler_parameters={"codegen": "loopy"})
+pyop3.debug_flags.hit_assign = False
+
 # with op3.offloading(gpu):
 # 	g.dat.assign(2 * f.dat, eager=True, eager_strategy="compile")
 # 	assert isinstance(g.dat.data_ro, cp.ndarray) # Device

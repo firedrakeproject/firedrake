@@ -17,7 +17,6 @@ from pyop3.node import Node, Terminal
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
 from pyop3.axis_tree.tree import MissingVariableException
 
-
 class Expression(Node, abc.ABC):
 
     # {{{ abstract methods
@@ -29,6 +28,11 @@ class Expression(Node, abc.ABC):
     @property
     def local_min(self) -> numbers.Number:
         raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def dtype(self) -> np.dtype:
+        pass 
 
     @property
     @abc.abstractmethod
@@ -257,6 +261,33 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     def operands(self) -> tuple[ExpressionT, ExpressionT]:
         return (self.a, self.b)
 
+    @property
+    def dtype(self) -> np.dtype:
+
+        if isinstance(self.a, Expression):
+            a_dtype = np.dtype(self.a.dtype)
+        else:
+            a_dtype = np.dtype(type(self.a))
+
+        if isinstance(self.b, Expression):
+            b_dtype = np.dtype(self.b.dtype)
+        else:
+            b_dtype = np.dtype(type(self.b))
+
+        is_a_float = np.issubdtype(a_dtype, np.floating)
+        is_b_float = np.issubdtype(b_dtype, np.floating)
+
+        if is_a_float or is_b_float:
+            # Keep only float dtypes and pick the highest precision one
+            float_dtypes = [
+                dt for dt, is_float in [(a_dtype, is_a_float), (b_dtype, is_b_float)]
+                if is_float
+            ]
+            return max(float_dtypes, key=lambda dt: dt.itemsize)
+
+        return max(a_dtype, b_dtype, key=lambda dt: dt.itemsize)
+
+
     # }}}
 
     # {{{ abstract methods
@@ -294,7 +325,7 @@ class Add(BinaryOperator):
         from pyop3.expr.visitors import get_local_min
 
         return get_local_min(self.a) + get_local_min(self.b)
-
+    
     # }}}
 
 
@@ -559,6 +590,10 @@ class AxisVar(TerminalExpression):
         raise TypeError("not sure that this makes sense")
 
     @property
+    def dtype(self) -> np.dtype:
+        raise TypeError("Not sure this makes sense")
+
+    @property
     def _full_str(self) -> str:
         return f"i_{{{self.axis.label}}}"
 
@@ -583,6 +618,10 @@ class NaN(TerminalExpression):
     @property
     def local_min(self) -> NoReturn:
         raise TypeError
+
+    @property
+    def dtype(self) -> np.dtype:
+        return None 
 
     _full_str = "NaN"
 
@@ -638,6 +677,10 @@ class LoopIndexVar(TerminalExpression):
     @property
     def local_min(self) -> numbers.Number:
         raise TypeError("not sure that this makes sense")
+
+    @property
+    def dtype(self) -> np.dtype:
+        return TypeError("not sure that this makes sense") # possibly int32/64?
 
     @property
     def _full_str(self) -> str:
