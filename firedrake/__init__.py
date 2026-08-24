@@ -45,11 +45,12 @@ if _is_logging:
     del atexit
 del petsc
 
+import ufl  # NOTE TO SELF: Required for ufl.__all__ to be registered
 from ufl import *  # noqa: F401
 __all__ = ufl.__all__
 
 from finat.ufl import *  # noqa: F401
-__all__ += finat.ufl.__all__
+__all__ += ["BrokenElement", "EnrichedElement", "NodalEnrichedElement", "FiniteElement", "FiniteElementBase", "HCurlElement", "HDivElement", "WithMapping", "HDiv", "HCurl", "MixedElement", "TensorElement", "VectorElement", "RestrictedElement", "TensorProductElement"]
 
 from pyop2 import op2                        # noqa: F401
 __all__ += ["op2"]
@@ -59,7 +60,7 @@ __all__ += ["COMM_WORLD", "COMM_SELF"]
 
 # Register possible citations
 import firedrake.citations  # noqa: F401
-__all__ += ["firedrake.citations"]
+__all__ += ["citations"]
 
 petsctools.cite("FiredrakeUserManual")
 del petsctools
@@ -276,15 +277,13 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot  # noqa: F401
-__all__ += ["plot"]
-
+from firedrake._deprecation import plot as _plot_module  # NOTE TO SELF: Changed name to _plot_module as adding plot.__all__ to __all__ was confusing the compiler with another plot method elsewhere in the code
 import sys
-sys.modules["firedrake.plot"] = plot
+sys.modules["firedrake.plot"] = _plot_module
 from firedrake.plot import *  # noqa: F401
-__all__ += firedrake.plot.__all__
-
+__all__ += _plot_module.__all__
 del sys
+del _plot_module
 
 
 def set_blas_num_threads():
