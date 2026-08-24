@@ -1,3 +1,9 @@
+'''
+    SIGNIFICANT REWRITE OF THIS CLASS DUE TO FOLLOWING CHANGE:
+    FROM PYM->MLIR 
+    TO PYOP3->MLIR
+'''
+
 import contextlib
 import functools
 import numbers
@@ -209,6 +215,14 @@ class MLIRCodegenContext(CodegenContext):
         if isinstance(expr, tuple):
             breakpoint()
         raise ValueError(f"{type(expr)} not implemented yet.")
+
+
+    @translate_expr.register(pyop3.expr.Scalar)
+    def _(self, scalar: pyop3.expr.Scalar):
+        buffer_ref = scalar.buffer
+        name_in_kernel = context.add_buffer(buffer_ref)
+        return buffer_ref
+
     
     @translate_expr.register(pym.primitives.Subscript)
     def _(self, expr: pym.primitives.Subscript) -> SSAValue:
@@ -342,7 +356,6 @@ class MLIRCodegenContext(CodegenContext):
 
             old = self.builder
             self.builder = Builder(InsertPoint.at_end(body))
-
             self._build_nest(instructions, entered | {iname})
 
             yielded = [self.symbol_table.lookup(name) for name in carried]
@@ -351,7 +364,6 @@ class MLIRCodegenContext(CodegenContext):
 
         # send result/yield back to outer scope 
         for name, result in zip(carried, for_op.results):
-
             self.symbol_table.insert(name, result)
 
     def _to_index(self, value):
