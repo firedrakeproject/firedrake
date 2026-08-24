@@ -285,6 +285,7 @@ __all__ += _plot_module.__all__
 del sys
 del _plot_module
 
+__all__ += ["utils"]  #NOTE TO SELF: Added to make tests compile - check if this is required or if we should import utils in failing tests instead
 
 def set_blas_num_threads():
     """Try to detect threading and either disable or warn user.
