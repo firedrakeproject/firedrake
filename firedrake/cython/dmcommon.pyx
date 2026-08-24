@@ -3445,8 +3445,8 @@ def submesh_create(PETSc.DM dm,
     if subdim is None:
         subdim = dim
     if subdim not in {dim, dim - 1}:
-        raise NotImplementedError(f"Submesh construction is only implemented for codimension 0 or 1. "
-                                   "Found submesh dim ({subdim}) and parent dim ({dim})")
+        raise NotImplementedError("Submesh construction is only implemented for codimension 0 or 1. "
+                                  f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
