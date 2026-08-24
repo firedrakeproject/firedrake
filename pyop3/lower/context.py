@@ -3,6 +3,7 @@ from typing import Any, List, Dict, Tuple
 import numbers
 
 from pyop3 import utils
+from pyop3.buffer import AbstractBuffer
 from pyop3.insn.base import Intent, READ, assignment_type_as_intent
 
 class CodegenContext(ABC):
