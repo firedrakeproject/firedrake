@@ -10,19 +10,21 @@ from libc.stdlib cimport free, malloc
 
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport (
-    MPI_Aint,
+    MPI_ANY_SOURCE,
     MPI_INT,
+    MPI_REQUEST_NULL,
+    MPI_STATUS_IGNORE,
     MPI_STATUSES_IGNORE,
-    MPI_Datatype,
-    MPI_Irecv,
-    MPI_Isend,
+    MPI_Get_count,
+    MPI_Ibarrier,
+    MPI_Iprobe,
+    MPI_Issend,
+    MPI_Recv,
     MPI_Request,
-    MPI_Type_commit,
-    MPI_Type_create_resized,
-    MPI_Type_free,
-    MPI_Waitall,
+    MPI_Status,
+    MPI_Test,
+    MPI_Testall,
 )
-from petsc4py.PETSc cimport CHKERR
 
 include "petschdr.pxi"
 
@@ -172,8 +174,9 @@ cdef tuple _destination_ranks(
         Target ranks to send points to.
     point_indices : (total_sends,) int32 array
         Indices into `points` determining which points to send.
-    send_counts : (nranks_to,) int32 array
-        Number of points to send to each entry of `toranks`.
+    send_offsets : (nranks_to + 1,) int32 array
+        Points destined for `toranks[i]` are
+        `point_indices[send_offsets[i]:send_offsets[i + 1]]`.
     """
     cdef:
         int64_t *ids_out = NULL
@@ -186,7 +189,7 @@ cdef tuple _destination_ranks(
         np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
         np.ndarray[np.int32_t, ndim=1, mode="c"] rank_counts
         np.ndarray[np.int32_t, ndim=1, mode="c"] rank_write_offsets
-        np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
+        np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
 
     # query the partition rtree to find candidate ranks
@@ -215,7 +218,7 @@ cdef tuple _destination_ranks(
                 rank_counts[rank] += 1
 
         toranks = np.empty(nranks_to, dtype=np.int32)
-        send_counts = np.empty(nranks_to, dtype=np.int32)
+        send_offsets = np.empty(nranks_to + 1, dtype=np.int32)
         rank_write_offsets = np.empty(comm_size, dtype=np.int32)
 
         index = 0
@@ -225,10 +228,11 @@ cdef tuple _destination_ranks(
                 # not sending this rank any points
                 continue
             toranks[index] = <np.int32_t>rank
-            send_counts[index] = rank_counts[rank]
+            send_offsets[index] = offset
             rank_write_offsets[rank] = offset
-            offset += send_counts[index]
+            offset += rank_counts[rank]
             index += 1
+        send_offsets[nranks_to] = offset
 
         point_indices = np.empty(offset, dtype=np.int32)
         for i in range(n_points):
@@ -246,7 +250,7 @@ cdef tuple _destination_ranks(
     if offsets_free_err != Success:
         raise RuntimeError("rtree_free_offsets failed")
 
-    return toranks, point_indices, send_counts
+    return toranks, point_indices, send_offsets
 
 
 @cython.boundscheck(False)
@@ -275,98 +279,105 @@ def discover_remote_roots(
     """
     cdef:
         MPI.MPI_Comm mpi_comm = comm.ob_mpi
-        MPI_Datatype remote_index_type = MPI_DATATYPE_NULL
         MPI_Request *requests = NULL
-        PetscMPIInt k, nranks_from, nranks_to, nrequests
+        MPI_Request barrier_request = MPI_REQUEST_NULL
+        MPI_Status status
+        PetscMPIInt k, nranks_to
         PetscMPIInt count, source_rank, recv_offset = 0
-        PetscMPIInt *fromranks = NULL
-        void *recv_counts = NULL
-        Py_ssize_t i, nleaves = 0, send_offset = 0
+        int message_ready, sends_complete, barrier_complete = 0
+        Py_ssize_t i, nleaves = 0
         np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
-        np.ndarray[np.int32_t, ndim=1, mode="c"] send_counts
+        np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
         np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
+        np.ndarray[np.int32_t, ndim=1, mode="c"] received
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
+        list recv_ranks = []
+        list recv_buffers = []
 
-    toranks, point_indices, send_counts = _destination_ranks(
+    toranks, point_indices, send_offsets = _destination_ranks(
         rtree, points, comm.size,
     )
     nranks_to = <PetscMPIInt>toranks.shape[0]
 
-    # discover incoming ranks and exchange their point counts
-    CHKERR(PetscCommBuildTwoSided(
-        mpi_comm,
-        1,
-        MPI_INT,
-        <PetscMPIInt>toranks.shape[0],
-        <const PetscMPIInt *>toranks.data,
-        <const void *>send_counts.data,
-        &nranks_from,
-        &fromranks,
-        &recv_counts,
-    ))
-
-    # Now each rank knows what ranks it is going to receive points from,
-    # and how many points. We now proceed and send these points sparsely.
-
     try:
-        for k in range(nranks_from):
-            nleaves += (<PetscMPIInt *>recv_counts)[k]
-        remote = np.empty((nleaves, 2), dtype=np.int32)
+        if nranks_to:
+            requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
+            if requests == NULL:
+                raise MemoryError("failed to allocate MPI requests")
 
-        nrequests = nranks_from + nranks_to
-        if nrequests:
-            requests = <MPI_Request *>malloc(nrequests * sizeof(MPI_Request))
-
-        # Receive point indices directly into the second column of `remote`.
-        # `remote` is a contiguous (nleaves, 2) shaped array, so we create
-        # an MPI unit whose payload is MPI_INT, but whose extent is twice that.
-        if nranks_from:
-            CHKERRMPI(MPI_Type_create_resized(
-                MPI_INT,
-                <MPI_Aint>0,
-                <MPI_Aint>(2 * sizeof(np.int32_t)),
-                &remote_index_type,
-            ))
-            CHKERRMPI(MPI_Type_commit(&remote_index_type))
-
-        # nonblocking receives
-        for k in range(nranks_from):
-            source_rank = fromranks[k]
-            count = (<PetscMPIInt *>recv_counts)[k]
-            for i in range(recv_offset, recv_offset + count):
-                remote[i, 0] = source_rank
-            CHKERRMPI(MPI_Irecv(
-                <void *>&remote[recv_offset, 1],
-                count,
-                remote_index_type,
-                source_rank,
-                source_rank,
-                mpi_comm,
-                &requests[k],
-            ))
-            recv_offset += count
-
-        # nonblocking sends
+        # Synchronous sends allow completion detection to prove that the
+        # matching receive has been posted without first exchanging counts.
         for k in range(nranks_to):
-            count = send_counts[k]
-            CHKERRMPI(MPI_Isend(
-                <const void *>&point_indices[send_offset],
+            count = send_offsets[k + 1] - send_offsets[k]
+            CHKERRMPI(MPI_Issend(
+                <const void *>&point_indices[send_offsets[k]],
                 count,
                 MPI_INT,
                 toranks[k],
-                comm.rank,
+                0,
                 mpi_comm,
-                &requests[nranks_from + k],
+                &requests[k],
             ))
-            send_offset += count
 
-        CHKERRMPI(MPI_Waitall(nrequests, requests, MPI_STATUSES_IGNORE))
+        sends_complete = nranks_to == 0
+        if sends_complete:
+            CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
+
+        # Hoefler's NBX algorithm discovers variable-sized messages with
+        # probes while progressing synchronous sends. Once all sends have
+        # matched, the nonblocking barrier establishes global completion.
+        while not barrier_complete:
+            CHKERRMPI(MPI_Iprobe(
+                MPI_ANY_SOURCE,
+                0,
+                mpi_comm,
+                &message_ready,
+                &status,
+            ))
+            if message_ready:
+                CHKERRMPI(MPI_Get_count(&status, MPI_INT, &count))
+                source_rank = status.MPI_SOURCE
+                received = np.empty(count, dtype=np.int32)
+                CHKERRMPI(MPI_Recv(
+                    <void *>received.data,
+                    count,
+                    MPI_INT,
+                    source_rank,
+                    0,
+                    mpi_comm,
+                    MPI_STATUS_IGNORE,
+                ))
+                recv_ranks.append(source_rank)
+                recv_buffers.append(received)
+                nleaves += count
+            elif not sends_complete:
+                CHKERRMPI(MPI_Testall(
+                    nranks_to,
+                    requests,
+                    &sends_complete,
+                    MPI_STATUSES_IGNORE,
+                ))
+                if sends_complete:
+                    CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
+            else:
+                CHKERRMPI(MPI_Test(
+                    &barrier_request,
+                    &barrier_complete,
+                    MPI_STATUS_IGNORE,
+                ))
     finally:
-        CHKERRMPI(MPI_Type_free(&remote_index_type))
         if requests != NULL:
             free(requests)
-        CHKERR(PetscFree(fromranks))
-        CHKERR(PetscFree(recv_counts))
+
+    remote = np.empty((nleaves, 2), dtype=np.int32)
+    for k in range(len(recv_buffers)):
+        source_rank = recv_ranks[k]
+        received = recv_buffers[k]
+        count = received.shape[0]
+        for i in range(count):
+            remote[recv_offset + i, 0] = source_rank
+            remote[recv_offset + i, 1] = received[i]
+        recv_offset += count
 
     return remote
 

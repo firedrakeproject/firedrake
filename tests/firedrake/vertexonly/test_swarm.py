@@ -421,3 +421,8 @@ def test_discover_remote_roots():
     sf = PETSc.SF().create(comm=comm)
     sf.setGraph(len(points), None, remote)
     assert sf.getGraph()[0] == len(points)
+
+    remote = rtree.discover_remote_roots(
+        tree, np.array([[-1.0]], dtype=np.float64), comm,
+    )
+    assert remote.shape == (0, 2)
