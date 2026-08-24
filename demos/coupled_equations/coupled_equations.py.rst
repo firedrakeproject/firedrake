@@ -68,21 +68,6 @@ Overall, the variational problem for the coupled equations is: find :math:`(u_1,
 
   a_{11}(u_1,v_1) + a_{12}(u_2,v_1) + a_{22}(u_2,v_2) + a_{21}(u_1,v_2) = L_1(v_1) + L_2(v_2) \ \textrm{for all}\ (v_1, v_2) \in V^1 \times V^2.
 
-This overall variational problem can be represented as the following matrix equation where :math:`a_{11}` and :math:`a_{22}` represent the diagonals of a matrix :math:`A`, :math:`a_{12}` and :math:`a_{21}` represent the coupling terms between the two equations, and :math:`L_1(v_1)` and :math:`L_2(v_2)` are the right-hand side terms. 
-
-.. math::
-  \begin{pmatrix}
-  a_{11} & a_{12}\\
-  a_{21} & a_{22}
-  \end{pmatrix} \begin{pmatrix}
-  u_1 \\
-  u_2
-  \end{pmatrix} = \begin{pmatrix}
-  L_1(v_1) \\
-  L_2(v_2)
-  \end{pmatrix}
-
-
 Method of Manufactured Solutions (MMS)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -147,7 +132,7 @@ The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem
 
 Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors for each mesh, ``dx`` integrates over the respective meshes and ``ds`` integrates on the shared edge of the meshes. The shared edge is specified by the ``subdomain_id`` term.
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
 
     n1 = FacetNormal(mesh1)
@@ -160,7 +145,7 @@ Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors fo
 
 Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
   
     V1 = FunctionSpace(mesh1, "CG", p)
@@ -173,7 +158,7 @@ Function spaces ``V1`` and ``V2`` are combined to create a mixed function space 
 
 The matrices ``A11`` and ``A22`` are defined directly on the above function spaces. 
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
 
     # Poisson on mesh_1
@@ -186,7 +171,7 @@ The matrices ``A11`` and ``A22`` are defined directly on the above function spac
 
 Intermediate spaces are used to define the coupling terms in the variational problem. These coupling terms are computed as the product of the cross-mesh interpolation matrices ``B12`` and ``B21`` with the corresponding mass matrices ``M1`` and ``M2``. Thus, the coupling term is represented in the dual space of ``W``. Recall that ``A12`` enforces the Neumann boundary condition whilst ``A21`` enforces the Dirichlet boundary condition using Nitsche's method.
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
 
     # Intermediate spaces
@@ -210,7 +195,7 @@ Intermediate spaces are used to define the coupling terms in the variational pro
     
 These terms are combined to form the variables ``A`` and ``L`` in the overall variational problem, ``Ax = L``. From this method, we return ``A, L, W`` and the exact solutions mapped onto the function space.
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
 
     # RHS
