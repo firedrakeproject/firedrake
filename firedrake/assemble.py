@@ -1436,7 +1436,10 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 submat_specs[i, j] = (subspace_key, op3.NonNestedPetscMatBufferSpec(sub_mat_type_, block_shape))
         mat_spec = op3.PetscMatNestBufferSpec(submat_specs)
     else:
-        block_shape = (test_space.block_shape, trial_space.block_shape)
+        if mat_type == "baij":
+            block_shape = (test_space.block_shape, trial_space.block_shape)
+        else:
+            block_shape = (), ()
         mat_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
     return mat_spec
 

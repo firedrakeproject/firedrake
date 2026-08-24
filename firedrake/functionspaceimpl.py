@@ -2059,7 +2059,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace) or len(other) != len(self):
             return False
-        return all(s == o for s, o in zip(self, other)) and self._labels == other._labels
+        return all(s == o for s, o in zip(self, other))
 
     def __ne__(self, other):
         return not self.__eq__(other)

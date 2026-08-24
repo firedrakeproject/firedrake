@@ -344,9 +344,8 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(base_p)
-                zlice = slice(off*V.block_size, V.block_size * (off + dof))
 
-                indices = V_local_ises_indices[0][zlice]
+                indices = V_local_ises_indices[0][off:off+dof]
                 indices = indices[indices >= 0]
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
