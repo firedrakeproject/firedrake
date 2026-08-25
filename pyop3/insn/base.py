@@ -1,73 +1,41 @@
 from __future__ import annotations
 
 import abc
-import collections
-from collections.abc import Hashable, Mapping, Iterable
 import dataclasses
 import enum
-import functools
-import itertools
-import numbers
-from os import stat
 import textwrap
 import typing
+from collections.abc import Hashable, Iterable, Mapping, Iterator
 from functools import cached_property
-from typing import Any, ClassVar, Tuple
+from typing import Any, ClassVar
 
-from immutabledict import immutabledict as idict
 import loopy as lp
 import loopy.tools
 import numpy as np
-from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
-import pytools
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import pyop3.compile
 import pyop3.expr
 import pyop3.record
 from pyop3 import utils
-from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
-from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
-from pyop3.node import Node, Terminal, Operator
 from pyop3.axis_tree import AxisTree
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
-from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
-from pyop3.sf import DistributedObject
-from pyop3.dtypes import dtype_limits
-from pyop3.exceptions import Pyop3Exception
-from pyop3.utils import (
-    auto,
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
 )
+from pyop3.cache import (
+    cached_method,
+    with_self_heavy_cache,
+)
+from pyop3.collections import OrderedFrozenSet
+from pyop3.constants import MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, Intent
+from pyop3.exceptions import Pyop3Exception
+from pyop3.expr import BufferExpression, Tensor
+from pyop3.node import Node, Operator, Terminal
 
 if typing.TYPE_CHECKING:
     from .exec import InstructionExecutionContext
 
 
-# TODO I don't think that this belongs in this file, it belongs to the function?
-# create a function.py file?
-class Intent(enum.Enum):
-    # developer note, MIN_RW and MIN_WRITE are distinct (unlike PyOP2) to avoid
-    # passing "requires_zeroed_output_arguments" around, yuck
-
-    READ = "read"
-    WRITE = "write"
-    RW = "rw"
-    INC = "inc"
-    MIN_WRITE = "min_write"
-    MIN_RW = "min_rw"
-    MAX_WRITE = "max_write"
-    MAX_RW = "max_rw"
-
-
-READ = Intent.READ
-WRITE = Intent.WRITE
-RW = Intent.RW
-INC = Intent.INC
-MIN_RW = Intent.MIN_RW
-MIN_WRITE = Intent.MIN_WRITE
-MAX_RW = Intent.MAX_RW
-MAX_WRITE = Intent.MAX_WRITE
 # TODO: This exception is not actually ever raised. We should check the
 # intents of the kernel arguments and complain if something illegal is
 # happening.
@@ -98,10 +66,7 @@ class UnprocessedExpressionException(Pyop3Exception):
     """Exception raised when pyop3 expected a preprocessed expression."""
 
 
-class Instruction(Node, DistributedObject, abc.ABC):
-
-    def __init__(self) -> None:
-        object.__setattr__(self, "_hit_executor_cache", True)
+class Instruction(Node, abc.ABC):
 
     # FIXME: This is very similar to PreprocessedOperation.buffers but *not the same*
     #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
@@ -112,11 +77,6 @@ class Instruction(Node, DistributedObject, abc.ABC):
     @abc.abstractmethod
     def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
         """Mapping from name to tensor that is passed in as an argument."""
-
-    @property
-    @abc.abstractmethod
-    def comm(self) -> MPI.Comm:
-        pass
 
     @with_self_heavy_cache
     def __call__(self, *, compiler_parameters=None, **kwargs) -> None:
@@ -179,21 +139,39 @@ class Loop(NonTerminalInstruction):
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        with visitor.strong_hash_buffers():
+            index_key = visitor(self.index)
         return (
             type(self),
-            visitor(self.index, inside=True),
+            index_key,
             tuple(map(visitor, self.statements)),
         )
 
-    def __init__(
-        self,
-        index: LoopIndex,
-        statements: Iterable[Instruction] | Instruction,
-    ) -> None:
-        statements = utils.as_tuple(statements)
-        object.__setattr__(self, "index", index)
-        object.__setattr__(self, "statements", statements)
-        super().__init__()
+    def __new__(cls, *args, **kwargs):
+        if args:
+            index, stmts = args
+        else:
+            index = kwargs.pop("index")
+            stmts = kwargs.pop("statements")
+            assert not kwargs
+
+        processed_stmts = []
+        for stmt in pyop3.collections.as_tuple(stmts):
+            if isinstance(stmt, NullInstruction):
+                continue
+            elif isinstance(stmt, InstructionList):
+                processed_stmts.extend(stmt)
+            else:
+                processed_stmts.append(stmt)
+        stmts = tuple(processed_stmts)
+
+        if len(stmts) == 0:
+            return NullInstruction()
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "index", index)
+            object.__setattr__(self, "statements", stmts)
+            return self
 
     # }}}
 
@@ -204,11 +182,6 @@ class Loop(NonTerminalInstruction):
     @cached_property
     def global_arguments(self) -> OrderedFrozenSet[Tensor]:
         return OrderedFrozenSet().union(*(stmt.global_arguments for stmt in self.statements))
-
-    @property
-    def comm(self) -> MPI.Comm:
-        # TODO: check iterset
-        return utils.common_comm(self.statements, "comm")
 
     # }}}
 
@@ -238,19 +211,37 @@ class InstructionList(NonTerminalInstruction):
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self.instructions)))
 
-    def __init__(self, instructions: Iterable[Instruction]) -> None:
-        instructions = tuple(instructions)
-        object.__setattr__(self, "instructions", instructions)
+    def __new__(cls, *args, **kwargs):
+        if args:
+            insns = utils.just_one(args)
+        else:
+            insns = kwargs.pop("instructions")
+            assert not kwargs
+
+        processed_insns = []
+        for insn in insns:
+            if isinstance(insn, NullInstruction):
+                continue
+            elif isinstance(insn, InstructionList):
+                processed_insns.extend(insn)
+            else:
+                processed_insns.append(insn)
+        insns = tuple(processed_insns)
+
+        if len(insns) == 0:
+            return NullInstruction()
+        elif len(insns) == 1:
+            return utils.just_one(insns)
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "instructions", insns)
+            return self
 
     # }}}
 
     # {{{ interface impls
 
     child_attrs = ("instructions",)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm(self.instructions, "comm")
 
     @property
     def global_arguments(self) -> OrderedFrozenSet[Tensor]:
@@ -309,12 +300,17 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
     def axis_trees(self) -> AxisTree:
         pass
 
+    @property
+    @abc.abstractmethod
+    def shape(self):
+        pass
+
 
 @dataclasses.dataclass(frozen=True)
 class ArgumentSpec:
     intent: Intent
     dtype: np.dtype
-    space: Tuple[int]  # TODO: definitely am not using this...
+    space: tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -322,7 +318,7 @@ class FunctionArgument(abc.ABC):
 
 
 @pyop3.record.frozenrecord()
-class Function(pyop3.obj.Pyop3Object):
+class Function(pyop3.obj.Object):
     """A callable function."""
 
     # {{{ instance attrs
@@ -334,7 +330,7 @@ class Function(pyop3.obj.Pyop3Object):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            loopy.tools.LoopyKeyBuilder()(self.code),
+            utils._loopy_key_builder(self.code),
             self._access_descrs,
         )
 
@@ -352,11 +348,6 @@ class Function(pyop3.obj.Pyop3Object):
         lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
             raise ValueError("Wrong number of access descriptors given")
-        for lpy_arg, access in zip(lpy_args, access_descrs):
-            if access in {MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE} and lpy_arg.shape != (
-                1,
-            ):
-                raise ValueError("Reduction operations are only valid for scalars")
 
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
@@ -372,6 +363,10 @@ class Function(pyop3.obj.Pyop3Object):
         object.__setattr__(self, "_compiler_options", compiler_options)
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     # {{{ interface impls
 
@@ -392,7 +387,7 @@ class Function(pyop3.obj.Pyop3Object):
         preambles=(),
         **kwargs,
     ) -> Function:
-        from pyop3 import LOOPY_TARGET, LOOPY_LANG_VERSION
+        from pyop3.lower.loopy import LOOPY_LANG_VERSION, LOOPY_TARGET
 
         loopy_insn = lp.CInstruction(
             (),
@@ -439,22 +434,6 @@ class Function(pyop3.obj.Pyop3Object):
 
     # }}}
 
-    # unfortunately needed because loopy translation units aren't immediately hashable
-    def __hash__(self) -> int:
-        if not hasattr(self, "_saved_hash"):
-            kb = lp.tools.LoopyKeyBuilder()
-            hash_ = hash((
-                type(self),
-                kb(self.code),
-                self._access_descrs,
-            ))
-            object.__setattr__(self, "_saved_hash", hash_)
-        return self._saved_hash
-
-    # unfortunately needed because loopy translation units aren't immediately hashable
-    def __eq__(self, other, /) -> bool:
-        return type(other) is type(self) and other.code == self.code and other._access_descrs == self._access_descrs
-
     def __call__(self, *args):
         # if not all(isinstance(a, FunctionArgument) for a in args):
         #     raise TypeError("invalid kernel argument type")
@@ -494,14 +473,7 @@ class Function(pyop3.obj.Pyop3Object):
 
 class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
-    # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def function(self) -> Function:
-        pass
-
-    # }}}
+    __abstract_record_attrs = ("function",)
 
     # {{{ interface impls
 
@@ -515,9 +487,12 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
+    # or an empty tuple?
     @property
     def axis_trees(self) -> tuple[AxisTree, ...]:
         return (UNIT_AXIS_TREE,)
+
+    shape = ()
 
     @property
     def name(self):
@@ -538,39 +513,32 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
             for arg in self.function.code.default_entrypoint.args
         )
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm(self.arguments, "comm", allow_undefined=True) or MPI.COMM_SELF
-
 
 @pyop3.record.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
 
     # {{{ instance attrs
 
-    _function: Function
+    function: Function
     _arguments: tuple[Any]
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._function),
+            visitor(self.function),
             tuple(map(visitor, self._arguments)),
         )
 
-    def __init__(self, function: Function, arguments: Iterable):
-        arguments = tuple(arguments)
-
+    def __init__(self, function: Function, arguments: Iterable) -> None:
         function = self._fixup_function_argument_shapes(function, arguments)
-
-        object.__setattr__(self, "_function", function)
+        arguments = tuple(arguments)
+        object.__setattr__(self, "function", function)
         object.__setattr__(self, "_arguments", arguments)
 
     # }}}
 
     # {{{ interface impls
 
-    function: ClassVar[property] = pyop3.record.attr("_function")
     arguments: ClassVar[property] = pyop3.record.attr("_arguments")
 
     # }}}
@@ -590,7 +558,7 @@ class CalledFunction(AbstractCalledFunction):
                 loopy_arg = loopy_arg.copy(shape=(arg.size,), dim_tags=None)
             new_loopy_args.append(loopy_arg)
         new_loopy_args = tuple(new_loopy_args)
-        return function.__record_init__(
+        return function.record_new(
             code=function.code.with_kernel(loopy_kernel.copy(args=new_loopy_args))
         )
 
@@ -602,28 +570,26 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
     # {{{ instance attrs
 
-    _function: Function
+    function: Function
     _arguments: Iterable[FunctionArgument]
 
     def get_disk_cache_key(self, visitor):
         return (
             type(self),
-            visitor(self._function),
+            visitor(self.function),
             tuple(map(visitor, self._arguments)),
         )
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
 
-    def __init__(self, function: Function, arguments: Iterable):
+    def __init__(self, function: Function, arguments: Iterable) -> None:
         arguments = tuple(arguments)
-
-        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "function", function)
         object.__setattr__(self, "_arguments", arguments)
 
     # }}}
 
-    function: ClassVar[property] = property(lambda self: self._function)
     arguments: ClassVar[property] = property(lambda self: self._arguments)
 
 
@@ -640,14 +606,15 @@ class NullInstruction(TerminalInstruction):
 
     arguments = ()
 
-    # COMM_DYNAMIC?
-    comm = MPI.COMM_SELF
+    shape = ()
 
 
 # TODO: With Python 3.11 can be made a StrEnum
 class AssignmentType(enum.Enum):
     WRITE = "write"
     INC = "inc"
+    MAX = "max"
+    MIN = "min"
 
 
 def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
@@ -656,23 +623,34 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             return Intent.WRITE
         case AssignmentType.INC:
             return Intent.INC
+        case AssignmentType.MAX:
+            return Intent.MAX_WRITE  # not obvious why it's WRITE here
+        case AssignmentType.MIN:
+            return Intent.MIN_WRITE
         case _:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
+class AbstractAssignmentLike(TerminalInstruction):
+
+    __abstract_record_attrs = ("assignee", "expression")
+
+    @property
+    def arguments(self) -> tuple[Any, Any]:
+        return (self.assignee, self.expression)
+
+    @cached_property
+    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+        return pyop3.compile.CompilerOptions()
+
+    @cached_property
+    def shape(self):
+        return pyop3.expr.visitors.get_shape(self.assignee)
+
+
+class AbstractAssignment(AbstractAssignmentLike):
 
     # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def assignee(self) -> Any:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def expression(self) -> Any:
-        pass
 
     @property
     @abc.abstractmethod
@@ -680,29 +658,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
         pass
 
     # }}}
-
-    # {{{ interface impls
-
-    @property
-    def arguments(self) -> tuple[Any, Any]:
-        return (self.assignee, self.expression)
-
-    # TODO: can do things like add #include <petscmat.h> here...
-    @cached_property
-    def compiler_options(self) -> pyop3.compile.CompilerOptions:
-        return pyop3.compile.CompilerOptions()
-
-    # }}}
-
-
-    # {{{ Dunders
-
-    # def __init__(self, assignee, expression, assignment_type, **kwargs):
-    #     arguments = (assignee, expression)
-    #     assignment_type = AssignmentType(assignment_type)
-    #
-    #     object.__setattr__(self, "assignment_type", assignment_type)
-    #     super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
@@ -725,28 +680,19 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
                     for assignee, expression in zip(assignee_strs, expression_strs, strict=True)
                 ))
             else:
-                return "\n".join((
+                return "\n".join(
                     f"{assignee} {operator} {utils.just_one(expression_strs)}"
                     for assignee in assignee_strs
-                ))
+                )
         else:
             if len(expression_strs) > 1:
-                return "\n".join((
+                return "\n".join(
                     f"{utils.just_one(assignee_strs)} {operator} {expr}"
                     for expr in expression_strs
-                ))
+                )
             else:
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
 
-    # }}}
-
-    @property
-    def assignee(self):
-        return self.arguments[0]
-
-    @property
-    def expression(self):
-        return self.arguments[1]
 
 
 @pyop3.record.frozenrecord()
@@ -754,176 +700,103 @@ class Assignment(AbstractAssignment):
 
     # {{{ instance attrs
 
-    _assignee: Any
-    _expression: Any
+    assignee: Any
+    expression: Any
     _assignment_type: AssignmentType
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._assignee),
-            visitor(self._expression),
+            visitor(self.assignee),
+            visitor(self.expression),
             self._assignment_type,
         )
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
-        super().__init__()
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-         pass
 
     # }}}
+
+    @cached_property
+    def comm(self) -> MPI.Comm:
+        import pyop3.visitors
+
+        return pyop3.visitors.common_comm([self.assignee, self.expression])
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = pyop3.record.attr("_assignee")
-    expression: ClassVar[property] = pyop3.record.attr("_expression")
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return utils.common_comm([self.assignee, self.expression], "comm", allow_undefined=True) or MPI.COMM_SELF
-
-    # NOTE: Wrong type here...
-    @property
-    def shape(self) -> tuple[AxisTree, ...]:
-        return pyop3.expr.visitors.get_shape(self.assignee)
-
-        # assert False, "old code"
-        # from pyop3.expr.visitors import get_shape
-        #
-        # assignee_shapes = get_shape(self.assignee)
-        # expr_shapes = get_shape(self.expression)
-        # if expr_shapes == (UNIT_AXIS_TREE,):
-        #     expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
-        #
-        # # The shape of the assignment is simply the shape of the assignee, nothing else
-        # # makes sense. For more complex things loops should be used.
-        # # FIXME: This logic is dreadful
-        # axis_trees = []
-        # for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
-        #     if isinstance(assignee_shape, AxisForest):
-        #         if isinstance(expr_shape, AxisForest):
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
-        #                 ][0]
-        #         else:
-        #             # take the first match
-        #             assignee_shape = [
-        #                     shape
-        #                     for shape in assignee_shape.trees
-        #                     if axis_tree_is_valid_subset(expr_shape, shape)
-        #                 ][0]  
-        #     axis_trees.append(assignee_shape)
-        # return tuple(axis_trees)
 
     # }}}
 
 
 
-# FIXME: inconsistent argument ordering vs Concretized
+# TODO: rename NonEmptyAssignment, is this even needed?
 @pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ instance attrs
 
-    _assignee: Any
-    _expression: Any
+    assignee: Any
+    expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
     # is this still needed?
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
-    def __init__(self, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
-        assignment_type = AssignmentType(assignment_type)
-
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
-        object.__setattr__(self, "_axis_trees", axis_trees)
-        object.__setattr__(self, "_assignment_type", assignment_type)
-        object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
-
-    def __post_init__(self):
-        pass
-
-    # }}}
-
-    # {{{ interface impls
-
-    assignee = pyop3.record.attr("_assignee")
-    expression = pyop3.record.attr("_expression")
-    axis_trees = pyop3.record.attr("_axis_trees")
-    assignment_type = pyop3.record.attr("_assignment_type")
-    comm = pyop3.record.attr("_comm")
-
-    # }}}
-
-
-@pyop3.record.frozenrecord()
-class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
-
-    # {{{ Instance attrs
-
-    _assignee: Any
-    _expression: Any
-    _assignment_type: AssignmentType
-    _axis_trees: tuple[AxisTree, ...]
-    _comm: MPI.Comm = dataclasses.field(hash=False)
-
-    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
-        return OrderedFrozenSet().union(
-            visitor(self._assignee),
-            visitor(self._expression),
-            *(visitor(tree) for tree in self._axis_trees),
-        )
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
-            visitor(self._assignee),
-            visitor(self._expression),
+            visitor(self.assignee),
+            visitor(self.expression),
             *(map(visitor, self._axis_trees)),
             self._assignment_type,
         )
 
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+        return OrderedFrozenSet().union(
+            visitor(self.assignee),
+            visitor(self.expression),
+            *(visitor(tree) for tree in self._axis_trees),
+        )
+
+    def __init__(
+        self,
+        assignee: Any,
+        expression: Any,
+        axis_trees,
+        assignment_type: AssignmentType | str,
+        *,
+        comm: MPI.Comm,
+    ) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "_expression", expression)
-        object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_axis_trees", axis_trees)
+        object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
-        self.__post_init__()
-
-    def __post_init__(self):
-        pass
 
     # }}}
 
-    # {{{ Interface impls
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
 
-    assignee: ClassVar = pyop3.record.attr("_assignee")
-    expression: ClassVar = pyop3.record.attr("_expression")
-    assignment_type: ClassVar = pyop3.record.attr("_assignment_type")
-    axis_trees: ClassVar = pyop3.record.attr("_axis_trees")
-    comm: ClassVar = pyop3.record.attr("_comm")
+    # {{{ interface impls
+
+    axis_trees = pyop3.record.attr("_axis_trees")
+    assignment_type = pyop3.record.attr("_assignment_type")
 
     # }}}
 
 
 @pyop3.record.frozenrecord()
-class Exscan(TerminalInstruction):
+class Exscan(AbstractAssignmentLike):
 
     # {{{ instance attrs
 
@@ -950,13 +823,21 @@ class Exscan(TerminalInstruction):
         )
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+        assignee_key = visitor(self.assignee)
+        expression_key = visitor(self.expression)
+        with visitor.strong_hash_buffers():
+            scan_axis_key = visitor(self.scan_axis)
         return (
             type(self),
-            visitor(self.assignee),
-            visitor(self.expression),
+            assignee_key,
+            expression_key,
             self.scan_type,
-            visitor(self.scan_axis, inside=True),
+            scan_axis_key,
         )
+
+    @property
+    def comm(self):
+        return self._comm
 
     # }}}
 
@@ -965,10 +846,6 @@ class Exscan(TerminalInstruction):
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self._comm
 
     @cached_property
     def extent(self):
@@ -987,12 +864,13 @@ def exscan(*args, eager: bool = False, **kwargs):
 
 
 
-# TODO: With Python 3.11 can be made a StrEnum
-# The idea is basically RW isn't allowed here
-class ArrayAccessType(enum.Enum):
+# The idea is basically RW isn't allowed here but READ is (unlike AssignmentType)
+class ArrayAccessType(enum.StrEnum):
     READ = "read"
     WRITE = "write"
     INC = "inc"
+    MAX = "max"
+    MIN = "min"
 
 
 def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:
@@ -1008,11 +886,6 @@ def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:
 
     loop_expr = Loop(*args, **kwargs)
     return loop_expr(compiler_parameters=compiler_parameters) if eager else loop_expr
-
-
-# TODO: better to pass eager kwarg
-def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
-    loop_(index, statements)(compiler_parameters=compiler_parameters)
 
 
 def fix_intents(tunit, accesses):
@@ -1031,7 +904,7 @@ def fix_intents(tunit, accesses):
     new_args = []
     for arg, access in zip(kernel.args, accesses, strict=True):
         assert isinstance(access, Intent)
-        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW}
-        is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}
+        is_input = access in {Intent.READ, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MAX_RW}
+        is_output = access in {Intent.WRITE, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MIN_WRITE, Intent.MAX_WRITE, Intent.MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))

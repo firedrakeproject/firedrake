@@ -36,31 +36,34 @@
 """PyOP2 MPI communicator."""
 
 
-from typing import Any, Callable
-from petsc4py import PETSc
-from mpi4py import MPI  # noqa
-from itertools import count
-from typing import Any
-from functools import wraps
 import atexit
 import gc
 import glob
 import os
 import tempfile
 import weakref
+from collections.abc import Callable, Iterable
+from functools import wraps
+from itertools import count
+from typing import Any
+
+from immutabledict import immutabledict as idict
+from mpi4py import MPI
+from petsc4py import PETSc
 
 import pyop3.config
+import pyop3.constants
+from pyop3 import utils
 from pyop3.exceptions import CompilationException
-from pyop3.log import debug, LOGGER, DEBUG
-
+from pyop3.log import DEBUG, LOGGER, debug
 
 __all__ = (
-    "COMM_WORLD",
     "COMM_SELF",
+    "COMM_WORLD",
     "MPI",
-    "is_pyop2_comm",
-    "incref",
     "decref",
+    "incref",
+    "is_pyop2_comm",
     "temp_internal_comm"
 )
 
@@ -75,6 +78,12 @@ _COMM_CIDX = count()
 _DUPED_COMM_DICT = {}
 # Flag to indicate whether we are in cleanup (at exit)
 PYOP2_FINALIZED = False
+
+REDUCTION_OPS = idict({
+    pyop3.constants.WRITE: MPI.REPLACE,
+    pyop3.constants.INC: MPI.SUM,
+})
+
 
 
 class PyOP2CommError(ValueError):
@@ -163,7 +172,7 @@ if pyop3.config.spmd_strict:
         extra = """\
 This function is logically collective over MPI ranks, it is an
 error to call it on fewer than all the ranks in MPI communicator.
-PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
+PYOP3_SPMD_STRICT=1 is in your environment and function calls will be
 guarded by a barrier where possible."""
 
         @wraps(fn)
@@ -554,6 +563,70 @@ def compilation_comm(comm, obj):
     incref(comp_comm)
     weakref.finalize(obj, decref, comp_comm)
     return comp_comm
+
+
+def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
+    """Return if a communicator is a subset of another.
+
+    This is a local operation. No communication is required.
+
+    """
+    # optimisation: if the small comm only has one rank in it then
+    # it is necessarily a subset of the bigger comm
+    if comm_small.size == 1:
+        return True
+
+    group_small = comm_small.Get_group()
+    group_large = comm_large.Get_group()
+    group_intersect = MPI.Group.Intersect(group_small, group_large)
+    # If the intersection group doesn't match the small group then there
+    # are elements in the small group that aren't in the large group and
+    # therefore the comms aren't compatible.
+    return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
+
+
+def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -> MPI.Comm:
+    """Return a communicator valid for all objects.
+
+    The valid communicator is defined as the one with the largest size.
+
+    Parameters
+    ----------
+    comms
+        A collection of communicators.
+
+    Returns
+    -------
+    MPI.Comm
+        A communicator that the provided objects are safely collective over.
+
+    """
+    shared_comm = None
+    for comm in utils.iterflat(comms):
+        # COMM_WORLD always wins out as it is always valid for everyone
+        if comm is MPI.COMM_WORLD:
+            return comm
+
+        if shared_comm is None:
+            shared_comm = comm
+            continue
+
+        if comm.size > shared_comm.size:
+            big_comm = comm
+            small_comm = shared_comm
+        else:
+            big_comm = shared_comm
+            small_comm = comm
+        assert comm_is_subset(small_comm, big_comm)
+        shared_comm = big_comm
+
+    if shared_comm is not None:
+        return shared_comm
+    elif default is not None:
+        return default
+    else:
+        raise AssertionError
+
 
 
 def finalize_safe_debug():

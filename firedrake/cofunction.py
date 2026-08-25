@@ -241,6 +241,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         subset = parse_subset(subset)
 
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.sync_roots()
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
@@ -281,7 +288,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 assembled_expr = firedrake.assemble(expr)
                 return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
@@ -330,7 +337,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return self
         if isinstance(expr, Cofunction) and \
             expr.function_space() == self.function_space():
-            self.dat.data_wo[...] += expr.dat.data_ro
+            self.dat.data_rw[...] += expr.dat.data_ro
             return self
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
@@ -360,6 +367,23 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             self.dat *= expr.dat
             return self
         return NotImplemented
+
+    def __float__(self) -> float:
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(self.dat.data_ro.item())
+                else:
+                    # touch to make sure state tracking is consistent
+                    self.dat.data_ro
+                    value = icomm.bcast(None)
+            return float(value)
+        else:
+            raise ValueError("Can only cast scalar 'Real' cofunctions to float.")
 
     @PETSc.Log.EventDecorator()
     def interpolate(self,
@@ -533,10 +557,11 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data_ro[:]
+                    o.dat.data_rw[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
+                soln.zero()
                 solve()
                 output = Function(self._function_space)
                 output.assign(soln)

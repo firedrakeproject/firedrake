@@ -42,7 +42,29 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
     'sphinx_copybutton',
+    'nbsphinx',
 ]
+
+# Render the tutorial notebooks. They are generated as .ipynb from the
+# py:percent sources in docs/notebooks and *executed* by the ``copy_notebooks``
+# Makefile target, so nbsphinx only needs to render the stored output. This
+# avoids re-executing the (heavy) notebooks once per Sphinx builder
+# (html/latex/latexpdf/linkcheck all run in the docs CI job).
+nbsphinx_execute = 'never'
+
+# Add a "Run on Colab" banner to the top of every rendered notebook, pointing at
+# the corresponding notebook in the firedrakeproject/notebooks repository.
+nbsphinx_prolog = r"""
+{% set name = env.docname.split('/')|last %}
+
+.. raw:: html
+
+    <div class="admonition note">
+      <p class="admonition-title">Note</p>
+      <p>You can run this notebook on
+      <a href="https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/{{ name }}.ipynb">Google Colab</a>.</p>
+    </div>
+"""
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
 
@@ -159,8 +181,15 @@ nitpick_ignore_regex = [
     ("py:obj", r"typing\.Literal\[.*"),
 ]
 
+# sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
+# not as unresolved references handled by nitpick_ignore_regex.
+suppress_warnings = [
+    "bibtex.duplicate_citation",
+]
+
 # Dodgy links
 linkcheck_ignore = [
+    # journals and institutions
     r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
@@ -169,17 +198,23 @@ linkcheck_ignore = [
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
-    r'https://.*\.baylor\.edu.*',
-    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
+    r'https://.*\.baylor\.edu.*',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
+    r'https://www.ox.ac.uk',
+    r'https://le.ac.uk/people/',
+
+    # event links
+    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
-    r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
+
+    # other
+    r'https://firedrakeproject.slack.com',
     r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30

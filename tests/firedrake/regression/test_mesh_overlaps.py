@@ -67,10 +67,10 @@ def mesh(request, overlap):
 
 @pytest.mark.parallel(2)
 def test_overlap(mesh, num_cells):
-    assert mesh.num_cells == num_cells
+    assert mesh.num_cells() == num_cells
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_override_distribution_parameters(overlap):
     if COMM_WORLD.rank == 0:
         # Zero overlap distribution
@@ -93,11 +93,11 @@ def test_override_distribution_parameters(overlap):
     fine_mesh = MeshHierarchy(mesh, 1, distribution_parameters=params)[-1]
 
     if overlap[0] == DistributedMeshOverlapType.NONE:
-        assert mesh.num_cells == 1
+        assert mesh.num_cells() == 1
     else:
-        assert mesh.num_cells == 2
+        assert mesh.num_cells() == 2
 
-    assert fine_mesh.num_cells == 4
+    assert fine_mesh.num_cells() == 4
 
 
 @pytest.mark.parallel(nprocs=2)

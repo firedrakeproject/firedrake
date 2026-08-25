@@ -34,14 +34,35 @@ def test_create_submesh_comm_self(reorder, ignore_halo):
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
     # Submesh on COMM_SELF should not have halo
-    assert submesh.cell_set.total_size == submesh.cell_set.size
+    assert submesh.cells.local_size == submesh.cells.owned.local_size
     # Submesh on COMM_SELF should exclude the halo from the parent mesh if ignore_halo = True
-    expected_size = mesh.cell_set.size if ignore_halo else mesh.cell_set.total_size
-    assert submesh.cell_set.size == expected_size
+    expected_size = mesh.cells.owned.local_size if ignore_halo else mesh.cells.local_size
+    assert submesh.cells.owned.local_size == expected_size
 
     x = Function(submesh.coordinates.function_space())
     x.assign(mesh.coordinates)
     assert np.allclose(submesh.coordinates.dat.data_ro, x.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("ignore_halo", [False, True])
+def test_submesh_comm_self_entity_classes(ignore_halo):
+    """A submesh on COMM_SELF must own every point that it holds.
+
+    The parent mesh divides its points into the pyop2 classes core, owned and
+    ghost. A submesh on COMM_SELF has no neighbour, so it has no ghost points
+    and no owned points either. Every point is core.
+    """
+    mesh = UnitSquareMesh(
+        8, 8, distribution_parameters={
+            "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)})
+    submesh = Submesh(mesh, ignore_halo=ignore_halo, comm=COMM_SELF)
+
+    plex = submesh.topology_dm
+    pStart, pEnd = plex.getChart()
+    assert plex.getStratumSize("pyop2_core", 1) == pEnd - pStart
+    assert plex.getStratumSize("pyop2_owned", 1) == 0
+    assert plex.getStratumSize("pyop2_ghost", 1) == 0
 
 
 @pytest.mark.parallel([1, 3])

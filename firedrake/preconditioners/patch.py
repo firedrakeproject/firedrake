@@ -14,6 +14,7 @@ import firedrake.cython.patchimpl
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
@@ -55,17 +56,40 @@ class EntityNodeMap:
         object.__setattr__(self, "space", space)
         object.__setattr__(self, "integral_type", integral_type)
 
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self.space,
+            self.space.index,
+            self.integral_type,
+        ))
+
+    def __eq__(self, other) -> bool:
+        return (
+            type(other) == type(self)
+            and other.space == self.space
+            and other.space.index == self.space.index
+            and other.integral_type == self.integral_type
+        )
+
     dtype = PETSc.IntType
 
-    @property
+    @cached_property
     def values(self) -> np.ndarray:
+        if self.space.index is not None:
+            parent_space = self.space.parent
+            selector = (slice(None), parent_space._labels[self.space.index])
+        else:
+            parent_space = self.space
+            selector = (Ellipsis,)
+
         match self.integral_type:
             case "cell":
-                return self.space.cell_node_map_dat.data_ro
+                return parent_space.cell_dof_map_dat[selector].data_ro
             case "interior_facet":
-                return self.space.interior_facet_node_map_dat.data_ro
+                return parent_space.interior_facet_dof_map_dat[selector].data_ro
             case "exterior_facet":
-                return self.space.exterior_facet_node_map_dat.data_ro
+                return parent_space.exterior_facet_dof_map_dat[selector].data_ro
             case _:
                 raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
 
@@ -76,7 +100,7 @@ class EntityNodeMap:
 
     @property
     def cdim(self) -> int:
-        return self.space.block_size
+        return 1
 
 
 class PatchCallable:
@@ -227,6 +251,7 @@ class PatchCallable:
         elif self.kinfo.integral_type == "exterior_facet":
             add_dat(self._mesh.exterior_facet_local_facet_indices, 1)
 
+        # breakpoint()
         return args, names, state_index
 
     @cached_property
@@ -316,12 +341,12 @@ for (int32_t k=0; k<{size}; k++) {{
                 if isinstance(map_, numbers.Integral):
                     local_kernel_args.append(f"&({dat_name}[{map_}*j])")
                 else:
-                    # TODO: handle Real+interior facets here
                     arity, cdim = map_.arity, map_.cdim
 
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
                     temps.append((temp_name, (arity, cdim)))
+                    local_kernel_args.append(temp_name)
 
                     pack_insn = f"""\
 for (int32_t k=0; k<{arity}; k++)
@@ -329,25 +354,7 @@ for (int32_t k=0; k<{arity}; k++)
     {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
                     pack_insns.append(pack_insn)
 
-#                 else:
-#                     # Real case, single value but need to duplicate it for interior facets
-#                     assert isinstance(dat, op2.Global)
-#                     if self.kinfo.integral_type.startswith("interior_facet"):
-#                         temp_name = f"t_{next(temp_counter)}"
-#                         temps.append((temp_name, (2, cdim)))
-#                         local_kernel_args.append(temp_name)
-#
-#                         pack_insn = f"""\
-# for (int32_t l=0; l<{cdim}; l++) {{
-#   {temp_name}[l] = {dat_name}[l];
-#   {temp_name}[{cdim}+l] = {dat_name}[l];
-# }}"""
-#                         pack_insns.append(pack_insn)
-                    # else:
-                    #     local_kernel_args.append(self._names[dat])
-
             else:
-                assert isinstance(arg, op3.Scalar)
                 local_kernel_args.append(self._names[arg])
 
         # optional state, can be any of the coefficients
@@ -588,10 +595,10 @@ PetscErrorCode ComputeResidual(PC pc,
         if self.kinfo.integral_type == "cell":
             point2facet = 0
         elif self.kinfo.integral_type == "interior_facet":
-            point2facet = self._mesh.interior_facet_local_facet_indices.data_ro.ctypes.data
+            point2facet = self._mesh._point_to_interior_facet.ctypes.data
         else:
             assert self.kinfo.integral_type == "exterior_facet"
-            point2facet = self._mesh.exterior_facet_local_facet_indices.data_ro.ctypes.data
+            point2facet = self._mesh._point_to_exterior_facet.ctypes.data
 
         struct_args = [
             *(_get_ctypes_arg(arg) for arg in self._wrapper_kernel_args),
@@ -644,47 +651,6 @@ def make_patch_callables(form: ufl.Form, state: Function | None) -> tuple[
             assert exterior_facet_callable is None, "Only a single exterior facet callable allowed"
             exterior_facet_callable = callable
     return cell_callable, interior_facet_callable, exterior_facet_callable
-
-
-def bcdofs(bc, ghost=True):
-    # Return the global dofs fixed by a DirichletBC
-    # in the numbering given by concatenation of all the
-    # subspaces of a mixed function space
-    Z = bc.function_space()
-    while Z.parent is not None:
-        Z = Z.parent
-
-    indices = bc._indices
-    offset = 0
-
-    for (i, idx) in enumerate(indices):
-        if isinstance(Z.ufl_element(), VectorElement):
-            offset += idx
-            assert i == len(indices)-1  # assert we're at the end of the chain
-            assert Z.sub(idx).block_size == 1
-        elif isinstance(Z.ufl_element(), MixedElement):
-            if ghost:
-                offset += sum(Z.sub(j).dof_count for j in range(idx))
-            else:
-                offset += sum(Z.sub(j).axes.local_size * Z.sub(j).block_size for j in range(idx))
-        else:
-            raise NotImplementedError("How are you taking a .sub?")
-
-        Z = Z.sub(idx)
-
-    if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
-        bs = Z.parent.block_size
-        start = 0
-        stop = 1
-    else:
-        bs = Z.block_size
-        start = 0
-        stop = bs
-    nodes = bc.nodes
-    if not ghost:
-        nodes = nodes[nodes < Z.axes.owned.local_size]
-
-    return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 
 
 def select_entity(p, dm=None, exclude=None):
@@ -878,17 +844,8 @@ class PatchBase(PCSNESBase):
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
-        if len(bcs) > 0:
-            ghost_bc_nodes = numpy.unique(
-                numpy.concatenate([bcdofs(bc, ghost=True) for bc in bcs],
-                                  dtype=PETSc.IntType)
-            )
-            global_bc_nodes = numpy.unique(
-                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
-                                  dtype=PETSc.IntType))
-        else:
-            ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
-            global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
+        ghost_bc_nodes = numpy.flatnonzero(V.lgmap(bcs).indices < 0).astype(PETSc.IntType)
+        global_bc_nodes = ghost_bc_nodes[ghost_bc_nodes < V.axes.buffer_size(include_ghosts=False)]
 
         # We need to set C function pointer callbacks for PCPatch to work.
         # Although petsc4py provides a high-level Python wrapper for them,
@@ -977,27 +934,12 @@ class PatchBase(PCSNESBase):
                     )
 
         patch.setDM(self.plex)
-        patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
+        patch.setPatchCellNumbering(mesh_unique._plex_to_entity_numbering_sec("cell"))
 
-        if len(V) > 1:
-            # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
-            # like the cell node list instead of things like DMs, ISes and Sections.
-            # This means that things fall apart for mixed because we interleave the spaces.
-            # The answer is to use 'field_ises' for the mixed DM and such to convert
-            # the field-local sections into 'global' offsets.
-            # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
-            raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
-        if any(Vsub.boundary_set for Vsub in V):
-            # same reasoning as above but for restricted function spaces
-            raise NotImplementedError("PCPatch+RFS requires IS-related fixes in PETSc")
-
-        dms = [Vsub.dm for Vsub in V]
-        block_sizes = [Vsub.block_size for Vsub in V]
-        cell_node_maps = [Vsub.cell_node_map_dat.data_ro for Vsub in V]
-        offsets = numpy.append([0], numpy.cumsum([W.dof_count
-                                                  for W in V])).astype(PETSc.IntType)
+        dms = [V_.dm for V_ in V]
+        cell_dof_maps = [V_.cell_dof_map_dat.data_ro for V_ in V]
         patch.setPatchDiscretisationInfo(
-            dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
+            dms, V.local_ises, cell_dof_maps, ghost_bc_nodes, global_bc_nodes
         )
 
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
@@ -1058,6 +1000,7 @@ class PatchPC(PCBase, PatchBase):
 
     def apply(self, pc, x, y):
         self.patch.apply(x, y)
+        # breakpoint()
 
     def applyTranspose(self, pc, x, y):
         self.patch.applyTranspose(x, y)
@@ -1093,12 +1036,12 @@ class PatchSNES(SNESBase, PatchBase):
 
 @functools.singledispatch
 def _get_ctypes_arg(arg: Any):
-    op3.utils.raise_visitor_type_error(arg)
+    op3.utils.raise_missing_dispatch_handler(arg)
 
 
 @_get_ctypes_arg.register
 def _(dat: op3.Dat):
-    return dat.buffer._lazy_data[op3.HOST_DEVICE].ctypes.data
+    return dat.buffer._current_device_array.ctypes.data
 
 
 @_get_ctypes_arg.register

@@ -199,14 +199,7 @@ class EnsembleFunctionSpaceBase:
             size = len(local_space)
             full_local_space_indices.append((offset, offset+size))
             offset += size
-
-        start, stop = full_local_space_indices[i]
-        if stop - start > 1:
-            # mixed space, return a list
-            return self._full_local_space._labels[start:stop]
-        else:
-            assert stop - start == 1
-            return self._full_local_space._labels[start]
+        return full_local_space_indices[i]
 
     def create_vec(self):
         """Return a PETSc Vec on the ``Ensemble.global_comm`` with the same layout

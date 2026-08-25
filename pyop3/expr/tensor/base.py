@@ -2,33 +2,29 @@ from __future__ import annotations
 
 import abc
 import itertools
-import numbers
 import typing
+from collections.abc import Callable, Hashable
 from functools import cached_property
-from typing import Any, ClassVar, Callable, Hashable, Literal
+from typing import ClassVar, Literal
 
 import numpy as np
-from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.cache
-from pyop3.cache import cached_method
-from pyop3.expr.base import ExpressionT
 import pyop3.record
-from pyop3 import utils
-from pyop3.sf import DistributedObject
-from pyop3.axis_tree import ContextAware
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
-from pyop3.expr import TerminalExpression
+from pyop3.cache import cached_method
 from pyop3.exceptions import InvalidIndexCountException
+from pyop3.expr import TerminalExpression
+from pyop3.expr.base import ExpressionT
 
 if typing.TYPE_CHECKING:
     import pyop3.insn
     import pyop3.insn.exec
 
 
-class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
+class Tensor(TerminalExpression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -53,10 +49,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     # {{{ abstract methods
 
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        pass
+    __abstract_record_attrs = ("name", "buffer")
 
     @property
     @abc.abstractmethod
@@ -68,13 +61,12 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
     def dim(self) -> int:
         pass
 
-    @property
     @abc.abstractmethod
-    def buffer(self) -> Any:
+    def getitem(self, *indices, strict=False):
         pass
 
     @abc.abstractmethod
-    def getitem(self, *indices, strict=False):
+    def with_axis_trees(self, trees):
         pass
 
     def assemble(self) -> None:
@@ -93,15 +85,12 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def leaf_layouts(self):  # or all layouts?
-        pass
-
-    @property
-    @abc.abstractmethod
     def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, ...]:
         pass
 
     # }}}
+
+    # {{{ arithmetic
 
     def __iadd__(self, other: ExpressionT, /) -> Self:
         if other != 0:
@@ -123,6 +112,8 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
             self.assign(self//other, eager=True)
         return self
 
+    # }}}
+
     @property
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
@@ -132,14 +123,14 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         self,
         other: ExpressionT,
         /,
+        mode: Literal["write", "inc", "max", "min"] = "write",
         *,
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
     ) -> pyop3.insn.Assignment | None:
-        return self._assign(other, "write", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
+        return self._assign(other, mode, eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
 
-    @PETSc.Log.EventDecorator()
     def iassign(
         self,
         other: ExpressionT,
@@ -155,7 +146,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         self,
         other: ExpressionT,
         /,
-        mode: Literal["write", "inc"],
+        mode: Literal["write", "inc", "max", "min"],
         *,
         eager: bool,
         eager_strategy: Literal["array", "compile"] | None,
@@ -227,7 +218,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         """
         name = f"{self.name}_copy"
         buffer = self.buffer.duplicate(copy=copy, constant=constant)
-        return self.__record_init__(_name=name, _buffer=buffer)
+        return self.record_new(_name=name, _buffer=buffer)
 
     def copy(self, *, constant: bool | None = None) -> Tensor:
         """Return a copy of the tensor.
@@ -241,23 +232,30 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
         """
         return self.duplicate(copy=True, constant=constant)
 
-    @abc.abstractmethod
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
+        raise NotImplementedError
+
+    def with_context(self, context) -> Self:
+        new_axis_trees = []
+        for axis_tree in self.axis_trees:
+            if isinstance(axis_tree, pyop3.index_tree.LoopContextSensitive):
+                cf_axis_tree = axis_tree.with_context(context)
+            else:
+                cf_axis_tree = axis_tree
+            new_axis_trees.append(cf_axis_tree)
+        return self.with_axis_trees(new_axis_trees)
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
-class TensorTransform(pyop3.obj.Pyop3Object, abc.ABC):
+class TensorTransform(pyop3.obj.Object, abc.ABC):
 
-    @property
-    @abc.abstractmethod
-    def prev(self) -> TensorTransform | None:
-        pass
+    __abstract_record_attrs = ("prev",)
 
-    @property
-    @abc.abstractmethod
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     pass
 
 
 class CallableTensorTransform(TensorTransform):
@@ -271,28 +269,22 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     transform_in: Callable[[Tensor, Tensor], None]
     transform_out: Callable[[Tensor, Tensor], None]
-    _prev: TensorTransform | None = None
+    prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             self.transform_in,
             self.transform_out,
-            visitor(self._prev),
+            visitor(self.prev),
         )
 
 
     # }}}
 
-    # {{{ interface impls
-
-    prev = pyop3.record.attr("_prev")
-
-    @property
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        raise NotImplementedError
-
-    # }}}
+    # @property
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     raise NotImplementedError
 
 
 class IdentityTensorTransform(TensorTransform):
@@ -305,28 +297,22 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     # {{{ instance attrs
 
     axis_trees: tuple[AxisTree, ...]
-    _prev: TensorTransform | None = None
+    prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             tuple(map(visitor, self.axis_trees)),
-            visitor(self._prev),
+            visitor(self.prev),
         )
 
 
     # }}}
 
-    # {{{ interface impls
-
-    prev = pyop3.record.attr("_prev")
-
-    @cached_property
-    def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(
-            itertools.zip_longest(
-                *(axes.nest_indices for axes in self.axis_trees)
-            )
-        )
-
-    # }}}
+    # @cached_property
+    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
+    #     return tuple(
+    #         itertools.zip_longest(
+    #             *(axes.nest_indices for axes in self.axis_trees)
+    #         )
+    #     )

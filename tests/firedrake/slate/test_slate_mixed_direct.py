@@ -102,4 +102,7 @@ def test_slate_mixed_matrix_stokes(Wc, mat_type, bc_type):
     expect = assemble(a, bcs=bcs, mat_type=mat_type)
     actual = assemble(A, bcs=bcs, mat_type=mat_type)
 
-    assert numpy.allclose(expect.M.values, actual.M.values)
+    for i, j in numpy.ndindex(expect.block_shape):
+        ilabel = Wc._labels[i]
+        jlabel = Wc._labels[j]
+        assert numpy.allclose(expect.M[ilabel, jlabel].values, actual.M[ilabel, jlabel].values)

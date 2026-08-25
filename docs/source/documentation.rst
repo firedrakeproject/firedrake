@@ -45,8 +45,8 @@
    Jupyter notebooks
    -----------------
 
-   In addition to the documented tutorials, we also have some `Jupyter
-   notebooks <https://jupyter.org/>`__ that are a more interactive way of
+   In addition to the documented tutorials, we also have some Jupyter
+   notebooks that are a more interactive way of
    getting to know Firedrake. They are described in more detail :doc:`on
    their own page <notebooks>`.
 

@@ -3,7 +3,6 @@ import pytest
 import numpy as np
 from functools import reduce
 from operator import add
-import subprocess
 
 
 # Utility Functions and Fixtures
@@ -67,12 +66,9 @@ def fs(request):
                         ("N2curl", 2, FunctionSpace),
                         ("N1div", 2, FunctionSpace),
                         ("N2div", 2, FunctionSpace),
-                        pytest.param(("RTCE", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict")),
-                        pytest.param(("RTCF", 2, FunctionSpace),
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="EnrichedElement dual basis not yet defined and FIAT duals don't have a point_dict"))],
+                        ("RTCE", 2, FunctionSpace),
+                        ("RTCF", 2, FunctionSpace),
+                        ],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def vfs(request, parentmesh):
     family = request.param[0]
@@ -324,8 +320,8 @@ def test_extruded_cell_parent_cell_list():
 
     vms = VertexOnlyMesh(ms, coords, missing_points_behaviour="ignore")
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
-    assert vms.num_cells == len(coords)
-    assert vmx.num_cells == len(coords)
+    assert vms.num_cells() == len(coords)
+    assert vmx.num_cells() == len(coords)
     assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._new_to_old_point_renumbering]).all()
     assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._new_to_old_point_renumbering]).all()
 

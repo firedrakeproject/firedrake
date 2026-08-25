@@ -187,11 +187,13 @@ class HybridizationPC(SCBase):
             # the exterior boundary. We don't need to do this for boundary-less
             # domains (like a sphere).
             trace_subdomains = []
-            if mesh_unique.exterior_facets.global_size > 0:
+            if mesh_unique.extruded:
+                if mesh_unique.exterior_facets_vert.global_size > 0:
+                    trace_subdomains.append("on_boundary")
+                if not mesh_unique.extruded_periodic:
+                    trace_subdomains.extend(["bottom", "top"])
+            elif mesh_unique.exterior_facets.global_size > 0:
                 trace_subdomains.append("on_boundary")
-            # Extruded cells will have both horizontal and vertical facets
-            if mesh_unique.extruded and not mesh_unique.extruded_periodic:
-                trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         # Make a SLATE tensor from Kform

@@ -155,9 +155,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     logger.info(f"\t\t\t[{time.time()}]Refining the plex")
     cdm.setRefinementUniform(True)
     rdm = cdm.refine()
-    rdm.removeLabel("pyop2_core")
-    rdm.removeLabel("pyop2_owned")
-    rdm.removeLabel("pyop2_ghost")
+    rdm.removeLabel("firedrake_is_ghost")
     logger.info(f"\t\t\t[{time.time()}]Mapping the mesh to Netgen mesh")
     tic = time.time()
     mapping = MeshMapping(rdm, geo=ngmesh)
@@ -242,7 +240,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     order = flags.get("degree", 1)
     if isinstance(order, int):
         order = [order]*(levs+1)
-    permutation_tol = flags.get("permutation_tol", 1e-8)
+    permutation_tol = flags.get("permutation_tol", None)
     refType = flags.get("refinement_type", "uniform")
     optMoves = flags.get("optimisation_moves", False)
     snap = flags.get("snap_to", "geometry")
@@ -266,9 +264,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         mesh = reconstruct_mesh(mesh, coordinates)
     # Make a plex (cdm) without overlap.
     cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
-    cdm.removeLabel("pyop2_core")
-    cdm.removeLabel("pyop2_owned")
-    cdm.removeLabel("pyop2_ghost")
+    cdm.removeLabel("firedrake_is_ghost")
     no = impl.create_lgmap(cdm)
     o = impl.create_lgmap(mesh.topology_dm)
     lgmaps.append((no, o))
@@ -278,7 +274,9 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        cdm = rdm
+        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
+        # it first to keep an unoverlapped dm for the next refinement.
+        cdm = rdm.clone()
         if optMoves:
             # Optimises the mesh, for example smoothing
             if tdim == 2:
@@ -349,5 +347,6 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh._did_reordering = mesh._did_reordering
     tmesh.netgen_mesh = mesh.netgen_mesh
     tmesh.netgen_flags = mesh.netgen_flags
+    tmesh.sfBC = mesh.sfBC
     tmesh.sfBC_orig = mesh.sfBC_orig
     return tmesh

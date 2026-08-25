@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import abc
-import collections
 import functools
 import numbers
-from functools import cached_property
 from typing import NoReturn
 
 import numpy as np
-from immutabledict import immutabledict as idict
+from mpi4py import MPI
 
 import pyop3.collections
+import pyop3.exceptions
 import pyop3.record
 from pyop3 import utils
+from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
 from pyop3.node import Node, Terminal
-from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
-from pyop3.axis_tree.tree import MissingVariableException
 
 class Expression(Node, abc.ABC):
 
@@ -44,6 +42,10 @@ class Expression(Node, abc.ABC):
     def __str__(self) -> str:
         return self._full_str
 
+    # {{{ arithmetic
+
+    # TODO: all of these shortcuts do not work with record_new, need to overwrite __new__
+    # for universal behaviour
     def __add__(self, other: ExpressionT, /) -> Expression:
         if other == 0:
             return self
@@ -69,13 +71,17 @@ class Expression(Node, abc.ABC):
             return Sub(other, self)
 
     def __mul__(self, other) -> Mul | Self:
-        if other == 1:
+        if other == 0:
+            return 0
+        elif other == 1:
             return self
         else:
             return Mul(self, other)
 
     def __rmul__(self, other) -> Mul | Self:
-        if other == 1:
+        if other == 0:
+            return 0
+        elif other == 1:
             return self
         else:
             return Mul(other, self)
@@ -114,6 +120,16 @@ class Expression(Node, abc.ABC):
         else:
             return Neg(self)
 
+    def __pow__(self, other, /) -> Pow:
+        return Pow(self, other)
+
+    def __abs__(self) -> Abs:
+        if isinstance(self, Abs):
+            # Abs(Abs(obj)) == Abs(obj)
+            return self.operand
+        else:
+            return Abs(self)
+
     def __lt__(self, other):
         return LessThan(self, other)
 
@@ -132,19 +148,20 @@ class Expression(Node, abc.ABC):
     def __ror__(self, other) -> Or | bool:
         return self._maybe_eager_or(other, self)
 
+    # }}}
+
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
         from pyop3 import evaluate
-        from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
 
         try:
             a_result = evaluate(a)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             a_result = None
 
         try:
             b_result = evaluate(b)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             b_result = None
 
         if a_result or b_result:
@@ -166,14 +183,14 @@ class Expression(Node, abc.ABC):
 
 class Operator(Expression, metaclass=abc.ABCMeta):
 
-    # {{{ abstract methods
-
     @property
     @abc.abstractmethod
     def operands(self) -> tuple[ExpressionT, ...]:
         pass
 
-    # }}}
+    @abc.abstractmethod
+    def with_operands(self, operands) -> Self:
+        pass
 
 
 @pyop3.record.frozenrecord()
@@ -198,6 +215,10 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     @property
     def operands(self) -> tuple[ExpressionT]:
         return (self.a,)
+
+    def with_operands(self, operands):
+        a, = operands
+        return self.record_new(a=a)
 
     child_attrs = ("a",)
 
@@ -233,6 +254,20 @@ class Neg(UnaryOperator):
     @property
     def local_min(self) -> numbers.Number:
         return -self.a.local_max
+
+
+class Abs(UnaryOperator):
+    @property
+    def symbol(self) -> str:
+        return "abs."
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
 
 @pyop3.record.frozenrecord()
@@ -287,6 +322,9 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
         return max(a_dtype, b_dtype, key=lambda dt: dt.itemsize)
 
+    def with_operands(self, operands):
+        a, b = operands
+        return self.record_new(a=a, b=b)
 
     # }}}
 
@@ -354,6 +392,19 @@ class Sub(BinaryOperator):
 
 class Mul(BinaryOperator):
 
+    def __new__(cls, a, b):
+        if a == 0 or b == 0:
+            return 0
+        elif a == 1:
+            return b
+        elif b == 1:
+            return a
+        else:
+            self = object.__new__(cls)
+            object.__setattr__(self, "a", a)
+            object.__setattr__(self, "b", b)
+            return self
+
     # {{{ interface impls
 
     @property
@@ -391,6 +442,20 @@ class Modulo(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "%"
+
+
+class Pow(BinaryOperator):
+    @property
+    def _symbol(self) -> str:
+        return "**"
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
 
 class Comparison(BinaryOperator, metaclass=abc.ABCMeta):
@@ -466,6 +531,10 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
     def operands(self) -> tuple[ExpressionT, ExpressionT, ExpressionT]:
         return (self.a, self.b, self.c)
 
+    def with_operands(self, operands):
+        a, b, c = operands
+        return self.record_new(a=a, b=b, c=c)
+
     # }}}
 
 
@@ -513,7 +582,7 @@ def conditional(predicate, if_true, if_false):
 
     try:
         predicate = evaluate(predicate)
-    except MissingVariableException:
+    except pyop3.exceptions.MissingVariableException:
         return Conditional(predicate, if_true, if_false)
     else:
         assert isinstance(predicate, bool)
@@ -523,6 +592,22 @@ def conditional(predicate, if_true, if_false):
 class TerminalExpression(Expression, Terminal, abc.ABC):
 
     child_attrs = ()
+
+
+@pyop3.record.frozenrecord()
+class NameVar(TerminalExpression):
+    """Class for representing arbitrary variables.
+
+    They are useful for evaluating arbitrary symbolic expressions where something
+    like an `AxisVar` would be inappropriate (due to there not being an axis
+    available).
+
+    """
+
+    name: Hashable
+
+    def _full_str(self) -> str:
+        return f"{utils.pretty_type(self)}('{self.name}')"
 
 
 class NamedTerminalExpression(TerminalExpression):
@@ -538,10 +623,7 @@ class NamedTerminalExpression(TerminalExpression):
 
     """
 
-    @property
-    @abc.abstractmethod
-    def name(self) -> str:
-        pass
+    __abstract_record_attrs = ("name",)
 
 
 @pyop3.record.frozenrecord()
@@ -559,23 +641,13 @@ class AxisVar(TerminalExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Axis vars are just pointers to some outer loop. We don't
         # need to recurse here, just make sure that the labels match.
-        return (
-            type(self),
-            ("axis", visitor.renamer.add(self.axis.label, "Axis")),
-        )
+        return (type(self), visitor.renamer.add_type(type(self.axis), self.axis.label))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
-    def __init__(self, axis: Axis) -> None:
-        assert len(axis.components) == 1
-        assert axis.component.sf is None
-        assert tuple(r.label for r in axis.component.regions) == (None,)
-
-        object.__setattr__(self, "axis", axis)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        pass
+    def __record_post_init(self) -> None:
+        assert len(self.axis.components) == 1
+        assert self.axis.component.sf is None
 
     # }}}
 
@@ -603,13 +675,21 @@ class AxisVar(TerminalExpression):
 @pyop3.record.frozenrecord()
 class NaN(TerminalExpression):
 
+    # {{{ pyop3.obj.Object interface impls
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self),)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+    @classmethod
+    def get_custom_comm(cls) -> MPI.Comm:
+        return MPI.COMM_SELF
+
+    # }}}
+
     # {{{ interface impls
 
-    def disk_cache_key(self, renamer):
-        return (type(self),)
-
-    def instruction_executor_cache_key(self, renamer):
-        return (type(self),)
 
     @property
     def local_max(self) -> NoReturn:
@@ -628,9 +708,6 @@ class NaN(TerminalExpression):
     # }}}
 
 
-NAN = NaN()
-
-
 @pyop3.record.frozenrecord()
 class LoopIndexVar(TerminalExpression):
 
@@ -639,29 +716,29 @@ class LoopIndexVar(TerminalExpression):
     loop_index: LoopIndex
     axis: Axis
 
-    def collect_buffers(self, visitor):
-        # Loop index vars are just pointers to some outer loop. Any internal
-        # buffers that we need will be referenced elsewhere.
-        return pyop3.collections.OrderedFrozenSet()
-
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Loop index vars are just pointers to some outer loop. We don't
         # need to recurse here, just make sure that the labels match.
         return (
             type(self),
-            visitor.renamer.add(self.loop_index.id, "LoopIndex"),
-            visitor.renamer.add(self.axis.label, "Axis"),
+            visitor.renamer.add_type(type(self.loop_index), self.loop_index.label),
+            visitor.renamer.add_type(type(self.axis), self.axis.label),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
+    def collect_buffers(self, visitor):
+        # Loop index vars are just pointers to some outer loop. Any internal
+        # buffers that we need will be referenced elsewhere.
+        return pyop3.collections.OrderedFrozenSet()
+
     def __init__(self, loop_index, axis) -> None:
-        from pyop3 import LoopIndex
+        from pyop3 import LoopContextFreeLoopIndex
 
         # we must be linear at this point
         assert len(axis.components) == 1
 
-        assert isinstance(loop_index, LoopIndex)
+        assert isinstance(loop_index, LoopContextFreeLoopIndex)
         assert axis.component.sf is None
         object.__setattr__(self, "loop_index", loop_index)
         object.__setattr__(self, "axis", axis)
@@ -720,14 +797,15 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     for loop_var in collect_loop_index_vars(expr):
         axis = loop_var.axis
         new_axis_label = f"{axis.label}_{loop_var.loop_index.id}"
-        new_axis = axis.__record_init__(_label=new_axis_label)
+        new_axis = axis.record_new(label=new_axis_label)
         axes.append(new_axis)
         loop_var_replace_map[loop_var] = AxisVar(new_axis)
     return (AxisTree.from_iterable(axes), loop_var_replace_map)
 
 
 def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
-    from pyop3.expr.visitors import replace, get_shape
+    import pyop3.visitors
+    from pyop3.expr.visitors import get_shape
 
     loop_tree, loop_var_replace_map = get_loop_tree(expr)
 
@@ -751,11 +829,11 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
             for component in axis.components:
                 new_regions = []
                 for region in component.regions:
-                    new_size = replace(region.size, loop_var_replace_map)
-                    new_regions.append(region.__record_init__(size=new_size))
+                    new_size = pyop3.visitors.replace(region.size, loop_var_replace_map)
+                    new_regions.append(region.record_new(size=new_size))
                 new_regions = tuple(new_regions)
-                new_components.append(component.__record_init__(regions=new_regions))
-            new_node_map[path] = axis.__record_init__(components=tuple(new_components))
+                new_components.append(component.record_new(regions=new_regions))
+            new_node_map[path] = axis.record_new(components=tuple(new_components))
         subtree = AxisTree(new_node_map)
         axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)
 

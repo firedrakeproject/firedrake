@@ -30,6 +30,13 @@ def f():
     return f
 
 
+def test_deprecation_warning(dumpfile):
+    match = "DumbCheckpoint is deprecated and will be removed soon; use CheckpointFile instead."
+    with pytest.warns(DeprecationWarning, match=match):
+        with DumbCheckpoint(dumpfile, mode=FILE_CREATE):
+            pass
+
+
 def run_store_load(mesh, fs, degree, dumpfile):
 
     V = FunctionSpace(mesh, fs, degree)

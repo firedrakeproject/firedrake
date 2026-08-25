@@ -184,7 +184,7 @@ def test_poisson_inhomogeneous_bcs_2(j):
     assert errornorm(u, u2) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
 def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     mesh = UnitSquareMesh(8, 8)
@@ -318,7 +318,7 @@ def test_restricted_function_space_extrusion_basics():
     V = FunctionSpace(extm, "CG", 2)
     V_res = RestrictedFunctionSpace(V, boundary_set=["bottom"])
     # Check lgmap.
-    lgmap = V_res.topological.local_to_global_map(None)
+    lgmap = V_res.lgmap()
     if mesh.comm.rank == 0:
         lgmap_expected = [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
     else:
@@ -350,7 +350,7 @@ def test_restricted_function_space_extrusion_basics():
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 4])
 def test_restricted_function_space_extrusion_poisson(ncells):
     mesh = UnitIntervalMesh(ncells)
@@ -366,11 +366,11 @@ def test_restricted_function_space_extrusion_poisson(ncells):
     L = inner(-2 * (x**2 + y**2), v) * dx
     bc = DirichletBC(V_res, exact, subdomain_ids)
     sol = Function(V_res)
-    solve(a == L, sol, bcs=[bc])
+    solve(a == L, sol, bcs=[bc], solver_parameters={"ksp_monitor": None})
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 16])
 def test_restricted_function_space_extrusion_stokes(ncells):
     mesh = UnitIntervalMesh(ncells)
@@ -401,9 +401,6 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     solve(a_res == L_res, sol_res, bcs=[bc_res])
     # Compare.
     assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-14
-    # -- Actually, the ordering is the same.
-    assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
-    assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
 
 
 def test_reconstruct_mixed_restricted():

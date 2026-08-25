@@ -10,37 +10,85 @@ import finat
 import ufl
 from immutabledict import immutabledict as idict
 
+import firedrake.constant
+import firedrake.mesh
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
-from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed
+from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
-from firedrake.mesh import IterationSpec
+from firedrake.mesh import MeshLoopIndex
+
+
+@op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
+def pack(tensor: Any, loop_info: MeshLoopIndex, *args, **kwargs) -> op3.Tensor:
+    """Prepare a tensor for use inside a pyop3 expression."""
+    return _pack(tensor, loop_info, *args, **kwargs)
 
 
 @functools.singledispatch
-def pack(tensor: Any, loop_info: IterationSpec, **kwargs) -> op3.Tensor:
+def _pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
-@pack.register(Function)
-@pack.register(Cofunction)
-@pack.register(CoordinatelessFunction)
-def _(func, loop_info: IterationSpec, **kwargs):
-    return pack(func.dat, func.function_space(), loop_info, **kwargs)
+@_pack.register
+def _(const: firedrake.constant.Constant, loop_info: MeshLoopIndex, **kwargs) -> op3.Dat:
+    return const.dat
 
 
-@pack.register(Matrix)
-def _(matrix: Matrix, loop_info, **kwargs):
-    return pack(matrix.M, *matrix.ufl_function_spaces(), loop_info, **kwargs)
+@_pack.register(Function)
+@_pack.register(Cofunction)
+@_pack.register(CoordinatelessFunction)
+def _(func, loop_index: MeshLoopIndex, **kwargs):
+    return pack(func.dat, loop_index, func.function_space(), **kwargs)
 
 
-@pack.register(op3.Dat)
+@_pack.register(Matrix)
+def _(matrix: Matrix, loop_index, **kwargs):
+    return pack(matrix.M, loop_index, *matrix.ufl_function_spaces(), **kwargs)
+
+
+def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
+    """Return the map packing mesh entities according to the iteration spec."""
+    iter_mesh = loop_index.mesh
+    mesh = mesh.topology
+    if iter_mesh.topology is mesh:
+        composed_map = None
+        target_integral_type = loop_index.integral_type
+    elif (
+        isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
+        and iter_mesh.topology._base_mesh is mesh
+    ):
+        composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
+        target_integral_type = "cell"
+    elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
+        composed_map, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
+    else:
+        # No shared topology, must be using a vertex-only mesh
+        composed_map = loop_index.mesh.cell_parent_cell_map(loop_index)
+        target_integral_type = "cell"
+
+    if target_integral_type == "cell":
+        def self_map(index):
+            return mesh.closure(index)
+    elif "facet" in target_integral_type:
+        def self_map(index):
+            return mesh.closure(mesh.support(index))
+    else:
+        raise ValueError(f"Unknown integral_type: {target_integral_type}")
+
+    if not composed_map:
+        return self_map(loop_index)
+    else:
+        return self_map(composed_map)
+
+
+@_pack.register(op3.Dat)
 def _(
     dat: op3.Dat,
+    loop_index: MeshLoopIndex,
     space: WithGeometry,
-    loop_info: IterationSpec,
     **kwargs,
 ):
     # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -54,7 +102,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, **kwargs)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], loop_index, subspace, **kwargs)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -64,55 +112,48 @@ def _(
 
 def _pack_dat_nonmixed(
     dat: op3.Dat,
+    loop_index: MeshLoopIndex,
     space: WithGeometry,
-    loop_info: IterationSpec,
     *,
     permutation: collections.abc.Iterable | None = None,
-):
+) -> op3.Dat:
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
-    map_ = space.entity_node_map(loop_info)
+    map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
     packed_dat = dat[map_]
+
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
-    if isinstance(packed_dat.axes, op3.AxisForest):  # bit of a hack
-        axes = packed_dat.axes.trees[0]
+    if isinstance(packed_dat.axes, op3.AxisForest):
+        depth = utils.single_valued(
+            [axis.label for axis in axes.axes].index("closure")
+            for axes in packed_dat.axes.trees
+        )
     else:
-        axes = packed_dat.axes
-    depth = [axis.label for axis in axes.axes].index("closure")
+        depth = [axis.label for axis in packed_dat.axes.axes].index("closure")
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
 
-@pack.register(op3.Mat)
+@_pack.register(op3.Mat)
 def _(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: IterationSpec,
 ):
     if isinstance(row_space.topological, RestrictedFunctionSpace):
         row_space = row_space.function_space
     if isinstance(column_space.topological, RestrictedFunctionSpace):
         column_space = column_space.function_space
 
-    # if mat.buffer.mat_type == "python":
-    #     mat_context = mat.buffer.mat.getPythonContext()
-    #     if isinstance(mat_context, op3.RowVecPythonMatContext):
-    #         space = row_space
-    #     else:
-    #         assert isinstance(mat_context, op3.ColumnVecPythonMatContext)
-    #         space = column_space
-    #     dat = mat_context.dat
-    #     return pack(dat, space, loop_info, nodes=nodes)
-
     packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
         for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
             packed_mats[ir, ic] = _pack_mat_nonmixed(
-                mat[row_index, column_index], row_subspace, column_subspace, loop_info,
+                mat[row_index, column_index], loop_info, row_subspace, column_subspace,
             )
 
     if packed_mats.size == 1:
@@ -123,19 +164,23 @@ def _(
 
 def _pack_mat_nonmixed(
     mat: op3.Mat,
+    loop_info: MeshLoopIndex,
     row_space: WithGeometry,
     column_space: WithGeometry,
-    loop_info: IterationSpec,
 ):
-    row_map = row_space.entity_node_map(loop_info)
-    column_map = column_space.entity_node_map(loop_info)
+    row_map = _pack_map(loop_info, row_space.mesh())
+    column_map = _pack_map(loop_info, column_space.mesh())
     packed_mat = mat[row_map, column_map]
 
     depths = []
     for axes in [packed_mat.row_axes, packed_mat.column_axes]:
-        if isinstance(axes, op3.AxisForest):  # bit of a hack
-            axes = axes.trees[0]
-        depth = [axis.label for axis in axes.axes].index("closure")
+        if isinstance(axes, op3.AxisForest):
+            depth = utils.single_valued(
+                [axis.label for axis in tree.axes].index("closure")
+                for tree in axes.trees
+            )
+        else:
+            depth = [axis.label for axis in axes.axes].index("closure")
         depths.append(depth)
     row_depth, column_depth = depths
 
@@ -182,7 +227,7 @@ def transform_packed_cell_closure_dat(
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
             perm_slice = op3.Slice(
                 nodal_axis.label,
-                [op3.Subset(None, perm_dat)],
+                [op3.SubsetSliceComponent(None, perm_dat)],
             )
             packed_dat = packed_dat[perm_slice]
 
@@ -223,29 +268,6 @@ def transform_packed_cell_closure_mat(
         packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
-
-
-def _make_closure_map_tree(space: WithGeometry, loop_info: IterationSpec) -> op3.IndexTree:
-    if len(space) == 1:
-        return space.entity_node_map(loop_info)
-
-    # mixed, need a closure per subspace and a full slice over the top
-    # TODO: This is full slice, need nice API for that
-    space_axis = space.plex_axes.root
-    space_slice = op3.Slice(
-        space_axis.name,
-        [
-            op3.AffineSliceComponent(space_index, label=space_index)
-            for space_index in space_axis.component_labels
-        ],
-        label=space_axis.name,
-    )
-    index_tree = op3.IndexTree(space_slice)
-    for leaf_path, subspace in zip(index_tree.leaf_paths, space, strict=True):
-        index_tree = index_tree.add_subtree(
-            leaf_path, _make_closure_map_tree(subspace, loop_info)
-        )
-    return index_tree
 
 
 @functools.singledispatch
@@ -313,7 +335,15 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # discard nodal information
+    # If we have an axis forest then we have different interpretations of the data.
+    # We only want the most natural one here and want to drop the others. This is
+    # complicated by the fact that we can have maps from both all points and only
+    # owned points. We can also get maps from the nodal axes that we probably want
+    # to discard.
+    # For the moment we restrict ourself to selecting the first available choice.
+    # This seems to work for most things.
+    # TODO: this is fairly gross and should be rethought - perhaps we need to
+    # propagate axis forest information further in.
     if isinstance(axes, op3.AxisForest):
         axes = axes.trees[0]
 
@@ -346,7 +376,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
-        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.as_slice(dim_label),)])
+        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.atom(dim_label),)])
         selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis.label == "which")
         perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr}, assert_modified=True)
 
@@ -356,17 +386,27 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: None}
         before = utils.just_one(new_targets[path][0])  # hack to get the right one...
         assert before.axis == "dof"
-        new_targets[path] = [[before.__record_init__(
+        new_targets[path] = [[before.record_new(
             # expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr}, assert_modified=True)
             expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr})
         )]]
 
     new_targets = utils.freeze(new_targets)
 
-    return axes.__record_init__(_targets=new_targets)
+    return axes.record_new(_targets=new_targets)
 
 
-@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+def myhashkey(space, dim):
+    edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
+    eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    return (edofs_key, eperms_key, dim)
+
+
+@op3.cache.memory_cache(
+    # hashkey=lambda s, d: (s.finat_element, d),
+    hashkey=myhashkey,
+    get_comm=lambda s, d: s.comm,
+)
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = _prepare_entity_permutations(space.finat_element, dim_label)
     perms_array = np.concatenate(perms, dtype=utils.IntType)
@@ -374,7 +414,8 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
+    ndofs = utils.single_valued(len(v) for v in space.finat_element.entity_dofs()[dim_label].values())
+    dof_axis = op3.Axis(ndofs, f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)
@@ -435,7 +476,7 @@ def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tu
     dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
     dof_perm_slice = op3.Slice(
         nodal_axis.label,
-        [op3.Subset(None, dof_perm_dat)],
+        [op3.SubsetSliceComponent(None, dof_perm_dat)],
     )
     return (*[slice(None)]*depth, dof_perm_slice)
 
@@ -485,25 +526,27 @@ def iter_space(space: WithGeometry):
 
 
 @contextlib.contextmanager
-def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
+def modified_lgmaps(mat: op3.Mat, lgmaps):
     if lgmaps is None:
         yield
         return
 
-    # print(lgmaps[0].indices)
-    petscmat = mat.handle
-    assert mat.buffer.mat is petscmat
-    if petscmat.type == "nest":
-        petscmat = petscmat.getNestSubMatrix(*indices)
-
-    # One cannot set the lgmaps for a MATIS as the mat is defined by the
-    # lgmaps and hence changing them will destroy the matrix. Boundary
-    # conditions are instead applied as a post-processing step.
-    if petscmat.type == "is":
+    petscmat = mat.buffer.mat
+    if isinstance(lgmaps, collections.abc.Mapping):
+        # MATNEST, apply lgmap pairs to specified blocks
+        orig_lgmaps = {}
+        for (i, j), lgmap_pair in lgmaps.items():
+            submat = petscmat.getNestSubMatrix(i, j)
+            orig_lgmaps[i, j] = submat.getLGMap()
+            submat.setLGMap(*lgmap_pair)
         yield
-        return
+        for (i, j), lgmap_pair in orig_lgmaps.items():
+            submat = petscmat.getNestSubMatrix(i, j)
+            submat.setLGMap(*lgmap_pair)
 
-    orig_lgmaps = petscmat.getLGMap()
-    petscmat.setLGMap(*lgmaps)
-    yield
-    petscmat.setLGMap(*orig_lgmaps)
+    else:
+        # Monolithic matrix, only replace one pair
+        orig_lgmaps = petscmat.getLGMap()
+        petscmat.setLGMap(*lgmaps)
+        yield
+        petscmat.setLGMap(*orig_lgmaps)

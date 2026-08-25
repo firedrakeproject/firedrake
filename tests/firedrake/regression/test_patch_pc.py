@@ -44,7 +44,6 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     v = TestFunction(V)
 
     if problem_type == "mixed":
-        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
         # We also test patch pc with kernel argument compression.
         i = 1  # only active index
         f = Function(V)
@@ -69,9 +68,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                         "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
-
     jacobi.solve()
-
     jacobi_history = jacobi.snes.ksp.getConvergenceHistory()
 
     patch = LinearVariationalSolver(problem,
@@ -88,12 +85,9 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
                                                        "ksp_monitor": None})
-
     patch.snes.ksp.setConvergenceHistory()
-
     uh.assign(0)
     patch.solve()
-
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)

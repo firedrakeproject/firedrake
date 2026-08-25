@@ -6,13 +6,12 @@ import typing
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.axis_tree import UNIT_AXIS_TREE, AbstractNonUnitAxisTree, AxisTree
 from pyop3.buffer import ArrayBuffer
 from pyop3.cache import cached_on
 from pyop3.dtypes import IntType
-from pyop3.expr import Dat, AxisVar, LoopIndexVar, ScalarBufferExpression
+from pyop3.expr import AxisVar, Dat, LoopIndexVar, ScalarBufferExpression
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
-from pyop3.insn import Loop
-from pyop3.axis_tree import AbstractNonUnitAxisTree, AxisTree, UNIT_AXIS_TREE
 from pyop3.labeled_tree import as_path
 
 if typing.TYPE_CHECKING:
@@ -42,8 +41,7 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 # TODO: just be a cached method? Or globally cache?
 @cached_on(lambda tree, *a, **kw: tree, lambda tree, path, label: (path, label))
 def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: PathT, component_label: ComponentLabelT):
-    from pyop3 import Scalar
-    from pyop3.expr.visitors import replace_terminals, replace
+    import pyop3
 
     path = as_path(path)
 
@@ -60,7 +58,7 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
 
     # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
     # Therefore the right thing to do is to sum the internal bits.
-    if not isinstance(subtree_size, numbers.Integral | Scalar | ScalarBufferExpression):
+    if not isinstance(subtree_size, numbers.Integral | pyop3.Scalar | ScalarBufferExpression):
         # Consider the following cases:
         #
         # Example 1:
@@ -92,11 +90,11 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         if axis.label in subtree_size_axes.node_labels:
             # current axis is used - need to do a loop
             component_size_axes = AxisTree.from_iterable(
-                (
+                
                     ax
                     for ax in subtree_size_axes.nodes
                     if ax.label != axis.label
-                )
+                
             )
             if component_size_axes.is_empty:
                 component_size_axes = UNIT_AXIS_TREE
@@ -106,14 +104,14 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
             return component.size * subtree_size
         assert all_axes.is_linear
 
-        component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize()
+        component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize(linear=True)
 
         i = all_axes.iter()
 
         # Replace AxisVars with LoopIndexVars in the size expression so we can
         # access them in a loop
         # this is a bit of a weird bit: loopindex -> axis_loopindex -> loopindex(axis_loopindex)
-        subtree_size_tmp = replace(subtree_size, outer_loop_to_axis_var_replace_map)
+        subtree_size_tmp = pyop3.visitors.replace(subtree_size, outer_loop_to_axis_var_replace_map)
 
         # TODO: might need to do something similar for component_size
 
@@ -123,12 +121,13 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         }
 
         # 'index' the expressions so they can be used inside a loop
-        component_size = replace(component_size, axis_to_loop_var_replace_map)
-        subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
+        component_size = pyop3.visitors.replace(component_size, axis_to_loop_var_replace_map)
+        subtree_size_expr  = pyop3.visitors.replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
-        Loop(i,
-            component_size.iassign(subtree_size_expr)
-        )()
+        pyop3.loop(i,
+            component_size.iassign(subtree_size_expr),
+            eager=True,
+        )
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this
@@ -141,11 +140,9 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
 
         else:
             loop_to_axis_var_replace_map_ = utils.invert_mapping(axis_to_loop_var_replace_map)
-            XXX = replace(component_size, loop_to_axis_var_replace_map_)
+            XXX = pyop3.visitors.replace(component_size, loop_to_axis_var_replace_map_)
 
             axis_to_loop_var_replace_map = utils.invert_mapping(outer_loop_to_axis_var_replace_map)
-            return replace(XXX, axis_to_loop_var_replace_map)
+            return pyop3.visitors.replace(XXX, axis_to_loop_var_replace_map)
     else:
         return component.size * subtree_size
-
-

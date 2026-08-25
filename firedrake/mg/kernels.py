@@ -1,11 +1,13 @@
 import textwrap
 import numpy
 import string
+from collections import defaultdict
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
 from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.classes import ReferenceValue
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
@@ -353,12 +355,8 @@ def restrict_kernel(Vf, Vc):
 def inject_kernel(Vf, Vc):
     if Vc.finat_element.is_dg():
         hierarchy, level = utils.get_level(Vc.mesh())
-        if Vf.extruded:
-            assert Vc.extruded
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
-        key = (("inject", level_ratio)
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
+        key = (("inject", ncandidate)
                + (Vf.block_size,)
                + entity_dofs_key(Vc.finat_element.complex.get_topology())
                + entity_dofs_key(Vf.finat_element.complex.get_topology())
@@ -370,7 +368,6 @@ def inject_kernel(Vf, Vc):
         try:
             return cache[key]
         except KeyError:
-            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
             return cache.setdefault(key, ((dg_injection_kernel(Vf, Vc, ncandidate), False, False), True))
     else:
         expression = ufl.Coefficient(Vf)
@@ -409,6 +406,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self._coefficient(f, "macro_coords")
 
     def _coefficient(self, coefficient, name):
+        """Register a coefficient as a macro-cell kernel argument and return its GEM expression."""
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
@@ -450,7 +448,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      scalar_type=parameters["scalar_type"])
 
     macro_context = fem.PointSetContext(**macro_cfg)
-    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
@@ -518,9 +515,25 @@ def dg_injection_kernel(Vf, Vc, ncell):
     tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
+    fexpr, = fem.compile_ufl(ReferenceValue(f), macro_context)
     fexpr = gem.Indexed(fexpr, tensor_indices)
+    inner_prod = gem.Product(phi_c, fexpr)
+
+    if Vf.ufl_element().mapping() == "symmetries":
+        # Symmetric elements only store independent components.
+        # The L2 inner product adds entrywise products of every component of the full tensor.
+        # We work with the reference components so we need to scale by their multiplicities.
+        symmetry = Vf.ufl_element().symmetry()
+        multiplicity = defaultdict(int)
+        for idx in numpy.ndindex(Vf.value_shape):
+            idx = symmetry.get(idx, idx)
+            multiplicity[idx] += 1
+        block_scale = numpy.array([scale for idx, scale in multiplicity.items()])
+        scale = gem.Indexed(gem.Literal(block_scale), tensor_indices)
+        inner_prod = gem.Product(scale, inner_prod)
+
     quadrature_weight = macro_quadrature_rule.weight_expression
-    expr = gem.Product(gem.IndexSum(gem.Product(phi_c, fexpr), tensor_indices),
+    expr = gem.Product(gem.IndexSum(inner_prod, tensor_indices),
                        gem.Product(macro_detJ, quadrature_weight))
 
     quadrature_indices = macro_builder.indices + macro_quadrature_rule.point_set.indices
@@ -627,14 +640,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
-    kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
+    kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
 
     # return op2.Kernel(
     #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
     #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
     return op3.Function(kernel, kernel_intents)
-
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

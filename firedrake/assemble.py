@@ -32,7 +32,7 @@ from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDu
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_iteration_spec, get_mesh_topologies
+from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -48,7 +48,6 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 
 @PETSc.Log.EventDecorator()
 @annotate_assemble
-@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def assemble(expr, *args, **kwargs):
     """Assemble.
 
@@ -215,6 +214,7 @@ class ExprAssembler:
     def __init__(self, expr):
         self._expr = expr
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._expr))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the pointwise expression.
 
@@ -375,7 +375,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            appctx=self._appctx).allocate()
             else:
                 test, trial = self._form.arguments()
-                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
                 mat = op3.Mat.from_sparsity(sparsity)
                 return Matrix(self._form, mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
@@ -413,6 +413,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             assert indices is None
             return tensor
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -1037,6 +1038,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -1081,17 +1083,11 @@ class ParloopFormAssembler(FormAssembler):
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
             if isinstance(self, ExplicitMatrixAssembler):
-                with modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
-                    parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                with modified_lgmaps(subtensor, lgmaps):
+                    parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
-
-        # FIXME: This is necessary for test_submesh_solve_simple to pass for the moment
-        # This is unsatisfying because in theory this isn't required - we can stash up the
-        # pending increments and only apply them lazily. Something is going wrong somewhere.
-        subtensor.assemble()
+                parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
@@ -1113,17 +1109,15 @@ class ParloopFormAssembler(FormAssembler):
 
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_name")
+            assert hasattr(self, "_tensor_id")
         else:
-            tensor_name = {}
+            tensor_id = {}
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-                # if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                #     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
-                tensor_name[local_kernel] = subtensor.name
+                tensor_id[local_kernel] = subtensor.name
 
                 parloop_builder = ParloopBuilder(
                     self._form,
@@ -1136,7 +1130,7 @@ class ParloopFormAssembler(FormAssembler):
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
             self._parloops = parloops_
-            self._tensor_name = tensor_name
+            self._tensor_id = tensor_id
 
         return self._parloops
 
@@ -1419,6 +1413,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 if _is_real_space(test_subspace):
                     # The test space is the row space, so a Real test space means we have a single row
                     sub_mat_type_ = "rvec"
+                elif sub_mat_type == "is" and i != j:
+                    # Don't put MATIS on the off diagonal blocks (I don't know why)
+                    sub_mat_type_ = "baij"
                 else:
                     if _is_real_space(trial_subspace):
                         # The trial space is the column space, so a Real trial space means we have a single column
@@ -1476,6 +1473,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @with_heavy_caches(lambda self: get_mesh_topologies(self._form))
     def allocate(self):
         test, trial = self._form.arguments()
         sparsity = self._make_sparsity(
@@ -1526,7 +1524,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for loop_info, (test_index, trial_index) in maps_and_regions:
+        for loop_index, (test_index, trial_index) in maps_and_regions:
             # If indices are 'None' then this means all to allocate for all spaces
             if test_index is None:
                 if is_mixed(test):
@@ -1554,15 +1552,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
                 zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
             ):
-                test_map = test_space.entity_node_map(loop_info)
-                trial_map = trial_space.entity_node_map(loop_info)
                 op3.loop(
-                    loop_info.loop_index,
-                    sparsity[test_index_, trial_index_][test_map, trial_map].assign(666),
+                    loop_index,
+                    pack(sparsity[test_index_, trial_index_], loop_index, test_space, trial_space).assign(666),
                     eager=True,
                 )
 
-        sparsity.assemble()
+        sparsity.assemble()  # TODO: with proper state tracking this can go
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -1580,8 +1576,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    loop_info = get_iteration_spec(mesh, integral_type, subdomain_id)
-                    loops.append((loop_info, local_kernel.indices))
+                    loop_index = mesh.iter(integral_type, subdomain_id)
+                    loops.append((loop_index, local_kernel.indices))
             return tuple(loops)
 
     @staticmethod
@@ -1602,8 +1598,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
 
-                    loop_info = get_iteration_spec(mesh, integral_type)
-                    loops.append((loop_info, (i, j)))
+                    loop_index = mesh.iter(integral_type)
+                    loops.append((loop_index, (i, j)))
         return tuple(loops)
 
     @cached_property
@@ -1623,6 +1619,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _apply_bc(self, tensor, bc, u=None):
         assert u is None
         mat = tensor.M
+
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
@@ -1653,14 +1650,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # For MATIS we handle boundary conditions by masking out
                 # rows and columns after the fact because we can't change
                 # lgmaps on the fly.
-                mat.buffer.mat.assemble()
+                mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
                 mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes*space.block_size, self.weight)
             else:
-                # for some reason I need to do this first, is this still the case?
-                # kinda, changing accessor - if we used INC instead? it's allowed because
-                # we're setting something we know to be zero
-                mat.assemble()
-
                 # NOTE: This is only OK in parallel with mixed spaces because we
                 # apply the BC to local submat, where DoF interleaving is not
                 # applicable.
@@ -1679,6 +1671,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
 
+                mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
                 myspace = space if V.index is None else space[V.index]
                 with local_submat(mat.buffer.mat, myspace, myspace) as submat:
                     submat.setValuesLocalRCV(
@@ -1696,6 +1689,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, s in enumerate(space):
                 if i != V.index and _is_real_space(s):
                     self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, V.index, component, bc.node_set)
+
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
@@ -1738,6 +1732,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             return tensor.M
 
     def result(self, tensor):
+        # Make sure any changes are finalised and not dropped
         tensor.M.assemble()
         return tensor
 
@@ -1781,6 +1776,7 @@ class MatrixFreeAssembler(FormAssembler):
             options_prefix=self._options_prefix
         )
 
+    @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
             tensor = self.allocate()
@@ -1836,43 +1832,18 @@ class ParloopBuilder:
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        p = self._iterset.loop_index
+        p = self._iterset
         packed_args = []
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
             packed_args.append(packed_arg)
         return op3.loop(p, self._kinfo.kernel(*packed_args))
 
-    @property
-    def test_function_space(self):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        test, _ = self._form.arguments()
-        return test.function_space()
-
-    @property
-    def trial_function_space(self):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        _, trial = self._form.arguments()
-        return trial.function_space()
-
-    def get_indicess(self):
-        return (self._local_knl.indices,)
-
-    def _filter_bcs(self, row, col):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        if len(self.test_function_space) > 1:
-            bcrow = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == row)
+    def _filter_bcs(self, function_space, bcs, index: int | None):
+        if index is not None:
+            return tuple(bc for bc in bcs if bc.function_space_index() == index)
         else:
-            bcrow = self._bcs
-
-        if len(self.trial_function_space) > 1:
-            bccol = tuple(bc for bc in self._bcs
-                          if bc.function_space_index() == col
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
-        return bcrow, bccol
+            return bcs
 
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
@@ -1883,28 +1854,49 @@ class ParloopBuilder:
         if len(self._form.arguments()) != 2 or self._diagonal:
             return None
 
+        # Matrix types for which lgmap setting does not make sense.
+        # One cannot set the lgmaps for a MATIS as the mat is defined by the
+        # lgmaps and hence changing them will destroy the matrix. Boundary
+        # conditions are instead applied as a post-processing step.
+        skip_mat_types = {"is", "python"}
+
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
         column_space = column_arg.function_space()
-        petscmat = matrix.petscmat
-
         i, j = indices
-        if petscmat.type == PETSc.Mat.Type.NEST:
-            if i is None or j is None:
-                raise NotImplementedError("Ah, need to produce multiple lgmaps here...")
 
-            assert len(row_space) > 1 and len(column_space) > 1
-            row_space = row_space[i]
-            column_space = column_space[j]
-            petscmat = petscmat.getNestSubMatrix(i, j)
-            i = None
-            j = None
-        if petscmat.type == PETSc.Mat.Type.PYTHON:
+        row_bcs = self._bcs
+        col_bcs = [bc for bc in self._bcs if isinstance(bc, DirichletBC)]
+
+        if matrix.petscmat.type == PETSc.Mat.Type.NEST:
+            ii = list(range(len(row_space))) if i is None else [i]
+            jj = list(range(len(column_space))) if j is None else [j]
+
+            # For MATNESTS return an lgmap pair for each block in the form,
+            # keyed by nest indices.
+            lgmaps = {}
+            for i, j in itertools.product(ii, jj):
+                if matrix.petscmat.getNestSubMatrix(i, j).type in skip_mat_types:
+                    continue
+                else:
+                    # MATNESTS require lgmaps that only address the current block
+                    row_subspace = row_space[i]
+                    col_subspace = column_space[j]
+                    row_bcs_ = self._filter_bcs(row_subspace, row_bcs, i)
+                    col_bcs_ = self._filter_bcs(col_subspace, col_bcs, j)
+                    row_lgmap = row_subspace.lgmap(row_bcs_)
+                    col_lgmap = col_subspace.lgmap(col_bcs_)
+                    lgmaps[i, j] = (row_lgmap, col_lgmap)
+            return lgmaps
+
+        elif matrix.petscmat.type in skip_mat_types:
             return None
 
-        # TODO: it's annoying that we have to do this in a global sense?
-        row_bcs, column_bcs = self._filter_bcs(*indices)
-        return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
+        else:
+            # Not a MATNEST, only a single lgmap pair to consider
+            row_bcs = self._filter_bcs(row_space, row_bcs, i)
+            col_bcs = self._filter_bcs(column_space, col_bcs, j)
+            return (row_space.lgmap(row_bcs), column_space.lgmap(col_bcs))
 
     @property
     def _indices(self):
@@ -1948,10 +1940,14 @@ class ParloopBuilder:
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
-            return subdomain_data
+            return MeshLoopIndex(
+                subdomain_data,
+                self._mesh,
+                self._integral_type,
+                None,
+            )
         else:
-            return get_iteration_spec(
-                self._topology,
+            return self._topology.iter(
                 self._integral_type,
                 self._subdomain_id,
                 all_integer_subdomain_ids=self._all_integer_subdomain_ids,
@@ -1976,22 +1972,33 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack(dat, V, self._iterset)
+            return pack(dat, index, V)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack(mat, *Vs, self._iterset)
+            return pack(mat, index, *Vs)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
         coords = next(self._active_coordinates)
-        return pack(coords, self._iterset)
+        return pack(coords, index)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        return pack(coeff, self._iterset)
+        # Some SLATE code (see 'local_solvers' in scpc.py) assembles forms into
+        # tensors where the tensor is a one subfunction of a mixed function and
+        # another subfunction is passed in as a coefficient. This breaks pyop3's
+        # assumptions about access descriptors and so we replace the read-only
+        # coefficient with a copy.
+        if (
+            isinstance(self._tensor, firedrake.Cofunction | firedrake.Function)
+            and coeff.dat.buffer == self._tensor.dat.buffer
+        ):
+            assert coeff != self._tensor
+            coeff = coeff.copy(deepcopy=True)
+        return pack(coeff, index)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -2001,12 +2008,12 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
         func = next(self._active_cell_orientations)
-        return pack(func, self._iterset)
+        return pack(func, index)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
         func = next(self._active_cell_sizes)
-        return pack(func, self._iterset)
+        return pack(func, index)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):

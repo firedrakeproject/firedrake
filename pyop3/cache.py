@@ -6,38 +6,34 @@
 
 import abc
 import atexit
-import cachetools
 import collections
 import contextlib
 import functools
 import gc
 import hashlib
 import os
+import pickle
 import re
 import sys
-import pickle
 import weakref
-from collections.abc import Mapping, MutableMapping
-from pathlib import Path
-from warnings import warn  # noqa F401
 from collections import defaultdict
-from itertools import count
+from collections.abc import Callable, Hashable, Mapping, MutableMapping
 from functools import wraps
+from itertools import count
+from pathlib import Path
 from tempfile import mkstemp
-from typing import Any, Callable, Hashable
+from typing import Any
+from warnings import warn  # noqa F401
 
+import cachetools
 from petsc4py import PETSc
 
+import pyop3.collections
 import pyop3.config
 from pyop3 import utils
-from pyop3.collections import AlwaysEmptyDict
 from pyop3.constants import _nothing
-from pyop3.exceptions import CacheException
-from pyop3.log import debug, LOGGER
-from pyop3.mpi import (
-    MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
-)
-
+from pyop3.log import LOGGER
+from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
@@ -225,6 +221,9 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
         self.miss = 0
 
         super().__init__(cidx, comm, func)
+
+    def __str__(self) -> str:
+        return f"{type(self.cache).__name__}({self.func_name})"
 
     def __del__(self):
         _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm, self.func, self.hit, self.miss, self.size, self.maxsize)
@@ -526,13 +525,28 @@ def parallel_cache(
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
+
+            if heavy and len(_heavy_caches) == 0:
+                pyop3.log.debug(
+                    f"{func.__qualname__} is heavy cached but no heavy cache has been set"
+                )
+
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                if heavy and len(_heavy_caches) == 0:
-                    LOGGER.debug(
-                        f"{func.__qualname__} is heavy cached but no heavy cache has been set"
-                    )
-                    caches = (AlwaysEmptyDict(),)
-                    cache_type = AlwaysEmptyDict
+                # Filter the heavy caches to only use those valid for the
+                # provided comm.
+                # As an illustrative example, say we are calling this function
+                # with COMM_SELF. That means that we are only logically
+                # collective on this rank - we have no idea what other ranks are
+                # doing. It is therefore not safe to use a heavy cache (like
+                # the mesh) that has broader parallel semantics (i.e. a larger comm).
+                valid_heavy_caches = [
+                    c for c in _heavy_caches
+                    if pyop3.mpi.comm_is_subset(c.comm, comm)
+                ]
+
+                if heavy and not valid_heavy_caches:
+                    caches = (pyop3.collections.AlwaysEmptyDict(),)
+                    cache_type = pyop3.collections.AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
                     def make_instrumented_cache():
@@ -542,11 +556,18 @@ def parallel_cache(
                     comm_caches = get_comm_caches(comm)
                     if heavy:
                         if cache_id not in comm_caches:
+                            # This must be a weak key dictionary, where the keys are the
+                            # lifetime objects, to ensure that it does not explode
                             comm_caches[cache_id] = weakref.WeakKeyDictionary()
 
                         caches = []
                         cache_type = None
-                        for lifetime_obj in _heavy_caches:
+                        for lifetime_obj in valid_heavy_caches:
+                            assert lifetime_obj.comm.size <= comm.size
+                            if pyop3.config.spmd_strict:
+                                # cache access must be collective over lifetime objects
+                                lifetime_obj.comm.barrier()
+
                             try:
                                 cache = comm_caches[cache_id][lifetime_obj]
                             except KeyError:
@@ -554,7 +575,7 @@ def parallel_cache(
                                 comm_caches[cache_id][lifetime_obj] = cache
 
                             if cache_type is None:
-                                cache_type = type(cache)
+                                cache_type = type(cache.cache)
                             caches.append(cache)
                         caches = tuple(caches)
                         assert cache_type is not None
@@ -566,66 +587,91 @@ def parallel_cache(
                             cache = make_instrumented_cache()
                             comm_caches[cache_id] = cache
                         caches = (cache,)
-                        cache_type = type(cache)
+                        cache_type = type(cache.cache)
 
                 key = hashkey(*args, **kwargs)
 
-                for cache in caches:
-                    try:
-                        value = cache[key]
-                        break
-                    except KeyError:
-                        pass
-                else:
-                    value = CACHE_MISS
+                if heavy:
+                    for cache_idx, cache in enumerate(caches):
+                        try:
+                            value = cache[key]
+                            break
+                        except KeyError:
+                            pass
+                    else:
+                        cache_idx = None
+                        value = CACHE_MISS
 
-                if issubclass(cache_type, DictLikeDiskAccess):
-                    if bcast:
-                        # Since disk caches share state between ranks there are extra
-                        # opportunities for mismatching hit/miss results and hence
-                        # deadlocks. These include:
-                        #
-                        # 1. Race conditions
-                        #
-                        # On CI or with ensemble parallelism other processes not in this
-                        # comm may write to disk, so load imbalances on the current comm
-                        # may result in a hit on some ranks but not others.
-                        #
-                        # 2. Eager writing to disk on rank 0
-                        #
-                        # Since broadcasting is non-blocking for the sending rank (rank 0)
-                        # it is possible for it to have written to disk before other ranks
-                        # begin the cache lookup. These ranks register a cache hit.
-                        #
-                        # If ranks disagree on whether it was a hit or miss then some ranks
-                        # will do a broadcast and others will not, ruining MPI synchronisation.
-                        # To fix this we check to see if any ranks have hit cache and, if so,
-                        # nominate that rank as the root of the subsequent broadcast.
-                        root = comm.rank if value is not CACHE_MISS else -1
-                        root = comm.allreduce(root, op=MPI.MAX)
-                        if root >= 0:
-                            # Found a rank with a cache hit, broadcast 'value' from it
-                            value = comm.bcast(value, root=root)
-                else:
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
-                    if (
-                        pyop3.config.spmd_strict
-                        and not utils.is_single_valued(
-                            comm.allgather(value is not CACHE_MISS)
-                        )
-                    ):
-                        raise ValueError("Cache hit on some ranks but missed on others")
+                    if pyop3.config.spmd_strict:
+                        # If we are heavy also send the cache index to assert that
+                        # we are getting a cache hit from the same lifetime object
+                        check_val = (cache_idx, value is not CACHE_MISS)
+                        if not utils.is_single_valued(comm.allgather(check_val)):
+                            raise ValueError("Inconsistent cache hit behaviour")
 
-                if value is CACHE_MISS:
-                    if bcast:
-                        value = func(*args, **kwargs) if comm.rank == 0 else None
-                        value = comm.bcast(value, root=0)
-                    else:
+                    if value is CACHE_MISS:
                         value = func(*args, **kwargs)
 
-                for cache in caches:
-                    cache[key] = value
+                    # Insert the result into all of the caches
+                    for i, cache in enumerate(caches):
+                        if i != cache_idx:  # don't insert if we already hit
+                            cache[key] = value
+
+                else:
+                    # We only get multiple caches if 'heavy' is true
+                    value = cache.get(key, CACHE_MISS)
+
+                    if issubclass(cache_type, DictLikeDiskAccess):
+                        if bcast:
+                            # Since disk caches share state between ranks there are extra
+                            # opportunities for mismatching hit/miss results and hence
+                            # deadlocks. These include:
+                            #
+                            # 1. Race conditions
+                            #
+                            # On CI or with ensemble parallelism other processes not in this
+                            # comm may write to disk, so load imbalances on the current comm
+                            # may result in a hit on some ranks but not others.
+                            #
+                            # 2. Eager writing to disk on rank 0
+                            #
+                            # Since broadcasting is non-blocking for the sending rank (rank 0)
+                            # it is possible for it to have written to disk before other ranks
+                            # begin the cache lookup. These ranks register a cache hit.
+                            #
+                            # If ranks disagree on whether it was a hit or miss then some ranks
+                            # will do a broadcast and others will not, ruining MPI synchronisation.
+                            # To fix this we check to see if any ranks have hit cache and, if so,
+                            # nominate that rank as the root of the subsequent broadcast.
+                            root = comm.rank if value is not CACHE_MISS else -1
+                            root = comm.allreduce(root, op=MPI.MAX)
+                            if root >= 0:
+                                # Found a rank with a cache hit, broadcast 'value' from it
+                                value = comm.bcast(value, root=root)
+
+                            if value is CACHE_MISS:
+                                value = func(*args, **kwargs) if comm.rank == 0 else None
+                                value = comm.bcast(value, root=0)
+                                cache[key] = value
+
+                        else:
+                            if value is CACHE_MISS:
+                                value = func(*args, **kwargs)
+                                cache[key] = value
+
+                    else:
+                        # In-memory caches are stashed on the comm and so must always agree
+                        # on their contents.
+                        if pyop3.config.spmd_strict:
+                            check_val = value is not CACHE_MISS
+                            if not utils.is_single_valued(comm.allgather(check_val)):
+                                raise ValueError("Inconsistent cache hit behaviour")
+
+                        if value is CACHE_MISS:
+                            value = func(*args, **kwargs)
+                            cache[key] = value
                 return value
         return wrapper
     return decorator
@@ -657,7 +703,21 @@ def memory_and_disk_cache(*args, cachedir=pyop3.config.cache_dir, **kwargs):
     return decorator
 
 
-_heavy_caches = weakref.WeakSet()
+# NOTE: It is safe to reference the object because it is only accessible
+# via a context manager that pops the reference after use.
+_heavy_caches = pyop3.collections.OrderedSet()
+
+_alive_heavy_caches = weakref.WeakSet()
+"""The heavy caches that we have used that haven't yet been cleaned up.
+
+This attribute is useful for debugging possible memory leaks. If its size
+grows over time then references to the heavy cache objects are surviving.
+
+The recommended way to debug such issues is to use objgraph:
+
+    objgraph.get_backrefs(item_in_cache)
+
+"""
 
 
 class heavy_caches:
@@ -671,11 +731,15 @@ class heavy_caches:
     """
 
     def __init__(self, objs: Any) -> None:
-        objs = utils.as_tuple(objs)
+        objs = pyop3.collections.as_tuple(objs)
+
+        for obj in objs:
+            _alive_heavy_caches.add(obj)
+
         self._objs = objs
         # keep track of the objects we inserted ourselves, if they were already
         # there then we don't want to remove them!
-        self._added_objs = set()
+        self._added_objs = pyop3.collections.OrderedSet()
 
     def __enter__(self) -> None:
         for obj in self._objs:
@@ -694,11 +758,12 @@ def with_heavy_caches(get_obj: Callable) -> Callable:
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
+            assert pyop3.collections.is_ordered_sequence(obj)
             with heavy_caches(obj):
                 return func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: {self})
+with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: (self,))
 """Method decorator that sets ``self`` as a heavy cache."""

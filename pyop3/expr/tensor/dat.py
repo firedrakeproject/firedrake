@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import abc
 import collections
 import contextlib
 import math
 import numbers
 import typing
+from collections.abc import Sequence
 from functools import cached_property
 from types import GeneratorType
-from typing import Any, ClassVar, Literal, Sequence
+from typing import ClassVar, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -16,32 +16,35 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.arrayref
+import pyop3.axis_tree
 import pyop3.device
 import pyop3.record
 from pyop3 import utils
-from ..base import LoopIndexVar
-from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
-from pyop3.mpi import collective
 from pyop3.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
-    collect_unindexed_axis_trees,
     as_axis_tree_type,
+    collect_unindexed_axis_trees,
 )
-from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, AxisForest, ContextSensitiveAxisTree
-from pyop3.index_tree import LoopIndex, ScalarIndex
-from pyop3.expr.base import Terminal
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
-from pyop3.dtypes import DTypeT, ScalarType, IntType
+from pyop3.axis_tree.tree import (
+    AbstractNonUnitAxisTree,
+)
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
+from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.log import warning
+from pyop3.expr.base import Terminal
+from pyop3.index_tree import ScalarIndex
+from pyop3.mpi import collective
 from pyop3.utils import (
     deprecated,
-    just_one,
-    strictly_all,
 )
 
+from .base import (
+    ReshapeTensorTransform,
+    Tensor,
+    TensorTransform,
+)
 
 if typing.TYPE_CHECKING:
     import pyop3.insn
@@ -69,18 +72,18 @@ class Dat(Tensor):
     # {{{ instance attrs
 
     axes: AxisTreeT
-    _buffer: AbstractBuffer
-    _name: str
+    buffer: AbstractBuffer
+    name: str
     _transform: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # buffers in the axis tree aren't allowed to change
-        with visitor.inside():
+        with visitor.strong_hash_buffers():
             axes_key = visitor(self.axes)
         return (
             type(self),
             axes_key,
-            visitor(self._buffer),
+            visitor(self.buffer),
             visitor(self._transform),
         )
 
@@ -128,20 +131,19 @@ class Dat(Tensor):
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        self.axes = axes
-        self._buffer = buffer
-        self._name = name
-        self._transform = transform
-        self.__post_init__()
+        object.__setattr__(self, "axes", axes)
+        object.__setattr__(self, "buffer", buffer)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "_transform", transform)
 
-    def __post_init__(self) -> None:
+    def __record_post_init(self) -> None:
         # fails for transforms, is that an issue?
         # assert self.buffer.size == self.axes.unindexed.local_max_size
         if isinstance(self.buffer, pyop3.buffer.AbstractArrayBuffer):
             assert len(self.buffer.shape) == 1
 
         # Lazily allocated PETSc Vecs (and state tracking)
-        self._work_vec = None
+        self._lazy_work_vec = None
         self._work_vec_buffer_state = None
         self._vec_context_is_active = False
 
@@ -158,8 +160,6 @@ class Dat(Tensor):
 
     # {{{ interface impls
 
-    name = pyop3.record.attr("_name")
-    buffer = pyop3.record.attr("_buffer")
     transform = pyop3.record.attr("_transform")
     dim = 1
 
@@ -208,8 +208,15 @@ class Dat(Tensor):
         return cls.empty(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=None, **kwargs) -> Dat:
+        if buffer_kwargs is None:
+            buffer_kwargs = {}
+
         axes = as_axis_tree(axes)
+
+        if kwargs.get("name") is not None:
+            buffer_kwargs["name"] = kwargs["name"] + "_buffer"
+
         buffer = ArrayBuffer.zeros(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
@@ -237,8 +244,23 @@ class Dat(Tensor):
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+    def from_array(
+        cls,
+        array: np.ndarray,
+        *,
+        sf: StarForest | None = None,
+        comm: MPI.Comm = MPI.COMM_SELF,
+        buffer_kwargs=None,
+        **kwargs,
+    ) -> Dat:
         from pyop3 import Scalar
+
+        if sf and sf.comm != comm:
+            raise pyop3.exceptions.CommMismatchException
+
+        # If no SF is provided then we assume no overlap
+        if sf is None:
+            sf = pyop3.sf.local_sf(array.size, comm=comm)
 
         buffer_kwargs = buffer_kwargs or {}
 
@@ -249,9 +271,9 @@ class Dat(Tensor):
         if "name" not in buffer_kwargs:
             buffer_kwargs["name"] = f"{name}_buffer"
 
-        # NOTE: Should this size *always* be a Scalar?
-        axes = Axis(Scalar(array.size))
-        buffer = ArrayBuffer(array, **buffer_kwargs)
+        # NOTE: Should this size *always* be a Scalar? maybe not if rank_constant is True...
+        axes = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(Scalar(array.size), sf=sf))
+        buffer = ArrayBuffer(array, sf=sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -278,7 +300,7 @@ class Dat(Tensor):
 
     def getitem(self, index, *, strict=False):
         indexed_axes = self.axes.getitem(index, strict=strict)
-        return self.__record_init__(axes=indexed_axes)
+        return self.record_new(axes=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -294,7 +316,7 @@ class Dat(Tensor):
 
     @cached_property
     def _localized(self) -> Dat:
-        return self.__record_init__(axes=self.axes.localize(), _buffer=self.buffer.localize())
+        return self.record_new(axes=self.axes.localize(), _buffer=self.buffer.localize())
 
     @property
     def alloc_size(self):
@@ -305,61 +327,43 @@ class Dat(Tensor):
         return self.axes.size
 
     @property
-    def kernel_dtype(self):
-        assert False, "old"
-        # TODO Think about the fact that the dtype refers to either to dtype of the
-        # array entries (e.g. double), or the dtype of the whole thing (double*)
-        return self.dtype
+    def nbytes(self) -> int:
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata.
 
-    @classmethod
-    def _get_count_data(cls, data):
-        # recurse if list of lists
-        if not strictly_all(isinstance(d, collections.abc.Iterable) for d in data):
-            return data, len(data)
-        else:
-            flattened = []
-            count = []
-            for d in data:
-                x, y = cls._get_count_data(d)
-                flattened.extend(x)
-                count.append(y)
-            return flattened, count
-
-    def select_axes(self, indices):
-        selected = []
-        current_axis = self.axes
-        for idx in indices:
-            selected.append(current_axis)
-            current_axis = current_axis.get_part(idx.npart).subaxis
-        return tuple(selected)
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
+        return self.dtype.itemsize * self.axes.local_size
 
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> Dat:
         if self.transform is not None:
             raise RuntimeError
 
         name = f"{self.name}_copy"
-        buffer = self._buffer.duplicate(copy=copy, constant=constant)
-        return self.__record_init__(_name=name, _buffer=buffer)
+        buffer = self.buffer.duplicate(copy=copy, constant=constant)
+        return self.record_new(name=name, buffer=buffer)
 
-    # TODO: dont do this here
-    def with_context(self, context):
-        return self.__record_init__(axes=self.axes.with_context(context))
+    def with_axis_trees(self, axis_trees):
+        axes = utils.just_one(axis_trees)
+        return self.record_new(axes=axes)
 
     @property
     def context_free(self):
-        return self.__record_init__(axes=self.axes.context_free)
+        return self.record_new(axes=self.axes.context_free)
 
-    def concretize(self):
+    def concretize(self, *, linear: bool):
         """Convert to an expression, can no longer be indexed properly"""
-        from pyop3.expr import as_linear_buffer_expression
-
-        if not self.axes.is_linear:
-            raise NotImplementedError
-        return as_linear_buffer_expression(self)
-
-    @property
-    def leaf_layouts(self):
-        return self.axes.leaf_subst_layouts
+        if linear:
+            return pyop3.expr.buffer.LinearDatBufferExpression(
+                self.buffer, self.axes.subst_layouts()[self.axes.leaf_path]
+            )
+        else:
+            return pyop3.expr.buffer.NonlinearDatBufferExpression(
+                self.buffer, self.axes.subst_layouts()
+            )
 
     @property
     def dtype(self):
@@ -368,7 +372,7 @@ class Dat(Tensor):
     @property
     def data_ro(self) -> np.ndarray:
         """Return a read-only view of the data stored by the dat."""
-        return self.as_array("ro", self.axes.block_shape)
+        return self.as_array("ro")
 
     @property
     def data_ro_with_halos(self):
@@ -377,12 +381,12 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("ro", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("ro", include_ghosts=True)
 
     @property
     def data_wo(self) -> np.ndarray:
         """Return a write-only view of the data stored by the dat."""
-        return self.as_array("wo", self.axes.block_shape)
+        return self.as_array("wo")
 
     @property
     def data_wo_with_halos(self):
@@ -391,12 +395,12 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("wo", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("wo", include_ghosts=True)
 
     @property
     def data_rw(self) -> np.ndarray:
         """Return a modifiable view of the data stored by the dat."""
-        return self.as_array("rw", self.axes.block_shape)
+        return self.as_array("rw")
 
     @property
     def data_rw_with_halos(self) -> np.ndarray:
@@ -405,25 +409,28 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array("rw", self.axes.block_shape, include_ghosts=True)
+        return self.as_array("rw", include_ghosts=True)
 
+    # TODO: eventually deprecate this
     @property
-    @deprecated(".data_rw")
     def data(self):
         return self.data_rw
 
+    # TODO: eventually deprecate this
     @property
-    @deprecated(".data_rw_with_halos")
     def data_with_halos(self):
         return self.data_rw_with_halos
 
     def as_array(
         self,
         mode: Literal["ro", "wo", "rw"],
-        block_shape: tuple[numbers.Integral, ...] = (),
+        block_shape: tuple[numbers.Integral, ...] | None = None,
         *,
         include_ghosts: bool = False,
     ) -> ArrayT:
+        if block_shape is None:
+            block_shape = self.axes.block_shape
+
         match mode:
             case "ro":
                 array = self.buffer.data_ro
@@ -448,7 +455,10 @@ class Dat(Tensor):
         if isinstance(indices, slice) or mode == "ro":
             # Either using a view or readonly, safe to use numpy indexing as
             # writeback issues are not relevant
-            return array[indices].reshape((-1, *block_shape))
+            array = array[indices]
+            # trick to get around a numpy error for zero sized things
+            shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
+            return array.reshape(shape, copy=False)
         else:
             return pyop3.arrayref.ArrayReference(array, indices, block_shape)
 
@@ -460,15 +470,15 @@ class Dat(Tensor):
 
     @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("ro", self.axes.block_shape)
+        return self.as_vec("ro")
 
     @property
     def vec_wo(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("wo", self.axes.block_shape)
+        return self.as_vec("wo")
 
     @property
     def vec_rw(self) -> GeneratorType[PETSc.Vec]:
-        return self.as_vec("rw", self.axes.block_shape)
+        return self.as_vec("rw")
 
     @property
     @deprecated(".vec_rw")
@@ -481,89 +491,105 @@ class Dat(Tensor):
     def as_vec(
         self,
         mode: Literal["ro", "rw", "wo"],
-        block_shape: collections.abc.Iterable[int, ...] | int = (),
+        block_shape: collections.abc.Iterable[int, ...] | int | None = None,
     ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
                 f"must be '{PETSc.ScalarType}'"
             )
-
-        # NOTE: We only return a vec containing the owned and unconstrained values
-
-        # If the dat data is a slice of the underlying buffer then views are
-        # used by numpy as so we can avoid copying back and forth into the vec.
-        # TODO: can get this by just accessing the data and seeing if its an arrayref
-        is_view = isinstance(self.axes.owned.buffer_slice(include_ghosts=False), slice)
-        if not is_view:
-            raise NotImplementedError("TODO")
-
-        # parallel correctness
-        if not self.buffer._roots_valid:
-            self.buffer.reduce_leaves_to_roots()
-
-        # TODO: I would like to disallow this as it creates a lot of confusion
         if self._vec_context_is_active:
-            assert is_view
-            # NOTE: Have to be careful that we aren't violating any 'mode' contracts
-            yield self._work_vec
-            return
+            raise pyop3.exceptions.NestedVecContextException(
+                "Cannot nest vec contexts"
+            )
+        if block_shape is None:
+            block_shape = self.axes.block_shape
 
-        # Prepare the work vec
+        # Make sure all root values are correct
+        self.buffer.sync_roots()
+
+        # The block size may change between invocations
+        # TODO: Should reset it back at the end
         block_size = np.prod(block_shape, dtype=int) 
-        if self._work_vec is None:
-            array = self.data_ro
-            sizes = self.axes.template_vec(block_shape).sizes
-            if is_view:
-                vec = PETSc.Vec().createWithArray(array, sizes, block_size, self.comm)
-            else:
-                vec = PETSc.Vec().create(self.comm)
-                vec.setSizes(sizes, block_size)
-            self._work_vec = vec
-        else:
-            # The block size may change between invocations
-            if block_size != self._work_vec.block_size:
-                self._work_vec.setBlockSize(block_size)
+        if block_size != self._work_vec.block_size:
+            self._work_vec.setBlockSize(block_size)
 
-        if is_view:
-            if self._work_vec_buffer_state != self.buffer.state:
-                # Buffer data has changed but PETSc doesn't know this
-                self._work_vec.stateIncrease()
-            self._vec_context_is_active = True
-            yield self._work_vec
+        # if is_view:
+        #     pass
+        #     # if self._work_vec_buffer_state != self.buffer.state:
+        #     #     # Buffer data has changed but PETSc doesn't know this
+        #     #     self._work_vec.stateIncrease()
+        #
+        # else:
+        #     raise NotImplementedError
+        #     # # Not a view, need to copy in and out
+        #     # if self._work_vec_buffer_state == self.buffer.state:
+        #     if False:
+        #         pass
+        #     #     # Buffer data is unchanged so can leave the vec alone
+        #     #     self._vec_context_is_active = True
+        #
+        #     else:
+        #         # Buffer data != vec data - copy required
+        #         # Note that state tracking is handled internally for this case
+        #         match mode:
+        #             case "ro":
+        #                 self._work_vec.array_w[...] = self.data_ro
+        #             case "wo":
+        #                 self._work_vec.array_w[...] = self.data_wo
+        #             case "rw":
+        #                 self._work_vec.array_w[...] = self.data_rw
+        #             case _:
+        #                 raise AssertionError
 
-        else:
-            # Not a view, need to copy in and out
-            if self._work_vec_buffer_state == self.buffer.state:
-                # Buffer data is unchanged so can leave the vec alone
-                self._vec_context_is_active = True
-                yield self._work_vec
+        initial_state = self.buffer.state
+        self._work_vec.stateSet(initial_state)
 
-            else:
-                # Buffer data != vec data - copy required
-                # Note that state tracking is handled internally for this case
-                match mode:
-                    case "ro":
-                        self._work_vec.array_w[...] = self.data_ro
-                    case "wo":
-                        self._work_vec.array_w[...] = self.data_wo
-                    case "rw":
-                        self._work_vec.array_w[...] = self.data_rw
-                    case _:
-                        raise AssertionError
-                self._vec_context_is_active = True
-                yield self._work_vec
+        # We don't want to allow any modifications to the buffer until we
+        # leave the vec context
+        self.buffer.freeze()
+        self._vec_context_is_active = True
 
-        # Record any state changes on the buffer
-        if mode in {"rw", "wo"}:
-            self.buffer.inc_state()
-            self.buffer._leaves_valid = False
-            self._work_vec.stateIncrease()
+        yield self._work_vec
 
-        # At this point the vec is synchronised with the buffer
-        self._work_vec_buffer_state = self.buffer.state
         self._vec_context_is_active = False
+        self.buffer.unfreeze()
 
+        # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
+        # We could use VecPlaceArray/VecResetArray for this?
+
+        if mode == "ro":
+            assert self._work_vec.stateGet() == initial_state
+        else:
+            # We don't set 'self.buffer.state = self._work_vec.getState()' because
+            # we don't trust PETSc to exhaustively track all modifications.
+            self.buffer.state = max(self._work_vec.stateGet(), self.buffer.state+1)
+            self.buffer._leaves_valid = False
+
+    @property
+    def _work_vec(self) -> PETSc.Vec:
+        if self._lazy_work_vec is None:
+            # Don't use 'self.data_ro' etc because we want control over the parallel
+            # correctness flags and such
+            indices = self.axes.buffer_slice(include_ghosts=False)
+            array = self.buffer._current_device_array[indices]
+            contiguous = isinstance(indices, slice)
+
+            block_size = np.prod(self.axes.block_shape, dtype=int) 
+
+            if contiguous:
+                vec = PETSc.Vec().createWithArray(
+                    array, (array.size, None), block_size, self.comm
+                )
+            else:
+                raise NotImplementedError
+                # vec = PETSc.Vec().create(self.comm)
+                # vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
+                # vec.setType(vec_type)
+                # vec.setSizes(sizes, block_size)
+            self._lazy_work_vec = vec
+
+        return self._lazy_work_vec
 
     @property
     def norm(self) -> numbers.Real:
@@ -620,7 +646,7 @@ class Dat(Tensor):
             raise ValueError
 
         local_result = np.vdot(other.data_ro, self.data_ro)
-        return self.comm.reduce(local_result, op=MPI.SUM)
+        return self.comm.allreduce(local_result, op=MPI.SUM)
 
     @property
     @collective
@@ -648,10 +674,8 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
+        return self.record_new(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
 
-    # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
-    # is this ever used?
     def with_axes(self, axes) -> Dat:
         """Return a view of the current `Dat` with new axes.
 
@@ -666,20 +690,33 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.__record_init__(axes=axes)
+        return self.with_axis_trees([axes])
 
     def null_like(self, **kwargs) -> Dat:
         return self.null(self.axes, dtype=self.dtype, **kwargs)
 
 
 
+# TODO: rename to SymbolicDat
 @pyop3.record.frozenrecord()
 class CompositeDat(Terminal):
+
+    """
+    exprs: expression per leaf path
+    TODO check only leaf paths allowed, I think so?
+    """
 
     # {{{ instance attrs
 
     axis_tree: AxisTree
     exprs: idict[ConcretePathT, ExpressionT]
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.axis_tree),
+            tuple(map(visitor, self.exprs.values())),
+        )
 
     def __init__(self, axis_tree, exprs) -> None:
         assert len(axis_tree._all_region_labels) == 0
@@ -710,7 +747,7 @@ class CompositeDat(Terminal):
 
 # TODO: This has to obey some interface...
 @pyop3.record.record()
-class AggregateDat(pyop3.obj.Pyop3Object):
+class AggregateDat(pyop3.obj.Object):
     """A dat formed of multiple subdats concatenated together."""
 
     DEFAULT_PREFIX: ClassVar[str] = "aggdat"
@@ -728,16 +765,26 @@ class AggregateDat(pyop3.obj.Pyop3Object):
             visitor(self.axis),
         )
 
-    def __init__(self, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None):
+    def __init__(
+        self,
+        subdats,
+        axis: Axis,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         # TODO: check size 1 for each axis component and # components must match # subdats
-
-        self.subdats = subdats
-        self.axis = axis
-        self.name = name
+        object.__setattr__(self, "subdats", subdats)
+        object.__setattr__(self, "axis", axis)
+        object.__setattr__(self, "name", name)
 
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return utils.single_valued(d.comm for d in self.subdats)
 
     @property
     def subtensors(self):
@@ -759,7 +806,7 @@ class AggregateDat(pyop3.obj.Pyop3Object):
         cf_subdats = np.empty_like(self.subdats)
         for loc, subdat in np.ndenumerate(self.subdats):
             cf_subdats[loc] = subdat.with_context(context)
-        return self.__record_init__(subdats=cf_subdats)
+        return self.record_new(subdats=cf_subdats)
 
     @cached_property
     def axes(self) -> AxisTree:

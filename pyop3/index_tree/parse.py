@@ -1,34 +1,44 @@
 from __future__ import annotations
 
-import collections
-import itertools
 import functools
+import itertools
 import numbers
+import types
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
 from typing import Any
 
+import numpy as np
 from immutabledict import immutabledict as idict
 
 import pyop3.exceptions
+import pyop3.index_tree.tree
 from pyop3 import utils
+from pyop3.axis_tree import AxisTree
+from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType
-from pyop3.expr.tensor.dat import Dat
-from pyop3.axis_tree import AxisTree
-from pyop3.axis_tree.tree import AbstractNonUnitAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
-from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
+from pyop3.expr.tensor.dat import Dat
+from pyop3.index_tree.tree import (
+    AffineSliceComponent,
+    Index,
+    IndexTree,
+    LoopIndex,
+    ScalarIndex,
+    Slice,
+    SliceComponent,
+    SubsetSliceComponent,
+)
+from pyop3.utils import (
+    expand_collection_of_iterables,
+)
 
 
 class IncompletelyIndexedException(Pyop3Exception):
     """Exception raised when an axis tree is incompletely indexed by an index tree/forest."""
 
 
-# NOTE: Now really should be plural: 'forests'
-# NOTE: Is this definitely the case? I think at the moment I always return just a single
-# tree per context.
 def as_index_forests(forest: Any, /, axes: AbstractNonUnitAxisTree | None = None, *, strict: bool = False) -> idict:
     """Return a collection of index trees, split by loop context.
 
@@ -135,8 +145,8 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
         (loop_index.id, loop_index.iterset.leaf_paths)})
 
 
-@collect_loop_contexts.register(CalledMap)
-def _(called_map: CalledMap, /) -> OrderedSet:
+@collect_loop_contexts.register
+def _(called_map: pyop3.index_tree.tree.AbstractCalledMap, /) -> OrderedSet:
     return collect_loop_contexts(called_map.index)
 
 
@@ -144,10 +154,11 @@ def _(called_map: CalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(slice)
 @collect_loop_contexts.register(EllipsisType)
 @collect_loop_contexts.register(numbers.Number)
+@collect_loop_contexts.register(pyop3.index_tree.tree.LoopContextFreeLoopIndex)
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
-@collect_loop_contexts.register(UnparsedSlice)
+@collect_loop_contexts.register(utils.Atom)
 def _(index: Any, /) -> OrderedSet:
     return OrderedSet()
 
@@ -171,6 +182,7 @@ def _(index_tree: IndexTree, /, *args, **kwargs) -> tuple[IndexTree]:
 
 
 @_as_index_forest.register(Index)
+@_as_index_forest.register(LoopIndex)
 def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
     cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=idict())
     return tuple(IndexTree(cf_index) for cf_index in cf_indices)
@@ -231,7 +243,7 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 @_as_index_forest.register(Dat)
-@_as_index_forest.register(UnparsedSlice)
+@_as_index_forest.register(utils.Atom)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
     desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
@@ -252,16 +264,12 @@ def _(ellipsis: EllipsisType, /, *, axes, path) -> Index:
     except KeyError:
         raise InvalidIndexTargetException
 
-    return Slice(
-        axis.label,
-        [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
-        label=axis.label,
-    )
+    return Slice(axis.label, [utils.atom(c.label) for c in axis.components])
 
 
-@_desugar_index.register(UnparsedSlice)
-def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
-    return _desugar_index(unparsed.wrappee, axes=axes, path=path)
+@_desugar_index.register
+def _(unparsed: utils.Atom, /, *, axes, path) -> Index:
+    return _desugar_index_label(unparsed.item, axes=axes, path=path)
 
 
 @_desugar_index.register(numbers.Integral)
@@ -276,19 +284,19 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
 
     # single-component axis - return a scalar index
     if len(axis.components) == 1 and axis.component.label is None:
-        component = just_one(axis.components)
+        component = utils.just_one(axis.components)
         index = ScalarIndex(axis.label, component.label, num)
 
     # match on component label
     else:
         try:
-            component = just_one(c for c in axis.components if c.label == num)
+            component = utils.just_one(c for c in axis.components if c.label == num)
         except pyop3.exceptions.EmptyIterableException as err:
             raise ValueError(f"Component label '{num}' does not exist in this axis") from err
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
-            index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
+            index = Slice(axis.label, utils.atom(component.label))
 
     return index
 
@@ -306,23 +314,11 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
 
     if len(axis.components) == 1:
         if slice_is_full:
-            return Slice(
-                axis.label,
-                [AffineSliceComponent(axis.component.label, label=axis.component.label)],
-                label=axis.label,
-            )
+            return Slice(axis.label, utils.atom(axis.component.label))
         else:
-            return Slice(
-                axis.label,
-                [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
-            )
+            return Slice(axis.label, {axis.component.label: slice_})
     elif slice_is_full:
-        # just take everything, keep the labels around (for now, eventually want a special type for this)
-        return Slice(
-            axis.label,
-            [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
-            label=axis.label,
-        )
+        return Slice(axis.label, [utils.atom(c.label) for c in axis.components])
     else:
         # badindexexception?
         # NOTE: We could in principle match multi-component things if the component
@@ -346,14 +342,7 @@ def _(list_: list, /, *, axes, path) -> Slice:
         dat = Dat.from_sequence(list_, IntType)
         return _desugar_index(dat, axes=axes, path=path)
     else:
-        return Slice(
-            axis.label,
-            [
-                AffineSliceComponent(component_label, label=component_label)
-                for component_label in list_
-            ],
-            label=axis.label,
-        )
+        return Slice(axis.label, list_)
 
 @_desugar_index.register(Dat)
 def _(dat: Dat, /, *, axes, path) -> Slice:
@@ -372,26 +361,41 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
 
-@_desugar_index.register(str)
-@_desugar_index.register(tuple)
+@_desugar_index.register
 def _(label: str, /, *, axes, path) -> Index:
+    return _desugar_index_label(label, axes=axes, path=path)
+
+
+def _desugar_index_label(label, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
-    component = just_one(c for c in axis.components if c.label == label)
+    try:
+        component = utils.just_one(c for c in axis.components if c.label == label)
+    except pyop3.exceptions.EmptyIterableException as err:
+        raise ValueError(f"Component label '{label}' does not exist in this axis") from err
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
     else:
-        return Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
+        return Slice(axis.label, utils.atom(component.label))
 
 
 # TODO: This function needs overhauling to work in more cases.
 def complete_index_tree(index_tree: IndexTree, axes: AxisTree) -> IndexTree:
-    return _complete_index_tree_rec(index_tree=index_tree, axes=axes, path=idict(), possible_target_paths_acc=(idict(),))
+    return _complete_index_tree_rec(
+        index_tree=index_tree,
+        axes=axes,
+        path=idict(),
+        possible_target_paths_acc=(idict(),),
+    )
 
 
 def _complete_index_tree_rec(
-    *, index_tree: IndexTree, axes: AxisTree, path: ConcretePathT, possible_target_paths_acc,
+    *,
+    index_tree: IndexTree,
+    axes: AxisTree,
+    path: ConcretePathT,
+    possible_target_paths_acc,
 ) -> IndexTree:
     """Add extra slices to the index tree to match the axes.
 
@@ -446,9 +450,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
 
     if len(matching_target_paths) == 0:
         # axis not found, need to emit a slice
-        slice_ = Slice(
-            axis.label, [AffineSliceComponent(c.label) for c in axis.components]
-        )
+        slice_ = Slice(axis.label, [utils.atom(c.label) for c in axis.components])
         index_tree = IndexTree(slice_)
 
         for axis_component, slice_component_label in zip(
@@ -464,9 +466,9 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
         # If the axis is found in 'target_paths' then this means that it has
         # been addressed by the index tree and hence a slice isn't needed.
         # We simply follow the path of the tree that is addressed and recurse.
-        axis_component_label = utils.single_valued((
+        axis_component_label = utils.single_valued(
             target_path[axis.label] for target_path in matching_target_paths
-        ))
+        )
         axis_path_ = axis_path | {axis.label: axis_component_label}
         if axes.node_map[axis_path_]:
             return _complete_index_tree_with_slices(axes=axes, target_paths=matching_target_paths, axis_path=axis_path_)
@@ -521,11 +523,12 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 @_as_context_free_indices.register(slice)
 @_as_context_free_indices.register(EllipsisType)
 @_as_context_free_indices.register(numbers.Integral)
-@_as_context_free_indices.register(UnparsedSlice)
+@_as_context_free_indices.register(utils.Atom)
 def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT) -> tuple[Slice]:
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 
+@_as_context_free_indices.register(pyop3.index_tree.tree.LoopContextFreeLoopIndex)
 @_as_context_free_indices.register(Slice)
 @_as_context_free_indices.register(ScalarIndex)
 def _(index, /, loop_context: Mapping, **kwargs) -> tuple[Index]:
@@ -534,16 +537,21 @@ def _(index, /, loop_context: Mapping, **kwargs) -> tuple[Index]:
 
 @_as_context_free_indices.register(LoopIndex)
 def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
-    if loop_index.is_context_free:
-        return (loop_index,)
-    else:
-        path = loop_context[loop_index.id]
-        linear_iterset = loop_index.iterset.linearize(path)
-        return (loop_index.__record_init__(iterset=linear_iterset),)
+    path = loop_context[loop_index.id]
+    linear_iterset = loop_index.iterset.linearize(path)
+    cf_loop_index = pyop3.index_tree.LoopContextFreeLoopIndex(
+        iterset=linear_iterset, label=loop_index.label
+    )
+    return (cf_loop_index,)
 
 
-@_as_context_free_indices.register(CalledMap)
-def _(called_map, /, loop_context, **kwargs):
+@_as_context_free_indices.register
+def _(
+    called_map: pyop3.index_tree.tree.AbstractCalledMap,
+    /,
+    loop_context,
+    **kwargs,
+):
     cf_maps = []
     cf_indices = _as_context_free_indices(called_map.index, loop_context)
 
@@ -584,14 +592,73 @@ def _(called_map, /, loop_context, **kwargs):
 
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
-            restricted_connectivity = {input_path: (output_spec,)}
-            restricted_map = Map(restricted_connectivity, called_map.name)(cf_index)
+            restricted_connectivity = idict({input_path: (output_spec,)})
+            restricted_map = called_map.map.record_new(connectivity=restricted_connectivity)(cf_index)
             cf_maps.append(restricted_map)
     return tuple(cf_maps)
 
 
 def as_context_free_index_tree(index_tree: IndexTree, loop_context) -> IndexTree:
     index_forests = as_index_forests(index_tree)
-    loop_context_, index_forest = just_one(index_forests.items())
+    loop_context_, index_forest = utils.just_one(index_forests.items())
     assert loop_context_ == loop_context
-    return just_one(index_forest)
+    return utils.just_one(index_forest)
+
+
+@functools.singledispatch
+def _parse_slice_components(components):
+    raise TypeError
+
+
+@_parse_slice_components.register
+def _(components: tuple | list) -> tuple[SliceComponent]:
+    return tuple(map(_parse_slice_component, components))
+
+
+@_parse_slice_components.register
+def _(component: SliceComponent, /) -> tuple[SliceComponent]:
+    return (component,)
+
+
+@_parse_slice_components.register
+def _(components: Mapping) -> tuple[SliceComponent]:
+    new_components = []
+    for label, slice_info in components.items():
+        if isinstance(slice_info, slice):
+            new_component = AffineSliceComponent.from_slice(label, slice_info)
+        elif isinstance(slice_info, np.ndarray):
+            new_component = SubsetSliceComponent(label, slice_info)
+        else:
+            raise NotImplementedError
+        new_components.append(new_component)
+    return tuple(new_components)
+
+
+@_parse_slice_components.register
+def _(
+    label: str | numbers.Number | types.NoneType | utils.Atom,
+    /,
+) -> tuple[AffineSliceComponent]:
+    return (_parse_slice_component(label),)
+
+
+@functools.singledispatch
+def _parse_slice_component(obj: Any, /) -> SliceComponent:
+    raise TypeError
+
+
+@_parse_slice_component.register
+def _(component: SliceComponent, /) -> SliceComponent:
+    return component
+
+
+@_parse_slice_component.register
+def _(component: utils.Atom, /) -> AffineSliceComponent:
+    return AffineSliceComponent(component.item)
+
+
+@_parse_slice_component.register
+def _(label: str | numbers.Number | types.NoneType, /) -> AffineSliceComponent:
+    return AffineSliceComponent(label)
+
+

@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
@@ -7,40 +8,58 @@ from pyop3.dtypes import IntType
 
 import petsctools
 import firedrake
-import firedrake.cython.dmcommon as dmcommon
 from functools import cached_property
 
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
+import firedrake.cython.dmcommon as dmcommon
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
 
 
+def make_unoverlapped_dm(dm):
+    """Effectively invert dm.distributeOverlap().
+
+    The resulting plex has the identical data structure as the one before
+    distributeOverlap(). This is algorithmically guaranteed.
+    """
+    tdim = dm.getDimension()
+    dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, ignore_label_halo=True)
+    dm.removeLabel("firedrake_is_ghost")
+    return dm
+
+
 class HierarchyBase(object):
     """Create an encapsulation of an hierarchy of meshes.
 
-    :arg meshes: list of meshes (coarse to fine)
-    :arg coarse_to_fine_cells: list of numpy arrays for each level
-       pair, mapping each coarse cell into fine cells it intersects.
-    :arg fine_to_coarse_cells: list of numpy arrays for each level
-       pair, mapping each fine cell into coarse cells it intersects.
-    :arg refinements_per_level: number of mesh refinements each
-       multigrid level should "see".
-    :arg nested: Is this mesh hierarchy nested?
+    Parameters
+    ----------
+    meshes :
+        List of meshes (coarse to fine).
+    coarse_to_fine_cells :
+        List of numpy arrays for each level pair, mapping each coarse cell
+        into fine cells it intersects.
+    fine_to_coarse_cells :
+        List of numpy arrays for each level pair, mapping each fine cell into
+        coarse cells it intersects.
+    refinements_per_level :
+        Number of mesh refinements each multigrid level should "see".
+    nested :
+        Is this mesh hierarchy nested?
 
-    .. note::
+    Notes
+    -----
+    Most of the time, you do not need to create this object yourself, instead
+    using `MeshHierarchy`, `ExtrudedMeshHierarchy`, or `NonNestedHierarchy`.
 
-       Most of the time, you do not need to create this object
-       yourself, instead using :func:`MeshHierarchy`,
-       :func:`ExtrudedMeshHierarchy`, or :func:`NonNestedHierarchy`.
     """
     def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
                  refinements_per_level=1, nested=False):
         petsctools.cite("Mitchell2016")
-        self._meshes = tuple(meshes)
-        self.meshes = tuple(meshes[::refinements_per_level])
+        self._meshes = list(meshes)
+        self.meshes = self._meshes[::refinements_per_level]
         self.coarse_to_fine_cells = coarse_to_fine_cells
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
@@ -73,13 +92,99 @@ class HierarchyBase(object):
         :arg idx: The :func:`~.Mesh` to return"""
         return self.meshes[idx]
 
+    def add_mesh(self, mesh, coarse_to_fine_cells=None, fine_to_coarse_cells=None):
+        """Add a mesh on top of the finest level of the hierarchy.
 
-def MeshHierarchy(mesh, refinement_levels,
+        Only supported for hierarchies with ``refinements_per_level == 1``.
+
+        Parameters
+        ----------
+        mesh :
+            The mesh to add, usually obtained by calling
+            :meth:`~firedrake.mesh.MeshGeometry.refine_marked_elements` on the
+            current finest mesh.
+        coarse_to_fine_cells :
+            Map from the cells of the current finest mesh to the cells of
+            ``mesh``. Defaults to the map ``mesh`` recorded when it was
+            adaptively refined.
+        fine_to_coarse_cells :
+            Map from the cells of ``mesh`` to the cells of the current finest
+            mesh. Defaults the same way as ``coarse_to_fine_cells``.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was added.
+
+        """
+        if self.refinements_per_level != 1:
+            raise NotImplementedError("Cannot add a mesh to a hierarchy with "
+                                      "refinements_per_level > 1")
+        if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
+            if mesh.adaptive_parent is self[-1]:
+                coarse_to_fine_cells, fine_to_coarse_cells = mesh.adaptive_cell_maps
+            elif self.nested:
+                raise ValueError("Expecting a mesh adaptively refined from the finest "
+                                 "level of this hierarchy, or explicit cell maps")
+
+        level = len(self.meshes)
+        self._meshes.append(mesh)
+        self.meshes.append(mesh)
+        set_level(mesh, self, level)
+        mesh.topology_dm.setRefineLevel(level)
+        self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
+        self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+        return mesh
+
+    def adapt(self, eta, theta: float):
+        """Add a new mesh to the hierarchy by locally refining the finest mesh
+        with a simplified variant of Dorfler marking.
+
+        Parameters
+        ----------
+        eta :
+            A DG0 :class:`~firedrake.function.Function` with the local error estimator.
+        theta :
+            The threshold for marking as a fraction of the maximum error.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was added.
+
+        Note
+        ----
+        Dorfler marking involves sorting all of the elements by decreasing
+        error estimator and taking the minimal set that exceeds some fixed
+        fraction of the total error. What this code implements is the simpler
+        variant that doesn't have a proof of convergence (as far as I know)
+        but works as well in practice.
+
+        """
+        if not isinstance(eta, (firedrake.Function, firedrake.Cofunction)):
+            raise TypeError(f"eta must be a Function or Cofunction, not a {type(eta).__name__}")
+        M = eta.function_space()
+        if M.finat_element.space_dimension() != 1:
+            raise ValueError("eta must be a Function or Cofunction in DG0")
+        mesh = self[-1]
+        if M.mesh() is not mesh:
+            raise ValueError("eta must be defined on the finest mesh of the hierarchy")
+
+        # Take the maximum over all processes
+        with eta.dat.vec_ro as evec:
+            _, eta_max = evec.max()
+
+        markers = firedrake.Function(M)
+        markers.dat.data_wo[eta.dat.data_ro > theta * eta_max] = 1
+        return self.add_mesh(mesh.refine_marked_elements(markers))
+
+
+def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
                   netgen_flags=False,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh):
+                  mesh_builder=firedrake.Mesh, nested=True):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -87,9 +192,12 @@ def MeshHierarchy(mesh, refinement_levels,
     mesh : MeshGeometry
         the coarse mesh to refine
     refinement_levels : int
-        the number of levels of refinement
+        the number of levels of uniform refinement. This may be dynamically
+        increased by :meth:`HierarchyBase.adapt` or
+        :meth:`HierarchyBase.add_mesh`.
     refinements_per_level : int
         the number of refinements for each level in the hierarchy.
+        Adaptive refinement only supports one refinement per level.
     netgen_flags : bool, dict
         either a bool or a dictionary containing options for Netgen.
         If not False the hierachy is constructed using ngsPETSc, if
@@ -109,10 +217,16 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     mesh_builder
         Function to turn a DM into a ``Mesh``. Used by pyadjoint.
+    nested : bool
+        Are the meshes added to this hierarchy required to be nested? If
+        `False`, :meth:`HierarchyBase.add_mesh` accepts a mesh that was not
+        adaptively refined from the finest level.
+
     Returns
     -------
-    A :py:class:`HierarchyBase` object representing the
-    mesh hierarchy.
+    HierarchyBase
+        The mesh hierarchy.
+
     """
 
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
@@ -124,58 +238,62 @@ def MeshHierarchy(mesh, refinement_levels,
         else:
             raise RuntimeError("Cannot create a NetgenHierarchy from a mesh that has not been generated by\
                                 Netgen.")
-    # Effectively "invert" addOverlap().
-    # -- The resulting plex is to have the identical data structure as the one before addOverlap().
-    #    This is algorithmically guaranteed.
-    tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
-    cdm.removeLabel("firedrake_is_ghost")
-    cdm.setRefinementUniform(True)
-    dms = [cdm]
     if callbacks is not None:
         before, after = callbacks
     else:
         before = after = lambda dm, i: None
+
+    # Refine an unoverlapped plex at each level. Keeping every dm here
+    # unoverlapped means overlap only ever needs to be added once, by
+    # mesh_builder below.
+    cdm = mesh.topology_dm
+    if refinement_levels > 0:
+        cdm = make_unoverlapped_dm(cdm)
+        cdm.setRefinementUniform(True)
+    dms = [cdm]
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
             before(cdm, i)
         rdm = cdm.refine()
         if i % refinements_per_level == 0:
             after(rdm, i)
-        dms.append(rdm)
-        cdm = rdm
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
             # of the boundary we're trying to conform to.  This
             # doesn't DTRT really for cubed sphere meshes (the
             # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
+            coords = rdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
-    lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
+
+        dms.append(rdm)
+        cdm = rdm
+
+    # Build a mesh for each level, adding overlap here.
     parameters = {}
     if distribution_parameters is not None:
         parameters.update(distribution_parameters)
     else:
         parameters.update(mesh._distribution_parameters)
     parameters["partition"] = False
-    meshes = [mesh] + [
-        mesh_builder(
-            dm,
+
+    meshes = [mesh]
+    for rdm in dms[1:]:
+        fmesh = mesh_builder(
+            rdm,
             dim=mesh.geometric_dimension,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,
         )
-        for dm in dms[1:]
-    ]
-    lgmaps_with_overlap = []
-    for i, m in enumerate(meshes):
-        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
-        m.topology_dm.setRefineLevel(i)
+        meshes.append(fmesh)
+
+    # Build local-to-global maps and coarse/fine cell maps between
+    # consecutive levels.
     lgmaps = [
-        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
+        (impl.create_lgmap(dm), impl.create_lgmap(m.topology_dm))
+        for dm, m in zip(dms, meshes)
     ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
@@ -185,12 +303,16 @@ def MeshHierarchy(mesh, refinement_levels,
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
+    for i, m in enumerate(meshes):
+        # Firedrake counts multigrid levels, PETSc counts refinements
+        m.topology_dm.setRefineLevel(i)
+
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
                                 for i, c2f in enumerate(coarse_to_fine_cells))
     fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
                                 for i, f2c in enumerate(fine_to_coarse_cells))
     return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=True)
+                         refinements_per_level, nested=nested)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
@@ -372,7 +494,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
                            gdim=gdim)
               for layer in layers]
     refinements_per_level = 1
-    identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)
+    identity = np.arange(base_mesh.cells.owned.local_size, dtype=IntType).reshape(-1, 1)
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), identity)
                                 for i in range(nref))
     fine_to_coarse_cells = dict((Fraction(i+1, refinements_per_level), identity)
@@ -380,6 +502,15 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
                          refinements_per_level=refinements_per_level,
                          nested=True)
+
+
+def AdaptiveMeshHierarchy(*args, **kwargs):
+    """Deprecated alias for `MeshHierarchy`."""
+    warnings.warn(
+        "The ``AdaptiveMeshHierarchy`` constructor is deprecated and will be removed in a future "
+        "release. Please use the ``MeshHierarchy`` constructor instead.", FutureWarning
+    )
+    return MeshHierarchy(*args, **kwargs)
 
 
 def NonNestedHierarchy(*meshes):

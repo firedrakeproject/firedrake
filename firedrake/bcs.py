@@ -96,8 +96,6 @@ class BCBase:
         fs = self._function_space
         if fs.component is not None:
             fs = fs.parent
-        if fs.index is None:
-            raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
     @cached_property
@@ -205,8 +203,8 @@ class BCBase:
         with temp_internal_comm(self._function_space.mesh().comm) as icomm:
             num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
             if num_global_nodes == 0 and icomm.rank == 0:
-                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
-                            "Did you choose the right label?")
+                logger.warning(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                               "Did you choose the right label?")
 
         return bcnodes
 
@@ -225,7 +223,6 @@ class BCBase:
         offset_expr = self._function_space.nodal_axes[n].layouts[idict({"nodes": None})]
         raise NotImplementedError("TODO, not using at the moment AIUI")
         op3.loop(n, node_offsets[n].assign(offset_expr), eager=True)
-        breakpoint()
         return node_offsets
 
     @cached_property
@@ -233,7 +230,7 @@ class BCBase:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
         subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
-        subset = op3.Subset(None, subset_dat)
+        subset = op3.SubsetSliceComponent(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
     @PETSc.Log.EventDecorator()
@@ -797,4 +794,4 @@ def restricted_function_space(V, ids):
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces, name=V.name)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name, _labels=V._labels)

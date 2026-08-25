@@ -130,7 +130,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             integral_type = self._domain_integral_type_map[domain]
             if integral_type is None:
                 # See comment in prepare_coefficient.
-                self._cell_orientations[domain] = None
+                self._cell_orientations[domain] = (None, None)
             elif integral_type.startswith("interior_facet"):
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (2,), dtype=gem.uint_type)
                 self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),
@@ -470,7 +470,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             elif integral_type == "exterior_facet_vert":
                 ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetVertKernelArg)
             else:
-                ext_dict[domain] = None
+                ext_dict[domain] = (None, None)
         active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
@@ -486,7 +486,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             elif integral_type == "interior_facet_vert":
                 int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetVertKernelArg)
             else:
-                int_dict[domain] = None
+                int_dict[domain] = (None, None)
         active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
@@ -496,7 +496,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         cell_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            cell_dict[domain] = (expr[None].expression, kernel_args.OrientationsCellKernelArg) if integral_type == "cell" else None
+            cell_dict[domain] = (expr[None].expression, kernel_args.OrientationsCellKernelArg) if integral_type == "cell" else (None, None)
         active_domain_numbers_orientations_cell, args_ = self.make_active_domain_numbers(
             cell_dict,
             active_variables,
@@ -506,7 +506,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = (expr[None].expression, kernel_args.OrientationsExteriorFacetKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+            ext_dict[domain] = (expr[None].expression, kernel_args.OrientationsExteriorFacetKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else (None, None)
         active_domain_numbers_orientations_exterior_facet, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
@@ -516,7 +516,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         int_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = (expr['+'].expression, kernel_args.OrientationsInteriorFacetKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
+            int_dict[domain] = (expr['+'].expression, kernel_args.OrientationsInteriorFacetKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else (None, None)
         active_domain_numbers_orientations_interior_facet, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
@@ -581,12 +581,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         active_dns = []
         args = []
-        for i, expr in enumerate(domain_expr_dict.values()):
+        for i, (expr, kernel_arg_type) in enumerate(domain_expr_dict.values()):
             if expr is None:
-                var = None
-            else:
-                (expr, kernel_arg_type) = expr
-                var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
+                continue
+
+            var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr,), gem.Variable)
             if var in active_variables:
                 funarg = self.generate_arg_from_expression(expr, dtype=dtype)
                 args.append(kernel_arg_type(funarg))

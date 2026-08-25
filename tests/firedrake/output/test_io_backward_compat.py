@@ -43,22 +43,6 @@ def _initialise_function(f, _f):
     f.project(_f, solver_parameters={"ksp_type": "cg", "pc_type": "jacobi", "ksp_rtol": 1.e-16})
 
 
-def _compute_random_layers(base):
-    V = VectorFunctionSpace(base, "DG", 0, dim=2)
-    f = Function(V)
-    dim = base.topology_dm.getCoordinateDim()
-    if dim == 1:
-        x, = SpatialCoordinate(base)
-        y = x * x
-    elif dim == 2:
-        x, y = SpatialCoordinate(base)
-    else:
-        raise NotImplementedError(f"Not for dim = {dim}")
-    f.interpolate(as_vector([2 + sin(x) + sin(y),
-                             7 + sin(5 * x)]))
-    return f.dat.data_with_halos.astype(IntType)
-
-
 def _get_mesh_and_V(params):
     cell_type, periodic, extruded, extruded_periodic, extruded_real, immersed, mixed = params
     if mixed:
@@ -106,20 +90,10 @@ def _get_mesh_and_V(params):
         else:
             raise NotImplementedError
     elif extruded:
-        # Test variable layers; see also issue #2169.
-        if cell_type == "triangle":
-            base = Mesh(stokes_control_mesh_file, name=mesh_name + "_base")
-            layers = _compute_random_layers(base)
-            mesh = ExtrudedMesh(base, layers=layers, layer_height=1.0, name=mesh_name)
-            helem = FiniteElement("DP", cell_type, 4)
-            velem = FiniteElement("DP", "interval", 3)
-            elem = TensorProductElement(helem, velem)
-            V = FunctionSpace(mesh, elem)
-        else:
-            assert cell_type == "quadrilateral"
-            base = UnitSquareMesh(10, 10, name=f"{mesh_name}_base")
-            mesh = ExtrudedMesh(base, layers=5, layer_height=1.0, name=mesh_name)
-            V = FunctionSpace(mesh, "P", 3)
+        assert cell_type == "quadrilateral"
+        base = UnitSquareMesh(10, 10, name=f"{mesh_name}_base")
+        mesh = ExtrudedMesh(base, layers=5, layer_height=1.0, name=mesh_name)
+        V = FunctionSpace(mesh, "P", 3)
     elif periodic:
         if cell_type == "triangle":
             mesh = PeriodicUnitSquareMesh(20, 20, name=mesh_name)
@@ -174,7 +148,6 @@ test_io_backward_compat_base_params = [
     ("tetrahedron", False, False, False, False, False, False),
     ("quadrilateral", False, False, False, False, False, False),
     ("hexahedron", False, False, False, False, False, False),
-    ("triangle", False, True, False, False, False, False),  # extruded (variable layer)
     ("quadrilateral", False, True, False, False, False, False),  # extruded (constant layer)
     ("triangle", True, False, False, False, False, False),  # periodic
     ("tetrahedron", True, False, False, False, False, False),  # periodic

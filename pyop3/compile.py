@@ -32,34 +32,41 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from abc import ABC
+import ctypes
 import dataclasses
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
-import ctypes
-import shlex
-from hashlib import md5
-from packaging.version import Version, InvalidVersion
-from textwrap import dedent
-from functools import partial
-from pathlib import Path
+from abc import ABC
+from collections.abc import Hashable
 from contextlib import contextmanager
-from tempfile import gettempdir, mkstemp
-from typing import Hashable, Self
+from functools import partial
+from hashlib import md5
+from pathlib import Path
 from random import randint
+from tempfile import gettempdir, mkstemp
+from textwrap import dedent
+from typing import Self
 
 import petsctools
 from mpi4py import MPI
+from packaging.version import InvalidVersion, Version
 from petsc4py import PETSc
 
 import pyop3.config
 from pyop3 import mpi
-from pyop3.cache import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
+from pyop3.cache import (
+    DictLikeDiskAccess,
+    as_hexdigest,
+    default_parallel_hashkey,
+    memory_cache,
+    parallel_cache,
+)
 from pyop3.exceptions import CompilationException
-from pyop3.log import warning, debug, progress, INFO
+from pyop3.log import INFO, debug, progress, warning
 
 
 def _check_hashes(x, y, datatype):
@@ -149,6 +156,7 @@ def sniff_compiler_version(compiler, cpp=False):
     return version
 
 
+@parallel_cache()
 def sniff_compiler(exe, comm=mpi.COMM_WORLD):
     """Obtain the correct compiler class by calling the compiler executable.
 
@@ -175,9 +183,7 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
         # Find the name of the compiler family
         if output.startswith("gcc") or output.startswith("g++"):
             name = "GNU"
-        elif output.startswith("clang") or output.startswith("Homebrew clang"):
-            name = "clang"
-        elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
+        elif output.startswith("clang") or output.startswith("Homebrew clang") or output.startswith("Apple LLVM") or output.startswith("Apple clang"):
             name = "clang"
         elif output.startswith("icc"):
             name = "Intel"

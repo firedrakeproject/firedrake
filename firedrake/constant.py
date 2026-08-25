@@ -13,8 +13,7 @@ from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
 from ufl.core.ufl_type import UFLType
 from ufl.corealg.multifunction import MultiFunction
 from ufl.formatting.ufl2unicode import (
-    Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
-    colorama,
+    Expression2UnicodeHandler, UC, subscript_number, colorama,
 )
 from functools import cached_property
 from ufl.utils.counted import Counted
@@ -118,13 +117,13 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """
         if component in ((), None):
             if self.ufl_shape == ():
-                return self.dat.data_ro[0]
-            return self.dat.data_ro
-        return self.dat.data_ro[component]
+                return self.dat.data_ro_with_halos[0]
+            return self.dat.data_ro_with_halos
+        return self.dat.data_ro_with_halos[component]
 
     def values(self):
         """Return a (flat) view of the value of the Constant."""
-        return self.dat.data_ro.reshape(-1)
+        return self.dat.data_ro_with_halos.reshape(-1)
 
     def function_space(self):
         """Return a null function space."""
@@ -150,7 +149,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """
         if self.ufl_shape and np.array(value).shape != self.ufl_shape:
             raise ValueError("Cannot assign to constant, value has incorrect shape")
-        self.dat.data_wo[...] = value
+        self.dat.data_wo_with_halos[...] = value
         return self
 
     def zero(self):
@@ -170,7 +169,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
     def __str__(self):
-        return str(self.dat.data_ro)
+        return str(self.dat.data_ro_with_halos)
 
 
 # Unicode handler for Firedrake constants
@@ -186,7 +185,7 @@ def _unicode_format_firedrake_constant(self, o):
 
 
 # This monkey patches ufl2unicode support for Firedrake constants
-Expression2UnicodeHandler.firedrake_constant = _unicode_format_firedrake_constant
+Expression2UnicodeHandler.process.register(Constant, _unicode_format_firedrake_constant)
 
 # This is internally done in UFL by the ufl_type decorator, but we cannot
 # do the same here, because we want to use the class name Constant
@@ -203,4 +202,3 @@ terminal_classes.add(Constant)
 
 # These caches need rebuilding for the new type to be registered
 MultiFunction._handlers_cache = {}
-ufl.formatting.ufl2unicode._precrules = PrecedenceRules()

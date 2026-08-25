@@ -6,7 +6,6 @@ import pprint
 import numpy as np
 from immutabledict import immutabledict as idict
 
-from pyop3 import utils
 from pyop3.exceptions import ValueMismatchException
 
 
@@ -42,6 +41,10 @@ class UniqueList(list):
         if value in self:
             raise ValueMismatchException
         return super().append(value)
+
+    def extend(self, other, /) -> None:
+        for item in other:
+            self.append(item)
 
 
 class AbstractOrderedSet:
@@ -97,9 +100,10 @@ class OrderedSet(AbstractOrderedSet):
             values = []
         else:
             assert is_ordered_sequence(values) or len(values) < 2
-            values = list(values)
 
-        self._values = values
+        self._values = []
+        for item in values:
+            self.add(item)
 
     def index(self, value) -> int:
         return self._values.index(value)
@@ -121,12 +125,23 @@ class OrderedSet(AbstractOrderedSet):
             for item in other:
                 self.add(item)
 
+    def remove(self, value):
+        try:
+            index = self._values.index(value)
+        except ValueError:
+            raise KeyError
+        else:
+            self._values.pop(index)
+
+    def clear(self):
+        self._values.clear()
+
 
 class OrderedFrozenSet(AbstractOrderedSet):
 
     def __init__(self, values: collections.abc.Sequence = (), /) -> None:
         assert is_ordered_sequence(values) or len(values) < 2
-        self._values = utils.unique(values)
+        self._values = unique(values)
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
@@ -154,6 +169,13 @@ _ordered_sequence_types = (
 )
 
 
+def as_tuple(item: Any) -> tuple[Any, ...]:
+    if isinstance(item, _ordered_sequence_types):
+        return tuple(item)
+    else:
+        return (item,)
+
+
 def is_ordered_mapping(obj: Mapping) -> bool:
     return isinstance(obj, _ordered_mapping_types)
 
@@ -162,3 +184,9 @@ def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
     return isinstance(obj, _ordered_sequence_types)
 
 
+def unique(iterable) -> tuple[Any]:
+    unique_items = []
+    for item in iterable:
+        if item not in unique_items:
+            unique_items.append(item)
+    return tuple(unique_items)

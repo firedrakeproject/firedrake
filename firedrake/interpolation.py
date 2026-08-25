@@ -7,9 +7,10 @@ import os
 import tempfile
 import abc
 
+import dataclasses
 from functools import cached_property, partial
 from typing import Hashable, Literal, Callable, Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
@@ -39,7 +40,7 @@ from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh, get_iteration_spec
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
@@ -151,7 +152,13 @@ class Interpolate(UFLInterpolate):
     def _ufl_expr_reconstruct_(
             self, expr: Expr, v: WithGeometry | BaseForm | None = None, **interp_data
     ):
-        interp_data = interp_data or asdict(self.options)
+        # Note that we can't use dataclasses.asdict here because we can't deepcopy
+        # PETSc objects, this is the recommended workaround.
+        options = {
+            field.name: getattr(self.options, field.name)
+            for field in dataclasses.fields(self.options)
+        }
+        interp_data = options | interp_data
         return UFLInterpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
     @property
@@ -186,6 +193,8 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
+            if has_mixed_arguments or len(self.target_space) > 1:
+                return MixedInterpolator(self)
             raise NotImplementedError(
                 "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
             )
@@ -202,19 +211,19 @@ class Interpolate(UFLInterpolate):
             and target_mesh.topological_dimension == source_mesh.topological_dimension
         )
         if target_mesh is source_mesh or submesh_interp_implemented:
-            return SameMeshInterpolator(self)
+            return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
             if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-                return VomOntoVomInterpolator(self)
+                return VomOntoVomInterpolator(self, source_mesh, target_mesh)
             if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
-            return SameMeshInterpolator(self)
+            return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if has_mixed_arguments or len(self.target_space) > 1:
             return MixedInterpolator(self)
 
-        return CrossMeshInterpolator(self)
+        return CrossMeshInterpolator(self, source_mesh, target_mesh)
 
 
 @PETSc.Log.EventDecorator()
@@ -265,16 +274,6 @@ class Interpolator(abc.ABC):
         """The dual argument slot of the Interpolate expression."""
         self.target_space = dual_arg.function_space().dual()
         """The primal space we are interpolating into."""
-        # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
-        self.target_mesh = self.target_space.mesh()
-        """The domain we are interpolating into."""
-
-        try:
-            source_mesh = extract_unique_domain(operand)
-        except ValueError:
-            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
-        self.source_mesh = source_mesh or self.target_mesh
-        """The domain we are interpolating from."""
 
         # Interpolation options
         self.subset = expr.options.subset
@@ -441,8 +440,11 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
     @no_annotations
-    def __init__(self, expr: Interpolate):
+    def __init__(self, expr: Interpolate, source_mesh, target_mesh):
         super().__init__(expr)
+        self.source_mesh = source_mesh
+        self.target_mesh = target_mesh
+
         if self.access and self.access != op3.WRITE:
             raise NotImplementedError(
                 "Access other than op3.WRITE not implemented for cross-mesh interpolation."
@@ -663,6 +665,7 @@ class CrossMeshInterpolator(Interpolator):
                 assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
+                    f.dat.buffer.sync_roots()
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
                     f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
                 else:
@@ -696,28 +699,10 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr):
+    def __init__(self, expr, source_mesh, target_mesh):
         super().__init__(expr)
-        subset = self.subset
-        if subset is None:
-            target = self.target_mesh.unique().topology
-            source = self.source_mesh.unique().topology
-            if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
-                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
-                if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported.")
-                indices_active = composed_map.indices_active_with_halo
-                make_subset = not indices_active.all()
-                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
-                if make_subset:
-                    if not self.allow_missing_dofs:
-                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
-                    raise NotImplementedError
-                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
-                else:
-                    # Do not need subset as target <= source.
-                    pass
-        self.subset = subset
+        self.source_mesh = source_mesh
+        self.target_mesh = target_mesh
 
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
@@ -784,10 +769,10 @@ class SameMeshInterpolator(Interpolator):
         block_shape = (Vrow.block_shape, Vcol.block_shape)
         buffer_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
         sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes, buffer_spec=buffer_spec)
-        iter_spec = get_iteration_spec(self.target_mesh, "cell")
+        loop_index = self.target_mesh.iter("cell")
         op3.loop(
-            c := iter_spec.loop_index,
-            sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
+            c := loop_index,
+            pack(sparsity, loop_index, Vrow, Vcol).assign(666),
             eager=True,
         )
         return sparsity
@@ -795,11 +780,14 @@ class SameMeshInterpolator(Interpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
         pyop3_compiler_parameters = None,
     ):
+        if pyop3_compiler_parameters is None:
+            pyop3_compiler_parameters = {}
+
         mat_type = mat_type or "aij"
         if (
             isinstance(tensor, Cofunction)
             and isinstance(self.dual_arg, Cofunction)
-            and tensor.dat == self.dual_arg.dat
+            and tensor.dat.buffer == self.dual_arg.dat.buffer
         ):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
@@ -835,8 +823,12 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            indices = tuple(self.target_space.field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
-            sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
+            if self.rank == 1:
+                # indices[0] is None if the target space is not a MixedFunctionSpace
+                index = Ellipsis if indices[0] is None else self.ufl_interpolate.function_space().field_axis.component_labels[indices[0]]
+                sub_op2_tensor = op2_tensor[index]
+            else:
+                sub_op2_tensor = op2_tensor
             loops.extend(_build_interpolation_callables(
                 sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
 
@@ -849,7 +841,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data.item()
+                return float(f)
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
@@ -864,8 +856,9 @@ class SameMeshInterpolator(Interpolator):
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    def __init__(self, expr: Interpolate):
-        super().__init__(expr)
+    def __init__(self, expr: Interpolate, source_mesh, target_mesh):
+        super().__init__(expr, source_mesh, target_mesh)
+
         if self.source_mesh.input_ordering is self.target_mesh:
             # The forward interpolation is a star forest reduction
             self.forward_reduce = True
@@ -973,8 +966,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
         sf = self.original_vom.input_ordering_without_halos_sf
-        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        mpi_int = MPI._typedict[numpy.dtype(IntType).char]
+        sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
@@ -1061,9 +1055,25 @@ def _build_interpolation_callables(
     if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
-    # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+
+    # The parloop is always over the target mesh cells. If interpolating
+    # between submeshes then we intersect the source and target cells.
+    if (
+        source_mesh is not target_mesh
+        and source_mesh.submesh_youngest_common_ancestor(target_mesh)
+    ):
+        if subset is not None:
+            raise NotImplementedError("TODO")
+
+        loop_index = target_mesh.iter("cell", intersect_meshes=[source_mesh])
+    else:
+        if subset is not None:
+            loop_index = target_mesh.iter("cell", subdomain_id=subset)
+        else:
+            loop_index = target_mesh.iter("cell")
+
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
@@ -1073,15 +1083,7 @@ def _build_interpolation_callables(
         target_element = runtime_quadrature_element(source_mesh, target_element,
                                                     rt_var_name=rt_var_name)
 
-    iter_spec = get_iteration_spec(target_mesh, "cell")
-
-    if not (subset is None or subset is Ellipsis):
-        raise NotImplementedError
-        assert subset.superset == cell_set
-        cell_set = subset
-
-    parameters = {}
-    parameters['scalar_type'] = ScalarType
+    parameters = {"scalar_type": ScalarType}
 
     copyin = ()
     copyout = ()
@@ -1098,7 +1100,7 @@ def _build_interpolation_callables(
 
         weight = Function(W)
         op3.loop(
-            c := iter_spec.loop_index,
+            c := loop_index,
             weight.dat[target_mesh.closure(c)].iassign(1),
             eager=True,
         )
@@ -1118,7 +1120,7 @@ def _build_interpolation_callables(
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
-    if any(c.dat == tensor for c in coefficients):
+    if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
         if access is not op3.WRITE:
@@ -1129,11 +1131,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, loop_index, V_dest)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1151,17 +1153,17 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = (Vrow.lgmap(bc_rows), Vcol.lgmap(bc_cols))
 
-        packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
+        packed_tensor = pack(tensor, loop_index, Vrow, Vcol)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
-        local_kernel_args.append(pack(source_mesh.cell_orientations(), iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_orientations(), loop_index))
 
     if kernel.needs_cell_sizes:
-        local_kernel_args.append(pack(source_mesh.cell_sizes, iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_sizes, loop_index))
 
     for coefficient in coefficients:
-        local_kernel_args.append(pack(coefficient, iter_spec))
+        local_kernel_args.append(pack(coefficient, loop_index))
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
@@ -1186,23 +1188,15 @@ def _build_interpolation_callables(
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
-
-    if any(c.dat == tensor for c in coefficients):
-        output = tensor
-        tensor = op3.Dat.empty_like(tensor)
-        if access is not op3.WRITE:
-            copyin += (lambda: tensor.assign(output, eager=True),)
-        copyout += (lambda: output.assign(tensor, eager=True),)
-
+                local_kernel_args.append(pack(target_mesh.reference_coordinates, loop_index))
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
-    parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
+    parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 
     def parloop_callable():
-        with modified_lgmaps(tensor, None, lgmaps):
+        with modified_lgmaps(tensor, lgmaps):
             parloop(compiler_parameters=pyop3_compiler_parameters)
 
     if isinstance(tensor, op3.Mat):
@@ -1605,15 +1599,6 @@ class VomOntoVomMatContext:
 
 class MixedInterpolator(Interpolator):
     """Interpolator between MixedFunctionSpaces."""
-    def __init__(self, expr: Interpolate):
-        """Initialise MixedInterpolator. Should not be called directly; use `get_interpolator`.
-
-        Parameters
-        ----------
-        expr : Interpolate
-            Symbolic Interpolate expression.
-        """
-        super().__init__(expr)
 
     def _get_sub_interpolators(
             self, bcs: Iterable[DirichletBC] | None = None
@@ -1665,11 +1650,17 @@ class MixedInterpolator(Interpolator):
             sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        spaces = tuple(a.function_space() for a in self.interpolate_args)
+        shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-        for indices, (interp, sub_bcs) in Isub.items():
-            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
-        return PETSc.Mat().createNest(blocks)
+        for (ridx, cidx), (interp, sub_bcs) in Isub.items():
+            if ridx is None:
+                ridx = 0
+            if cidx is None:
+                cidx = 0
+            blocks[ridx, cidx] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
+        isrows, iscols = (V.field_ises for V in spaces)
+        return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,

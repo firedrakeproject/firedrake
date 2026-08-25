@@ -325,7 +325,7 @@ def test_simple_line():
     f.interpolate(expr)
     g.project(expr)
 
-    assert np.allclose(f.dat.data_ro, vm.coordinates.dat.data_ro**2)
+    assert np.allclose(f.dat.data_ro, vm.coordinates.dat.data_ro.ravel()**2)
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)

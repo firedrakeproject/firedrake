@@ -3,17 +3,19 @@ from enum import Enum
 from functools import cached_property
 from typing import Iterable
 from textwrap import dedent
-from firedrake.mesh import get_iteration_spec
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
 import loopy as lp
 import pyop3 as op3
 import tsfc
+import firedrake
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake.functionspaceimpl import WithGeometry
+from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
@@ -26,6 +28,11 @@ from firedrake import (
     LinearVariationalSolver,
     VertexOnlyMeshTopology,
     PETSc
+)
+
+
+_with_mesh_heavy_cache = op3.cache.with_heavy_caches(
+    lambda self, *a, **kw: extract_mesh_topologies(self.function_space.mesh())
 )
 
 
@@ -215,24 +222,17 @@ class Pyop3NoiseBackend(NoiseBackendBase):
             """
         )
 
-        cholesky_loopy_kernel = lp.make_kernel(
-            [],
-            [lp.CInstruction((), cholesky_code, frozenset({"z", "b", "coords"}), ("b"))],
+        return op3.Function.from_c_string(
+            "apply_cholesky",
+            cholesky_code,
             [
-                lp.GlobalArg("z", "double", None, is_input=True, is_output=False),
-                lp.GlobalArg("b", "double", None, is_input=True, is_output=True),
-                lp.GlobalArg("coords", "double", None, is_input=True, is_output=False),
+                ("z", "double", op3.READ),
+                ("b", "double", op3.INC),
+                ("coords", "double", op3.READ),
             ],
-            name="apply_cholesky",
-            preambles=[
-                ("20_petsc", "#include <petsc.h>"),
-                ("30_preamble", preamble),
-            ],
-            target=tsfc.parameters.target,
-            lang_version=op3.LOOPY_LANG_VERSION,
-        )
-        return op3.Function(
-            cholesky_loopy_kernel, [op3.READ, op3.INC, op3.READ]
+            preambles=[("20_preamble", preamble)],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
         )
 
     def sample(self, *, rng=None,
@@ -258,13 +258,12 @@ class Pyop3NoiseBackend(NoiseBackendBase):
     @cached_property
     def _loop(self) -> op3.Loop:
         mesh = self.function_space.mesh()
-        iter_info = get_iteration_spec(mesh, "cell")
         return op3.loop(
-            iter_info.loop_index,
+            c := mesh.iter("cell"),
             self.cholesky_kernel(
-                pack(self._z, iter_info),
-                pack(self._b, iter_info),
-                pack(mesh.coordinates, iter_info),
+                pack(self._z, c),
+                pack(self._b, c),
+                pack(mesh.coordinates, c),
             ),
         )
 
@@ -285,7 +284,18 @@ class PetscNoiseBackend(NoiseBackendBase):
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
+        self.Cz = Cofunction(self.broken_space.dual())
+        self.b = Cofunction(self.function_space.dual())
 
+    @cached_property
+    def interpolator(self):
+        return firedrake.get_interpolator(firedrake.interpolate(TestFunction(self.function_space), self.Cz))
+
+        v, = self.arguments()
+        interp = interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
+
+    @_with_mesh_heavy_cache
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -296,12 +306,15 @@ class PetscNoiseBackend(NoiseBackendBase):
         z = rng.standard_normal(self.broken_space)
         # C z
         self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
+        assemble(self.M, tensor=self.Cz)
         # L C z
-        b = Cofunction(V.dual()).interpolate(Cz)
+        # not sure about self.b
+        self.interpolator.assemble(tensor=self.b)
 
         if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
+            b = self.b.riesz_representation(self.riesz_map)
+        else:
+            b = self.b
 
         if tensor:
             tensor.assign(b)

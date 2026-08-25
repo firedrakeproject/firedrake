@@ -117,6 +117,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
+        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
+
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -287,6 +289,8 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
+        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
+
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -457,13 +461,10 @@ def test_star_coloring(extruded):
         its[color] = solver.snes.getLinearSolveIterations()
 
         if color:
-            colors = mesh.topology_dm.createColoring(depth=0, distance=1)
-            expected = len(colors)
-            if extruded:
-                expected *= 2
+            expected = len(mesh.topology_dm.createColoring(depth=0, distance=1))
         else:
             CG1 = FunctionSpace(mesh, "Lagrange", 1)
-            pstart, pend = CG1.dof_dset.layout_vec.getOwnershipRange()
+            pstart, pend = CG1.template_vec.getOwnershipRange()
             expected = pend - pstart
         assert npatches == expected
 
@@ -531,7 +532,7 @@ def test_vanka_coloring():
             colors = plex.createColoring(depth=0, distance=3)
             expected = len(colors)
         else:
-            pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()
+            pstart, pend = Q.template_vec.getOwnershipRange()
             expected = pend - pstart
         assert npatches == expected
 

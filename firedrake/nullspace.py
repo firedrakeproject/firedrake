@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import numpy
 
 from pyop3.mpi import COMM_WORLD
 
+import firedrake
 from firedrake import function
 from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
@@ -11,7 +14,7 @@ from firedrake.petsc import PETSc
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
 
 
-class VectorSpaceBasis(object):
+class VectorSpaceBasis:
     r"""Build a basis for a vector space.
 
     You can use this basis to express the null space of a singular operator.
@@ -96,6 +99,24 @@ class VectorSpaceBasis(object):
             vec.normalize()
         self.check_orthogonality()
         self._ad_orthogonalized = True
+
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> VectorSpaceBasis:
+        r"""Reconstruct this basis on a new function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        VectorSpaceBasis
+            The basis vectors interpolated onto `function_space` and re-orthonormalized.
+        """
+        vecs = [function.Function(function_space).interpolate(vec) for vec in self._vecs]
+        new_basis = VectorSpaceBasis(vecs, constant=self._constant, comm=self.comm)
+        new_basis.orthonormalize()
+        return new_basis
 
     @PETSc.Log.EventDecorator()
     def orthogonalize(self, b):
@@ -182,7 +203,7 @@ class VectorSpaceBasis(object):
         yield self
 
 
-class MixedVectorSpaceBasis(object):
+class MixedVectorSpaceBasis:
     r"""A basis for a mixed vector space
 
     :arg function_space: the :class:`~.MixedFunctionSpace` this vector
@@ -238,6 +259,27 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
+
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> MixedVectorSpaceBasis:
+        r"""Reconstruct this basis on a new mixed function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        MixedVectorSpaceBasis
+            The bases reconstructed on the sub-spaces of `function_space`.
+        """
+        bases = []
+        for V_, basis in zip(function_space, self._bases):
+            if isinstance(basis, VectorSpaceBasis):
+                bases.append(basis.rediscretise(V_))
+            else:
+                bases.append(function_space.sub(basis.index))
+        return MixedVectorSpaceBasis(function_space, bases)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.

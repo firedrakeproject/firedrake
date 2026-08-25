@@ -9,6 +9,25 @@ from petsc4py import PETSc
 cwd = os.path.abspath(os.path.dirname(__file__))
 
 
+def get_mat_sparsity(mat, *nest_indices):
+    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
+    row_ptrs, _ = subpetscmat.getRowIJ()
+    row_sizes = np.full(len(row_ptrs)-1, -1, dtype=int)
+    for row_index, (row_start, row_end) in enumerate(utils.pairwise(row_ptrs)):
+        row_sizes[row_index] = row_end - row_start
+    return row_sizes
+
+
+def get_mat_values(matrix, i, j):
+    if matrix.petscmat.type == "nest":
+        return matrix.petscmat.getNestSubMatrix(i, j)[:, :]
+    else:
+        row_space, column_space = matrix.ufl_function_spaces()
+        row_label = row_space.field_axis.component_labels[i]
+        column_label = column_space.field_axis.component_labels[j]
+        return matrix.M[row_label, column_label].values
+
+
 def test_submesh_assemble_cell_cell_integral_cell():
     dim = 2
     mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
@@ -595,4 +614,4 @@ def test_submesh_assemble_facet_macroelement():
 
     vsub = TestFunction(Vsub)
     aref = assemble(inner(1, vsub)*dx(submesh))
-    assert np.allclose(a.dat[1].data_ro, aref.dat.data_ro)
+    assert np.allclose(a.dat["functionspace1"].data_ro, aref.dat.data_ro)

@@ -21,7 +21,8 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, get_iteration_spec
+from firedrake.cython import dmcommon
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
@@ -225,9 +226,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
             mask[facet_index, topology[tdim - 1][local_facet_index]] = True
         faces = node_map[mask].reshape(-1, tdim)
 
-        facet_indices = get_iteration_spec(mesh, f"{typ}_facet", marker).indices.indices
-
-        return facet_indices, faces
+        facet_plex_indices_is = mesh.iter(f"{typ}_facet", marker).plex_indices_is
+        facet_indices = dmcommon.section_offsets(
+            mesh._plex_to_entity_numbering_sec(f"{typ}_facet"),
+            facet_plex_indices_is,
+        )
+        return facet_indices.indices, faces
 
     # Add colored lines/polygons for the boundary facets
     topology = coordinates.function_space().finat_element.cell.get_topology()
@@ -879,7 +883,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
             x_vals = function_plotter(line.function_space().mesh().coordinates)
             y_vals = function_plotter(line)
             points = np.array([x_vals, y_vals])
-            num_cells = line.function_space().mesh().num_cells
+            num_cells = line.function_space().mesh().num_cells()
             result.append(_interp_bezier(points, num_cells, axes, label=label, **kwargs))
 
     _autoscale_view(axes, None)

@@ -23,6 +23,10 @@ on:
         description: Whether to test a complex build
         type: boolean
         required: true
+      test_int64:
+        description: Whether to test a 64-bit integer build
+        type: boolean
+        required: true
       test_cuda:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
@@ -54,6 +58,10 @@ on:
         description: Whether to test a complex build
         type: boolean
         required: true
+      test_int64:
+        description: Whether to test a 64-bit integer build
+        type: boolean
+        required: true
       test_cuda:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
@@ -80,7 +88,7 @@ env:
   FIREDRAKE_CI: 1
   # NOTE: One should occasionally update test_durations.json by running
   # 'make test_durations' inside a 'firedrake:latest' Docker image.
-  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
+  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1200 --timeout-method=thread -o faulthandler_timeout=1260 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
 
 jobs:
 
@@ -99,7 +107,7 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -210,7 +218,8 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.base_ref }}
+          : # UNDO ME
+          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch connorjward/pyop3
           pip install --verbose ./thetis-repo
           python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
         timeout-minutes: 10
@@ -228,7 +237,8 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+          : # UNDO ME
+          git clone --depth 1 https://github.com/connorjward/g-adopt.git g-adopt-repo --branch connorjward/pyop3
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
@@ -256,10 +266,18 @@ jobs:
         id: generate
         run: |
           if [ ${{ inputs.test_complex }} == 'true' ]; then
-            matrix='{"scalar_type": "complex", "gpu": "none"}'
+            matrix='{"scalar_type": "complex", "int_type": "int32", "gpu": "none"}'
+          fi
+          if [ ${{ inputs.test_int64 }} == 'true' ]; then
+            arch='{"scalar_type": "default", "int_type": "int64", "gpu": "none"}'
+            if [ "$matrix" ]; then
+              matrix="$matrix, $arch"
+            else
+              matrix="$arch"
+            fi
           fi
           if [ ${{ inputs.test_cuda }} == 'true' ]; then
-            arch='{"scalar_type": "default", "gpu": "cuda"}'
+            arch='{"scalar_type": "default", "int_type": "int32", "gpu": "cuda"}'
             if [ "$matrix" ]; then
               matrix="$matrix, $arch"
             else
@@ -300,7 +318,7 @@ jobs:
         # if nvidia-smi is not present
         run: nvidia-smi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -313,6 +331,7 @@ jobs:
           source_ref: ${{ inputs.source_ref }}
           base_ref: ${{ inputs.base_ref }}
           scalar_type: ${{ matrix.scalar_type }}
+          int_type: ${{ matrix.int_type }}
           gpu: ${{ matrix.gpu }}
           deps: ci
 
@@ -447,7 +466,7 @@ jobs:
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -478,7 +497,7 @@ jobs:
           apt-get update
           apt-get -y install python3
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -504,7 +523,7 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
@@ -513,7 +532,7 @@ jobs:
       - name: Setup flake8 annotations
         uses: rbialon/flake8-annotations@v1
       - name: Install linting packages
-        run: pip install flake8 pylint
+        run: pip install flake8 pylint cython-lint
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
@@ -530,9 +549,10 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install inkscape texlive-full
+          # pandoc is required by nbsphinx to render the tutorial notebooks
+          apt-get -y install inkscape texlive-full pandoc
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -571,7 +591,7 @@ jobs:
         with:
           name: github-pages
           path: firedrake-repo/docs/build/html
-          retention-days: 1
+          retention-days: 5
 
       # Some files are automatically generated when we install or build the
       # docs (e.g. AUTHORS.rst). These files are committed to the repository

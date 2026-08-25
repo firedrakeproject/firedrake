@@ -1,52 +1,49 @@
 from __future__ import annotations
 
-import abc
-import collections
 import functools
 import itertools
 import numbers
-from collections.abc import Iterable, Mapping
-from os import access
-from typing import Any, Hashable
+from collections.abc import Hashable
+from typing import Any
 
 import numpy as np
-from petsc4py import PETSc
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
 
-from pyop3.cache import memory_cache
-import pyop3.compile
 import pyop3.axis_tree
+import pyop3.compile
 import pyop3.expr
 import pyop3.expr.visitors
-from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
-from pyop3.expr.tensor import mat
+import pyop3.insn
+from pyop3 import utils
+from pyop3.axis_tree import AxisForest
+from pyop3.buffer import (
+    ArrayBuffer,
+    ConcreteBuffer,
+    PetscMatBuffer,
+)
+from pyop3.constants import INC, READ, RW, WRITE, MAX_RW
+from pyop3.expr import (
+    Dat,
+    LinearDatBufferExpression,
+    Mat,
+    MatPetscMatBufferExpression,
+    Scalar,
+    Tensor,
+)
+from pyop3.expr.buffer import MatArrayBufferExpression
 from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
-from pyop3 import utils
-
-from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
-from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
-from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
-from pyop3.axis_tree import AxisTree, AxisForest
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer
-
-from pyop3.index_tree.tree import LoopIndex
 from pyop3.index_tree.parse import _as_context_free_indices
-import pyop3.insn
 from pyop3.insn.base import (
-    INC,
-    READ,
-    RW,
-    WRITE,
-    AssignmentType,
     ArrayAccessType,
+    AssignmentType,
     enlist,
+    filter_null,
     maybe_enlist,
     non_null,
-    filter_null,
 )
-from pyop3.collections import OrderedFrozenSet
+from pyop3.node import NodeTransformer, NodeVisitor, postorder
 
 
 class InstructionTransformer(NodeTransformer):
@@ -78,9 +75,10 @@ class LoopContextExpander(InstructionTransformer):
 
             restricted_loop_index = utils.just_one(_as_context_free_indices(loop.index, loop_context_))
 
-            # skip empty loops
-            if restricted_loop_index.iterset.size == 0:
-                continue
+            # (not always safe to do)
+            # # skip empty loops
+            # if restricted_loop_index.iterset.size == 0:
+            #     continue
 
             loop_context_acc_ = loop_context | loop_context_
             expanded_loop = type(loop)(
@@ -97,13 +95,13 @@ class LoopContextExpander(InstructionTransformer):
     @process.register(pyop3.insn.CalledFunction)
     def _(self, func: pyop3.insn.CalledFunction, /, *, loop_context) -> pyop3.insn.CalledFunction:
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
-        return func.__record_init__(_arguments=new_arguments)
+        return func.record_new(_arguments=new_arguments)
 
     @process.register(pyop3.insn.Assignment)
     def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
         assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
         expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
-        return assignment.__record_init__(_assignee=assignee, _expression=expression)
+        return assignment.record_new(assignee=assignee, expression=expression)
 
     @process.register(pyop3.insn.Exscan)  # for now assume we are fine
     def _(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
@@ -135,18 +133,11 @@ class ImplicitPackUnpackExpander(NodeTransformer):
     @_apply.register(pyop3.insn.Loop)
     def _(self, loop: pyop3.insn.Loop) -> pyop3.insn.Loop:
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
-        return loop.__record_init__(statements=new_statements)
+        return loop.record_new(statements=new_statements)
 
     @_apply.register
     def _(self, insn_list: pyop3.insn.InstructionList):
         return type(insn_list)([insn_ for insn in insn_list for insn_ in enlist(self._apply(insn))])
-
-    # # TODO: Should be the same as Assignment
-    # @_apply.register
-    # def _(self, assignment: PetscMatInstruction):
-    #     # FIXME: Probably will not work for things like mat[x, y].assign(dat[z])
-    #     # where the expression is indexed.
-    #     return (assignment,)
 
     @_apply.register
     def _(self, assignment: pyop3.insn.Assignment):
@@ -224,12 +215,17 @@ def expand_implicit_pack_unpack(expr: pyop3.insn.Instruction):
 
 @functools.singledispatch
 def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
-    utils.raise_visitor_type_error(arg)
+    utils.raise_missing_dispatch_handler(arg)
 
+
+@_requires_pack_unpack.register
+def _(opaque: pyop3.expr.OpaqueTerminal) -> bool:
+    return False
 
 @_requires_pack_unpack.register(Scalar)
-@_requires_pack_unpack.register(pyop3.expr.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
+    if scalar.transform:
+        raise NotImplementedError
     return False
 
 
@@ -265,21 +261,15 @@ def expand_transforms(obj: Any, /) -> pyop3.insn.InstructionList:
 
 @expand_transforms.register(pyop3.insn.InstructionList)
 def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.InstructionList:
-    return maybe_enlist((expand_transforms(insn) for insn in insn_list))
+    return maybe_enlist(expand_transforms(insn) for insn in insn_list)
 
 
 @expand_transforms.register(pyop3.insn.Loop)
 def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop:
-    return pyop3.insn.Loop(
-        loop.index,
-        [
-            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_transforms(stmt))
-        ],
-    )
+    return loop.record_new(statements=tuple(expand_transforms(s) for s in loop.statements))
 
 
 @expand_transforms.register(pyop3.insn.StandaloneCalledFunction)
-# @expand_assignments.register(PetscMatAssignment)
 @expand_transforms.register(pyop3.insn.NullInstruction)
 @expand_transforms.register(pyop3.insn.Exscan)  # assume we are fine
 def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
@@ -310,7 +300,6 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
         arg_unpack_insns = []
 
         # function calls need materialised arrays
-        # FIXME: INC'd globals with transforms (ie parents) have to be materialised
         if _requires_pack_unpack(func_arg):
             local_tensor = func_arg.materialize()
 
@@ -321,10 +310,14 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
-            else:
-                assert intent == INC
+            elif intent == INC:
                 arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
+            elif intent == MAX_RW:
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max"))
+            else:
+                raise NotImplementedError(f"Intent {intent} not handled")
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
         elif isinstance(func_arg, pyop3.expr.OpaqueTerminal):
@@ -390,29 +383,40 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         assignment.expression, ArrayAccessType.READ
     )
 
-    if assignment.assignment_type == AssignmentType.WRITE:
-        access_type = ArrayAccessType.WRITE
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
-        access_type = ArrayAccessType.INC
+    # AssignmentType and ArrayAccessType are different things because
+    # you can't have assignment with READ mode. This should get cleaned up.
+    match assignment.assignment_type:
+        case AssignmentType.WRITE:
+            access_type = ArrayAccessType.WRITE
+        case AssignmentType.INC:
+            access_type = ArrayAccessType.INC
+        case AssignmentType.MAX:
+            access_type = ArrayAccessType.MAX
+        case AssignmentType.MIN:
+            access_type = ArrayAccessType.MIN
+        case _:
+            raise AssertionError
     bare_assignee, assignee_insns = pyop3.expr.visitors.expand_transforms(
         assignment.assignee, access_type
     )
 
     assignment_type = assignment.assignment_type
-    if assignment_type == AssignmentType.INC and assignee_insns:
+    if assignment_type != AssignmentType.WRITE and assignee_insns:
         # If we are emitting assignee transformation instruction for an
         # increment assignment then the final instruction must be the
         # increment into the global data structure. This means that we
         # should only write here, not increment.
-        assert assignee_insns[-1].assignment_type == AssignmentType.INC
+        assert assignee_insns[-1].assignment_type != AssignmentType.WRITE
         assignment_type = AssignmentType.WRITE
 
     # PETSc matrix assignment requires the expression to be a materialised
     # temporary. Note that we expand literals at a later point, which is silly.
     # We should do this together.
     if (
-        isinstance(bare_assignee.buffer, PetscMatBuffer)
+        # FIXME: only here because some things have a 'buffer_view' and others
+        # a 'buffer'
+        hasattr(bare_assignee, "buffer")
+        and isinstance(bare_assignee.buffer, PetscMatBuffer)
         and isinstance(bare_expression, Mat)
         and not all(
             isinstance(t, pyop3.axis_tree.AbstractUnindexedAxisTree)
@@ -427,9 +431,9 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         expression_insns += (expression_temp.assign(bare_expression),)
         bare_expression = expression_temp
 
-    bare_assignment = assignment.__record_init__(
-        _assignee=bare_assignee,
-        _expression=bare_expression,
+    bare_assignment = assignment.record_new(
+        assignee=bare_assignee,
+        expression=bare_expression,
         _assignment_type=assignment_type,
     )
     return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
@@ -442,311 +446,6 @@ def has_materialized_temporaries(tensor: Tensor) -> bool:
         else:
             tensor = tensor.transform.prev
     return False
-
-
-@functools.singledispatch
-def concretize_layouts(obj: Any, /) -> pyop3.insn.Instruction:
-    """Lock in the layout expressions that data arguments are accessed with.
-
-    For example this converts Dats to DatArrayBufferExpressions that cannot
-    be indexed further.
-
-    This function also trims expressions to remove any zero-sized bits.
-
-    """
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@concretize_layouts.register(pyop3.insn.NullInstruction)
-@concretize_layouts.register(pyop3.insn.Exscan)  # assume we are fine
-def _(null: pyop3.insn.NullInstruction, /) -> pyop3.insn.NullInstruction:
-    return null
-
-
-@concretize_layouts.register(pyop3.insn.InstructionList)
-def _(insn_list: pyop3.insn.InstructionList, /) -> pyop3.insn.Instruction:
-    return maybe_enlist(
-        filter(non_null, (map(concretize_layouts, insn_list)))
-    )
-
-
-@concretize_layouts.register(pyop3.insn.Loop)
-def _(loop: pyop3.insn.Loop, /) -> pyop3.insn.Loop | pyop3.insn.NullInstruction:
-    index = loop.index.__record_init__(iterset=loop.index.iterset.materialize())
-    statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
-    return loop.__record_init__(index=index, statements=statements) if statements else pyop3.insn.NullInstruction()
-
-
-@concretize_layouts.register
-def _(func: pyop3.insn.StandaloneCalledFunction, /) -> pyop3.insn.StandaloneCalledFunction:
-    return func
-
-
-@concretize_layouts.register
-def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.NonEmptyArrayAssignment | pyop3.insn.NullInstruction:
-    # The assignee may have an axis forest as its shape, but we can only
-    # emit loops for one of them. Try all candidates and hopefully one will match.
-    # For matrices there are two shape axes and so we need to try the product
-    # of all candidates.
-    for axis_trees in itertools.product(*(tree.trees for tree in assignment.shape)):
-        try:
-            assignee = pyop3.expr.visitors.concretize_layouts(assignment.assignee, axis_trees)
-            expression = pyop3.expr.visitors.concretize_layouts(assignment.expression, axis_trees)
-        except pyop3.exceptions.IncompatibleAxisTargetException:
-            continue
-        else:
-            shape = tuple(tree.materialize() for tree in axis_trees)
-            break
-    else:
-        raise pyop3.exceptions.IncompatibleAxisTargetException
-
-    return pyop3.insn.NonEmptyArrayAssignment(assignee, expression, shape, assignment.assignment_type, comm=assignment.comm)
-
-
-MAX_COST_CONSIDERATION_FACTOR = 3
-"""Maximum factor an expression cost can exceed the minimum and still be considered."""
-
-
-@PETSc.Log.EventDecorator()
-def materialize_indirections(insn: pyop3.insn.Instruction, *, compress: bool = False) -> pyop3.insn.Instruction:
-    # This optimisation is collective but since the array size is part of the
-    # heuristic one can get differing optimisation choices on different ranks. We
-    # therefore perform all the heuristics on rank 0 and broadcast the selections.
-    if insn.comm.rank == 0:
-        expr_candidates = collect_candidate_indirections(insn, compress=compress)
-
-        # Combine the best per-arg candidates into the initial overall best candidate
-        best_candidate = {}
-        max_cost = 0
-        for arg_id, arg_candidates in expr_candidates.items():
-            expr, expr_cost, materialize_idxs = min(arg_candidates, key=lambda item: item[1])
-            best_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
-            max_cost += expr_cost
-
-        assert isinstance(max_cost, numbers.Integral)
-
-        # Optimise by dropping any immediately bad candidates
-        trimmed_expr_candidates = {}
-        for arg_id, arg_candidates in expr_candidates.items():
-            trimmed_arg_candidates = []
-            min_arg_cost = min((cost for _, cost, _ in arg_candidates))
-            for arg_candidate, cost, materialize_idxs in arg_candidates:
-                if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
-                    trimmed_arg_candidates.append((arg_candidate, cost, materialize_idxs))
-            trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
-
-        # Optimise the search tree by only considering disjoint subsets of
-        # candidates. For example, if we have candidates
-        #
-        #     {a: [A, B, C, D], b: [X, Y]}
-        #
-        # we can speed things up by only investigating 4+2 options instead
-        # of 4*2.
-        # If 'compress' is false we skip this as it introduces unnecessary cost.
-        disjoint_subsets: list[tuple[dict, set]] = [
-            (
-                {arg_id: arg_candidates},
-                set(ac for ac, _, _ in arg_candidates),
-            )
-            for arg_id, arg_candidates in trimmed_expr_candidates.items()
-        ]
-        if compress:
-            # Have to do this repeatedly to ensure subsets are fully disjoint
-            while True:
-                new_disjoint_subsets = []
-                for arg_id, arg_candidates in trimmed_expr_candidates.items():
-                    arg_candidate_set = set(ac for ac, _, _ in arg_candidates)
-                    for existing_subset_dict, existing_subset_candidate_set in new_disjoint_subsets:
-                        if arg_candidate_set.intersection(existing_subset_candidate_set):
-                            existing_subset_dict[arg_id] = arg_candidates
-                            existing_subset_candidate_set.update(arg_candidate_set)
-                            break
-                    else:
-                        # not found in an existing subset, create a new one
-                        subset = ({arg_id: arg_candidates}, arg_candidate_set)
-                        new_disjoint_subsets.append(subset)
-
-                if new_disjoint_subsets == disjoint_subsets:
-                    break
-
-                disjoint_subsets = new_disjoint_subsets
-
-        # Now select the combination with the lowest combined cost. We can make savings here
-        # by sharing indirection maps between different arguments. For example, if we have
-        #
-        #     dat1[mapA[mapB[mapC[i]]]]
-        #     dat2[mapB[mapC[i]]]
-        #
-        # then we can (sometimes) minimise the data cost by having
-        #     dat1[mapA[mapBC[i]]]
-        #     dat2[mapBC[i]]
-        #
-        # instead of
-        #
-        #     dat1[mapABC[i]]
-        #     dat2[mapBC[i]]
-        best_candidate = {}
-        for candidate_subset, _ in disjoint_subsets:
-            # same as above but per subset
-            best_subset_candidate = {}
-            max_subset_cost = 0
-            for arg_id, arg_candidates in candidate_subset.items():
-                expr, expr_cost, materialize_idxs = min(arg_candidates, key=lambda item: item[1])
-                best_subset_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
-                max_subset_cost += expr_cost
-
-            min_subset_cost = max_subset_cost
-            for shared_candidate in utils.expand_collection_of_iterables(candidate_subset):
-                cost = 0
-                seen_exprs = set()
-                for expr, expr_cost, _ in shared_candidate.values():
-                    if expr not in seen_exprs:
-                        cost += expr_cost
-                        seen_exprs.add(expr)
-
-                if cost < min_subset_cost:
-                    best_subset_candidate = shared_candidate
-                    min_subset_cost = cost
-            assert best_subset_candidate is not None
-            best_candidate |= best_subset_candidate
-
-        # Identify and broadcast the materialisation indices
-        materialize_idxss = {key: idxs for key, (_, _, idxs) in best_candidate.items()}
-        insn.comm.bcast(materialize_idxss)
-
-        # Drop cost information from 'best_candidate'
-        best_candidate = {key: expr for key, (expr, _, _) in best_candidate.items()}
-
-
-    else:
-        materialize_idxss = insn.comm.bcast(None)
-
-        # identify the dat expressions to materialise using 'materialize_idxss'
-        best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
-
-    # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet().union(*map(pyop3.expr.visitors.collect_composite_dats, best_candidate.values()))
-    replace_map = {
-        comp_dat: pyop3.expr.visitors.materialize_composite_dat(comp_dat, insn.comm)
-        for comp_dat in composite_dats
-    }
-    best_candidate = idict({
-        key: pyop3.expr.visitors.replace(expr, replace_map)
-        for key, expr in best_candidate.items()
-    })
-
-    # Lastly propagate the materialised indirections back through the instruction tree
-    return concretize_materialized_indirections(insn, best_candidate)
-
-
-
-class CandidateIndirectionsCollector(NodeVisitor):
-
-    def preprocess_node(self, node) -> tuple[Any, ...]:
-        return node, self.index
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
-
-    @process.register(pyop3.insn.NullInstruction)
-    @process.register(pyop3.insn.Exscan)  # assume we are fine
-    def _(self, null: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
-        return idict()
-
-
-    @process.register(pyop3.insn.InstructionList)
-    def _(self, insn_list: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
-        return utils.merge_dicts(
-            (self._call(insn, **kwargs) for insn in insn_list),
-        )
-
-    @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop, index, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
-        loop_indices_ = loop_indices + (loop.index,)
-        return utils.merge_dicts(
-            (
-                self._call(stmt, loop_indices=loop_indices_, **kwargs)
-                for stmt in loop.statements
-            ),
-        )
-
-    @process.register(pyop3.insn.NonEmptyTerminal)
-    def _(self, terminal: pyop3.insn.NonEmptyTerminal, index, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
-        candidates = {}
-        for i, arg in enumerate(terminal.arguments):
-            if selector is not None:
-                # drop some of the key
-                selector_ = idict({
-                    utils.just_one(key[2:]): value
-                    for key, value in selector.items()
-                    if key[:2] == (index, i)
-                })
-            else:
-                selector_ = None
-
-            per_arg_candidates = pyop3.expr.visitors.collect_tensor_candidate_indirections(
-                arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress, selector=selector_
-            )
-            for arg_key, value in per_arg_candidates.items():
-                candidates[index, i, arg_key] = value
-        return idict(candidates)
-
-
-def collect_candidate_indirections(insn: Any, *, compress: bool, selector=None) -> tuple[tuple[Any, int], ...]:
-    return CandidateIndirectionsCollector()(insn, compress=compress, loop_indices=(), selector=selector)
-
-
-class MaterializedIndirectionsConcretizer(NodeVisitor):
-
-    @functools.singledispatchmethod
-    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        return super().process(obj, *args, **kwargs)
-
-    @process.register(pyop3.insn.InstructionList)
-    def _(self, insn_list: pyop3.insn.InstructionList, /, layouts: Mapping[Any, Any]) -> pyop3.insn.InstructionList:
-        return maybe_enlist(self._call(insn, layouts=layouts) for insn in insn_list)
-
-
-    @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop, /, layouts: Mapping[Any, Any]) -> pyop3.insn.Loop:
-        return loop.__record_init__(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
-
-
-    @process.register(pyop3.insn.StandaloneCalledFunction)
-    @process.register(pyop3.insn.Exscan)
-    @process.register(pyop3.insn.NullInstruction)
-    def _(self, func: pyop3.insn.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> pyop3.insn.StandaloneCalledFunction:
-        return func
-
-
-    @process.register(pyop3.insn.NonEmptyArrayAssignment)
-    def _(self, assignment: pyop3.insn.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> pyop3.insn.ConcretizedNonEmptyArrayAssignment:
-        assignee, expression = (
-            pyop3.expr.visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
-            for i, arg in enumerate(assignment.arguments)
-        )
-        return pyop3.insn.ConcretizedNonEmptyArrayAssignment(
-            assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
-        )
-
-
-def concretize_materialized_indirections(obj, layouts) -> pyop3.insn.Instruction:
-    return MaterializedIndirectionsConcretizer()(obj, layouts=layouts)
-
-
-
-class InstructionCacheKeyGetter(NodeVisitor):
-    @functools.singledispatchmethod
-    def process(self, obj: pyop3.insn.Instruction) -> Hashable:
-        return super().process(obj)
-
-    @process.register(pyop3.insn.InstructionList)
-    @process.register(pyop3.insn.NullInstruction)
-    @postorder
-    def _(self, insn: pyop3.insn.Instruction, *visited: Hashable) -> Hashable:
-        return (type(insn), *visited)
-
 
 
 class LiteralInserter(NodeTransformer):
@@ -769,7 +468,7 @@ class LiteralInserter(NodeTransformer):
         # if the mat is on the rhs
         if (
             isinstance(assignment.assignee, MatPetscMatBufferExpression)
-            and isinstance(assignment.assignee.buffer.handle, PETSc.Mat)
+            and isinstance(assignment.assignee.buffer_view.buffer, pyop3.buffer.PetscMatBuffer)
             and isinstance(assignment.expression, numbers.Number)
         ):
             # If we have an expression like
@@ -781,11 +480,11 @@ class LiteralInserter(NodeTransformer):
             row_axis_tree, column_axis_tree = assignment.axis_trees
             nrows = row_axis_tree.local_max_size
             ncols = column_axis_tree.local_max_size
-            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.dtype)
+            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer_view.buffer.dtype)
 
             new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
-            return assignment.__record_init__(_expression=new_expression)
+            return assignment.record_new(expression=new_expression)
         else:
             return assignment
 
@@ -799,6 +498,11 @@ class CompilerOptionsCollector(NodeVisitor):
     @functools.singledispatchmethod
     def process(self, obj: Any, /, *args, **kwargs) -> NoReturn:
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register
+    @postorder
+    def _(self, insn: pyop3.insn.InstructionList, /, visited) -> pyop3.compile.CompilerOptions:
+        return sum(visited["instructions"], pyop3.compile.CompilerOptions())
 
     @process.register
     def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:

@@ -519,8 +519,8 @@ class Ensemble:
         if statuses is not None and len(statuses) != len(frecv.dat):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
-            self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
-                                         recvbuf=recvvec, source=source, recvtag=recvtag,
+            self._ensemble_comm.Sendrecv(sendvec.array_r, dest, sendtag=sendtag,
+                                         recvbuf=recvvec.array_w, source=source, recvtag=recvtag,
                                          status=statuses)
         return frecv
 

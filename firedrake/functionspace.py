@@ -309,21 +309,18 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
-    unmixed_spaces = []
     for space in spaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace, impl.RestrictedFunctionSpace):
-            unmixed_space = space
+            continue
         elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
             if space.component is not None:
                 raise ValueError("Can't make mixed space with %s" % space)
-            unmixed_space = space.parent._orig_spaces[space.index]
+            continue
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-        unmixed_spaces.append(unmixed_space)
-
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
-    new = impl.MixedFunctionSpace(unmixed_spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)
+    new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)
     return cls(new, mixed_mesh_geometry)
 
 

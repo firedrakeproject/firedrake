@@ -9,9 +9,8 @@ from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
-import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
@@ -26,11 +25,10 @@ from pyop3.mpi import internal_comm
 import petsctools
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes
+from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
 
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
-from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices, is_mixed
@@ -82,7 +80,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = utils._new_uid(self.comm)
+        self.uid = _new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -91,6 +89,9 @@ class CoordinatelessFunction(ufl.Coefficient):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
+
+        if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
+            assert function_space._labels == self.dat.axes.trees[0].root.component_labels
 
     @property
     def topological(self):
@@ -150,7 +151,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
-        return utils.readonly(components)
+        return readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -213,6 +214,23 @@ class CoordinatelessFunction(ufl.Coefficient):
             return self._name
         else:
             return ufl2unicode(self)
+
+    def __float__(self):
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            self.dat.assemble()
+            with op3.mpi.temp_internal_comm(self.comm) as icomm:
+                if icomm.rank == 0:
+                    value = icomm.bcast(self.dat.data_ro.item())
+                else:
+                    # touch to make sure state tracking is consistent
+                    self.dat.data_ro
+                    value = icomm.bcast(None)
+            return float(value)
+        else:
+            raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
 
 class Function(ufl.Coefficient, FunctionMixin):
@@ -277,9 +295,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        # LRU cache for expressions assembled onto this function
-        self._expression_cache = cachetools.LRUCache(maxsize=50)
-
         if isinstance(function_space, Function):
             self.assign(function_space)
 
@@ -330,7 +345,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
-        return utils.readonly(components)
+        return readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, indices: tuple[int] | int) -> "Function":
@@ -475,13 +490,19 @@ class Function(ufl.Coefficient, FunctionMixin):
         from firedrake.assign import Assigner, parse_subset
 
         subset = parse_subset(subset)
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        if subset is not Ellipsis:
+            self.dat.buffer.sync_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-            self.dat.data_wo[...] = expr
+            self.dat.data_wo_with_halos[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2'):
@@ -537,20 +558,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         Assigner(self, expr, mode=AssignmentMode.IDIV).assign()
         return self
 
-    def __float__(self):
-        if (
-            self.ufl_element().family() == "Real"
-            and self.function_space().shape == ()
-        ):
-            self.dat.assemble()
-            with op3.mpi.temp_internal_comm(self.comm) as icomm:
-                if icomm.rank == 0:
-                    value = icomm.bcast(utils.just_one(self.dat.data_ro))
-                else:
-                    value = icomm.bcast(None)
-            return float(value)
-        else:
-            raise ValueError("Can only cast scalar 'Real' Functions to float.")
+    def __float__(self) -> float:
+        return float(self.topological)
 
     @cached_property
     @PETSc.Log.EventDecorator()
@@ -563,9 +572,9 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
+        c_function.coords = coordinates.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -593,7 +602,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        coord = np.asarray(coord, dtype=utils.ScalarType)
+        coord = np.asarray(coord, dtype=ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
@@ -629,8 +638,8 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if args:
             arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
-        if utils.complex_mode:
+        arg = np.asarray(arg, dtype=ScalarType)
+        if complex_mode:
             if not np.allclose(arg.imag, 0):
                 raise ValueError("Provided points have non-zero imaginary part")
             arg = arg.real.copy()
@@ -679,6 +688,10 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+            elif err == -2:
+                raise RuntimeError("Rtree query failed.")
+            elif err != 0:
+                raise RuntimeError(f"C point evaluator failed with error code {err}")
 
         if not len(arg.shape) <= 2:
             raise ValueError("Function.at expects point or array of points.")
@@ -758,7 +771,7 @@ class PointEvaluator:
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks. Default is True.
         """
-        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.points = np.asarray(points, dtype=ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
         gdim = mesh.geometric_dimension
@@ -767,13 +780,20 @@ class PointEvaluator:
         self.points = self.points.reshape(-1, gdim)
 
         self.mesh = mesh
-
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
-        self.tolerance = tolerance
-        self.vom = VertexOnlyMesh(
-            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
-            redundant=redundant, tolerance=tolerance
+        if tolerance is not None:
+            mesh.tolerance = tolerance
+
+    @cached_property_until(
+        lambda self: (self.mesh.coordinates.dat.buffer.state, self.mesh.tolerance)
+    )
+    def vom(self) -> MeshGeometry:
+        """The VOM used for point evaluation. This is cached until the mesh coordinates or tolerance change."""
+        # We invalidate when the parent mesh moves until https://github.com/firedrakeproject/firedrake/issues/4540 is fixed.
+        return VertexOnlyMesh(
+            self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+            redundant=self.redundant, tolerance=None
         )
 
     def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
@@ -811,19 +831,8 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh().unique()
-        if function_mesh is not self.mesh:
+        if function.function_space().mesh().unique() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.buffer.state != self.mesh._saved_coordinate_dat_version:
-            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
-            self.mesh = function_mesh
-        if tol_changed := self.mesh.tolerance != self.tolerance:
-            self.tolerance = self.mesh.tolerance
-        if coord_changed or tol_changed:
-            self.vom = VertexOnlyMesh(
-                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
-                redundant=self.redundant, tolerance=self.tolerance
-            )
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
@@ -844,10 +853,14 @@ class PointEvaluator:
         f_at_points_io.interpolate(f_at_points)
         result = f_at_points_io.dat.data_ro.copy()
 
+        # We treat 1D vector spaces like scalar spaces
+        if shape == (1,):
+            result = result.reshape(result.shape[:-1])
+
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
-                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+                result = np.empty((len(self.points),) + shape, dtype=ScalarType)
             self.mesh.comm.Bcast(result)
         return result
 
@@ -870,12 +883,12 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     func_shape = np.prod(function.function_space().finat_element.index_shape, dtype=int)
     func_bsize = function.function_space().block_size
 
-    p_ScalarType_c = f"{utils.ScalarType_c}*"
+    p_ScalarType_c = f"{ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {ScalarType_c} const *__restrict__ dat1, {IntType_c} const *__restrict__ map0, {IntType_c} const *__restrict__ map1)
         {{
-          {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
-          {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
+          {ScalarType_c} t0[{coords_shape}*{gdim}];
+          {ScalarType_c} t1[{func_shape}*{func_bsize}];
 
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)

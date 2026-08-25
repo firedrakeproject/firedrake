@@ -1,7 +1,8 @@
-from .base import Tensor, OutOfPlaceCallableTensorTransform # noqa: F401
-from .scalar import Scalar  # noqa: F401
-from .dat import (  # noqa: F401
-    Dat,
-    CompositeDat, AggregateDat,
+from .base import (  # noqa: F401
+    OutOfPlaceCallableTensorTransform,
+    ReshapeTensorTransform,
+    Tensor,
 )
-from .mat import Mat, AggregateMat  # noqa: F401
+from .dat import AggregateDat, CompositeDat, Dat  # noqa: F401
+from .mat import AggregateMat, Mat  # noqa: F401
+from .scalar import Scalar  # noqa: F401
