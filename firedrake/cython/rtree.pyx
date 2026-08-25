@@ -186,22 +186,16 @@ def discover_remote_roots(
     """
     cdef:
         MPI.MPI_Comm mpi_comm = comm.ob_mpi
-        MPI_Request *requests = NULL
-        MPI_Request barrier_request = MPI_REQUEST_NULL
+        MPI_Request *requests = NULL, barrier_request = MPI_REQUEST_NULL
         MPI_Status status
         MPI_Datatype point_index_type
-        int count, source_rank
-        int message_ready, sends_complete, barrier_complete = 0
+        int count, source_rank, message_ready, sends_complete, barrier_complete = 0
         Py_ssize_t i, nleaves = 0, recv_offset = 0
         int64_t *toranks = NULL
-        size_t *point_indices = NULL
-        size_t *send_offsets = NULL
-        size_t n_points = points.shape[0]
-        size_t nranks_to = 0
+        size_t *point_indices = NULL, *send_offsets = NULL, n_points = points.shape[0], nranks_to = 0
         np.ndarray[np.uintp_t, ndim=1, mode="c"] received
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
-        list recv_ranks = []
-        list recv_buffers = []
+        list recv_messages = []
 
     # MPI does not have a builtin type for size_t
     CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
@@ -244,8 +238,7 @@ def discover_remote_roots(
                 source_rank = status.MPI_SOURCE
                 received = np.empty(count, dtype=np.uintp)
                 CHKERRMPI(MPI_Recv(<void *>received.data, count, point_index_type, source_rank, 0, mpi_comm, MPI_STATUS_IGNORE))
-                recv_ranks.append(source_rank)
-                recv_buffers.append(received)
+                recv_messages.append((source_rank, received))
                 nleaves += count
 
             if not sends_complete:
@@ -264,14 +257,12 @@ def discover_remote_roots(
         if rtree_free_offsets(send_offsets, nranks_to + 1) != Success:
             raise RuntimeError("rtree_free_offsets failed")
 
+    # create remote array for candidate star forest
     remote = np.empty((nleaves, 2), dtype=np.int32)
-    for k in range(len(recv_buffers)):
-        source_rank = recv_ranks[k]
-        received = recv_buffers[k]
+    for source_rank, received in recv_messages:
         count = received.shape[0]
-        for i in range(count):
-            remote[recv_offset + i, 0] = source_rank
-            remote[recv_offset + i, 1] = received[i]
+        remote[recv_offset:recv_offset + count, 0] = source_rank
+        remote[recv_offset:recv_offset + count, 1] = received
         recv_offset += count
 
     return remote
