@@ -359,12 +359,6 @@ class Mat(Tensor):
         else:
             return indices
 
-    # @cached_property
-    # def nest_labels(self) -> tuple[tuple[int, int], ...]:
-    #     if self.transform:
-    #         raise NotImplementedError
-    #     return tuple(itertools.zip_longest(self.row_axes.nest_labels, self.column_axes.nest_labels))
-
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     import pyop3.visitors
