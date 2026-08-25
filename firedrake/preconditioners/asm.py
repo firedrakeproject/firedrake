@@ -440,7 +440,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         nlayers = mesh_unique.layers
         if not mesh_unique.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
-        periodic = mesh.extruded_periodic
+        periodic = mesh_unique.extruded_periodic
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
