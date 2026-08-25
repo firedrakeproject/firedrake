@@ -11,10 +11,11 @@ from libc.stdlib cimport free, malloc
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport (
     MPI_ANY_SOURCE,
-    MPI_INT,
     MPI_REQUEST_NULL,
     MPI_STATUS_IGNORE,
     MPI_STATUSES_IGNORE,
+    MPI_TYPECLASS_INTEGER,
+    MPI_Datatype,
     MPI_Get_count,
     MPI_Ibarrier,
     MPI_Iprobe,
@@ -24,6 +25,7 @@ from mpi4py.libmpi cimport (
     MPI_Status,
     MPI_Test,
     MPI_Testall,
+    MPI_Type_match_size,
 )
 
 include "petschdr.pxi"
@@ -52,12 +54,16 @@ cdef extern from "rtree-capi.h":
 
     RTreeError rtree_free_offsets(size_t *offsets, size_t n)
 
-    RTreeError rtree_locate_all_at_points_unique(
+    RTreeError rtree_free_point_indices(size_t *point_indices, size_t n)
+
+    RTreeError rtree_locate_points_grouped_by_id_unique(
         const RTreeH *tree,
         const double *points,
         size_t n_points,
         int64_t **ids_out,
-        size_t **offsets_out
+        size_t **offsets_out,
+        size_t **point_indices_out,
+        size_t *n_ids_out
     )
 
     RTreeError rtree_depth(const RTreeH *tree, size_t *depth_out)
@@ -153,108 +159,6 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef tuple _destination_ranks(
-        RTree rtree,
-        np.ndarray[np.float64_t, ndim=2, mode="c"] points,
-        Py_ssize_t comm_size):
-    """Group candidate point indices by destination rank.
-
-    Parameters
-    ----------
-    rtree : RTree
-        The distributed Rtree with rank numbers as leaf ids.
-    points : (n_points, gdim) float64 array
-        The local points to send to remote ranks.
-    comm_size : int
-        Number of ranks in the MPI communicator.
-
-    Returns
-    -------
-    toranks : (nranks_to,) int32 array
-        Target ranks to send points to.
-    point_indices : (total_sends,) int32 array
-        Indices into `points` determining which points to send.
-    send_offsets : (nranks_to + 1,) int32 array
-        Points destined for `toranks[i]` are
-        `point_indices[send_offsets[i]:send_offsets[i + 1]]`.
-    """
-    cdef:
-        int64_t *ids_out = NULL
-        size_t *offsets_out = NULL
-        size_t n_points = points.shape[0]
-        size_t i, j
-        Py_ssize_t nranks_to = 0
-        Py_ssize_t rank, index, offset
-        RTreeError err, ids_free_err, offsets_free_err
-        np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
-        np.ndarray[np.int32_t, ndim=1, mode="c"] rank_counts
-        np.ndarray[np.int32_t, ndim=1, mode="c"] rank_write_offsets
-        np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
-        np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
-
-    # query the partition rtree to find candidate ranks
-    # this routine returns the unique IDs for each point
-    err = rtree_locate_all_at_points_unique(
-        rtree.tree,
-        <const double *>points.data,
-        n_points,
-        &ids_out,
-        &offsets_out,
-    )
-    if err != Success:
-        raise RuntimeError("rtree_locate_all_at_points_unique failed")
-
-    try:
-        rank_counts = np.zeros(comm_size, dtype=np.int32)
-
-        # Count the points destined for each rank.
-        # The candidate ranks for point `i` are
-        # `ids_out[offsets_out[i]:offsets_out[i + 1]]`.
-        for i in range(n_points):
-            for j in range(offsets_out[i], offsets_out[i + 1]):
-                rank = <Py_ssize_t>ids_out[j]
-                if rank_counts[rank] == 0:
-                    nranks_to += 1
-                rank_counts[rank] += 1
-
-        toranks = np.empty(nranks_to, dtype=np.int32)
-        send_offsets = np.empty(nranks_to + 1, dtype=np.int32)
-        rank_write_offsets = np.empty(comm_size, dtype=np.int32)
-
-        index = 0
-        offset = 0
-        for rank in range(comm_size):
-            if rank_counts[rank] == 0:
-                # not sending this rank any points
-                continue
-            toranks[index] = <np.int32_t>rank
-            send_offsets[index] = offset
-            rank_write_offsets[rank] = offset
-            offset += rank_counts[rank]
-            index += 1
-        send_offsets[nranks_to] = offset
-
-        point_indices = np.empty(offset, dtype=np.int32)
-        for i in range(n_points):
-            for j in range(offsets_out[i], offsets_out[i + 1]):
-                rank = <Py_ssize_t>ids_out[j]
-                index = rank_write_offsets[rank]
-                point_indices[index] = <np.int32_t>i
-                rank_write_offsets[rank] += 1
-    finally:
-        ids_free_err = rtree_free_ids(ids_out, offsets_out[n_points])
-        offsets_free_err = rtree_free_offsets(offsets_out, n_points + 1)
-
-    if ids_free_err != Success:
-        raise RuntimeError("rtree_free_ids failed")
-    if offsets_free_err != Success:
-        raise RuntimeError("rtree_free_offsets failed")
-
-    return toranks, point_indices, send_offsets
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def discover_remote_roots(
         RTree rtree,
         np.ndarray[np.float64_t, ndim=2, mode="c"] points,
@@ -282,38 +186,50 @@ def discover_remote_roots(
         MPI_Request *requests = NULL
         MPI_Request barrier_request = MPI_REQUEST_NULL
         MPI_Status status
+        MPI_Datatype point_index_type
         PetscMPIInt k, nranks_to
         PetscMPIInt count, source_rank, recv_offset = 0
         int message_ready, sends_complete, barrier_complete = 0
         Py_ssize_t i, nleaves = 0
-        np.ndarray[np.int32_t, ndim=1, mode="c"] toranks
-        np.ndarray[np.int32_t, ndim=1, mode="c"] send_offsets
-        np.ndarray[np.int32_t, ndim=1, mode="c"] point_indices
-        np.ndarray[np.int32_t, ndim=1, mode="c"] received
+        int64_t *toranks = NULL
+        size_t *point_indices = NULL
+        size_t *send_offsets = NULL
+        size_t n_points = points.shape[0]
+        size_t nranks_to_out = 0
+        size_t n_point_indices = 0
+        RTreeError err, ids_free_err, offsets_free_err, point_indices_free_err
+        np.ndarray[np.uintp_t, ndim=1, mode="c"] received
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
         list recv_ranks = []
         list recv_buffers = []
 
-    toranks, point_indices, send_offsets = _destination_ranks(
-        rtree, points, comm.size,
+    # MPI does not have a builtin type for size_t
+    CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
+
+    err = rtree_locate_points_grouped_by_id_unique(
+        rtree.tree,
+        <const double *>points.data,
+        n_points,
+        &toranks,
+        &send_offsets,
+        &point_indices,
+        &nranks_to_out,
     )
-    nranks_to = <PetscMPIInt>toranks.shape[0]
+    if err != Success:
+        raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
+    nranks_to = <PetscMPIInt>nranks_to_out
+    n_point_indices = send_offsets[nranks_to_out]
 
     try:
         if nranks_to:
             requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
-            if requests == NULL:
-                raise MemoryError("failed to allocate MPI requests")
 
-        # Synchronous sends allow completion detection to prove that the
-        # matching receive has been posted without first exchanging counts.
         for k in range(nranks_to):
             count = send_offsets[k + 1] - send_offsets[k]
             CHKERRMPI(MPI_Issend(
                 <const void *>&point_indices[send_offsets[k]],
-                count,
-                MPI_INT,
-                toranks[k],
+                count, point_index_type,
+                <PetscMPIInt>toranks[k],
                 0,
                 mpi_comm,
                 &requests[k],
@@ -323,51 +239,41 @@ def discover_remote_roots(
         if sends_complete:
             CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
 
-        # Hoefler's NBX algorithm discovers variable-sized messages with
-        # probes while progressing synchronous sends. Once all sends have
-        # matched, the nonblocking barrier establishes global completion.
         while not barrier_complete:
-            CHKERRMPI(MPI_Iprobe(
-                MPI_ANY_SOURCE,
-                0,
-                mpi_comm,
-                &message_ready,
-                &status,
-            ))
+            CHKERRMPI(MPI_Iprobe(MPI_ANY_SOURCE, 0, mpi_comm, &message_ready, &status))
+
             if message_ready:
-                CHKERRMPI(MPI_Get_count(&status, MPI_INT, &count))
+                CHKERRMPI(MPI_Get_count(&status, point_index_type, &count))
                 source_rank = status.MPI_SOURCE
-                received = np.empty(count, dtype=np.int32)
-                CHKERRMPI(MPI_Recv(
-                    <void *>received.data,
-                    count,
-                    MPI_INT,
-                    source_rank,
-                    0,
-                    mpi_comm,
-                    MPI_STATUS_IGNORE,
-                ))
+                received = np.empty(count, dtype=np.uintp)
+                CHKERRMPI(MPI_Recv(<void *>received.data, count, point_index_type, source_rank, 0, mpi_comm, MPI_STATUS_IGNORE))
                 recv_ranks.append(source_rank)
                 recv_buffers.append(received)
                 nleaves += count
-            elif not sends_complete:
-                CHKERRMPI(MPI_Testall(
-                    nranks_to,
-                    requests,
-                    &sends_complete,
-                    MPI_STATUSES_IGNORE,
-                ))
+
+            if not sends_complete:
+                CHKERRMPI(MPI_Testall(nranks_to, requests, &sends_complete, MPI_STATUSES_IGNORE))
                 if sends_complete:
                     CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
             else:
-                CHKERRMPI(MPI_Test(
-                    &barrier_request,
-                    &barrier_complete,
-                    MPI_STATUS_IGNORE,
-                ))
+                CHKERRMPI(MPI_Test(&barrier_request, &barrier_complete, MPI_STATUS_IGNORE))
     finally:
         if requests != NULL:
             free(requests)
+        ids_free_err = rtree_free_ids(toranks, nranks_to_out)
+        point_indices_free_err = rtree_free_point_indices(
+            point_indices, n_point_indices,
+        )
+        offsets_free_err = rtree_free_offsets(
+            send_offsets, nranks_to_out + 1,
+        )
+
+    if ids_free_err != Success:
+        raise RuntimeError("rtree_free_ids failed")
+    if point_indices_free_err != Success:
+        raise RuntimeError("rtree_free_point_indices failed")
+    if offsets_free_err != Success:
+        raise RuntimeError("rtree_free_offsets failed")
 
     remote = np.empty((nleaves, 2), dtype=np.int32)
     for k in range(len(recv_buffers)):
