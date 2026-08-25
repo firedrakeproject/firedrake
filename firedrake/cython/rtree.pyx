@@ -165,6 +165,9 @@ def discover_remote_roots(
         MPI.Comm comm):
     """Build the remote array for a candidate star forest.
 
+    This implements the non-blocking exchange algorithm from Hoefler et al.
+    'Scalable communication protocols for dynamic sparse data exchange'.
+
     Parameters
     ----------
     rtree : RTree
@@ -187,17 +190,14 @@ def discover_remote_roots(
         MPI_Request barrier_request = MPI_REQUEST_NULL
         MPI_Status status
         MPI_Datatype point_index_type
-        PetscMPIInt k, nranks_to
-        PetscMPIInt count, source_rank, recv_offset = 0
+        int count, source_rank
         int message_ready, sends_complete, barrier_complete = 0
-        Py_ssize_t i, nleaves = 0
+        Py_ssize_t i, nleaves = 0, recv_offset = 0
         int64_t *toranks = NULL
         size_t *point_indices = NULL
         size_t *send_offsets = NULL
         size_t n_points = points.shape[0]
-        size_t nranks_to_out = 0
-        size_t n_point_indices = 0
-        RTreeError err, ids_free_err, offsets_free_err, point_indices_free_err
+        size_t nranks_to = 0
         np.ndarray[np.uintp_t, ndim=1, mode="c"] received
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
         list recv_ranks = []
@@ -206,19 +206,16 @@ def discover_remote_roots(
     # MPI does not have a builtin type for size_t
     CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
 
-    err = rtree_locate_points_grouped_by_id_unique(
+    if rtree_locate_points_grouped_by_id_unique(
         rtree.tree,
         <const double *>points.data,
         n_points,
         &toranks,
         &send_offsets,
         &point_indices,
-        &nranks_to_out,
-    )
-    if err != Success:
+        &nranks_to,
+    ) != Success:
         raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
-    nranks_to = <PetscMPIInt>nranks_to_out
-    n_point_indices = send_offsets[nranks_to_out]
 
     try:
         if nranks_to:
@@ -229,7 +226,7 @@ def discover_remote_roots(
             CHKERRMPI(MPI_Issend(
                 <const void *>&point_indices[send_offsets[k]],
                 count, point_index_type,
-                <PetscMPIInt>toranks[k],
+                <int>toranks[k],
                 0,
                 mpi_comm,
                 &requests[k],
@@ -260,20 +257,12 @@ def discover_remote_roots(
     finally:
         if requests != NULL:
             free(requests)
-        ids_free_err = rtree_free_ids(toranks, nranks_to_out)
-        point_indices_free_err = rtree_free_point_indices(
-            point_indices, n_point_indices,
-        )
-        offsets_free_err = rtree_free_offsets(
-            send_offsets, nranks_to_out + 1,
-        )
-
-    if ids_free_err != Success:
-        raise RuntimeError("rtree_free_ids failed")
-    if point_indices_free_err != Success:
-        raise RuntimeError("rtree_free_point_indices failed")
-    if offsets_free_err != Success:
-        raise RuntimeError("rtree_free_offsets failed")
+        if rtree_free_ids(toranks, nranks_to) != Success:
+            raise RuntimeError("rtree_free_ids failed")
+        if rtree_free_point_indices(point_indices, send_offsets[nranks_to]) != Success:
+            raise RuntimeError("rtree_free_point_indices failed")
+        if rtree_free_offsets(send_offsets, nranks_to + 1) != Success:
+            raise RuntimeError("rtree_free_offsets failed")
 
     remote = np.empty((nleaves, 2), dtype=np.int32)
     for k in range(len(recv_buffers)):
