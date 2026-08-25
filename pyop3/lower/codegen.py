@@ -150,15 +150,15 @@ def _(loop):
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
 @_collect_temporary_shapes.register(Exscan)
-def _(assignment):
+def _(assignment: AbstractAssignment, /) -> idict:
     return idict()
 
-@_collect_temporary_shapes.register(StandaloneCalledFunction)
-def _(call):
+@_collect_temporary_shapes.register
+def _(call: StandaloneCalledFunction):
     import loopy as lp # TODO: Remove once StandaloneCalledFunction/similar integrated with MLIR
     return idict(
         {
-            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+            arg.buffer: lp_arg.shape
             for lp_arg, arg in zip(
                 call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
@@ -328,7 +328,7 @@ def compile_array_assignment(
         if component.local_size != 1:
             iname = codegen_context.unique_name("i")
             ext = codegen_context.register_extent(
-                component.local_size, 
+                component.size, 
                 iname_replace_maps[-1], 
                 loop_indices
             )

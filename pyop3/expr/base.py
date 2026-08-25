@@ -28,7 +28,7 @@ class Expression(Node, abc.ABC):
         raise NotImplementedError
 
     @property
-    @abc.abstractmethod
+    # @abc.abstractmethod
     def dtype(self) -> np.dtype:
         pass 
 
