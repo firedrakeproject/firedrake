@@ -43,7 +43,7 @@ def src_locate_cell(mesh, tolerance=None):
 
           for (int32_t i = 0; i < {shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
-              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {shape} * start] + j];
+              t0[{gdim}*i + j] = dat0[map0[{shape}*{gdim}*start + {gdim}*i + j]];
           to_reference_coords_kernel(farg0, farg1, farg2, &(t0[0]));
         }}"""
     )
