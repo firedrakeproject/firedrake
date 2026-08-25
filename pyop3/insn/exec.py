@@ -687,7 +687,7 @@ class CompiledCodeExecutor:
     try:
         import cupy as cp
 
-        @_handle_to_pointer.register
+        @_handle_to_pointer.register(cp.ndarray)
         def _(self, arr: cp.ndarray, /) -> int:
             # NOTE: This gives a pointer to a GPU memory address.
             # Loopy cannot work with GPU so this will lead to a segfault. 

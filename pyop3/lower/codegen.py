@@ -1,78 +1,66 @@
 from __future__ import annotations
 
 import abc
-import collections
 import contextlib
-import ctypes
-import dataclasses
-import enum
 import functools
-import os
 import numbers
-import textwrap
-import warnings
-import weakref
-from collections.abc import Mapping
-from functools import cached_property
+import os
 from typing import Any
-from weakref import WeakValueDictionary
-
-from cachetools import cachedmethod
-from petsc4py import PETSc
 
 import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
 
 import pyop3.axis_tree
+import pyop3.buffer
 import pyop3.cache
 import pyop3.config
+import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
-from pyop3 import utils, mpi
-from pyop3.cache import memory_and_disk_cache
-from pyop3.expr import NonlinearDatBufferExpression
-from pyop3.expr.visitors import collect_axis_vars, replace
-from pyop3.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
-from pyop3.dtypes import IntType
-from pyop3.lower.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
-from pyop3.lower.context import CodegenContext
-from pyop3.lower.mlir import MLIRCodegenContext # to remove
-from pyop3.lower.loopy import LoopyCodegenContext
-from pyop3.insn.base import (
-    Intent,
-    INC,
-    MAX_RW,
-    MAX_WRITE,
-    MIN_RW,
-    MIN_WRITE,
-    READ,
-    RW,
-    AbstractAssignment,
-    Exscan,
-    NullInstruction,
-    assignment_type_as_intent,
-    WRITE,
-    AssignmentType,
-    ConcretizedNonEmptyArrayAssignment,
-    StandaloneCalledFunction,
-    Loop,
-    InstructionList,
+from pyop3 import mpi, utils
+from pyop3.axis_tree.tree import (
+    UNIT_AXIS_TREE,
+    IndexedAxisTree,
 )
+from pyop3.buffer import (
+    AbstractBuffer,
+    NullBuffer,
+    PetscMatBuffer,
+)
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.dtypes import IntType
+from pyop3.insn.base import (
+    AbstractAssignment,
+    AssignmentType,
+    Exscan,
+    InstructionList,
+    Loop,
+    NonEmptyArrayAssignment,
+    NullInstruction,
+    StandaloneCalledFunction,
+    assignment_type_as_intent,
+)
+
+from pyop3.lower.loopy import LoopyCodegenContext
+
 # TODO: import other way around?
-from pyop3.insn.exec import parse_compiler_parameters
+from pyop3.lower.transform import (
+    with_attach_debugger,
+    with_likwid_markers,
+    with_petsc_event,
+)
 
-# def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-#     # NOTE: is config valid to include here?
-#     return (op.disk_cache_key, compiler_parameters, pyop3.config)
+def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+    return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
-# @pyop3.cache.memory_and_disk_cache(
-#     hashkey=_compile_static_hashkey,
-#     get_comm=lambda op, *args, **kwargs: op.comm,
-# )
-def _compile_static(op, compiler_parameters) -> Tuple:
+@pyop3.cache.memory_and_disk_cache(
+    hashkey=_compile_static_hashkey,
+    get_comm=lambda op, *a, **kw: op.comm,
+)
+def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
@@ -83,55 +71,60 @@ def _compile_static(op, compiler_parameters) -> Tuple:
     datamap
 
     """
-
     insn = op.preprocess()
-    function_name = "pyop3_loop"
+    function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
     if isinstance(insn, InstructionList):
         cs_expr = insn.instructions
     else:
         cs_expr = (insn,)
 
-    # Default to loopy codegen backend
-    target = getattr(compiler_parameters, 'codegen', 'loopy')
-    if target == "loopy":
-        codegen_context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
-    elif target == "mlir":
-        codegen_context = MLIRCodegenContext(check_negatives=compiler_parameters.check_negatives)
-    
+    if compiler_parameters.codegen == "loopy": 
+        ContextClass = LoopyCodegenContext
+    elif compiler_parameters.codegen == "mlir": 
+        raise NotImplementedError("Still implementing this class") 
+
+    context = ContextClass(
+        propagate_negatives=compiler_parameters.propagate_negatives,
+        mask_array_accesses=compiler_parameters.mask_array_accesses,
+    )
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
-    # explicitly dealing with codegen_contexts at this point. Can always sniff them out again.
-    # for codegen_context, ex in cs_expr:
+    # explicitly dealing with contexts at this point. Can always sniff them out again.
+    # for context, ex in cs_expr:
     for ex in cs_expr:
         # ex = expand_implicit_pack_unpack(ex)
 
         # add external loop indices as kernel arguments
-        # FIXME: removed because cs_expr needs to sniff the codegen_context now
+        # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
 
-        for e in utils.as_tuple(ex): # TODO: get rid of this loop
-            # codegen_context manager?
-            codegen_context.set_temporary_shapes(_collect_temporary_shapes(e))
-            _compile(e, loop_indices, codegen_context)
+        for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
+            # context manager?
+            context.set_temporary_shapes(_collect_temporary_shapes(e))
+            _compile(e, loop_indices, context)
 
-    if not codegen_context.global_buffers:
-        import pyop3.exceptions
+    if not context.buffer_intents:
         raise pyop3.exceptions.EffectlessComputationException(
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
 
-    translation_unit, final_context = codegen_context.finalize_kernel(function_name, compiler_parameters)
-    
-    kernel_to_buffer_names = utils.invert_mapping(final_context._kernel_names)
-    buffer_index_map = {}
+    translation_unit = context.finalize_kernel(function_name, compiler_parameters)
+
+    # Extra information needed by the code executor
+    kernel_name_to_buffer_info = utils.invert_mapping(context.kernel_names)
+    buffer_intents = context.buffer_intents
+
+    # Replace buffers with their indices, dropping any temporaries. Also
+    # match the calling order for the kernel.
+    kernel_name_to_global_buffer_info = {}
+    global_buffer_intents = {}
     for kernel_arg in translation_unit.default_entrypoint.args:
-        buffer_key = kernel_to_buffer_names[kernel_arg.name]
-        buffer_ref = final_context.global_buffers[buffer_key]
-        buffer_index = op.preprocessed_buffers.index(buffer_ref)
-        intent = final_context.global_buffer_intents[buffer_key]
-        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
-            
-    return translation_unit, buffer_index_map
+        buf_view = kernel_name_to_buffer_info[kernel_arg.name]
+        buf_index = op.preprocessed_buffers.index(buf_view.buffer)
+        kernel_name_to_global_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
+        global_buffer_intents[buf_index] = buffer_intents[buf_view.buffer]
+
+    return translation_unit, kernel_name_to_global_buffer_info, global_buffer_intents
 
 @functools.singledispatch
 def _collect_temporary_shapes(expr):
@@ -162,7 +155,7 @@ def _(assignment):
 
 @_collect_temporary_shapes.register(StandaloneCalledFunction)
 def _(call):
-    import loopy as lp # TODO: Remove once StandaloneCalledFunction integrated with MLIR 
+    import loopy as lp # TODO: Remove once StandaloneCalledFunction/similar integrated with MLIR
     return idict(
         {
             (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
@@ -197,28 +190,31 @@ def _(
     loop_indices, 
     codegen_context
 ) -> None:
-    _parse_loop_properly_this_time(
+    parse_loop_properly_this_time(
         loop, 
         loop.index.iterset, 
         loop_indices, 
         codegen_context
     )
 
-def _parse_loop_properly_this_time(
-    loop, 
-    axis_tree, 
-    loop_indices, 
-    codegen_context, 
-    axis=None, 
-    path=None, 
-    iname_map=None
+def parse_loop_properly_this_time(
+    loop,
+    axis_tree,
+    loop_indices,
+    codegen_context,
+    *,
+    axis=None,
+    path=None,
+    iname_map=None,
 ) -> None:
     if axis_tree is UNIT_AXIS_TREE:
-        for stmt in loop.statements: 
+        # NOTE: might need an expression here sometimes
+        for statement in loop.statements:
             _compile(
-                stmt, 
-                loop_indices, 
-                codegen_context
+                statement,
+                # loop_indices | dict(loop_exprs),
+                loop_indices,
+                codegen_context,
             )
         return
 
@@ -229,40 +225,65 @@ def _parse_loop_properly_this_time(
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        if axis_tree.linearize(path_, partial=True).size == 0: continue
-        
-        if component.local_size != 1:
+
+        if axis_tree.linearize(path_, partial=True).size == 0:
+            continue
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
-            domain_var = codegen_context.register_extent(component.local_size, iname_map, loop_indices)
+            domain_var = codegen_context.register_extent(
+                component.size,
+                iname_map,
+                loop_indices
+            )
             codegen_context.add_domain(iname, domain_var)
             iname_replace_map_ = iname_map | {axis.label: pym.var(iname)}
-            within = frozenset({iname})
+            within_inames = frozenset({iname})
         else:
             iname_replace_map_ = iname_map | {axis.label: 0}
-            within = set()
+            within_inames = set()
 
-        with codegen_context.within_inames(within):
+        with codegen_context.within_inames(within_inames):
             if subaxis := axis_tree.node_map[path_]:
-                _parse_loop_properly_this_time(loop, axis_tree, loop_indices, codegen_context, axis=subaxis, path=path_, iname_map=iname_replace_map_)
+                parse_loop_properly_this_time(
+                    loop,
+                    axis_tree,
+                    loop_indices,
+                    codegen_context,
+                    axis=subaxis,
+                    path=path_,
+                    iname_map=iname_replace_map_,
+                )
             else:
                 loop_indices |= idict({
                     (loop.index.id, axis_label): iname
                     for axis_label, iname in iname_replace_map_.items()
                 })
-                for stmt in loop.statements: _compile(stmt, loop_indices, codegen_context)
+                for statement in loop.statements:
+                    _compile(
+                        statement,
+                        loop_indices,
+                        codegen_context,
+                    )
 
 @_compile.register(StandaloneCalledFunction)
 def _(call, loop_indices, codegen_context):
     codegen_context.compile_standalone_function(call, loop_indices)
 
-@_compile.register(ConcretizedNonEmptyArrayAssignment)
-def _(assignment, loop_indices, codegen_context):
+@_compile.register(NonEmptyArrayAssignment)
+def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
-        codegen_context.compile_petsc_mat(assignment, loop_indices)
+        context.compile_petsc_mat(assignment, loop_indices)
     else:
-        _compile_array_assignment(assignment, loop_indices, codegen_context, assignment.axis_trees)
+        compile_array_assignment(
+            assignment,
+            loop_indices,
+            context,
+            assignment.axis_trees,
+        )
 
-def _compile_array_assignment(
+# NOTE: Move this? Weird to have this one here and rest in context classes.
+# Probably move to context.py if I can remove pym references.
+def compile_array_assignment(
         assignment, 
         loop_indices, 
         codegen_context, 
@@ -322,7 +343,7 @@ def _compile_array_assignment(
 
         with codegen_context.within_inames(within_inames):
             if axis_tree.node_map[new_paths[-1]]:
-                _compile_array_assignment(
+                compile_array_assignment(
                     assignment, 
                     loop_indices, 
                     codegen_context, 
@@ -332,7 +353,7 @@ def _compile_array_assignment(
                     paths=new_paths
                 )
             elif axis_trees:
-                _compile_array_assignment(
+                compile_array_assignment(
                     assignment, 
                     loop_indices, 
                     codegen_context, 

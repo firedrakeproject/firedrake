@@ -3,8 +3,9 @@ from typing import Any, List, Dict, Tuple
 import numbers
 
 from pyop3 import utils
-from pyop3.buffer import AbstractBuffer
-from pyop3.insn.base import Intent, READ, assignment_type_as_intent
+from pyop3.buffer import IndexedBuffer
+from pyop3.insn.base import Intent, assignment_type_as_intent
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
 class CodegenContext(ABC):
     """
@@ -13,8 +14,9 @@ class CodegenContext(ABC):
     Abstract methods required for auto-generating based on _compile_static in codegen.py
     """
     
-    def __init__(self, *, check_negatives: bool):
-        self.check_negatives = check_negatives
+    def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+        self.propagate_negatives = propagate_negatives
+        self.mask_array_accesses = mask_array_accesses
 
         self._domains = [] 
         self._instructions = []
@@ -24,12 +26,11 @@ class CodegenContext(ABC):
 
         self._name_generator = utils.UniqueNameGenerator()
 
-        # buffer name -> name in kernel
-        self._kernel_names = {}
+        # (buffer, nest_indices) -> name in kernel
+        self.kernel_names = {}
 
         # buffer name -> buffer
-        self.global_buffers = {}
-        self.global_buffer_intents = {}
+        self.buffer_intents = {}
 
         # assignee name -> indirection expression
         self._assignees = {}
@@ -50,6 +51,14 @@ class CodegenContext(ABC):
     def subkernels(self) -> Tuple:
         return tuple(self._subkernels)
 
+    @property
+    def _depends_on(self):
+        return frozenset({self._last_insn_id}) - {None}
+
+    def _add_instruction(self, insn):
+        self._instructions.append(insn)
+        self._last_insn_id = insn.id
+
     # {{{ abstract methods
 
     @abstractmethod
@@ -65,7 +74,7 @@ class CodegenContext(ABC):
         pass
     
     @abstractmethod
-    def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None) -> str:
+    def add_buffer(self, buffer_view: IndexedBuffer, intent: Intent | None = None) -> str:
         pass 
 
     @abstractmethod
@@ -79,7 +88,7 @@ class CodegenContext(ABC):
     ''' Lowering passes for respective codegen context '''
     @abstractmethod
     def lower_expr(self, expr, iname_maps, loop_indices, 
-                   intent: Intent = READ, paths = None):
+                   intent: Intent | None = None, paths = None):
         """
         Lower a PyOP3 expression to the target's IR representation.
         
@@ -90,8 +99,15 @@ class CodegenContext(ABC):
         pass
 
     @abstractmethod
-    def lower_buffer_access(self, buffer: AbstractBuffer, layouts, iname_maps, 
-                            loop_indices, intent: Intent):
+    def lower_buffer_access(
+        self, 
+        buffer: IndexedBuffer, 
+        layouts, 
+        iname_maps, 
+        loop_indices, 
+        *,
+        intent
+    ):
         pass
 
     @abstractmethod
@@ -116,18 +132,11 @@ class CodegenContext(ABC):
 
     # }}}
 
+    def add_subkernel(self, subkernel):
+        self._subkernels.append(subkernel)
+
     def unique_name(self, prefix: str) -> str:
         return self._name_generator(prefix)
-
-    def _add_instruction(self, insn: Any) -> None:
-        self._instructions.append(insn)
-        self._last_insn_id = insn.id
-
-    @property
-    def _depends_on(self) -> frozenset:
-        if self._last_insn_id is None:
-            return frozenset()
-        return frozenset({self._last_insn_id})
 
     def __str__(self) -> str:
         ctx = f"Domain: {str(self.domains)}\n\n"
