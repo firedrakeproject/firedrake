@@ -192,12 +192,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/rtree.pyx: numpy, rtree-capi
+    # firedrake/cython/rtree.pyx: petsc, numpy, rtree-capi
     cython_list.append(Extension(
         name="firedrake.cython.rtree",
         language="c",
         sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
-        **(mpi_ + numpy_ + rtree_)
+        **(mpi_ + petsc_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
