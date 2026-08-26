@@ -11,7 +11,6 @@ import firedrake
 import finat
 import ufl
 import finat.ufl
-import weakref
 
 __all__ = ("PMGPC", "PMGSNES")
 
@@ -46,8 +45,6 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-    # This is parallel-safe because the keys are ids of a collective objects
-    _transfer_cache = weakref.WeakKeyDictionary()
 
     def coarsen_element(self, ele: finat.ufl.FiniteElementBase) -> finat.ufl.FiniteElementBase:
         """Coarsen a given element to form the next problem down in the p-hierarchy.
@@ -326,19 +323,13 @@ class PMGBase(PCSNESBase):
 
     def create_transfer(self, mat_type, cctx, fctx, cbcs, fbcs):
         """Create a transfer operator"""
-        cache = self._transfer_cache.setdefault(fctx, {})
-        key = (mat_type, cctx, cbcs, fbcs)
-        try:
-            return cache[key]
-        except KeyError:
-            cV = cctx._problem.u_restrict.function_space()
-            fV = fctx._problem.u_restrict.function_space()
-            cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
-            fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-            bcs = cbcs + fbcs
-            interp = firedrake.interpolate(firedrake.TrialFunction(cV), fV)
-            Pmat = firedrake.assemble(interp, bcs=bcs, mat_type=mat_type).petscmat
-            return cache.setdefault(key, Pmat)
+        cV = cctx._problem.u_restrict.function_space()
+        fV = fctx._problem.u_restrict.function_space()
+        cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
+        fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
+        bcs = cbcs + fbcs
+        interp = firedrake.interpolate(firedrake.TrialFunction(cV), fV)
+        return firedrake.assemble(interp, bcs=bcs, mat_type=mat_type).petscmat
 
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
