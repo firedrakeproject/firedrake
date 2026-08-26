@@ -45,7 +45,7 @@ from pyop3.insn.base import (
 )
 
 from pyop3.lower.loopy import LoopyCodegenContext
-from pyop3.lower.context import _collect_temporary_shapes, _compile
+from pyop3.lower.context import _collect_temporary_shapes, _compile # NOTE: Maybe these functions could both go in transform? 
 
 # TODO: import other way around?
 from pyop3.lower.transform import (
@@ -65,6 +65,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
+    Function passes compilation process to compiler-specified backend 
 
     Returns
     -------
@@ -83,7 +84,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     if compiler_parameters.codegen == "loopy": 
         ContextClass = LoopyCodegenContext
     elif compiler_parameters.codegen == "mlir": 
-        raise NotImplementedError("Still implementing this class") 
+        raise NotImplementedError("Class is still being implemented.") 
 
     context = ContextClass(
         propagate_negatives=compiler_parameters.propagate_negatives,

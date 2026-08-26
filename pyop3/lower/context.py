@@ -38,9 +38,9 @@ from pyop3.insn.base import (
 
 class CodegenContext(ABC):
     """
-    Abstract base class for code generation contexts.
+    Base class for code generation backends
     
-    Abstract methods required for auto-generating based on _compile_static in codegen.py
+    Class designed solely for use in codegen.py, as an interface to specific backends.
     """
     
     def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
@@ -123,7 +123,6 @@ class CodegenContext(ABC):
     def set_temporary_shapes(self, shapes) -> None:
         pass
 
-    ''' Lowering passes for respective codegen context '''
     @abstractmethod
     def lower_expr(self, expr, iname_maps, loop_indices, 
                    intent: Intent | None = None, paths = None):
@@ -146,6 +145,9 @@ class CodegenContext(ABC):
         *,
         intent
     ):
+        """
+        Determine indexing and lower buffer expression to respective IR
+        """
         pass
 
     @abstractmethod
@@ -158,30 +160,23 @@ class CodegenContext(ABC):
 
     @abstractmethod
     def compile_standalone_function(self, call, loop_indices):
-        """
-        Compiling standalone functions i.e. LACallable for target IR representations 
-        """
         pass
 
     @abstractmethod
     def compile_petsc_mat(self, assignment, loop_indices):
-        """
-        """
         pass
 
     @abstractmethod
     def compile_exscan(self, call, loop_indices):
-        """
-        """
         pass
 
     # }}}
 
 
-    # {{{ general implementations
+    # {{{ class methods
 
 
-    def compile_array_assignment(
+    def _compile_array_assignment(
             self,
             assignment, 
             loop_indices, 
@@ -241,7 +236,7 @@ class CodegenContext(ABC):
 
             with self.within_inames(within_inames):
                 if axis_tree.node_map[new_paths[-1]]:
-                    self.compile_array_assignment(
+                    self._compile_array_assignment(
                         assignment, 
                         loop_indices, 
                         axis_trees, 
@@ -250,7 +245,7 @@ class CodegenContext(ABC):
                         paths=new_paths
                     )
                 elif axis_trees:
-                    self.compile_array_assignment(
+                    self._compile_array_assignment(
                         assignment, 
                         loop_indices, 
                         axis_trees, 
@@ -266,7 +261,7 @@ class CodegenContext(ABC):
                         loop_indices
                     )
 
-    def parse_loop_properly_this_time(
+    def _parse_loop_properly_this_time(
             self,
             loop,
             axis_tree,
@@ -313,7 +308,7 @@ class CodegenContext(ABC):
 
             with self.within_inames(within_inames):
                 if subaxis := axis_tree.node_map[path_]:
-                    self.parse_loop_properly_this_time(
+                    self._parse_loop_properly_this_time(
                         loop,
                         axis_tree,
                         loop_indices,
@@ -341,6 +336,9 @@ class CodegenContext(ABC):
         return self._name_generator(prefix)
 
     def __str__(self) -> str:
+        '''
+            Display key properties of CodegenContext
+        '''
         ctx = f"Domain: {str(self.domains)}\n\n"
         ctx += f"Instructions: {str(self.instructions)}\n\n"
         ctx += f"Arguments: {str(self.arguments)}\n\n"
@@ -348,6 +346,9 @@ class CodegenContext(ABC):
         return ctx 
 
 
+# NOTE: Not a big fan of how compile sits in this file. 
+# No need to make a class method in CodegenContext.
+# Could maybe be a class in transform? Similar to collect_temporary_shapes
 @functools.singledispatch
 def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
@@ -371,7 +372,7 @@ def _(
     loop_indices, 
     codegen_context
 ) -> None:
-    codegen_context.parse_loop_properly_this_time(
+    codegen_context._parse_loop_properly_this_time(
         loop, 
         loop.index.iterset, 
         loop_indices, 
@@ -386,7 +387,7 @@ def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_
     if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
         codegen_context.compile_petsc_mat(assignment, loop_indices)
     else:
-        codegen_context.compile_array_assignment(
+        codegen_context._compile_array_assignment(
             assignment,
             loop_indices,
             assignment.axis_trees,
