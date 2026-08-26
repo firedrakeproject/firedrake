@@ -227,7 +227,6 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if gdim not in {2, 3}:
         raise ValueError("Geometric dimension must be either 2 or 3!")
 
-
     if axes is None:
         figure = plt.figure()
         if gdim == 3:
