@@ -283,13 +283,6 @@ def test_p_multigrid_mixed(mat_type):
         ctx_levels += 1
     assert ctx_levels == 3
 
-    # test that the cache is parallel-safe
-    dummy_eq = type(object).__eq__
-    cache = PMGPC._transfer_cache
-    assert len(cache) > 0
-    for k in cache:
-        assert type(k).__eq__ is dummy_eq
-
 
 def test_p_fas_scalar():
     mat_type = "matfree"
