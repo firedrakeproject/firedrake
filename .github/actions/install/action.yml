@@ -167,6 +167,14 @@ runs:
         firedrake-clean
         pip list
 
+    - name: DROP BEFORE MERGE - install the fiat#268 stack
+      shell: bash
+      run: |
+        . venv/bin/activate
+        pip install --ignore-installed --no-deps --no-build-isolation \
+          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/dual-enriched
+        firedrake-clean
+
     - name: Run firedrake-check
       shell: bash
       run: |
