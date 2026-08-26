@@ -137,14 +137,8 @@ runs:
 
         # Fix for petsc4py build to be removed after #5372 is resolved.
         echo 'Cython<3.3.0' > constraints.txt
-        export PIP_CONSTRAINT="constraints.txt"
-
-        echo "env"
-        env
-        echo "echo"
-        echo $PIP_CONSTRAINT
-        echo "cat"
-        cat constraints.txt
+        export PIP_CONSTRAINT=constraints.txt
+        export PIP_BUILD_CONSTRAINT=constraints.txt
 
         if [ ${{ inputs.base_ref }} = 'main' ]; then
           : # Install build dependencies
