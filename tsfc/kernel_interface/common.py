@@ -150,10 +150,14 @@ class KernelBuilderBase(KernelInterface):
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
 
-    def compile_interpolate(self, expression, params, ctx):
+    def compile_interpolate(self, expression, target_element, params, ctx):
         """Compile UFL interpolate.
 
         :arg expression: UFL interpolate.
+        :arg target_element: UFL element of the interpolation target. This is
+            not the dual argument's own element when the target is a point
+            cloud: the points are then only known at run time, so the target
+            is a quadrature element on the source cell.
         :arg params: a dict containing "quadrature_rule".
         :arg ctx: context created with :meth:`create_context` method.
 
@@ -162,7 +166,7 @@ class KernelBuilderMixin(object):
         expression = CoefficientSplitter(self.coefficient_split)(
             expression
         )
-        target_element = self.create_element(expression.ufl_element())
+        target_element = self.create_element(target_element)
         config = self.fem_config()
         config.update(
             argument_multiindices=self.argument_multiindices,

@@ -59,7 +59,7 @@ TSFCInterpolationData = collections.namedtuple(
     "TSFCInterpolationData",
     ["domain", "iteration_domain", "integral_type", "subdomain_id",
      "domain_integral_type_map", "enabled_coefficients", "integrals",
-     "expression"],
+     "expression", "target_element"],
 )
 
 TSFCInterpolationFormData = collections.namedtuple(
@@ -218,6 +218,7 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
         enabled_coefficients=(True,) * len(coefficients),
         integrals=(),
         expression=expression,
+        target_element=target_element,
     )
     return [
         compile_integral(
@@ -295,7 +296,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     ctx = builder.create_context()
     if isinstance(integral_data, TSFCInterpolationData):
         params = parameters.copy()
-        interpolate_exprs = builder.compile_interpolate(integral_data.expression, params, ctx)
+        interpolate_exprs = builder.compile_interpolate(
+            integral_data.expression, integral_data.target_element, params, ctx
+        )
         builder.stash_integrals(interpolate_exprs, params, ctx)
     else:
         for integral in integral_data.integrals:
