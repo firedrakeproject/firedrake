@@ -356,7 +356,7 @@ def test_DG0(mh, operator):
         if complex_mode:
             with pytest.raises(NotImplementedError):
                 inject(u_fine, u_coarse)
-                return
+            return
         else:
             inject(u_fine, u_coarse)
         assert errornorm(stepc, u_coarse) <= 1e-12
