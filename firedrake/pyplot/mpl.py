@@ -212,10 +212,8 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :class:`LineCollection <matplotlib.collections.LineCollection>` and
     related types.
 
-    On an extruded mesh, the markers of the base mesh colour the vertical
-    facets, and the bottom and top of the columns of cells are coloured under
-    the markers ``"bottom"`` and ``"top"``, matching the subdomain ids of the
-    :data:`~.ds_b` and :data:`~.ds_t` measures. A periodic extrusion identifies
+    On an extruded mesh, the bottom and top of the mesh are coloured under
+    the markers ``"bottom"`` and ``"top"``. A periodic extrusion identifies
     the bottom with the top, so neither is drawn.
 
     :arg mesh: mesh to be plotted
