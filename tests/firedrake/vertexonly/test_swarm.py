@@ -396,7 +396,6 @@ def test_pic_swarm_in_mesh_2d_3procs():
 
 @pytest.mark.parallel(nprocs=3)
 def test_discover_remote_roots():
-    """Build remote SF nodes from unique point/rank candidates."""
     comm = MPI.COMM_WORLD
     mins = np.array([[0.0], [1.0], [1.0], [10.0]], dtype=np.float64)
     maxs = np.array([[2.0], [3.0], [2.5], [11.0]], dtype=np.float64)
@@ -422,7 +421,5 @@ def test_discover_remote_roots():
     sf.setGraph(len(points), None, remote)
     assert sf.getGraph()[0] == len(points)
 
-    remote = rtree.discover_remote_roots(
-        tree, np.array([[-1.0]], dtype=np.float64), comm,
-    )
+    remote = rtree.discover_remote_roots(tree, np.array([[-1.0]], dtype=np.float64), comm)
     assert remote.shape == (0, 2)

@@ -277,8 +277,7 @@ def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
         RTreeError err
         np.ndarray[np.float64_t, ndim=3, mode="c"] boxes
 
-    err = rtree_collect_bounding_boxes(rtree.tree, level, &mins, &maxs, &n_boxes)
-    if err != Success:
+    if rtree_collect_bounding_boxes(rtree.tree, level, &mins, &maxs, &n_boxes) != Success:
         raise RuntimeError("rtree_bounding_boxes failed")
 
     boxes = np.empty((n_boxes, 2, dim), dtype=np.float64)
@@ -298,7 +297,6 @@ def tree_depth(RTree rtree):
         size_t depth = 0
         RTreeError err
 
-    err = rtree_depth(rtree.tree, &depth)
-    if err != Success:
+    if rtree_depth(rtree.tree, &depth) != Success:
         raise RuntimeError("rtree_depth failed")
     return depth

@@ -32,6 +32,7 @@ cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscFree(void*)
     PetscErrorCode PetscFree2(void*,void*)
     PetscErrorCode PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
+
 cdef extern from "petscdmtypes.h" nogil:
     ctypedef enum PetscDMPolytopeType "DMPolytopeType":
         DM_POLYTOPE_POINT
