@@ -86,6 +86,9 @@ class LoopyCodegenContext(CodegenContext):
 
     def add_subkernel(self, subkernel): 
         self._subkernels.append(subkernel)
+    
+    def var(self, iname: str, *args) -> pym.primitives.Variable:
+        return pym.var(iname)
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -265,9 +268,6 @@ class LoopyCodegenContext(CodegenContext):
     # FIXME, bad API but it is context-dependent
     def set_temporary_shapes(self, shapes):
         self._temporary_shapes = shapes
-
-    def add_leaf_assignment(self, assignment, paths, iname_maps, loop_indices):
-        pass
         
     def lower_buffer_access(
         self,
