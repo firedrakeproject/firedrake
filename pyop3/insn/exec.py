@@ -28,8 +28,6 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
-import pyop3.debug_flags
-
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
@@ -231,7 +229,6 @@ class InstructionExecutionContext:
     )
     def _compile(self) -> CompiledCodeExecutor:
         from pyop3.insn.visitors import collect_compiler_options
-        # from pyop3.lower.loopy import _compile_static
         from pyop3.lower.codegen import _compile_static
 
         # Preprocess the instruction. This is an expensive operation so we
