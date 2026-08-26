@@ -352,10 +352,7 @@ class Interpolator(abc.ABC):
 
         if mat_type == "matfree" and self.rank == 2:
             Vrow, Vcol = (arg.function_space() for arg in self.interpolate_args)
-            if is_dual(Vrow):
-                Vrow = Vrow.dual()
-            if is_dual(Vcol):
-                Vcol = Vcol.dual()
+            Vcol = Vcol.dual()
             if bcs is None:
                 bcs = ()
             row_bcs = [bc for bc in bcs if bc.function_space(parent=True).topological == Vrow.topological]
