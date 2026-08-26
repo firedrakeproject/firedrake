@@ -14,6 +14,7 @@ from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
+from gem.unconcatenate import unconcatenate
 
 import finat
 from finat.element_factory import as_fiat_cell
@@ -353,10 +354,15 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
-        # The dual argument contracts over the nodes, so the basis indices are
-        # reduction indices like the points, not indices of the return value.
-        evaluation = evaluation * gem_dual[basis_indices]
-        quadrature_multiindex += tuple(basis_indices)
+        # The dual argument contracts over the nodes.  Split the dual basis
+        # along its Concatenate nodes first, as assembly does for coefficient
+        # evaluation.  Each block then sums over its own basis indices, rather
+        # than over the concatenated index, which nothing can be split along.
+        var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
+        summands = [gem.IndexSum(gem.Product(expr, v), v.index_ordering())
+                    for v, expr in unconcatenate([(var, evaluation)],
+                                                 kernel_cfg["index_cache"])]
+        evaluation = gem.optimise.make_sum(summands)
         basis_indices = ()
     else:
         argument_multiindices[dual_arg.number()] = basis_indices

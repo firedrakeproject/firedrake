@@ -56,3 +56,18 @@ def test_ufl_only_shape_mismatch():
     assert to_element.value_shape == (2,)
     with pytest.raises(ValueError):
         compile_expression_dual_evaluation(expr, W.ufl_element())
+
+
+def test_dual_argument_on_concatenated_dual_basis():
+    """The dual basis of a facet-restricted element is a Concatenate.
+
+    A Cofunction dual argument sums over the concatenated index, so the
+    contraction has to be split along the Concatenate before it is formed.
+    """
+    mesh = ufl.Mesh(finat.ufl.VectorElement("Q", ufl.quadrilateral, 1))
+    element = finat.ufl.FiniteElement("Q", ufl.quadrilateral, 3)
+    V = ufl.FunctionSpace(mesh, element["facet"])
+    W = ufl.FunctionSpace(mesh, element.reconstruct(degree=2)["facet"])
+    expr = ufl.Interpolate(ufl.Argument(V, 0), ufl.Cofunction(W.dual()))
+    kernel = compile_expression_dual_evaluation(expr, W.ufl_element())
+    assert kernel.flop_count > 0
