@@ -114,7 +114,10 @@ For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()``, which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. ::
+The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()``, which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. 
+
+.. code-block:: python
+  :dedent: 0
 
   def build_problem(mesh1, mesh2):
     p = 3
@@ -145,7 +148,7 @@ Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors fo
 
 Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.
 
-.. code-block:: python
+.. code-block::
   :dedent: 0
   
     V1 = FunctionSpace(mesh1, "CG", p)

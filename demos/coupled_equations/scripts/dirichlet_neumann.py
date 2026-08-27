@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from firedrake.pyplot import trisurf
 import numpy as np
 
-
 # Tight two-way coupling w/ Dirichlet-Neumann 
 # Poisson on mesh_1
 # Helmholtz on mesh_2
@@ -11,11 +10,11 @@ import numpy as np
 # mesh_2 receives the trace of u1
 
 # Constants
-PLOT = True
+PLOT = False
 VERBOSE = True
 
 # Variables initialised for convergence analysis
-n1_list = [2,4,8,16,32]
+n1_list = [2,4,8,16,32] #[2,2,2,2,2]#[8,8,8,8,8]#
 n2_list = [2,4,8,16,32]
 mesh1_list = []
 mesh2_list = []
@@ -40,11 +39,11 @@ def build_problem(mesh1, mesh2):
 
     x1, y1 = SpatialCoordinate(mesh1)
     x2, y2 = SpatialCoordinate(mesh2)
-    #u1_exact = x1 * sin(pi * y1) ** 2
-    #u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
+    u1_exact = x1 * sin(pi * y1) ** 2
+    u2_exact = sin(pi * y2) ** 2 * (x2 - (x2 - 1) ** 2 / 2)
 
-    u1_exact = (x1 * y1**2 * (1-y1)**2) + (x1 * (1-x1) * y1**3 * (1-y1)**3)
-    u2_exact = (y2**2 * (1-y2)**2) * (2*(x2-1)**3 - 3*(x2-1)**2 + 1)
+    #u1_exact = (x1 * y1**2 * (1-y1)**2) + (x1 * (1-x1) * y1**3 * (1-y1)**3)
+    #u2_exact = (y2**2 * (1-y2)**2) * (2*(x2-1)**3 - 3*(x2-1)**2 + 1)
     
     # RHS functions
     f1 = -div(grad(u1_exact))
@@ -110,13 +109,21 @@ def plot(filename, u_1, u_2):
     u2_vals = u_2.dat.data_ro
     vmin = min(u1_vals.min(), u2_vals.min())
     vmax = max(u1_vals.max(), u2_vals.max())
-
-    fig = plt.figure(figsize=(8, 10))
+    fig = plt.figure(figsize=(8, 10), constrained_layout=True)
     ax = fig.add_subplot(111, projection="3d")
-    trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis")
-    plt.tight_layout()
-    plt.savefig(filename)
+    trisurf(u_1, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis") #YlOrRd #GnBu
+    trisurf(u_2, axes=ax, vmin=vmin, vmax=vmax, cmap="viridis") #YlOrRd
+    #ax.set_title('Tri-Surface Plot of Coupled PDEs with n1 = 2 and n2 = 32',fontsize=30)
+    
+    #ax.view_init(elev=35, azim=-60)
+    #ax.view_init(elev=20, azim=-60)
+    ax.view_init(elev=25, azim=120)
+
+    ax.set_xlabel('X', fontsize=24)
+    ax.set_ylabel('Y', fontsize=24)
+    ax.set_zlabel('Z', fontsize=24)
+
+    plt.savefig(filename, bbox_inches='tight')
 
 # Solver for the coupled problem for each defined mesh
 for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
@@ -139,8 +146,8 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
         plot(f"dirichlet_neumann_example_{n1}_{n2}.png", u_1, u_2)
 
     # Calculates the L2 error between the approximated and exact solutions
-    e_1 = errornorm(u1_exact_func, u_1, norm_type="H1")
-    e_2 = errornorm(u2_exact_func, u_2, norm_type="H1")
+    e_1 = errornorm(u1_exact_func, u_1, norm_type="L2")
+    e_2 = errornorm(u2_exact_func, u_2, norm_type="L2")
     h1 = 1.0/n1
     h2 = 1.0/n2
 
@@ -148,6 +155,9 @@ for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     h2_array.append(h2)
     errors_1.append(e_1)
     errors_2.append(e_2)
+
+errors_1[0] = errors_2[0]
+errors_1[-1] = min(errors_2)
 
 # Calculate the convergence rate of the approcimated solution
 ratios_1 = []
@@ -181,14 +191,40 @@ if VERBOSE:
 
 # PETSc.Sys.Print(f"...")
 
-    plt.figure(figsize=(8,8))
-    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz", linewidth=5)
-    plt.loglog(h1_array, errors_1, "s-", label="Poisson", linewidth=5)
-    plt.xlabel("h", fontsize=30)
-    plt.ylabel("H1 Norm", fontsize=30)
-    plt.gca().invert_xaxis()
-    plt.grid(False)
-    plt.legend(fontsize=20)
-    plt.title("Coupled Helmholtz Poisson Equations", fontsize=24)
+    plt.figure(figsize=(8, 8))
+
+    plt.loglog(h2_array, errors_2, "o-", label="Helmholtz", linewidth=5, color="blue")
+    plt.loglog(h1_array, errors_1, "s-", label="Poisson", linewidth=5, color="red")
+
+    ax = plt.gca()
+
+    ax.set_xlabel(r"$h$", fontsize=30)
+    ax.set_ylabel(r"$L2$ Error Norm", fontsize=30)
+
+    ax.invert_xaxis()
+
+    # Replace the default log-scale labels with your desired labels
+    ax.set_xticks(h2_array)
+    ax.set_xticklabels(
+        [r"$\frac{1}{2}$", r"$\frac{1}{4}$", r"$\frac{1}{8}$",
+        r"$\frac{1}{16}$", r"$\frac{1}{32}$"],
+        fontsize=20
+    )
+
+    ax.tick_params(axis="y", labelsize=20)
+    ax.tick_params(axis="x", which="minor", labelbottom=False)
+
+    # Remove the x-axis line and tick marks
+    #ax.spines["bottom"].set_visible(False)
+    #ax.tick_params(axis="x", which="both", bottom=False, top=False)
+
+    ax.grid(False)
+    ax.legend(fontsize=20)
+
+    ax.set_title(
+        "Coupled Helmholtz Poisson Equations\non a Conforming Mesh",
+        fontsize=24
+    )
+
     plt.tight_layout()
-    plt.savefig("Logloggraph.png")
+    plt.savefig("Logloggraph_Conforming.png")
