@@ -4153,7 +4153,8 @@ def _pic_swarm_in_mesh(
     redundant: bool = True,
     exclude_halos: bool = True,
 ) -> tuple[FiredrakeDMSwarm, FiredrakeDMSwarm, int]:
-    """Create a particle-in-cell DMSwarm immersed in a mesh.
+    """Create the immersed and input-ordering DMSwarms of the given `coords` in
+    the `parent_mesh`.
 
     Parameters
     ----------
@@ -4199,6 +4200,10 @@ def _pic_swarm_in_mesh(
         )
 
     # in the redundant=True case we discard all the points not on rank zero
+    # TODO: Here rank 0 queries the partition rtree while all other ranks wait.
+    # We should load balance this by scattering chunks from rank 0 to all other ranks.
+    # This would change the semantics of the input-ordering, however, so we would
+    # need a 'work-to-input' SF which we would compose with the candidate SF.
     if redundant and parent_mesh.comm.rank != 0:
         coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
 
@@ -4223,17 +4228,19 @@ def _pic_swarm_in_mesh(
     n_missing_points = int(np.count_nonzero(missing_roots))
     input_owner_ranks = np.where(
         missing_roots, parent_mesh.comm.size + 1, winner_ranks
-    )
+    )  # missing points receive an invalid rank
 
+    # assign global indices
     start_idx = parent_mesh.comm.exscan(nroots) or 0
     global_idxs = start_idx + np.arange(nroots, dtype=IntType)
     global_idxs_leaves = embedded_sf.broadcast(global_idxs)[embedded_sf.leaf_indices]
 
+    # Define local swarm indices. Owned before halo.
     owned_indices = np.flatnonzero(owner_ranks == parent_mesh.comm.rank)
     halo_indices = np.flatnonzero(owner_ranks != parent_mesh.comm.rank)
     n_owned = len(owned_indices)
     swarm_indices = np.concatenate([owned_indices, halo_indices])
-    swarm_parent_cells = parent_cell_nums[swarm_indices]
+    swarm_parent_cells = parent_cell_nums[swarm_indices]  # reorder into swarm order
     if parent_mesh.extruded:
         swarm_base_cells, swarm_extrusion_heights = _parent_extrusion_numbering(
             swarm_parent_cells, parent_mesh.layers
@@ -4241,8 +4248,10 @@ def _pic_swarm_in_mesh(
         cell_numbers = swarm_base_cells
     else:
         cell_numbers = swarm_parent_cells
+    # convert firedrake local cell numbering into DMPlex numbering
     cell_ids = parent_mesh.topology.cell_closure[cell_numbers, -1]
 
+    # create and populate the immersed DMSwarm
     swarm = FiredrakeDMSwarm.create(
         parent_mesh.topology.topology_dm,
         parent_mesh.topological_dimension,
@@ -4254,7 +4263,7 @@ def _pic_swarm_in_mesh(
     cell_id_name = swarm.dm.getCellDMActive().getCellID()
     swarm.set_field("DMSwarmPIC_coor", physical_coords[swarm_indices])
     swarm.set_field(cell_id_name, cell_ids)
-    swarm.set_field("parentcellnum", swarm_parent_cells)
+    swarm.set_field("parentcellnum", swarm_parent_cells)  # store Firedrake parent-cell numbers
     swarm.set_field("refcoord", reference_coords[swarm_indices])
     swarm.set_field("globalindex", global_idxs_leaves[swarm_indices])
     swarm.set_field("DMSwarm_rank", owner_ranks[swarm_indices])
@@ -4264,10 +4273,11 @@ def _pic_swarm_in_mesh(
         swarm.set_field("parentcellbasenum", swarm_base_cells)
         swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
 
+    # Build the owned-to-halo SF
     owner_swarm_idx_buf = np.full(embedded_sf.leaf_buffer_size, -1, dtype=IntType)
     owner_swarm_idx_buf[embedded_sf.leaf_indices[owned_indices]] = np.arange(n_owned, dtype=IntType)
-
     owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
+    # send owning swarm index from leaf to its root. MAX selects it over -1 IDs from halo leaves
     embedded_sf.reduce(owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
 
     owner_swarm_idxs = embedded_sf.broadcast(owner_swarm_idx_roots)[embedded_sf.leaf_indices]
