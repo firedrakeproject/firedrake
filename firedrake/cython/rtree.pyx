@@ -157,6 +157,7 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
 
     return RTree(<uintptr_t>rtree)
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def discover_remote_roots(
@@ -191,7 +192,7 @@ def discover_remote_roots(
         MPI_Status status
         MPI_Datatype point_index_type
         int count, source_rank, message_ready, sends_complete, barrier_complete = 0
-        Py_ssize_t i, nleaves = 0, recv_offset = 0
+        Py_ssize_t nleaves = 0, recv_offset = 0
         int64_t *toranks = NULL
         size_t *point_indices = NULL
         size_t *send_offsets = NULL
@@ -277,7 +278,6 @@ def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
         double *mins = NULL
         double *maxs = NULL
         size_t n_boxes = 0
-        RTreeError err
         np.ndarray[np.float64_t, ndim=3, mode="c"] boxes
 
     if rtree_collect_bounding_boxes(rtree.tree, level, &mins, &maxs, &n_boxes) != Success:
@@ -294,11 +294,11 @@ def bounding_boxes_at_level(RTree rtree, size_t level, uint32_t dim):
 
     return boxes
 
+
 def tree_depth(RTree rtree):
     """Return the depth of the Rtree."""
     cdef:
         size_t depth = 0
-        RTreeError err
 
     if rtree_depth(rtree.tree, &depth) != Success:
         raise RuntimeError("rtree_depth failed")
