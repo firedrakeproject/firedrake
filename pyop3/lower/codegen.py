@@ -10,7 +10,6 @@ from typing import Any
 import loopy as lp
 import numpy as np
 import pymbolic as pym
-from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.axis_tree
@@ -33,25 +32,22 @@ from pyop3.buffer import (
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
-    AbstractAssignment,
-    AssignmentType,
     Exscan,
     InstructionList,
     Loop,
     NonEmptyArrayAssignment,
     NullInstruction,
     StandaloneCalledFunction,
-    assignment_type_as_intent,
 )
 
 from pyop3.lower.loopy import LoopyCodegenContext
-from pyop3.lower.context import _collect_temporary_shapes, _compile # NOTE: Maybe these functions could both go in transform? 
 
 # TODO: import other way around?
 from pyop3.lower.transform import (
     with_attach_debugger,
     with_likwid_markers,
     with_petsc_event,
+    _collect_temporary_shapes
 )
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
@@ -128,3 +124,50 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
     return translation_unit, kernel_name_to_global_buffer_info, global_buffer_intents
 
+@functools.singledispatch
+def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+@_compile.register(NullInstruction)
+def _(null, *args, **kwargs): 
+    pass
+
+@_compile.register(InstructionList)
+def _(
+    insn_list, 
+    loop_indices, 
+    codegen_context
+) -> None:
+    for insn in insn_list: 
+        _compile(insn, loop_indices, codegen_context)
+
+@_compile.register(Loop)
+def _(
+    loop, 
+    loop_indices, 
+    codegen_context
+) -> None:
+    codegen_context._parse_loop_properly_this_time(
+        loop, 
+        loop.index.iterset, 
+        loop_indices, 
+    )
+
+@_compile.register(StandaloneCalledFunction)
+def _(call, loop_indices, codegen_context):
+    codegen_context.compile_standalone_function(call, loop_indices)
+
+@_compile.register(NonEmptyArrayAssignment)
+def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
+    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
+        codegen_context.compile_petsc_mat(assignment, loop_indices)
+    else:
+        codegen_context._compile_array_assignment(
+            assignment,
+            loop_indices,
+            assignment.axis_trees,
+        )
+
+@_compile.register(Exscan)
+def _(exscan, loop_indices, codegen_context):
+    codegen_context.compile_exscan(exscan, loop_indices)

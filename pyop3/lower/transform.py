@@ -1,7 +1,18 @@
 import textwrap
 
 import loopy as lp
+import functools
 
+from immutabledict import immutabledict as idict
+
+from pyop3.insn.base import (
+    AbstractAssignment,
+    Exscan,
+    InstructionList,
+    Loop,
+    NullInstruction,
+    StandaloneCalledFunction
+)
 
 def with_likwid_markers(knl):
     """
@@ -62,3 +73,44 @@ def with_attach_debugger(kernel):
         *(insn.copy(depends_on=insn.depends_on | {debug_insn.id}) for insn in kernel.instructions),
     )
     return kernel.copy(instructions=insns)
+
+# NOTE: Make this overloaded function into class in transform.py
+# Only issue may be loopy-specific standalone_function overloading.
+@functools.singledispatch
+def _collect_temporary_shapes(expr):
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+@_collect_temporary_shapes.register(InstructionList)
+def _(insn_list):
+    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+
+@_collect_temporary_shapes.register(Loop)
+def _(loop):
+    shapes = {}
+    for stmt in loop.statements:
+        for temp, shape in _collect_temporary_shapes(stmt).items():
+            if shape is None:
+                continue
+            if temp in shapes:
+                assert shapes[temp] == shape
+            else:
+                shapes[temp] = shape
+    return shapes
+
+@_collect_temporary_shapes.register(AbstractAssignment)
+@_collect_temporary_shapes.register(NullInstruction)
+@_collect_temporary_shapes.register(Exscan)
+def _(assignment: AbstractAssignment, /) -> idict:
+    return idict()
+
+@_collect_temporary_shapes.register
+def _(call: StandaloneCalledFunction):
+    return idict(
+        {
+            arg.buffer: lp_arg.shape
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
+            )
+            if isinstance(lp_arg, lp.ArrayArg)
+        }
+    )

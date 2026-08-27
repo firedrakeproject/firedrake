@@ -35,7 +35,6 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-
 class CodegenContext(ABC):
     """
     Base class for code generation backends
@@ -271,6 +270,8 @@ class CodegenContext(ABC):
             path=None,
             iname_map=None,
     ) -> None:
+        from pyop3.lower.codegen import _compile
+
         if axis_tree is UNIT_AXIS_TREE:
             # NOTE: might need an expression here sometimes
             for statement in loop.statements:
@@ -345,97 +346,3 @@ class CodegenContext(ABC):
         ctx += f"Subkernels: {str(self.subkernels)}\n\n"
         return ctx 
 
-
-# NOTE: Not a big fan of how compile sits in this file. 
-# No need to make a class method in CodegenContext.
-# Could maybe be a class in transform? Similar to collect_temporary_shapes
-@functools.singledispatch
-def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
-    raise TypeError(f"No handler defined for {type(expr).__name__}")
-
-@_compile.register(NullInstruction)
-def _(null, *args, **kwargs): 
-    pass
-
-@_compile.register(InstructionList)
-def _(
-    insn_list, 
-    loop_indices, 
-    codegen_context
-) -> None:
-    for insn in insn_list: 
-        _compile(insn, loop_indices, codegen_context)
-
-@_compile.register(Loop)
-def _(
-    loop, 
-    loop_indices, 
-    codegen_context
-) -> None:
-    codegen_context._parse_loop_properly_this_time(
-        loop, 
-        loop.index.iterset, 
-        loop_indices, 
-    )
-
-@_compile.register(StandaloneCalledFunction)
-def _(call, loop_indices, codegen_context):
-    codegen_context.compile_standalone_function(call, loop_indices)
-
-@_compile.register(NonEmptyArrayAssignment)
-def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
-    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
-        codegen_context.compile_petsc_mat(assignment, loop_indices)
-    else:
-        codegen_context._compile_array_assignment(
-            assignment,
-            loop_indices,
-            assignment.axis_trees,
-        )
-
-@_compile.register(Exscan)
-def _(exscan, loop_indices, codegen_context):
-    codegen_context.compile_exscan(exscan, loop_indices)
-
-
-# NOTE: Make this overloaded function into class in transform.py
-# Only issue may be loopy-specific standalone_function overloading.
-@functools.singledispatch
-def _collect_temporary_shapes(expr):
-    raise TypeError(f"No handler defined for {type(expr).__name__}")
-
-@_collect_temporary_shapes.register(InstructionList)
-def _(insn_list):
-    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
-
-@_collect_temporary_shapes.register(Loop)
-def _(loop):
-    shapes = {}
-    for stmt in loop.statements:
-        for temp, shape in _collect_temporary_shapes(stmt).items():
-            if shape is None:
-                continue
-            if temp in shapes:
-                assert shapes[temp] == shape
-            else:
-                shapes[temp] = shape
-    return shapes
-
-@_collect_temporary_shapes.register(AbstractAssignment)
-@_collect_temporary_shapes.register(NullInstruction)
-@_collect_temporary_shapes.register(Exscan)
-def _(assignment: AbstractAssignment, /) -> idict:
-    return idict()
-
-@_collect_temporary_shapes.register
-def _(call: StandaloneCalledFunction):
-    import loopy as lp # TODO: Remove once StandaloneCalledFunction/similar integrated with MLIR
-    return idict(
-        {
-            arg.buffer: lp_arg.shape
-            for lp_arg, arg in zip(
-                call.function.code.default_entrypoint.args, call.arguments, strict=True
-            )
-            if isinstance(lp_arg, lp.ArrayArg)
-        }
-    )
