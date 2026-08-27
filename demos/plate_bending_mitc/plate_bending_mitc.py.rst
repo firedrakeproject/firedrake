@@ -170,3 +170,5 @@ Finally, we output the deflection to a PVD file for visualization in ParaView.
 ::
 
   VTKFile("mitc_plate.pvd").write(w_sol)
+
+A python script version of this demo can be found :demo:`here <plate_bending_mitc.py>`.
