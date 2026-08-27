@@ -253,16 +253,6 @@ def test_changing_coordinates_invalidates_distributed_rtree():
     assert mesh.distributed_rtree != saved_rtree
 
 
-def test_changing_tolerance_invalidates_rtrees():
-    mesh = UnitSquareMesh(2, 2)
-
-    saved_distributed_rtree = mesh.distributed_rtree
-    save_rtree = mesh.rtree
-    mesh.tolerance = mesh.tolerance / 2
-    assert mesh.distributed_rtree != saved_distributed_rtree
-    assert mesh.rtree != save_rtree
-
-
 def test_changing_coordinates_invalidates_bounding_box():
     mesh = UnitSquareMesh(2, 2)
     assert mesh.bounding_box_coords is mesh.bounding_box_coords

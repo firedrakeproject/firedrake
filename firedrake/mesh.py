@@ -2493,7 +2493,7 @@ values from f.)"""
         Notes
         -----
         After changing tolerance any requests for :attr:`rtree` or
-        :attr:`distributed_rtree` will cause the tree to be rebuilt with the
+        :attr:`partition_rtree` will cause the tree to be rebuilt with the
         new tolerance which may take some time.
         """
         return self._tolerance
@@ -2651,8 +2651,7 @@ values from f.)"""
             coords_min = coords_min - tolerance * coords_extent
             coords_max = coords_max + tolerance * coords_extent
         with PETSc.Log.Event("rtree_build"):
-            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        return self._rtree
+            return rtree.build_from_aabb(coords_min, coords_max)
 
     @PETSc.Log.EventDecorator()
     def bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
@@ -2694,7 +2693,7 @@ values from f.)"""
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
-    def distributed_rtree(self):
+    def partition_rtree(self):
         """Build a global Rtree from all ranks' partition bounding boxes.
 
         Each rank contributes bounding boxes chosen by `box_ratio_heuristic`.
@@ -3916,7 +3915,7 @@ class VertexOnlyMeshSF:
 
     @classmethod
     @PETSc.Log.EventDecorator()
-    def discover(cls, parent_mesh: MeshGeometry, root_coordinates: np.ndarray) -> "VertexOnlyMeshSF":
+    def candidate_sf(cls, parent_mesh: MeshGeometry, root_coordinates: np.ndarray) -> "VertexOnlyMeshSF":
         root_coordinates = np.asarray(
             root_coordinates.real,
             dtype=np.float64,
@@ -3925,7 +3924,7 @@ class VertexOnlyMeshSF:
 
         with temp_internal_comm(parent_mesh.comm) as comm:
             remote = rtree.discover_remote_roots(
-                parent_mesh.distributed_rtree,
+                parent_mesh.partition_rtree,
                 root_coordinates,
                 comm,
             )
@@ -4379,7 +4378,7 @@ def _parent_mesh_embedding(
     parent_mesh : Mesh
         The parent mesh to embed in.
     coords : np.ndarray
-        The array coordinates to embed, of shape `(npoints, dim)`.
+        The coordinates to embed, of shape `(npoints, dim)`.
     tolerance : float
         The relative tolerance (i.e. as defined on the reference cell) for the
         distance a point can be from a cell and still be considered to be in
@@ -4422,7 +4421,7 @@ def _parent_mesh_embedding(
         )
     # `candidate_sf` is a star forest where each root is an input point,
     # and its leaves are candidate points on ranks which may own the point
-    candidate_sf = VertexOnlyMeshSF.discover(parent_mesh, coords)
+    candidate_sf = VertexOnlyMeshSF.candidate_sf(parent_mesh, coords)
     nroots = candidate_sf.nroots  # nroots == coords.shape[0]
 
     # send coords to the candidates, and locate each candidate point

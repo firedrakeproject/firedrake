@@ -186,13 +186,16 @@ def discover_remote_roots(
     """
     cdef:
         MPI.MPI_Comm mpi_comm = comm.ob_mpi
-        MPI_Request *requests = NULL, barrier_request = MPI_REQUEST_NULL
+        MPI_Request *requests = NULL
+        MPI_Request barrier_request = MPI_REQUEST_NULL
         MPI_Status status
         MPI_Datatype point_index_type
         int count, source_rank, message_ready, sends_complete, barrier_complete = 0
         Py_ssize_t i, nleaves = 0, recv_offset = 0
         int64_t *toranks = NULL
-        size_t *point_indices = NULL, *send_offsets = NULL, n_points = points.shape[0], nranks_to = 0
+        size_t *point_indices = NULL
+        size_t *send_offsets = NULL
+        size_t n_points = points.shape[0], nranks_to = 0
         np.ndarray[np.uintp_t, ndim=1, mode="c"] received
         np.ndarray[np.int32_t, ndim=2, mode="c"] remote
         list recv_messages = []
