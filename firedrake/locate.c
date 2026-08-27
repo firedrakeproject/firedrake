@@ -1,5 +1,4 @@
 #include <evaluate.h>
-#include <petscmath.h>
 
 PetscErrorCode locate_cell_from_candidates(struct Function *f,
         double *x,
@@ -68,7 +67,7 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
             owner = cell_owner_ranks ? cell_owner_ranks[candidate] : 0;
         }
         /* Select owning cell by minimum L1 distance, with ties broken by highest owning rank. */
-        if (distance < best_distance - PETSC_MACHINE_EPSILON  || PetscAbsReal(distance - best_distance) <= PETSC_MACHINE_EPSILON && owner > best_owner) {
+        if (distance < best_distance || (distance == best_distance && owner > best_owner)) {
             best_distance = distance;
             best_owner = owner;
             best_cell = candidate;

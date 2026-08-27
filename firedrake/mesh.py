@@ -4448,7 +4448,7 @@ def _parent_mesh_embedding(
         root_distance_min,
         op=MPI.MIN,
     )
-    keep &= np.isclose(ref_cell_dists, candidate_sf.broadcast(root_distance_min))
+    keep &= ref_cell_dists == candidate_sf.broadcast(root_distance_min)
 
     # multiple ranks may claim the minimum L1 distance. Break ties
     # by choosing the highest numbered rank.
