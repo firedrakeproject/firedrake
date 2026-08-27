@@ -975,20 +975,26 @@ def _(agg_tensor: pyop3.expr.AggregateMat, /, access_type):
             for ix, submat in agg_tensor
         )
     else:
-        match access_type:
-            case ArrayAccessType.WRITE:
-                mode = "write"
-            case ArrayAccessType.INC:
-                mode = "inc"
-            case ArrayAccessType.MAX:
-                mode = "max"
-            case ArrayAccessType.MIN:
-                mode = "min"
+        mode = _array_access_type_to_mode(access_type)
         insns = tuple(
             submat.assign(temporary[ix], mode)
             for ix, submat in agg_tensor
         )
     return temporary, insns
+
+
+def _array_access_type_to_mode(access_type):
+    match access_type:
+        case ArrayAccessType.WRITE:
+            return "write"
+        case ArrayAccessType.INC:
+            return "inc"
+        case ArrayAccessType.MAX:
+            return "max"
+        case ArrayAccessType.MIN:
+            return "min"
+        case _:
+            raise AssertionError
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
@@ -1009,12 +1015,12 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
         if access_type in {ArrayAccessType.READ, ArrayAccessType.WRITE}:
             return tensor, ()
         else:
-            assert access_type == ArrayAccessType.INC
+            mode = _array_access_type_to_mode(access_type)
             # For increment access we only want the preceding transformations
             # to apply to the incremental change, not the whole data structure.
             # We therefore materialise and return a temporary to hold the change.
             temporary = tensor.materialize()
-            return temporary, (tensor.iassign(temporary),)
+            return temporary, (tensor.assign(temporary, mode),)
 
     prev_tensor = tensor
     if isinstance(transform, ReshapeTensorTransform):
@@ -1076,7 +1082,6 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
             )
             return temp_reshaped, insns
         else:
-            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
             insns = (
                 prev_tensor.assign(temp),
             ) + prev_insns
@@ -1098,6 +1103,5 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
         if access_type == ArrayAccessType.READ:
             insns = prev_insns + transform.transform_in(prev_tensor, tensor)
         else:
-            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
             insns = transform.transform_out(tensor, prev_tensor) + prev_insns
         return tensor, insns
