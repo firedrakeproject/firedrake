@@ -27,7 +27,7 @@ Element Spaces
 
 The following diagram illustrates the element spaces used:
 
-.. image:: elements.svg
+.. image:: mitc_elements.svg
    :align: center
 
 * **P1**: Standard linear Lagrange element for the deflection :math:`w`.
