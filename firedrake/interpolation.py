@@ -863,6 +863,9 @@ class SameMeshInterpolator(Interpolator):
         )
         if isinstance(self.dual_arg, Cofunction):
             inputs += (self.dual_arg,)
+        # The coordinates reach the kernel without being coefficients of the form.
+        inputs += (self.source_mesh.unique().coordinates,
+                   self.target_mesh.unique().coordinates)
         if (
             isinstance(tensor, Function | Cofunction)
             and any(set(tensor.dat).intersection(set(input_.dat))
