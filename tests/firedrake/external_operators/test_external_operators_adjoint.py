@@ -6,6 +6,33 @@ from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
+try:
+    import torch
+    from torch.nn import Linear, Module
+    from torch.nn.functional import softplus
+    from firedrake.ml.pytorch import ml_operator
+
+    class Diffusivity(Module):
+        """Toy model for a strictly positive diffusivity ``1 + softplus(w u + b)``.
+
+        The parameters are initialised deterministically so that the gradient
+        verification in :func:`test_ml_operator_parameters_gradient` is reproducible.
+        """
+
+        def __init__(self):
+            super().__init__()
+            self.layer = Linear(1, 1)
+            with torch.no_grad():
+                self.layer.weight.fill_(0.5)
+                self.layer.bias.fill_(0.1)
+
+        def forward(self, x):
+            return 1.0 + softplus(self.layer(x.view(-1, 1))).flatten()
+
+except ImportError:
+    # PyTorch is not installed
+    pass
+
 
 @pytest.fixture(autouse=True)
 def handle_taping():
@@ -80,3 +107,69 @@ def test_translation_operator_inverse_problem():
     f_opt = minimize(Jhat, tol=1e-4, method="BFGS")
 
     assert assemble((f_exact - f_opt)**2 * dx) / assemble(f_exact**2 * dx) < 1e-5
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
+def test_ml_operator_parameters_gradient():
+    """Differentiate a PDE-constrained functional w.r.t. an ML operator's parameters.
+
+    A :class:`~.PytorchOperator` carrying a trailing operand that acts as a handle on the
+    model's trainable parameters is embedded in the residual of a nonlinear diffusion
+    problem. Differentiating the reduced functional runs a reverse pass through the model,
+    accumulating gradients into the PyTorch parameters -- this is what makes the embedded
+    model trainable. Those gradients are checked against central finite differences of the
+    functional, which is the property the whole training path hinges on.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    model = Diffusivity()
+    model.double()
+    kappa = ml_operator(model, function_space=DG)
+    # Handle on the model's trainable parameters: the trailing operand.
+    theta = Function(R).assign(0.0)
+    f = Function(V).interpolate(sin(pi * x) * sin(pi * y))
+
+    def functional():
+        u, v = Function(V), TestFunction(V)
+        F = (inner(kappa(interpolate(u, DG), theta) * grad(u), grad(v)) * dx
+             + inner(u, v) * dx - inner(f, v) * dx)
+        solve(F == 0, u, solver_parameters={"snes_rtol": 1e-14, "snes_stol": 0.0})
+        return assemble(inner(u, u) * dx)
+
+    model.zero_grad()
+    with set_working_tape():
+        ReducedFunctional(functional(), [Control(theta)]).derivative()
+
+    parameters = list(model.parameters())
+    assert all(p.grad is not None for p in parameters)
+    gradient = torch.cat([p.grad.reshape(-1) for p in parameters])
+    assert torch.all(torch.isfinite(gradient))
+    # The reverse pass must actually reach the parameters.
+    assert float(gradient.abs().sum()) > 0.0
+
+    direction = torch.ones_like(gradient) / gradient.numel() ** 0.5
+    analytic = float(torch.dot(gradient, direction))
+
+    def perturb(step):
+        with torch.no_grad():
+            offset = 0
+            for p in parameters:
+                n = p.numel()
+                p.add_(step * direction[offset:offset + n].view_as(p).double())
+                offset += n
+
+    eps = 1e-6
+    with stop_annotating():
+        perturb(eps)
+        J_plus = float(functional())
+        perturb(-2 * eps)
+        J_minus = float(functional())
+        perturb(eps)
+    finite_difference = (J_plus - J_minus) / (2 * eps)
+
+    assert np.isclose(analytic, finite_difference, rtol=1e-6)
