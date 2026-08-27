@@ -39,3 +39,4 @@ element systems.
    Nonlinear preconditioning using an auxiliary SNES for the Allen-Cahn equation.<demos/nonlinear_pc_allen_cahn.py>
    Reynolds-robust preconditioning of the stationary Navier-Stokes equations.<demos/reynolds_robust_navier_stokes_hdiv.py>
    Eigenvalue problem with guaranteed bounds and adaptive refinement.<demos/poisson_adaptive_eigenvalue.py>
+   A plate bending problem solved with Mixed Interpolation of Tensorial Components.<demos/plate_bending_mitc.py>
