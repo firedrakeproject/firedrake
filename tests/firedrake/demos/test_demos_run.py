@@ -58,6 +58,7 @@ SERIAL_DEMOS = [
     Demo(('nonlinear_pc', 'nonlinear_pc_allen_cahn'), []),
     Demo(('reynolds_robust_navier_stokes_hdiv', 'reynolds_robust_navier_stokes_hdiv'), ["vtk"]),
     Demo(('plate_bending_mitc', 'plate_bending_mitc'), ["vtk"]),
+    Demo(('modified_morley', 'modified_morley'), ["vtk"]),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
