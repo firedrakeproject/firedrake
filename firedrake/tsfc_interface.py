@@ -237,12 +237,12 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(),
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
+        f = _real_mangle(f)
         if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
             continue
-        f = _real_mangle(f)
         # Map local domain/coefficient/constant numbers (as seen inside the
         # compiler) to the global coefficient/constant numbers
         meshes = extract_domains(f)
@@ -277,7 +277,10 @@ def _real_mangle(form):
     """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
 
     a = form.arguments()
-    reals = [x.ufl_element().family() == "Real" for x in a]
+    # A Coargument names the space the result lands in rather than something to
+    # integrate against, so TSFC dual-evaluates it instead.
+    reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument)
+             for x in a]
     if not any(reals):
         return form
     replacements = {}
