@@ -1,5 +1,5 @@
 Modified Morley Element for a Fourth-Order Singular Perturbation Problem
-=======================================================================
+========================================================================
 
 This demo solves a fourth-order elliptic singular perturbation problem with the
 modified Morley element of Wang, Xu and Hu (*Modified Morley element method for
@@ -54,7 +54,7 @@ Element Spaces
 
 The following diagram shows the two elements and the operator between them:
 
-.. image:: elements.svg
+.. image:: morley_elements.svg
    :align: center
 
 * **Morley**: the quadratic nonconforming element for fourth-order problems.
