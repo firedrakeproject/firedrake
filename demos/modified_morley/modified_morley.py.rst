@@ -2,9 +2,8 @@ Modified Morley Element for a Fourth-Order Singular Perturbation Problem
 ========================================================================
 
 This demo solves a fourth-order elliptic singular perturbation problem with the
-modified Morley element of Wang, Xu and Hu (*Modified Morley element method for
-a fourth order elliptic singular perturbation problem*, J. Comput. Math. 24
-(2006), 113-120). Like the :doc:`MITC plate bending demo <plate_bending_mitc.py>`,
+modified Morley element of Wang, Xu and Hu :cite:`Wang:2006`. Like the
+:doc:`MITC plate bending demo <plate_bending_mitc.py>`,
 it writes a reduction operator as a symbolic ``interpolate`` inside the
 variational form; here the operator sits in the *lower* order term, and it is
 what makes the method converge uniformly as the perturbation parameter vanishes.
@@ -24,8 +23,8 @@ the equation formally degenerates to the Poisson problem
 :math:`-\Delta u^0 = f`, and a method for the fourth-order problem is only
 useful here if it degenerates the same way.
 
-The Morley element is the cheapest triangular element for fourth-order
-problems, but it is not a :math:`C^0` element: the plain Morley discretisation
+The Morley element :cite:`Morley:1968` is the cheapest triangular element for
+fourth-order problems, but it is not a :math:`C^0` element: the plain Morley discretisation
 of the equation above is divergent as :math:`\varepsilon \to 0`. The modified
 method keeps the Morley element for the fourth-order term and replaces the
 second-order term by its linear conforming interpolant. Writing
@@ -190,3 +189,10 @@ Finally, we output the reduced deflection for visualisation in ParaView.
 ::
 
   VTKFile("modified_morley.pvd").write(Pi_uh)
+
+A python script version of this demo can be found :demo:`here <modified_morley.py>`.
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
