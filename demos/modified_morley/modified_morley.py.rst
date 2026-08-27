@@ -49,6 +49,21 @@ At :math:`\varepsilon = 0` this collapses to :math:`b_h(\Pi_h u_h, \Pi_h v_h) =
 problem -- so :math:`\Pi_h u_h` is exactly the :math:`P_1` solution of the
 degenerate equation. We reproduce that limit numerically at the end.
 
+Element Spaces
+--------------
+
+The following diagram shows the two elements and the operator between them:
+
+.. image:: elements.svg
+   :align: center
+
+* **Morley**: the quadratic nonconforming element for fourth-order problems.
+  Its degrees of freedom are the values at the vertices and the averaged
+  outward normal derivatives on the edges, drawn as arrows.
+* **P1**: the linear Lagrange element, whose degrees of freedom are the vertex
+  values alone. The reduction operator :math:`\Pi_h` keeps those vertex values
+  and discards the normal derivatives.
+
 We begin by importing the Firedrake namespace.
 
 ::
