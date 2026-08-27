@@ -123,7 +123,40 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(cinsn)
 
-    def add_function_call(self, assignees, expression, prefix="insn"):
+    def add_function_call(self, code, args, prefix="insn"): 
+        subarrayrefs = {}
+        loopy_args = code.default_entrypoint.args
+        for loopy_arg, (arg, spec) in zip(loopy_args, args, strict=True):
+            name_in_kernel = self.add_buffer(arg.buffer_view, spec.intent)
+            if isinstance(loopy_arg, lp.ArrayArg):
+                # array arguments to an inner kernel require all strides to be defined
+                indices = []
+                for s in loopy_arg.shape:
+                    iname = self.unique_name("i")
+                    self.add_domain(iname, s)
+                    indices.append(pym.var(iname))
+                indices = tuple(indices)
+                subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+                    indices, pym.var(name_in_kernel)[indices]
+                )
+            else:
+                assert isinstance(loopy_arg, lp.ValueArg)
+                subarrayrefs[arg] = pym.var(name_in_kernel)
+
+        assignees = tuple(
+            subarrayrefs[arg]
+            for arg, spec in args 
+            if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
+        )
+        expression = pym.primitives.Call(
+            pym.var(code.default_entrypoint.name),
+            tuple(
+                subarrayrefs[arg]
+                for arg, spec in args 
+                if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
+            ),
+        )
+
         insn = lp.CallInstruction(
             assignees,
             expression,
@@ -333,73 +366,22 @@ class LoopyCodegenContext(CodegenContext):
 
         return indices
 
-    def compile_standalone_function(
-        self, 
-        call: StandaloneCalledFunction, 
-        loop_indices
-    ) -> None:
-        subarrayrefs = {}
-        loopy_args = call.function.code.default_entrypoint.args
-        for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
-            name_in_kernel = self.add_buffer(arg.buffer_view, spec.intent)
-            if isinstance(loopy_arg, lp.ArrayArg):
-                # array arguments to an inner kernel require all strides to be defined
-                indices = []
-                for s in loopy_arg.shape:
-                    iname = self.unique_name("i")
-                    self.add_domain(iname, s)
-                    indices.append(pym.var(iname))
-                indices = tuple(indices)
-                subarrayrefs[arg] = lp.symbolic.SubArrayRef(
-                    indices, pym.var(name_in_kernel)[indices]
-                )
-            else:
-                assert isinstance(loopy_arg, lp.ValueArg)
-                subarrayrefs[arg] = pym.var(name_in_kernel)
-
-        assignees = tuple(
-            subarrayrefs[arg]
-            for arg, spec in zip(call.arguments, call.argspec, strict=True)
-            if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
-        )
-        expression = pym.primitives.Call(
-            pym.var(call.function.code.default_entrypoint.name),
-            tuple(
-                subarrayrefs[arg]
-                for arg, spec in zip(call.arguments, call.argspec, strict=True)
-                if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
-            ),
-        )
-
-        self.add_function_call(assignees, expression)
-        subkernel = call.function.code.with_entrypoints(frozenset())
-        self.add_subkernel(subkernel)
-
-    def compile_petsc_mat(
+    def add_petsc_mat(
             self,
-            assignment: ConcretizedNonEmptyArrayAssignment,
+            mat_view,
+            expr_view,
+            setting_mat_values, # bool flag for if updating or reading matrix
+            assignment_type,
+            axis_trees,
+            layout_exprs,
             loop_indices
         ) -> None:
-        # We need to know whether the matrix is the assignee or not because we need
-        # to know whether to put MatGetValues or MatSetValues
-        if isinstance(assignment.assignee.buffer_view.buffer, PetscMatBuffer):
-            mat = assignment.assignee
-            expr = assignment.expression
-            setting_mat_values = True
-        else:
-            mat = assignment.expression
-            expr = assignment.assignee
-            setting_mat_values = False
 
-
-        row_axis_tree, column_axis_tree = assignment.axis_trees
-
-        assert isinstance(expr, pyop3.expr.BufferExpression)
-
-        # now emit the right line of code, this should properly be a lp.ScalarCallable
+        row_axis_tree, column_axis_tree = axis_trees
+        # Emit the right line of code, this should properly be a lp.ScalarCallable
         # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-        mat_name = self.add_buffer(mat.buffer_view, assignment_type_as_intent(assignment.assignment_type))
-        array_name = self.add_buffer(expr.buffer_view, READ)
+        mat_name = self.add_buffer(mat_view, assignment_type_as_intent(assignment_type))
+        array_name = self.add_buffer(expr_view, READ)
 
         rsize = row_axis_tree.size
         csize = column_axis_tree.size
@@ -417,34 +399,17 @@ class LoopyCodegenContext(CodegenContext):
             loop_indices,
         )
 
-        # convert the generic expressions to 
-        # for example:
-        #
-        #   map0[3*i0 + i1]
-        #   map0[3*i0 + i2 + 3]
-        #
-        # to the shared top-level layout:
-        #
-        #   map0[3*i0]
-        #
-        # which is what Mat{Get,Set}Values() needs.
-        layout_exprs = []
-        for layout in [mat.row_layout, mat.column_layout]:
-            subst_sublayout = layout.layouts[idict()]
-            subst_layout = pyop3.expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
-            layout_expr = self.lower_expr(subst_layout, ((),), loop_indices)
-            layout_exprs.append(layout_expr)
-        irow, icol = layout_exprs
-
         # FIXME:
         blocked = False
 
+        irow, icol = layout_exprs
+
         # hacky
         myargs = [
-            assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+            mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
         ]
         if setting_mat_values:
-            match assignment.assignment_type:
+            match assignment_type:
                 case AssignmentType.WRITE:
                     call_str = _petsc_mat_store(*myargs)
                 case AssignmentType.INC:
@@ -500,28 +465,13 @@ class LoopyCodegenContext(CodegenContext):
 
         self.add_assignment(lexpr, rexpr)
 
-    def compile_exscan(
+    def add_exscan(
             self, 
-            exscan: Exscan, 
-            loop_indices
+            lexpr,
+            rexpr,
+            iname,
+            iname_var
         ) -> None:
-        assert isinstance(exscan, Exscan)
-        
-        if exscan.scan_type != "+":
-            raise NotImplementedError
-        domain_var = self.register_extent(
-            exscan.extent,
-            {},
-            loop_indices,
-        )
-        iname = self.unique_name("i")
-        self.add_domain(iname, domain_var)
-
-        iname_var = pym.var(iname)
-        iname_map = {exscan.scan_axis.label: pym.var(iname)}
-
-        lexpr = self.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
-        rexpr = lexpr + self.lower_expr(exscan.expression, [iname_map], loop_indices)
         lexpr = pym.substitute(lexpr, {iname: iname_var+1})
         self.add_assignment(lexpr, rexpr)
 
@@ -850,21 +800,21 @@ class SolveCallable(LACallable):
         assert isinstance(target, type(target))
         yield ("solve", solve_preamble)
 
-def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+def _petsc_mat_load(mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
         return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
     else:
         return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
 
 
-def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+def _petsc_mat_store(mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
         return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
     else:
         return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
 
 
-def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+def _petsc_mat_add(mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
         return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
     else:

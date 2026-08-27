@@ -10,6 +10,7 @@ from typing import Any
 import loopy as lp
 import numpy as np
 import pymbolic as pym
+from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.axis_tree
@@ -44,9 +45,6 @@ from pyop3.lower.loopy import LoopyCodegenContext
 
 # TODO: import other way around?
 from pyop3.lower.transform import (
-    with_attach_debugger,
-    with_likwid_markers,
-    with_petsc_event,
     _collect_temporary_shapes
 )
 
@@ -147,27 +145,259 @@ def _(
     loop_indices, 
     codegen_context
 ) -> None:
-    codegen_context._parse_loop_properly_this_time(
+    _compile_loop(
         loop, 
         loop.index.iterset, 
         loop_indices, 
+        codegen_context,
     )
 
 @_compile.register(StandaloneCalledFunction)
 def _(call, loop_indices, codegen_context):
-    codegen_context.compile_standalone_function(call, loop_indices)
+    args = [(arg, spec) for arg, spec in zip(call.arguments, call.argspec, strict=True)]
+    codegen_context.add_function_call(call.function.code, args)
+    subkernel = call.function.code.with_entrypoints(frozenset())
+    codegen_context.add_subkernel(subkernel)
 
 @_compile.register(NonEmptyArrayAssignment)
 def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
     if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
-        codegen_context.compile_petsc_mat(assignment, loop_indices)
+        _compile_petsc_mat(assignment, loop_indices, codegen_context)
     else:
-        codegen_context._compile_array_assignment(
+        _compile_array_assignment(
             assignment,
             loop_indices,
             assignment.axis_trees,
+            codegen_context,
         )
 
+def _compile_petsc_mat(
+    assignment,
+    loop_indices,
+    codegen_context,
+):
+    # We need to know whether the matrix is the assignee or not because we need
+    # to know whether to put MatGetValues or MatSetValues
+    if isinstance(assignment.assignee.buffer_view.buffer, PetscMatBuffer):
+        mat = assignment.assignee
+        expr = assignment.expression
+        setting_mat_values = True
+    else:
+        mat = assignment.expression
+        expr = assignment.assignee
+        setting_mat_values = False
+        
+    assert isinstance(expr, pyop3.expr.BufferExpression)
+    
+    # convert the generic expressions to 
+    # for example:
+    #
+    #   map0[3*i0 + i1]
+    #   map0[3*i0 + i2 + 3]
+    #
+    # to the shared top-level layout:
+    #
+    #   map0[3*i0]
+    #
+    # which is what Mat{Get,Set}Values() needs.
+    layout_exprs = []
+    for layout in [mat.row_layout, mat.column_layout]:
+        subst_sublayout = layout.layouts[idict()]
+        subst_layout = pyop3.expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        layout_expr = codegen_context.lower_expr(subst_layout, ((),), loop_indices)
+        layout_exprs.append(layout_expr)
+    irow, icol = layout_exprs
+
+    codegen_context.add_petsc_mat(
+        mat.buffer_view,
+        expr.buffer_view,
+        setting_mat_values,
+        assignment.assignment_type,
+        assignment.axis_trees,
+        layout_exprs,
+        loop_indices
+    )
+
+
+def _compile_array_assignment(
+        assignment, 
+        loop_indices, 
+        axis_trees, 
+        codegen_context,
+        *,
+        iname_replace_maps=None, 
+        # TODO document these under "Other Parameters"
+        axis_tree=None, 
+        paths=None
+):
+    if paths is None:
+        paths = []
+    if iname_replace_maps is None: 
+        iname_replace_maps = []
+
+    if axis_tree is None:
+        axis_tree, *axis_trees = axis_trees
+
+        paths += [idict()]
+        iname_replace_maps += [idict()]
+        
+        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, IndexedAxisTree):
+            if axis_trees: 
+                raise NotImplementedError("Refactor needed")
+
+            codegen_context.add_leaf_assignment(
+                assignment, 
+                paths, 
+                iname_replace_maps, 
+                loop_indices
+            )
+            return
+
+    axis = axis_tree.node_map[paths[-1]]
+    for component in axis.components:
+        new_paths = paths.copy()
+        new_paths[-1] = paths[-1] | {axis.label: component.label}
+        
+        if axis_tree.linearize(new_paths[-1], partial=True).size == 0: 
+            continue
+        
+        if component.local_size != 1:
+            iname = codegen_context.unique_name("i")
+            ext = codegen_context.register_extent(
+                component.size, 
+                iname_replace_maps[-1], 
+                loop_indices
+            )
+            codegen_context.add_domain(iname, ext)
+            new_maps = iname_replace_maps.copy()
+            new_maps[-1] = iname_replace_maps[-1] | {axis.label: codegen_context.var(iname)}
+            within_inames = {iname}
+        else:
+            new_maps = iname_replace_maps.copy()
+            new_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
+            within_inames = set()
+
+        with codegen_context.within_inames(within_inames):
+            if axis_tree.node_map[new_paths[-1]]:
+                _compile_array_assignment(
+                    assignment, 
+                    loop_indices, 
+                    axis_trees, 
+                    codegen_context,
+                    iname_replace_maps=new_maps, 
+                    axis_tree=axis_tree, 
+                    paths=new_paths
+                )
+            elif axis_trees:
+                _compile_array_assignment(
+                    assignment, 
+                    loop_indices, 
+                    axis_trees, 
+                    codegen_context,
+                    iname_replace_maps=new_maps, 
+                    axis_tree=None, 
+                    paths=new_paths
+                )
+            else:
+                codegen_context.add_leaf_assignment(
+                    assignment, 
+                    new_paths, 
+                    new_maps, 
+                    loop_indices
+                )
+
+def _compile_loop(
+        loop,
+        axis_tree,
+        loop_indices,
+        codegen_context,
+        *,
+        axis=None,
+        path=None,
+        iname_map=None,
+) -> None:
+    if axis_tree is UNIT_AXIS_TREE:
+        # NOTE: might need an expression here sometimes
+        for statement in loop.statements:
+            _compile(
+                statement,
+                # loop_indices | dict(loop_exprs),
+                loop_indices,
+                codegen_context,
+            )
+        return
+
+    if utils.strictly_all(x is None for x in {axis, path, iname_map}):
+        axis = axis_tree.root
+        path = idict()
+        iname_map = idict()
+
+    for component in axis.components:
+        path_ = path | {axis.label: component.label}
+
+        if axis_tree.linearize(path_, partial=True).size == 0:
+            continue
+        elif component.size != 1:
+            iname = codegen_context.unique_name("i")
+            domain_var = codegen_context.register_extent(
+                component.size,
+                iname_map,
+                loop_indices
+            )
+            codegen_context.add_domain(iname, domain_var)
+            iname_replace_map_ = iname_map | {axis.label: codegen_context.var(iname)}
+            within_inames = frozenset({iname})
+        else:
+            iname_replace_map_ = iname_map | {axis.label: 0}
+            within_inames = set()
+
+        with codegen_context.within_inames(within_inames):
+            if subaxis := axis_tree.node_map[path_]:
+                _compile_loop(
+                    loop,
+                    axis_tree,
+                    loop_indices,
+                    codegen_context,
+                    axis=subaxis,
+                    path=path_,
+                    iname_map=iname_replace_map_
+                )
+            else:
+                loop_indices |= idict({
+                    (loop.index.id, axis_label): iname
+                    for axis_label, iname in iname_replace_map_.items()
+                })
+                for statement in loop.statements:
+                    _compile(
+                        statement,
+                        loop_indices,
+                        codegen_context,
+                    )
+
+# NOTE: This could become backend-agnostic if I implement an backend-alternative to pym.substitute  
 @_compile.register(Exscan)
 def _(exscan, loop_indices, codegen_context):
-    codegen_context.compile_exscan(exscan, loop_indices)
+    if exscan.scan_type != "+": 
+        raise NotImplementedError 
+ 
+    domain_var = codegen_context.register_extent(
+        exscan.extent,
+        {},
+        loop_indices,
+    )
+
+    iname = codegen_context.unique_name("i")
+    codegen_context.add_domain(iname, domain_var)
+
+    iname_var = codegen_context.var(iname)
+    iname_map = {exscan.scan_axis.label: codegen_context.var(iname)}
+
+    lexpr = codegen_context.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
+    rexpr = lexpr + codegen_context.lower_expr(exscan.expression, [iname_map], loop_indices)
+
+    codegen_context.add_exscan(
+        lexpr,
+        rexpr,
+        iname,
+        iname_var
+    ) 
