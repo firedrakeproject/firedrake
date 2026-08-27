@@ -56,7 +56,8 @@ class CompilerParameters:
 
     # TODO: handle these - need to build CompilerOptions
 
-    codegen: str = "loopy"
+    backend: str = "loopy"
+    """ Option to select 'loopy' or 'mlir' as code generation backends. """
     # extra_cflags: tuple[str, ...] = ()
     # extra_ldflags: tuple[str, ...] = ()
 

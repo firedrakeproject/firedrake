@@ -81,12 +81,12 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     else:
         cs_expr = (insn,)
 
-    if compiler_parameters.codegen == "loopy": 
-        ContextClass = LoopyCodegenContext
-    elif compiler_parameters.codegen == "mlir": 
+    if compiler_parameters.backend == "loopy": 
+        make_context = LoopyCodegenContext
+    elif compiler_parameters.backend == "mlir": 
         raise NotImplementedError("Class is still being implemented.") 
 
-    context = ContextClass(
+    context = make_context(
         propagate_negatives=compiler_parameters.propagate_negatives,
         mask_array_accesses=compiler_parameters.mask_array_accesses,
     )
