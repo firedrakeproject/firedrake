@@ -260,7 +260,7 @@ def test_mixed_space_interpolation():
         for j in range(2):
             sub_mat = I.petscmat.getNestSubMatrix(i, j)
             if i != j:
-                assert not sub_mat
+                assert sub_mat.norm() == 0.0
                 continue
             else:
                 res_block = assemble(interpolate(TrialFunction(U.sub(j)), W.sub(i)))

@@ -1377,6 +1377,24 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
     return mat_type, sub_mat_type
 
 
+def _primal_space(V):
+    """Return the primal space of a form argument's function space.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        The function space of a form argument, primal or dual.
+
+    Returns
+    -------
+    firedrake.functionspaceimpl.WithGeometry
+        The primal space.  An `~ufl.Interpolate` takes its test function from
+        the dual space, which compares unequal to the space a boundary
+        condition names.
+    """
+    return V.dual() if ufl.duals.is_dual(V) else V
+
+
 class ExplicitMatrixAssembler(ParloopFormAssembler):
     """Class for assembling a matrix.
 
@@ -1536,7 +1554,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _apply_bc(self, tensor, bc, u=None):
         assert u is None
         op2tensor = tensor.M
-        spaces = tuple(a.function_space() for a in tensor.a.arguments())
+        spaces = tuple(_primal_space(a.function_space()) for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
         if component is not None:
@@ -2135,14 +2153,14 @@ class ParloopBuilder:
                 fs = fs.parent
             return fs.index
 
-        test_space = self.test_function_space
+        test_space = _primal_space(self.test_function_space)
         bcrow = tuple(
             bc for bc in self._bcs
             if bc.function_space(parent=True) == test_space
             and (len(test_space) == 1 or block_index(bc) == row)
         )
 
-        trial_space = self.trial_function_space
+        trial_space = _primal_space(self.trial_function_space)
         bccol = tuple(
             bc for bc in self._bcs
             if isinstance(bc, DirichletBC)
