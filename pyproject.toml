@@ -43,6 +43,7 @@ dependencies = [
   "requests",
   "scipy",
   "sympy",
+  "islpy<2026.2",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
@@ -196,4 +197,10 @@ pyop2 = [
   "*.pxd",
   "*.pyx",
   "codegen/c/*.c",
+]
+
+[tool.cython-lint]
+max-line-length = 88 # default
+ignore = [
+  "E501", # line too long
 ]

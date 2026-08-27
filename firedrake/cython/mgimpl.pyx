@@ -60,7 +60,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     cdef:
         np.ndarray fine_map, coarse_map, coarse_to_fine_map
         np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, l, m, node, fine, layer
+        PetscInt i, j, k, ll, m, node, fine, layer
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
         PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         bint extruded
@@ -78,7 +78,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
         fine_layers = Vf.mesh().layers - 1
 
         ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
+        assert ratio * coarse_layers == fine_layers  # check ratio is an int
     coarse_cells = coarse_map.shape[0]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
@@ -96,8 +96,8 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
             if extruded:
                 for coarse_layer in range(coarse_layers):
                     k = 0
-                    for l in range(fine_cell_per_coarse_cell):
-                        fine = coarse_to_fine_cells[i, l]
+                    for ll in range(fine_cell_per_coarse_cell):
+                        fine = coarse_to_fine_cells[i, ll]
                         if fine < 0:
                             k += fine_per_cell * ratio
                             continue
@@ -109,8 +109,8 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
                                 k += 1
             else:
                 k = 0
-                for l in range(fine_cell_per_coarse_cell):
-                    fine = coarse_to_fine_cells[i, l]
+                for ll in range(fine_cell_per_coarse_cell):
+                    fine = coarse_to_fine_cells[i, ll]
                     if fine < 0:
                         k += fine_per_cell
                         continue
@@ -127,7 +127,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     cdef:
         np.ndarray fine_map, coarse_map, fine_to_coarse_map
         np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        PetscInt i, j, k, ll, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
@@ -143,7 +143,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
         fine_layers = Vf.mesh().layers - 1
 
         ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
+        assert ratio * coarse_layers == fine_layers  # check ratio is an int
 
     fine_cells = fine_to_coarse_cells.shape[0]
     coarse_per_fine = fine_to_coarse_cells.shape[1]
@@ -155,7 +155,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
                                  dtype=IntType)
 
     for i in range(fine_cells):
-        for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
+        for ll, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
             if coarse_cell < 0:
                 continue
             for j in range(fine_per_cell):
@@ -167,7 +167,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
                             fine_to_coarse_map[node + fine_offset[j]*fine_layer, k] = coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_layer
                 else:
                     for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
+                        fine_to_coarse_map[node, coarse_per_cell*ll + k] = coarse_map[coarse_cell, k]
 
     return fine_to_coarse_map
 
@@ -183,7 +183,6 @@ def create_lgmap(PETSc.DM dm):
         PETSc.LGMap lgmap = PETSc.LGMap()
         PetscInt *indices
         PetscInt i, size
-        PetscInt start, end
 
     # Not necessary on one process
     if dm.comm.size == 1:
@@ -296,8 +295,10 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     cdef:
         PetscInt ncoarse = num_owned_cells(coarse_dm)
         PetscInt nfine = num_owned_cells(fine_dm)
-        PetscInt cStart, cEnd, c, off, parent, max_children
+        PetscInt cStart, cEnd, c, off, parent, i, stratum_size, max_children
         DMLabel parent_label = NULL
+        PETSc.PetscIS stratum_is = NULL
+        const PetscInt *stratum_points = NULL
         PetscInt[::1] child_counts
         PetscInt[:, ::1] coarse_to_fine
         PetscInt[:, ::1] fine_to_coarse
@@ -307,14 +308,26 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
     child_counts = np.zeros(ncoarse, dtype=IntType)
     cStart, cEnd = fine_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
-        if not (0 <= off < nfine):
+    # Walking by stratum (coarse cell) resolves each one through PETSc's O(1)
+    # value -> stratum hash map and touches every fine cell exactly once, for
+    # O(nfine + ncoarse) overall.
+    for parent in range(ncoarse):
+        CHKERR(DMLabelGetStratumSize(parent_label, parent, &stratum_size))
+        if stratum_size <= 0:
             continue
-        CHKERR(DMLabelGetValue(parent_label, c, &parent))
-        if 0 <= parent < ncoarse:
+        CHKERR(DMLabelGetStratumIS(parent_label, parent, &stratum_is))
+        CHKERR(ISGetIndices(stratum_is, &stratum_points))
+        for i in range(stratum_size):
+            c = stratum_points[i]
+            if not (cStart <= c < cEnd):
+                continue
+            CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
+            if not (0 <= off < nfine):
+                continue
             fine_to_coarse[off, 0] = parent
             child_counts[parent] += 1
+        CHKERR(ISRestoreIndices(stratum_is, &stratum_points))
+        CHKERR(ISDestroy(&stratum_is))
 
     # coarse_to_fine is rectangular, so every coarse cell's row must be wide
     # enough for its most prolific sibling. Different coarse cells can be
@@ -422,7 +435,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     """
     cdef:
         PETSc.DM cdm, fdm
-        PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
+        PetscInt cStart, cEnd, c, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray coarse_to_fine
         np.ndarray fine_to_coarse
