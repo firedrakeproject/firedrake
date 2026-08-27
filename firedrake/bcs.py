@@ -90,6 +90,30 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
+    def function_space_match(
+        self, V: ufl.functionspace.AbstractFunctionSpace
+    ) -> bool:
+        """Return whether this boundary condition is defined on ``V``.
+
+        Parameters
+        ----------
+        V : ufl.functionspace.AbstractFunctionSpace
+            Function space to compare with this boundary condition's space.
+
+        Returns
+        -------
+        bool
+            Whether the spaces represent the same indexed field.
+        """
+        if ufl.duals.is_dual(V):
+            V = V.dual()
+        bc_space = self.function_space()
+        if V.parent is None:
+            if bc_space.parent is None:
+                return bc_space == V
+            return bc_space.parent == V
+        return bc_space.parent == V.parent and bc_space.index == V.index
+
     @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""

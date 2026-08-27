@@ -3,7 +3,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Form, Interpolate, Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -29,6 +29,12 @@ def subspace(V, indices):
 class ExtractSubBlock(MultiFunction):
 
     """Extract a sub-block from a form."""
+
+    def __init__(self):
+        super().__init__()
+        self._arg_cache = {}
+        self.blocks = {}
+        self._splitting_interpolate = False
 
     class IndexInliner(MultiFunction):
         """Inline fixed index of list tensors"""
@@ -82,6 +88,7 @@ class ExtractSubBlock(MultiFunction):
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+        self._splitting_interpolate = isinstance(form, Interpolate)
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -231,7 +238,9 @@ class ExtractSubBlock(MultiFunction):
 
     def interpolate(self, o, operand):
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            if self._splitting_interpolate:
+                return self(ZeroBaseForm(o.arguments()))
+            return Zero(o.ufl_shape)
 
         dual_arg, _ = o.argument_slots()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
@@ -258,9 +267,26 @@ class ExtractSubBlock(MultiFunction):
 
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            if self._splitting_interpolate:
+                return self(ZeroBaseForm(o.arguments()))
+            return Zero(o.ufl_shape)
 
-        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+        interpolation = o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+        if self._splitting_interpolate:
+            return interpolation
+
+        interpolation_components = iter(
+            interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape)
+        ) if interpolation.ufl_shape else iter((interpolation,))
+        components = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(
+                    next(interpolation_components) for _ in range(Vi.value_size)
+                )
+            else:
+                components.extend(Zero() for _ in range(Vi.value_size))
+        return as_tensor(numpy.reshape(components, V.value_shape))
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])

@@ -9,13 +9,16 @@ from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain, extract_domains
+from ufl.domain import MeshSequence, extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
 
 import finat
 from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import FiniteElement, TensorElement
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
@@ -52,6 +55,21 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
+TSFCInterpolationData = collections.namedtuple(
+    "TSFCInterpolationData",
+    ["domain", "iteration_domain", "integral_type", "subdomain_id",
+     "domain_integral_type_map", "enabled_coefficients", "integrals",
+     "expression"],
+)
+
+TSFCInterpolationFormData = collections.namedtuple(
+    "TSFCInterpolationFormData",
+    ["original_form", "preprocessed_form", "reduced_coefficients",
+     "function_replace_map", "coefficient_split",
+     "original_coefficient_positions", "constants"],
+)
+
+
 def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
@@ -75,6 +93,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     """
     cpu_time = time.time()
+
+    if isinstance(form, ufl.Interpolate):
+        return compile_interpolate(form, prefix=prefix, parameters=parameters)
 
     assert isinstance(form, Form)
 
@@ -110,6 +131,101 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     return kernels
 
 
+def compile_interpolate(expression, prefix="interpolate", parameters=None):
+    """Compile an interpolation using the integral kernel builder."""
+    parameters = preprocess_parameters(parameters)
+    complex_mode = is_complex(parameters["scalar_type"])
+    original_expression = expression
+    original_coefficients = expression.coefficients()
+    dual_arg, operand = expression.argument_slots()
+    target_domain = dual_arg.ufl_function_space().ufl_domain()
+    if isinstance(target_domain, MeshSequence):
+        target_domains = set(target_domain.meshes)
+        if len(target_domains) != 1:
+            raise NotImplementedError(
+                "Interpolation onto multiple distinct meshes is not supported"
+            )
+        target_domain, = target_domains
+    source_domain = (
+        extract_unique_domain(operand)
+        or target_domain
+    )
+    all_domains = expression.ufl_domains()
+
+    target_element = expression.ufl_element()
+    if (
+        target_domain.topological_dimension == 0
+        and source_domain.topological_dimension > 0
+    ):
+        cell = source_domain.ufl_cell()
+        point_expr = gem.Variable("rt_X", (1, cell.topological_dimension))
+        point_set = UnknownPointSet(point_expr)
+        rule = QuadratureRule(
+            point_set, weights=[1.0], ref_el=as_fiat_cell(cell)
+        )
+        shape = target_element.pullback.physical_value_shape(
+            target_element, target_domain
+        )
+        target_element = FiniteElement(
+            "Quadrature", cell=cell, degree=0, quad_scheme=rule
+        )
+        if shape:
+            symmetry = None if len(shape) < 2 else expression.ufl_element().symmetry()
+            target_element = TensorElement(
+                target_element, shape=shape, symmetry=symmetry
+            )
+
+    operand = apply_mapping(operand, target_element, source_domain)
+    operand = ufl_utils.preprocess_expression(
+        operand, complex_mode=complex_mode
+    )
+    operand = simplify_abs(operand, complex_mode)
+    expression = ufl.Interpolate(operand, dual_arg)
+
+    coefficients = expression.coefficients()
+    coefficient_split = {}
+    for coefficient in coefficients:
+        element = coefficient.ufl_element()
+        if type(element) is finat.ufl.MixedElement:
+            domain = extract_unique_domain(
+                coefficient, expand_mesh_sequence=False
+            )
+            coefficient_split[coefficient] = [
+                ufl.Coefficient(ufl.FunctionSpace(mesh, subelement))
+                for mesh, subelement in zip(
+                    domain.iterable_like(element), element.sub_elements
+                )
+            ]
+
+    form_data = TSFCInterpolationFormData(
+        original_form=original_expression,
+        preprocessed_form=expression,
+        reduced_coefficients=coefficients,
+        function_replace_map={coefficient: coefficient for coefficient in coefficients},
+        coefficient_split=coefficient_split,
+        original_coefficient_positions=tuple(
+            original_coefficients.index(coefficient)
+            for coefficient in coefficients
+        ),
+        constants=extract_firedrake_constants(expression),
+    )
+    integral_data = TSFCInterpolationData(
+        domain=source_domain,
+        iteration_domain=target_domain,
+        integral_type="cell",
+        subdomain_id=("everywhere",),
+        domain_integral_type_map={domain: "cell" for domain in all_domains},
+        enabled_coefficients=(True,) * len(coefficients),
+        integrals=(),
+        expression=expression,
+    )
+    return [
+        compile_integral(
+            integral_data, form_data, prefix, parameters, diagonal=False
+        )
+    ]
+
+
 def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
@@ -142,8 +258,13 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
     mesh = integral_data.domain
-    all_meshes = extract_domains(form_data.original_form)
-    domain_number = all_meshes.index(mesh)
+    if isinstance(integral_data, TSFCInterpolationData):
+        iteration_domain = integral_data.iteration_domain
+        all_meshes = tuple(integral_data.domain_integral_type_map)
+    else:
+        iteration_domain = mesh
+        all_meshes = extract_domains(form_data.original_form)
+    domain_number = all_meshes.index(iteration_domain)
 
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
@@ -172,12 +293,17 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
     ctx = builder.create_context()
-    for integral in integral_data.integrals:
+    if isinstance(integral_data, TSFCInterpolationData):
         params = parameters.copy()
-        params.update(integral.metadata())  # integral metadata overrides
-        integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
-        integral_exprs = builder.construct_integrals(integrand_exprs, params)
-        builder.stash_integrals(integral_exprs, params, ctx)
+        interpolate_exprs = builder.compile_interpolate(integral_data.expression, params, ctx)
+        builder.stash_integrals(interpolate_exprs, params, ctx)
+    else:
+        for integral in integral_data.integrals:
+            params = parameters.copy()
+            params.update(integral.metadata())  # integral metadata overrides
+            integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
+            integral_exprs = builder.construct_integrals(integrand_exprs, params)
+            builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
 
 
