@@ -1000,7 +1000,6 @@ class PatchPC(PCBase, PatchBase):
 
     def apply(self, pc, x, y):
         self.patch.apply(x, y)
-        # breakpoint()
 
     def applyTranspose(self, pc, x, y):
         self.patch.applyTranspose(x, y)
