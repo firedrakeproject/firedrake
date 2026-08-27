@@ -119,29 +119,6 @@ class CodegenContext(ABC):
         pass
 
     @abstractmethod
-    def add_exscan(
-        self,
-        lexpr,
-        rexpr,
-        iname,
-        iname_var
-    ) -> None:
-        pass
-
-    @abstractmethod
-    def add_petsc_mat(
-        self,
-        mat_view,
-        expr_view,
-        setting_mat_values,
-        assignment_type,
-        axis_trees,
-        layout_exprs,
-        loop_indices
-    ) -> None:
-        pass
-
-    @abstractmethod
     def set_temporary_shapes(self, shapes) -> None:
         pass
 
@@ -173,7 +150,15 @@ class CodegenContext(ABC):
         pass
 
     @abstractmethod
-    def add_leaf_assignment(self, assignment, paths, iname_maps, loop_indices):
+    def add_leaf_assignment(
+            self, 
+            assignee,
+            expression,
+            assignment_type,
+            paths, 
+            iname_maps, 
+            loop_indices
+        ):
         pass
 
     @abstractmethod

@@ -33,12 +33,14 @@ from pyop3.buffer import (
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
+    AssignmentType,
     Exscan,
     InstructionList,
     Loop,
     NonEmptyArrayAssignment,
     NullInstruction,
     StandaloneCalledFunction,
+    assignment_type_as_intent,
 )
 
 from pyop3.lower.loopy import LoopyCodegenContext
@@ -176,6 +178,8 @@ def _compile_petsc_mat(
     loop_indices,
     codegen_context,
 ):
+    if not isinstance(codegen_context, LoopyCodegenContext):
+        raise NotImplementedError("Only supported for Loopy")
     # We need to know whether the matrix is the assignee or not because we need
     # to know whether to put MatGetValues or MatSetValues
     if isinstance(assignment.assignee.buffer_view.buffer, PetscMatBuffer):
@@ -186,9 +190,32 @@ def _compile_petsc_mat(
         mat = assignment.expression
         expr = assignment.assignee
         setting_mat_values = False
-        
+
+    row_axis_tree, column_axis_tree = assignment.axis_trees
+
     assert isinstance(expr, pyop3.expr.BufferExpression)
-    
+
+    # now emit the right line of code, this should properly be a lp.ScalarCallable
+    # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
+    mat_name = codegen_context.add_buffer(mat.buffer_view, assignment_type_as_intent(assignment.assignment_type))
+    array_name = codegen_context.add_buffer(expr.buffer_view, READ)
+
+    rsize = row_axis_tree.size
+    csize = column_axis_tree.size
+
+    # these sizes can be expressions that need evaluating
+    rsize_var = codegen_context.register_extent(
+        rsize,
+        {},
+        loop_indices,
+    )
+
+    csize_var = codegen_context.register_extent(
+        csize,
+        {},
+        loop_indices,
+    )
+
     # convert the generic expressions to 
     # for example:
     #
@@ -208,15 +235,25 @@ def _compile_petsc_mat(
         layout_exprs.append(layout_expr)
     irow, icol = layout_exprs
 
-    codegen_context.add_petsc_mat(
-        mat.buffer_view,
-        expr.buffer_view,
-        setting_mat_values,
-        assignment.assignment_type,
-        assignment.axis_trees,
-        layout_exprs,
-        loop_indices
-    )
+    # FIXME:
+    blocked = False
+
+    # hacky
+    myargs = [
+        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+    ]
+    if setting_mat_values:
+        match assignment.assignment_type:
+            case AssignmentType.WRITE:
+                call_str = _petsc_mat_store(*myargs)
+            case AssignmentType.INC:
+                call_str = _petsc_mat_add(*myargs)
+            case _:
+                raise AssertionError
+    else:
+        call_str = _petsc_mat_load(*myargs)
+
+    codegen_context.add_cinstruction(call_str)
 
 
 def _compile_array_assignment(
@@ -246,7 +283,9 @@ def _compile_array_assignment(
                 raise NotImplementedError("Refactor needed")
 
             codegen_context.add_leaf_assignment(
-                assignment, 
+                assignment.assignee,
+                assignment.expression,
+                assignment.assignment_type,
                 paths, 
                 iname_replace_maps, 
                 loop_indices
@@ -300,7 +339,9 @@ def _compile_array_assignment(
                 )
             else:
                 codegen_context.add_leaf_assignment(
-                    assignment, 
+                    assignment.assignee,
+                    assignment.expression,
+                    assignment.assignment_type,
                     new_paths, 
                     new_maps, 
                     loop_indices
@@ -374,9 +415,11 @@ def _compile_loop(
                         codegen_context,
                     )
 
-# NOTE: This could become backend-agnostic if I implement an backend-alternative to pym.substitute  
 @_compile.register(Exscan)
 def _(exscan, loop_indices, codegen_context):
+    if not isinstance(codegen_context, LoopyCodegenContext):
+        raise NotImplementedError("Only supported for Loopy")
+
     if exscan.scan_type != "+": 
         raise NotImplementedError 
  
@@ -395,9 +438,26 @@ def _(exscan, loop_indices, codegen_context):
     lexpr = codegen_context.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
     rexpr = lexpr + codegen_context.lower_expr(exscan.expression, [iname_map], loop_indices)
 
-    codegen_context.add_exscan(
-        lexpr,
-        rexpr,
-        iname,
-        iname_var
-    ) 
+    lexpr = pym.substitute(lexpr, {iname: iname_var+1})
+    codegen_context.add_assignment(lexpr, rexpr)
+
+
+def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+    else:
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+
+
+def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+    else:
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+
+
+def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
+    if blocked:
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+    else:
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"

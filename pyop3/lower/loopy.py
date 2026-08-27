@@ -366,84 +366,32 @@ class LoopyCodegenContext(CodegenContext):
 
         return indices
 
-    def add_petsc_mat(
-            self,
-            mat_view,
-            expr_view,
-            setting_mat_values, # bool flag for if updating or reading matrix
-            assignment_type,
-            axis_trees,
-            layout_exprs,
-            loop_indices
-        ) -> None:
-
-        row_axis_tree, column_axis_tree = axis_trees
-        # Emit the right line of code, this should properly be a lp.ScalarCallable
-        # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-        mat_name = self.add_buffer(mat_view, assignment_type_as_intent(assignment_type))
-        array_name = self.add_buffer(expr_view, READ)
-
-        rsize = row_axis_tree.size
-        csize = column_axis_tree.size
-
-        # these sizes can be expressions that need evaluating
-        rsize_var = self.register_extent(
-            rsize,
-            {},
-            loop_indices,
-        )
-
-        csize_var = self.register_extent(
-            csize,
-            {},
-            loop_indices,
-        )
-
-        # FIXME:
-        blocked = False
-
-        irow, icol = layout_exprs
-
-        # hacky
-        myargs = [
-            mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
-        ]
-        if setting_mat_values:
-            match assignment_type:
-                case AssignmentType.WRITE:
-                    call_str = _petsc_mat_store(*myargs)
-                case AssignmentType.INC:
-                    call_str = _petsc_mat_add(*myargs)
-                case _:
-                    raise AssertionError
-        else:
-            call_str = _petsc_mat_load(*myargs)
-
-        self.add_cinstruction(call_str)
-
+    # NOTE: This could probably be refactored
     def add_leaf_assignment(
         self,
-        assignment,
+        assignee,
+        expression,
+        assignment_type,
         paths,
         iname_replace_maps,
         loop_indices,
     ):
-        intent = assignment_type_as_intent(assignment.assignment_type)
+        intent = assignment_type_as_intent(assignment_type)
         lexpr = self.lower_expr(
-            assignment.assignee,
+            assignee,
             iname_replace_maps,
             loop_indices,
             intent=intent,
             paths=paths,
         )
         rexpr = self.lower_expr(
-            assignment.expression,
+            expression,
             iname_replace_maps,
             loop_indices,
             paths=paths,
         )
 
-        match assignment.assignment_type:
+        match assignment_type:
             case AssignmentType.WRITE:
                 pass
             case AssignmentType.INC:
@@ -463,16 +411,6 @@ class LoopyCodegenContext(CodegenContext):
                 cond = pym.primitives.Comparison(offset_expr, "<", 0)
                 rexpr = pym.primitives.If(cond, lexpr, rexpr)
 
-        self.add_assignment(lexpr, rexpr)
-
-    def add_exscan(
-            self, 
-            lexpr,
-            rexpr,
-            iname,
-            iname_var
-        ) -> None:
-        lexpr = pym.substitute(lexpr, {iname: iname_var+1})
         self.add_assignment(lexpr, rexpr)
 
     def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
@@ -531,7 +469,6 @@ class LoopyCodegenContext(CodegenContext):
             cond._symbol,
             self._lower_expr(cond.b, *args, **kwargs),
         )
-
 
     @_lower_expr.register(pyop3.expr.AxisVar)
     def _(self, axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
@@ -799,23 +736,3 @@ class SolveCallable(LACallable):
     def generate_preambles(self, target):
         assert isinstance(target, type(target))
         yield ("solve", solve_preamble)
-
-def _petsc_mat_load(mat_name, array_name, nrow, ncol, irow, icol, blocked):
-    if blocked:
-        return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
-    else:
-        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
-
-
-def _petsc_mat_store(mat_name, array_name, nrow, ncol, irow, icol, blocked):
-    if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
-    else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
-
-
-def _petsc_mat_add(mat_name, array_name, nrow, ncol, irow, icol, blocked):
-    if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
-    else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
