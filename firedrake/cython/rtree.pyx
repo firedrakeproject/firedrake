@@ -127,7 +127,7 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
     -------
     RTree
         An RTree object containing the Rtree.
-    """    
+    """
     cdef:
         RTreeH* rtree
         size_t n
