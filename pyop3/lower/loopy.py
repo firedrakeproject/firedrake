@@ -478,11 +478,9 @@ class LoopyCodegenContext(CodegenContext):
 def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
-
 @_lower_expr.register(numbers.Number)
 def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
-
 
 @_lower_expr.register(pyop3.expr.Add)
 def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
@@ -511,12 +509,12 @@ def _(or_: pyop3.expr.Or, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(pyop3.expr.Neg)
 def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
-    return _lower_expr(neg.a, *args, **kwargs)
+    return -_lower_expr(neg.a, *args, **kwargs)
 
 
 @_lower_expr.register(pyop3.expr.FloorDiv)
-def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
-    return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
+def _(fdiv: pyop3.expr.FloorDiv, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(fdiv.a, *args, **kwargs) // _lower_expr(fdiv.b, *args, **kwargs)
 
 
 @_lower_expr.register(pyop3.expr.Comparison)
@@ -526,6 +524,10 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
         cond._symbol,
         _lower_expr(cond.b, *args, **kwargs),
     )
+
+@_lower_expr.register(pyop3.expr.Conditional)
+def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
 
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
