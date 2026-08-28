@@ -11,7 +11,6 @@ def setup_cache_dirs():
         prefix = Path(sys.prefix)
         base = prefix if os.access(prefix, os.W_OK) else Path.home()
         root = str(base.joinpath(".cache"))
-    os.environ.setdefault("FIREDRAKE_CACHE_DIR", root)
 
     root = Path(root)
     if "PYOP2_CACHE_DIR" not in os.environ:
