@@ -8,6 +8,7 @@ from functools import singledispatch
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.impero_utils import temp_refcount
 from gem.node import Memoizer
 
 import islpy as isl
@@ -126,6 +127,7 @@ class LoopyContext(object):
         self.tabulated = (None, ())  # axes and inames of the preceding tabulation
         self.index_parents = {}  # iname -> parent inames bounding a jagged index
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
+        self.compact_indices = {}  # temporary -> compact index layout
         self.name_gen = UniqueNameGenerator()
         self.target = target
         self.loop_priorities = set()  # used to avoid disadvantageous loop interchanges
@@ -175,6 +177,13 @@ class LoopyContext(object):
     # Generate pym variable or subscript
     def pymbolic_variable(self, node):
         pym = self._gem_to_pym_var(node)
+        if node in self.compact_indices:
+            indices = tuple(
+                gem.simplex_lattice_rank(item, self.active_indices)
+                if isinstance(item, tuple)
+                else self.active_indices[item]
+                for item in self.compact_indices[node])
+            return p.Subscript(pym, indices) if indices else pym
         if node in self.indices:
             indices = self.fetch_multiindex(self.indices[node])
             if indices:
@@ -214,6 +223,55 @@ def active_indices(mapping, ctx):
         ctx.active_indices.pop(key)
 
 
+def _temporary_base_storage(impero_c, descriptors):
+    """Alias equal-shaped temporaries with disjoint Impero lifetimes."""
+    numbering = {temporary: temporary for temporary in impero_c.temporaries}
+    uses = defaultdict(list)
+    position = 0
+
+    def visit(node):
+        nonlocal position
+        if isinstance(node, imp.Terminal):
+            for temporary in temp_refcount(numbering, node):
+                uses[temporary].append(position)
+            position += 1
+            return
+        for child in node.children:
+            visit(child)
+
+    visit(impero_c.tree)
+    intervals = {
+        temporary: (min(positions), max(positions))
+        for temporary, positions in uses.items()
+    }
+
+    def overlap(left, right):
+        return not (left[1] < right[0] or right[1] < left[0])
+
+    pools = defaultdict(list)
+    storage = {}
+    for temporary, dtype, shape, _ in descriptors:
+        interval = intervals.get(temporary)
+        if isinstance(temporary, gem.Constant) or interval is None or not shape:
+            continue
+        key = str(dtype), shape
+        for name, occupied in pools[key]:
+            if not any(overlap(interval, other) for other in occupied):
+                occupied.append(interval)
+                storage[temporary] = name
+                break
+        else:
+            name = f"storage{sum(map(len, pools.values()))}"
+            pools[key].append((name, [interval]))
+            storage[temporary] = name
+
+    counts = defaultdict(int)
+    for name in storage.values():
+        counts[name] += 1
+    return {temporary: name for temporary, name in storage.items()
+            if counts[name] > 1}
+
+
 def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_names=[],
              return_increments=True, log=False):
     """Generates loopy code.
@@ -236,13 +294,26 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
 
     # Create arguments
     data = list(args)
-    for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
+    descriptors = []
+    for temp, dtype in assign_dtypes(impero_c.temporaries, scalar_type):
+        if isinstance(temp, gem.Constant):
+            shape, layout = temp.shape, None
+        else:
+            shape, layout = gem.compact_index_layout(
+                tuple(ctx.indices[temp]))
+            shape += temp.shape
+        descriptors.append((temp, dtype, shape, layout))
+    base_storage = _temporary_base_storage(impero_c, descriptors)
+    for i, (temp, dtype, shape, layout) in enumerate(descriptors):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
-            shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
-            data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            data.append(lp.TemporaryVariable(
+                name, shape=shape, dtype=dtype, initializer=None,
+                address_space=lp.AddressSpace.LOCAL, read_only=False,
+                base_storage=base_storage.get(temp)))
+            ctx.compact_indices[temp] = layout
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
@@ -274,6 +345,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
         preambles=preamble,
         loop_priority=frozenset(ctx.loop_priorities),
     )
+    knl = lp.allocate_temporaries_for_base_storage(knl)
 
     return knl, event_name
 

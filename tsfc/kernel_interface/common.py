@@ -27,6 +27,25 @@ from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
 
 
+def _has_product_lattice_scatter(variable: gem.Node) -> bool:
+    """Check whether a return scatters a product of jagged lattices."""
+    if isinstance(variable, gem.Indexed):
+        indices = variable.multiindex
+    elif isinstance(variable, gem.FlexiblyIndexed):
+        indices = tuple(
+            index
+            for _, dimension in variable.dim2idxs
+            for index, _ in dimension
+        )
+    else:
+        return False
+    return (
+        any(isinstance(index, gem.VariableIndex) for index in indices)
+        and sum(isinstance(index, gem.JaggedIndex) and not index.parents
+                for index in variable.free_indices) > 1
+    )
+
+
 class KernelBuilderBase(KernelInterface):
     """Helper class for building local assembly kernels."""
 
@@ -235,8 +254,14 @@ class KernelBuilderMixin(object):
         # Construct ImperoC
         assignments = list(zip(return_variables, expressions))
         index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
+        assignment_group_size = (
+            8 if any(map(_has_product_lattice_scatter, return_variables))
+            else None
+        )
         try:
-            impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
+            impero_c = impero_utils.compile_gem(
+                assignments, index_ordering, remove_zeros=True,
+                assignment_group_size=assignment_group_size)
         except impero_utils.NoopError:
             impero_c = None
         return impero_c, oriented, needs_cell_sizes, tabulations, active_variables

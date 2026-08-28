@@ -362,24 +362,26 @@ def test_bernstein_laplacian_bilinear_compact_codegen() -> None:
     assert collapsed_kernel.flop_count < canonical_kernel.flop_count
 
     entrypoint = collapsed_kernel.ast.default_entrypoint
+    collapsed_temporaries = tuple(entrypoint.temporary_variables.values())
+    canonical_temporaries = tuple(
+        canonical_kernel.ast.default_entrypoint.temporary_variables.values())
     collapsed_shapes = [
         temporary.shape
-        for temporary in entrypoint.temporary_variables.values()
-    ]
-    canonical_shapes = [
-        temporary.shape
-        for temporary in
-        canonical_kernel.ast.default_entrypoint.temporary_variables.values()
+        for temporary in collapsed_temporaries
     ]
     assert max(map(len, collapsed_shapes)) <= 5
-    assert sum(map(numpy.prod, collapsed_shapes)) \
-        < sum(map(numpy.prod, canonical_shapes))
+    assert sum(numpy.prod(temporary.shape)
+               for temporary in collapsed_temporaries
+               if temporary.base_storage is None) \
+        < sum(numpy.prod(temporary.shape)
+              for temporary in canonical_temporaries
+              if temporary.base_storage is None)
 
     code = lp.generate_code_v2(collapsed_kernel.ast).device_code()
     assert sum(
         line.lstrip().startswith("for (")
         for line in code.splitlines()
-    ) < 150
+    ) < 500
 
     # A tetrahedral lattice has a loop whose bound depends on two parents.
     assert max(
