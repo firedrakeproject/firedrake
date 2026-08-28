@@ -5,9 +5,12 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
+from ufl.classes import Cofunction
 from ufl.utils.sequences import max_degree
-from ufl.domain import extract_unique_domain
+from ufl.domain import MeshSequence, extract_unique_domain
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
+import finat
 import gem
 import gem.impero_utils as impero_utils
 import petsctools
@@ -41,6 +44,7 @@ class KernelBuilderBase(KernelInterface):
 
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
+        self.coefficient_split = {}
 
         # Constants
         self.constant_map = collections.OrderedDict()
@@ -62,6 +66,16 @@ class KernelBuilderBase(KernelInterface):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
+
+    def coefficient_components(self, ufl_coefficient, restriction):
+        """Return GEM expressions for a coefficient's stored components."""
+        coefficients = self.coefficient_split.get(
+            ufl_coefficient, (ufl_coefficient,)
+        )
+        return tuple(
+            self.coefficient(coefficient, restriction)
+            for coefficient in coefficients
+        )
 
     def constant(self, const):
         return self.constant_map[const]
@@ -135,6 +149,58 @@ class KernelBuilderBase(KernelInterface):
 
 class KernelBuilderMixin(object):
     """Mixin for KernelBuilder classes."""
+
+    def compile_interpolate(self, expression, target_element, params, ctx):
+        """Compile UFL interpolate.
+
+        :arg expression: UFL interpolate.
+        :arg target_element: UFL element of the interpolation target. This is
+            not the dual argument's own element when the target is a point
+            cloud: the points are then only known at run time, so the target
+            is a quadrature element on the source cell.
+        :arg params: a dict containing "quadrature_rule".
+        :arg ctx: context created with :meth:`create_context` method.
+
+        See :meth:`create_context` for typical calling sequence.
+        """
+        expression = CoefficientSplitter(self.coefficient_split)(
+            expression
+        )
+        target_element = self.create_element(target_element)
+        config = self.fem_config()
+        config.update(
+            argument_multiindices=self.argument_multiindices,
+            index_cache=ctx["index_cache"],
+        )
+        if isinstance(target_element, finat.QuadratureElement):
+            config["quadrature_rule"] = target_element._rule
+        evaluation, quadrature_multiindex, basis_indices = fem.dual_evaluate(
+            expression, target_element, config
+        )
+        dual_arg, _ = expression.argument_slots()
+        if not isinstance(dual_arg, Cofunction):
+            arguments = expression.arguments()
+            argument_number = arguments.index(dual_arg)
+            output_indices = self.argument_multiindices[argument_number]
+            if basis_indices != output_indices:
+                if tuple(i.extent for i in basis_indices) != tuple(
+                    i.extent for i in output_indices
+                ):
+                    raise ValueError("Interpolation output index shape mismatch")
+                mapper = gem.node.MemoizerArg(
+                    gem.optimise.filtered_replace_indices
+                )
+                evaluation = mapper(
+                    evaluation, tuple(zip(basis_indices, output_indices))
+                )
+
+        mode = pick_mode(params["mode"])
+        ctx["quadrature_indices"].extend(quadrature_multiindex)
+        # Argument factorisation does not cancel every Delta here, so lower them.
+        ctx["finalise_options"]["replace_delta"] = True
+        return mode.Integrals(
+            [evaluation], quadrature_multiindex, self.argument_multiindices, params
+        )
 
     def compile_integrand(self, integrand, params, ctx):
         """Compile UFL integrand.
@@ -220,6 +286,7 @@ class KernelBuilderMixin(object):
         options = dict(reduce(operator.and_,
                               [mode.finalise_options.items()
                                for mode in mode_irs.keys()]))
+        options.update(ctx['finalise_options'])
         expressions = impero_utils.preprocess_gem(expressions, **options)
 
         # Let the kernel interface inspect the optimised IR to register
@@ -277,6 +344,11 @@ class KernelBuilderMixin(object):
 
         Dict for mode representations.
 
+        *finalise_options*
+
+        Options overriding the modes' own :func:`impero_utils.preprocess_gem`
+        options.
+
         For each set of integrals to make a kernel for (i,e.,
         `integral_data.integrals`), one must first create a ctx object by
         calling :meth:`create_context` method.
@@ -299,6 +371,7 @@ class KernelBuilderMixin(object):
         """
         return {'index_cache': {},
                 'quadrature_indices': [],
+                'finalise_options': {},
                 'mode_irs': collections.OrderedDict()}
 
 
@@ -577,7 +650,16 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
     c_shape = copy.deepcopy(u_shape)
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):
-        integral_type = domain_integral_type_map[extract_unique_domain(arg)]
+        domain = arg.ufl_function_space().ufl_domain()
+        try:
+            integral_type = domain_integral_type_map[domain]
+        except KeyError:
+            # An unsplit argument (e.g. a mixed-space patch argument) reports
+            # its domain as a MeshSequence rather than a single mesh: every
+            # mesh it sequences is the same iteration, so they must agree.
+            if not isinstance(domain, MeshSequence):
+                raise
+            integral_type, = {domain_integral_type_map[m] for m in domain.meshes}
         if integral_type is None:
             raise RuntimeError(f"Can not determine integral_type on {arg}")
         if integral_type.startswith("interior_facet"):

@@ -152,18 +152,20 @@ class KernelBuilderBase(_KernelBuilderBase):
         measure of the mesh size around each vertex (hence this lives
         in P1).
 
-        Should the domain have topological dimension 0 this does
-        nothing.
+        A domain of topological dimension 0 gets a ``None`` entry: every
+        domain must keep its slot, since the active domain numbers index
+        this dict positionally.
         """
         self._cell_sizes = {}
         for i, domain in enumerate(domains):
             if domain.ufl_cell().topological_dimension > 0:
-                # Can't create P1 since only P0 is a valid finite element if
-                # topological_dimension is 0 and the concept of "cell size"
-                # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
                 expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
-                self._cell_sizes[domain] = expr
+            else:
+                # Only P0 is a valid finite element on a vertex, and the
+                # concept of "cell size" is not useful there.
+                expr = None
+            self._cell_sizes[domain] = expr
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -293,6 +295,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.local_tensor = None
         self.coefficient_number_index_map = OrderedDict()
         self.integral_data_info = integral_data_info
+        self.coefficient_split = integral_data_info.coefficient_split
         self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
         self.set_arguments()
 
