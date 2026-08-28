@@ -1,3 +1,5 @@
+from math import comb
+
 import numpy
 import pytest
 
@@ -370,24 +372,52 @@ def test_bernstein_laplacian_bilinear_compact_codegen() -> None:
         for temporary in collapsed_temporaries
     ]
     assert max(map(len, collapsed_shapes)) <= 5
-    assert sum(numpy.prod(temporary.shape)
-               for temporary in collapsed_temporaries
-               if temporary.base_storage is None) \
+    assert sum(map(numpy.prod, collapsed_shapes)) \
         < sum(numpy.prod(temporary.shape)
-              for temporary in canonical_temporaries
-              if temporary.base_storage is None)
+              for temporary in canonical_temporaries)
 
     code = lp.generate_code_v2(collapsed_kernel.ast).device_code()
     assert sum(
         line.lstrip().startswith("for (")
         for line in code.splitlines()
-    ) < 500
+    ) < 150
 
     # A tetrahedral lattice has a loop whose bound depends on two parents.
     assert max(
         domain.dim(isl.dim_type.param)
         for domain in entrypoint.domains
     ) >= 2
+
+
+def test_bernstein_bilinear_contracts_into_the_output() -> None:
+    # The last one-dimensional contraction runs inside both argument
+    # lattices and accumulates into the scattered output.  Nothing between
+    # the contraction and the output holds a whole element matrix, so the
+    # dominant loop nest is two simplex lattices plus one quadrature loop.
+    degree = 10
+    dimension = 3
+    kernel, = compile_form(
+        bernstein_mass(tetrahedron, degree, scheme="collapsed"),
+        parameters={"mode": "spectral"})
+    entrypoint = kernel.ast.default_entrypoint
+
+    nodes = comb(degree + dimension, dimension)
+    writable = [temporary
+                for temporary in entrypoint.temporary_variables.values()
+                if temporary.initializer is None]
+    assert max(numpy.prod(temporary.shape, dtype=int)
+               for temporary in writable) < nodes ** 2
+
+    scatters = [instruction for instruction in entrypoint.instructions
+                if "A" in instruction.write_dependency_names()]
+    assert scatters
+    scatter_inames, = {frozenset(instruction.within_inames)
+                       for instruction in scatters}
+    arguments = 2
+    assert len(scatter_inames) == arguments * dimension
+    # The quadrature reduction is nested inside that scatter.
+    assert any(instruction.within_inames > scatter_inames
+               for instruction in entrypoint.instructions)
 
 
 @pytest.mark.parametrize(("cell", "order"), [(triangle, 5), (tetrahedron, 7)])

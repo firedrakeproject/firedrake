@@ -9,6 +9,7 @@ from ufl.utils.sequences import max_degree
 from ufl.domain import extract_unique_domain
 
 import gem
+import gem.gem
 import gem.impero_utils as impero_utils
 import petsctools
 import numpy
@@ -25,25 +26,6 @@ from finat.element_factory import as_fiat_cell, create_element
 from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
-
-
-def _has_product_lattice_scatter(variable: gem.Node) -> bool:
-    """Check whether a return scatters a product of jagged lattices."""
-    if isinstance(variable, gem.Indexed):
-        indices = variable.multiindex
-    elif isinstance(variable, gem.FlexiblyIndexed):
-        indices = tuple(
-            index
-            for _, dimension in variable.dim2idxs
-            for index, _ in dimension
-        )
-    else:
-        return False
-    return (
-        any(isinstance(index, gem.VariableIndex) for index in indices)
-        and sum(isinstance(index, gem.JaggedIndex) and not index.parents
-                for index in variable.free_indices) > 1
-    )
 
 
 class KernelBuilderBase(KernelInterface):
@@ -253,17 +235,18 @@ class KernelBuilderMixin(object):
         active_variables = gem.extract_type(expressions, gem.Variable)
         # Construct ImperoC
         assignments = list(zip(return_variables, expressions))
-        index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
-        assignment_group_size = (
-            8 if any(map(_has_product_lattice_scatter, return_variables))
-            else None
-        )
-        try:
-            impero_c = impero_utils.compile_gem(
-                assignments, index_ordering, remove_zeros=True,
-                assignment_group_size=assignment_group_size)
-        except impero_utils.NoopError:
+        candidates = []
+        for index_ordering in index_orderings(
+                ctx['quadrature_indices'], return_variables, assignments):
+            try:
+                candidates.append(impero_utils.compile_gem(
+                    assignments, index_ordering, remove_zeros=True))
+            except impero_utils.NoopError:
+                candidates.append(None)
+        if any(candidate is None for candidate in candidates):
             impero_c = None
+        else:
+            impero_c = min(candidates, key=_storage_cost)
         return impero_c, oriented, needs_cell_sizes, tabulations, active_variables
 
     def fem_config(self):
@@ -393,10 +376,64 @@ def set_quad_rule(params, cell, integral_type, functions):
                          type(quad_rule))
 
 
-def get_index_ordering(quadrature_indices, return_variables):
+def _spans_output(node, output_indices):
+    """Check whether a node reduces a summand that spans the whole output."""
+    return (isinstance(node, gem.IndexSum)
+            and set(node.free_indices) == output_indices)
+
+
+def _terminal_reductions(assignments):
+    """Quadrature indices whose reduction cannot shrink what it accumulates.
+
+    Such a reduction has no tensor smaller than the output to accumulate
+    into, so running its loop outside the argument loops costs an
+    output-shaped temporary.  Placing it innermost instead makes the
+    accumulator a scalar, at the cost of giving every stage that feeds it
+    a quadrature axis, so neither placement dominates and both are costed.
+    """
+    terminal = set()
+    for variable, expression in assignments:
+        output_indices = set(variable.free_indices)
+        if _spans_output(expression, output_indices):
+            # A root reduction accumulates straight into the output, so
+            # the outer placement costs nothing extra.
+            continue
+        for node in traversal((expression,)):
+            if _spans_output(node, output_indices):
+                terminal.update(node.multiindex)
+    return terminal
+
+
+def index_orderings(quadrature_indices, return_variables, assignments=()):
+    """Return the candidate outermost loop orderings, best guess first.
+
+    Quadrature loops run outside the argument loops, which keeps every
+    intermediate contraction stage free of a quadrature axis.  When an
+    output-shaped reduction cannot accumulate into the output itself,
+    that placement also forces an output-shaped temporary, so the
+    ordering that runs it innermost is offered as an alternative.
+    """
     split_argument_indices = tuple(chain(*(var.index_ordering()
                                            for var in return_variables)))
-    return tuple(quadrature_indices) + split_argument_indices
+    quadrature_indices = tuple(quadrature_indices)
+    default = quadrature_indices + split_argument_indices
+    terminal = _terminal_reductions(assignments)
+    if not terminal:
+        return (default,)
+    head = tuple(i for i in quadrature_indices if i not in terminal)
+    tail = tuple(i for i in quadrature_indices if i in terminal)
+    return (default, head + split_argument_indices + tail)
+
+
+def _storage_cost(impero_c):
+    """Total declared size of an Impero program's temporaries."""
+    total = 0
+    for temporary in impero_c.temporaries:
+        if isinstance(temporary, gem.gem.Constant):
+            continue
+        shape, _ = gem.compact_index_layout(tuple(impero_c.indices[temporary]))
+        total += numpy.prod(shape + temporary.shape, dtype=int)
+    return total
 
 
 def get_index_names(quadrature_indices, argument_multiindices, index_cache):
