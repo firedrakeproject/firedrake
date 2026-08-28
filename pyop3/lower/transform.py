@@ -2,7 +2,6 @@ import textwrap
 
 import loopy as lp
 
-
 def with_likwid_markers(knl):
     """
     See https://github.com/RRZE-HPC/likwid/wiki/TutorialMarkerC
@@ -62,3 +61,4 @@ def with_attach_debugger(kernel):
         *(insn.copy(depends_on=insn.depends_on | {debug_insn.id}) for insn in kernel.instructions),
     )
     return kernel.copy(instructions=insns)
+

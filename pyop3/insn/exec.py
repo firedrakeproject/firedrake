@@ -56,6 +56,8 @@ class CompilerParameters:
 
     # TODO: handle these - need to build CompilerOptions
 
+    backend: str = "loopy"
+    """ Option to select 'loopy' or 'mlir' as code generation backends. """
     # extra_cflags: tuple[str, ...] = ()
     # extra_ldflags: tuple[str, ...] = ()
 
@@ -228,7 +230,7 @@ class InstructionExecutionContext:
     )
     def _compile(self) -> CompiledCodeExecutor:
         from pyop3.insn.visitors import collect_compiler_options
-        from pyop3.lower.loopy import _compile_static
+        from pyop3.lower.codegen import _compile_static
 
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
@@ -683,7 +685,7 @@ class CompiledCodeExecutor:
     try:
         import cupy as cp
 
-        @_handle_to_pointer.register
+        @_handle_to_pointer.register(cp.ndarray)
         def _(self, arr: cp.ndarray, /) -> int:
             # NOTE: This gives a pointer to a GPU memory address.
             # Loopy cannot work with GPU so this will lead to a segfault. 

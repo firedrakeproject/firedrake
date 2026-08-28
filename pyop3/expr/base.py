@@ -15,7 +15,6 @@ from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
 from pyop3.node import Node, Terminal
 
-
 class Expression(Node, abc.ABC):
 
     # {{{ abstract methods
@@ -333,7 +332,7 @@ class Add(BinaryOperator):
         from pyop3.expr.visitors import get_local_min
 
         return get_local_min(self.a) + get_local_min(self.b)
-
+    
     # }}}
 
 
