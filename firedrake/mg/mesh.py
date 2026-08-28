@@ -16,7 +16,8 @@ import firedrake.cython.dmcommon as dmcommon
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
-           "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
+           "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy", "SubmeshHierarchyBase",
+           "MeshSequenceHierarchy")
 
 
 def make_unoverlapped_dm(dm):
@@ -181,6 +182,159 @@ class HierarchyBase(object):
         return self.add_mesh(mesh.refine_marked_elements(markers))
 
 
+class MeshSequenceHierarchy(HierarchyBase):
+    """A hierarchy of `~firedrake.mesh.MeshSequenceGeometry`, refining each
+    distinct component mesh with its own sub-hierarchy.
+
+    Parameters
+    ----------
+    component_hierarchies :
+        One `HierarchyBase` per distinct component mesh (coarse to fine), in the
+        order each component first appears in the mesh sequence.
+    index_map :
+        For each component position of the mesh sequence, the index into
+        ``component_hierarchies`` it is built from.
+
+    Notes
+    -----
+    Most of the time, you do not need to create this object yourself, instead
+    passing a `~firedrake.mesh.MeshSequenceGeometry` to `MeshHierarchy`.
+
+    """
+    def __init__(self, component_hierarchies, index_map):
+        nlevels = {len(h) for h in component_hierarchies}
+        if len(nlevels) != 1:
+            raise ValueError("All component hierarchies must have the same number of levels")
+        nlevels, = nlevels
+        self._component_hierarchies = tuple(component_hierarchies)
+        self._index_map = tuple(index_map)
+        meshes = [
+            firedrake.mesh.MeshSequenceGeometry(
+                [self._component_hierarchies[i][level] for i in self._index_map],
+                set_hierarchy=False,
+            )
+            for level in range(nlevels)
+        ]
+        super().__init__(meshes, {}, {}, refinements_per_level=1,
+                         nested=all(h.nested for h in component_hierarchies))
+
+    @classmethod
+    def from_components(cls, meshes, refinement_levels=0, **kwargs):
+        """Build a `MeshSequenceHierarchy` for the (possibly repeated) component
+        meshes of a `~firedrake.mesh.MeshSequenceGeometry`.
+
+        Any component that already has a hierarchy (for example a submesh built
+        with `SubmeshHierarchy`) is reused as-is; every other, standalone
+        component is refined fresh with `MeshHierarchy`.
+
+        Parameters
+        ----------
+        meshes :
+            The (possibly repeated) component meshes to build a hierarchy for.
+        refinement_levels :
+            The number of levels of uniform refinement to build for components
+            that do not already have a hierarchy.
+        **kwargs
+            Forwarded to `MeshHierarchy` for components that do not already have
+            a hierarchy.
+
+        Returns
+        -------
+        MeshSequenceHierarchy
+            The mesh sequence hierarchy.
+
+        """
+        from firedrake.mg.utils import get_level, has_level
+
+        by_id = {id(m): m for m in meshes}
+        for m in by_id.values():
+            ancestor = m.submesh_parent
+            while ancestor is not None:
+                other = by_id.get(id(ancestor))
+                if other is not None:
+                    consistent = has_level(m) and has_level(other)
+                    if consistent:
+                        m_hierarchy, _ = get_level(m)
+                        other_hierarchy, _ = get_level(other)
+                        consistent = (
+                            len(m_hierarchy) == len(other_hierarchy)
+                            and all(m_hierarchy[i].submesh_parent is other_hierarchy[i]
+                                    for i in range(len(m_hierarchy)))
+                        )
+                    if not consistent:
+                        raise ValueError(
+                            f"{m} and its ancestor {other} both appear as separate "
+                            "components of the same MeshSequenceGeometry, but do "
+                            "not share a consistent hierarchy; build the submesh "
+                            f"with SubmeshHierarchy, from the same hierarchy as {other}"
+                        )
+                ancestor = ancestor.submesh_parent
+
+        component_hierarchies = []
+        index_map = []
+        seen = {}
+        for m in meshes:
+            if id(m) not in seen:
+                if has_level(m):
+                    hierarchy, _ = get_level(m)
+                elif m.submesh_parent is not None:
+                    raise ValueError(
+                        f"{m} is a submesh with no existing hierarchy; build one "
+                        "explicitly with SubmeshHierarchy first, then combine it "
+                        "into a MeshSequenceGeometry"
+                    )
+                else:
+                    hierarchy = MeshHierarchy(m, refinement_levels, **kwargs)
+                seen[id(m)] = len(component_hierarchies)
+                component_hierarchies.append(hierarchy)
+            index_map.append(seen[id(m)])
+        return cls(component_hierarchies, index_map)
+
+    def add_mesh(self, mesh, coarse_to_fine_cells=None, fine_to_coarse_cells=None):
+        """Add a mesh sequence on top of the finest level, dispatching per component.
+
+        Parameters
+        ----------
+        mesh :
+            The `~firedrake.mesh.MeshSequenceGeometry` to add, usually obtained by
+            calling
+            :meth:`~firedrake.mesh.MeshSequenceGeometry.refine_marked_elements` on
+            the current finest mesh sequence.
+        coarse_to_fine_cells :
+            Ignored; component cell maps come from each component's own
+            sub-hierarchy.
+        fine_to_coarse_cells :
+            Ignored; component cell maps come from each component's own
+            sub-hierarchy.
+
+        Returns
+        -------
+        MeshSequenceGeometry
+            The mesh sequence that was added.
+
+        """
+        first_seen = {}
+        added = {}
+        components = []
+        for pos, i in enumerate(self._index_map):
+            if i in first_seen:
+                if mesh[pos] is not mesh[first_seen[i]]:
+                    raise ValueError(
+                        "Repeated component meshes in the sequence must refer to "
+                        "the same refined mesh object"
+                    )
+            else:
+                first_seen[i] = pos
+                added[i] = self._component_hierarchies[i].add_mesh(mesh[pos])
+            components.append(added[i])
+        new_mesh = firedrake.mesh.MeshSequenceGeometry(components, set_hierarchy=False)
+        level = len(self.meshes)
+        self._meshes.append(new_mesh)
+        self.meshes.append(new_mesh)
+        set_level(new_mesh, self, level)
+        return new_mesh
+
+
 def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
                   netgen_flags=False,
@@ -191,8 +345,12 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     Parameters
     ----------
-    mesh : MeshGeometry
-        the coarse mesh to refine
+    mesh : MeshGeometry | MeshSequenceGeometry
+        the coarse mesh to refine. A `~firedrake.mesh.MeshSequenceGeometry`
+        builds a `MeshSequenceHierarchy`, refining each distinct component mesh
+        with its own sub-hierarchy; see `MeshSequenceHierarchy.from_components`
+        for how components that already have a hierarchy (e.g. submeshes built
+        with `SubmeshHierarchy`) are handled.
     refinement_levels : int
         the number of levels of uniform refinement. This may be dynamically
         increased by :meth:`HierarchyBase.adapt` or
@@ -226,10 +384,22 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     Returns
     -------
-    HierarchyBase
+    HierarchyBase | MeshSequenceHierarchy
         The mesh hierarchy.
 
     """
+
+    if isinstance(mesh, firedrake.mesh.MeshSequenceGeometry):
+        return MeshSequenceHierarchy.from_components(
+            mesh, refinement_levels,
+            refinements_per_level=refinements_per_level,
+            netgen_flags=netgen_flags,
+            reorder=reorder,
+            distribution_parameters=distribution_parameters,
+            callbacks=callbacks,
+            mesh_builder=mesh_builder,
+            nested=nested,
+        )
 
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
         utils.check_netgen_installed()
@@ -444,6 +614,63 @@ def NonNestedHierarchy(*meshes):
                          nested=False)
 
 
+class SubmeshHierarchyBase(HierarchyBase):
+    """A hierarchy of `Submesh`, tied to the `HierarchyBase` it was built
+    from and remembering the `Submesh` construction parameters, so it can be
+    extended from a newly refined level of its parent hierarchy.
+
+    Notes
+    -----
+    Most of the time, you do not need to create this object yourself, instead
+    using `SubmeshHierarchy`.
+
+    """
+    def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                 parent_hierarchy, submesh_kwargs,
+                 refinements_per_level=1, nested=False):
+        super().__init__(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                         refinements_per_level=refinements_per_level, nested=nested)
+        self._parent_hierarchy = parent_hierarchy
+        self._submesh_kwargs = submesh_kwargs
+
+    def add_mesh(self, mesh, coarse_to_fine_cells=None, fine_to_coarse_cells=None):
+        """Add a submesh on top of the finest level of the hierarchy.
+
+        Unlike `HierarchyBase.add_mesh`, ``mesh`` is not expected to carry
+        ``adaptive_parent``/``adaptive_cell_maps`` (`Submesh` does not set
+        these), so ``coarse_to_fine_cells``/``fine_to_coarse_cells`` are
+        simply stored as given, defaulting to `None`.
+
+        Parameters
+        ----------
+        mesh :
+            The submesh to add, usually built with
+            ``Submesh(new_parent, **self._submesh_kwargs)`` where
+            ``new_parent`` is the newly added finest level of
+            ``self._parent_hierarchy``.
+        coarse_to_fine_cells :
+            Map from the cells of the current finest submesh to the cells of
+            ``mesh``.
+        fine_to_coarse_cells :
+            Map from the cells of ``mesh`` to the cells of the current finest
+            submesh.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was added.
+
+        """
+        level = len(self.meshes)
+        self._meshes.append(mesh)
+        self.meshes.append(mesh)
+        set_level(mesh, self, level)
+        mesh.topology_dm.setRefineLevel(level)
+        self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
+        self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+        return mesh
+
+
 def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
                      subdim: int | None = None,
                      subdomain_id: int | Sequence | None = None,
@@ -483,15 +710,14 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
 
     Returns
     -------
-    HierarchyBase
+    SubmeshHierarchyBase
         The submesh hierarchy.
 
     """
-    meshes = [firedrake.Submesh(mesh,
-                                subdim=subdim, subdomain_id=subdomain_id,
-                                label_name=label_name, name=name,
-                                ignore_halo=ignore_halo, reorder=reorder,
-                                comm=comm)
+    submesh_kwargs = dict(subdim=subdim, subdomain_id=subdomain_id,
+                          label_name=label_name, name=name,
+                          ignore_halo=ignore_halo, reorder=reorder, comm=comm)
+    meshes = [firedrake.Submesh(mesh, **submesh_kwargs)
               for mesh in parent_hierarchy._meshes]
 
     lgmaps_with_overlap = []
@@ -515,6 +741,7 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
                                 for i, c2f in enumerate(coarse_to_fine_cells))
     fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
                                 for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level=refinements_per_level,
-                         nested=parent_hierarchy.nested)
+    return SubmeshHierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
+                                parent_hierarchy, submesh_kwargs,
+                                refinements_per_level=refinements_per_level,
+                                nested=parent_hierarchy.nested)
