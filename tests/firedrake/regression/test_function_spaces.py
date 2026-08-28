@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
 
@@ -109,6 +110,32 @@ def test_mixed_function_space_split(fs):
 
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
+
+
+@pytest.mark.parametrize("restrict", [False, True])
+def test_collapsed_subspace_argument_hash(restrict):
+    # UFL hashes Arguments by repr, so collapsing a subspace must drop the
+    # proxy metadata that FunctionSpace.__eq__ ignores. Otherwise a collapsed
+    # subspace and the equal plain space carry Arguments that compare equal
+    # but hash apart, and replace() silently fails to substitute.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, MixedElement([FiniteElement("CG", triangle, 1),
+                                          FiniteElement("DG", triangle, 0)]))
+    if restrict:
+        V = restricted_function_space(V, [{"on_boundary"}, frozenset()])
+
+    for Vsub in V:
+        W = Vsub.collapse()
+        P = FunctionSpace(mesh, Vsub.ufl_element())
+        if Vsub.boundary_set:
+            P = RestrictedFunctionSpace(P, boundary_set=Vsub.boundary_set)
+        assert W == P and hash(W) == hash(P)
+
+        u, w = TrialFunction(P), TrialFunction(W)
+        assert u == w and hash(u) == hash(w)
+        # The substitution must actually reach into the form.
+        a = replace(inner(u, TestFunction(P)) * dx, {u: w})
+        assert a.arguments()[1] is w
 
 
 @pytest.mark.parametrize("space",
