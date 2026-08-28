@@ -315,7 +315,7 @@ class LoopyCodegenContext(CodegenContext):
 
         buffer = buffer_view.buffer
         if isinstance(buffer, PetscMatBuffer):
-            buffer = buffer_view.denested.getPythonself().buffer
+            buffer = buffer_view.denested.getPythonContext().buffer
 
         # At this point we know how to address each axis of the underlying buffer.
         # This is sufficient to address a flat buffer, but for a buffer with more

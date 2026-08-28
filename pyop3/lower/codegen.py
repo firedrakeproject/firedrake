@@ -441,6 +441,45 @@ def _(exscan, loop_indices, codegen_context):
     lexpr = pym.substitute(lexpr, {iname: iname_var+1})
     codegen_context.add_assignment(lexpr, rexpr)
 
+# NOTE: Make this overloaded function into class?
+@functools.singledispatch
+def _collect_temporary_shapes(expr):
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+@_collect_temporary_shapes.register(InstructionList)
+def _(insn_list):
+    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+
+@_collect_temporary_shapes.register(Loop)
+def _(loop):
+    shapes = {}
+    for stmt in loop.statements:
+        for temp, shape in _collect_temporary_shapes(stmt).items():
+            if shape is None:
+                continue
+            if temp in shapes:
+                assert shapes[temp] == shape
+            else:
+                shapes[temp] = shape
+    return shapes
+
+@_collect_temporary_shapes.register(AbstractAssignment)
+@_collect_temporary_shapes.register(NullInstruction)
+@_collect_temporary_shapes.register(Exscan)
+def _(assignment: AbstractAssignment, /) -> idict:
+    return idict()
+
+@_collect_temporary_shapes.register
+def _(call: StandaloneCalledFunction):
+    return idict(
+        {
+            arg.buffer: lp_arg.shape
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
+            )
+            if isinstance(lp_arg, lp.ArrayArg)
+        }
+    )
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
