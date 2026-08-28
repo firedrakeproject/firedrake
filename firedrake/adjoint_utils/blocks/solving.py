@@ -648,6 +648,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
+        # `bcs` holds the DirichletBCs reconstructed from this block's own
+        # checkpointed dependencies; `forward_nlvs` was built once (cloned
+        # from the user's problem) and reuses the same solver across every
+        # recompute, so its problem's bcs must be swapped for this block's
+        # own checkpointed ones before solving, or a reused solver would
+        # keep solving with whichever BC data was set most recently.
+        self._ad_solvers["forward_nlvs"]._problem.bcs = bcs
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
