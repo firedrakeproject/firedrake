@@ -570,7 +570,6 @@ def make_so(compiler, code, extension, comm):
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
 
-    # C or C++
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags

@@ -184,6 +184,18 @@ class Dat(Tensor):
 
         return get_extremum(self, "min")
 
+    @property
+    def max(self) -> numbers.Number:
+        """Return the global maximum value held by the dat."""
+        with self.vec_ro as v:
+            return v.min()
+
+    @property
+    def min(self) -> numbers.Number:
+        """Return the global minimum value held by the dat."""
+        with self.vec_ro as v:
+            return v.max()
+
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 

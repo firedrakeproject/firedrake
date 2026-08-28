@@ -76,7 +76,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     if compiler_parameters.backend == "loopy": 
         make_context = LoopyCodegenContext
     elif compiler_parameters.backend == "mlir": 
-        raise NotImplementedError("Class is still being implemented.") 
+        raise NotImplementedError("MLIR code generation is still being implemented.") 
 
     context = make_context(
         propagate_negatives=compiler_parameters.propagate_negatives,
@@ -86,8 +86,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
     for ex in cs_expr:
-        # ex = expand_implicit_pack_unpack(ex)
-
         # add external loop indices as kernel arguments
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
@@ -296,7 +294,7 @@ def _compile_array_assignment(
         if axis_tree.linearize(new_paths[-1], partial=True).size == 0: 
             continue
         
-        if component.local_size != 1:
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
             ext = codegen_context.register_extent(
                 component.size, 

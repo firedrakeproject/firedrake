@@ -89,14 +89,12 @@ class CodegenContext(ABC):
 
     # {{{ abstract methods
 
-
     @abstractmethod
     def var(self, iname: str, *args) -> str | pym.primitives.Variable:
         """
         Implementation to represent symbolic variable for respective IR
         """
         pass
-
 
     @abstractmethod
     def add_domain(self, iname: str, *args) -> None:

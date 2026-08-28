@@ -2998,9 +2998,9 @@ class ExtrudedMeshTopology(MeshTopology):
         base_indices = self._base_mesh._old_to_new_point_renumbering.indices
         base_point_label = self.topology_dm.getLabel("base_point")
 
-        column_height = 2*n_extr_cells
-        if not self.periodic:
-            column_height += 1
+        column_height = 2*n_extr_cells+1
+        if self.periodic:
+            column_height -= 1
         indices = np.empty(base_indices.size * column_height, dtype=base_indices.dtype)
         for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
             cell_stratum = self.topology_dm.getDepthStratum(base_dim+1)

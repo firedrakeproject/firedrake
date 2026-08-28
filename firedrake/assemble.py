@@ -1408,7 +1408,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
             for j, trial_subspace in enumerate(trial_space):
                 # NOTE: It appears as though having block shapes for nested submatrices is not currently supported
                 # block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
-                block_shape = ((), ())
+                block_shape = (), ()
 
                 if _is_real_space(test_subspace):
                     # The test space is the row space, so a Real test space means we have a single row

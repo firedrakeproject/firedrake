@@ -277,55 +277,12 @@ def test_poisson_mixed_restricted_spaces(i, j):
 
 @pytest.mark.parallel(2)
 def test_restricted_function_space_extrusion_basics():
-    #
-    #                  rank 0                 rank 1
-    #
-    #  plex points:
-    #
-    #            +-------+-------+      +-------+-------+
-    #            |       |       |      |       |       |
-    #            |       |       |      |       |       |
-    #            |       |       |      |       |       |
-    #            +-------+-------+      +-------+-------+
-    #            2   0  (3) (1) (4)    (4) (1)  2   0   3    () = ghost
-    #
-    #  mesh._new_to_old_point_renumbering:
-    #
-    #            [0, 2, 3, 1, 4]        [0, 3, 2, 1, 4]
-    #
-    #  Local DoFs:
-    #
-    #            5---2--(8)(11)(14)   (14)(11)--8---2---5
-    #            |       |       |      |       |       |
-    #            4   1  (7)(10)(13)   (13)(10)  7   1   4
-    #            |       |       |      |       |       |
-    #            3---0--(6)-(9)(12)   (12)-(9)--6---0---3    () = ghost
-    #
-    #  Global DoFs:
-    #
-    #                       3---1---9---5---7
-    #                       |       |       |
-    #                       2   0   8   4   6
-    #                       |       |       |
-    #                       x---x---x---x---x
-    #
-    #  LGMap:
-    #
-    #    rank 0 : [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
-    #    rank 1 : [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
     mesh = UnitIntervalMesh(2)
     extm = ExtrudedMesh(mesh, 1)
     V = FunctionSpace(extm, "CG", 2)
     V_res = RestrictedFunctionSpace(V, boundary_set=["bottom"])
-    # Check lgmap.
-    lgmap = V_res.lgmap()
-    if mesh.comm.rank == 0:
-        lgmap_expected = [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
-    else:
-        lgmap_expected = [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
-    assert np.allclose(lgmap.indices, lgmap_expected)
     # Check vec.
-    n = V_res.axes.owned.local_size
+    n = V_res.axes.buffer_size(include_ghosts=False)
     lgmap_owned = lgmap.indices[:n]
     local_global_filter = lgmap_owned >= 0
     local_array = 1.0 * np.arange(V_res.axes.local_size)

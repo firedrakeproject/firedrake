@@ -276,7 +276,7 @@ def test_covariance_mat(m, family, operation):
 
         B.apply_inverse(xcheck, tensor=ycheck)
 
-    with x.dat.vec as xv, y.dat.vec as yv:
+    with x.dat.vec as xv, y.dat.vec_wo as yv:
         mat.mult(xv, yv)
 
     # flip to primal space to calculate norms

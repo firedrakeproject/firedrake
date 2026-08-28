@@ -519,19 +519,19 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "expression_kernel" in str(self):
-        #     breakpoint()
-            # import pyop3.debug
-            # pyop3.debug.maybe_breakpoint()
+        # if "MatSetValues" in str(self):
+        # #     breakpoint()
+        #     import pyop3.debug
+        #     pyop3.debug.maybe_breakpoint()
 
         if not new_buffers:  # shortcut for the most common case
-            buffers = self._default_buffers
+            buffer_intents = self.buffer_intents
             exec_arguments = self._default_exec_arguments
         else:
-            buffers = [
-                new_buffers.get(orig_buffer, orig_buffer)
-                for orig_buffer in self.buffer_intents
-            ]
+            buffer_intents = {
+                new_buffers.get(orig_buffer, orig_buffer): intent
+                for orig_buffer, intent in self.buffer_intents.items()
+            }
             exec_arguments = [
                 self._handle_to_pointer(
                     buf_view.record_new(
@@ -611,7 +611,7 @@ class CompiledCodeExecutor:
         reductions = []
         broadcasts = []
         finalizers = []
-        for buffer, intent in self.buffer_intents.items():
+        for buffer, intent in buffer_intents.items():
             inits, reds, bcasts, fins = self._buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
