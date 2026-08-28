@@ -864,9 +864,7 @@ class ElementKernel:
     @property
     def _kernel_args(self):
         return (
-            # FIXME: intent here should be OK to be WRITE but loopy was complaining
-            # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
-            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
             ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
         )
 
@@ -1714,7 +1712,7 @@ def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False)
     return A
 
 
-def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
+def tabulate_exterior_derivative(Vc, Vf, cbcs=(), fbcs=(), comm=None, mat_type="aij", allow_repeated=False):
     """Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
        Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
     if comm is None:
@@ -1746,10 +1744,6 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
         A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
         A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
         Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
-        # A00.destroy()
-        # A11.destroy()
-        # if Dhat != A10:
-        #     A10.destroy()
 
         if any(is_restricted(ec)) or any(is_restricted(ef)):
             scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
@@ -1759,16 +1753,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
             fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
             cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
             Dhat = temp.createSubMatrix(fises, cises)
-            # temp.destroy()
-            # fises.destroy()
-            # cises.destroy()
 
     if Vf.block_size > 1:
         temp = Dhat
         eye = petsc_sparse(numpy.eye(Vf.block_size, dtype=PETSc.RealType), comm=temp.getComm())
         Dhat = temp.kron(eye)
-        # temp.destroy()
-        # eye.destroy()
 
     if mat_type != "is":
         allow_repeated = False
@@ -2293,8 +2282,7 @@ class PoissonFDMPC(FDMPC):
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
-            extruded = mesh.extruded
-            dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
+            dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if mesh.extruded else ufl.dS(degree=quad_deg)
             area = ufl.FacetArea(mesh)
             ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
 

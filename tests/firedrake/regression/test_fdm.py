@@ -228,7 +228,6 @@ def fs(request, mesh):
         return VectorFunctionSpace(mesh, family, degree, dim=5-tdim, variant=variant)
 
 
-@pytest.mark.xfail(reason="TODO: complicated node map bits")
 @pytest.mark.skipcomplex
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()

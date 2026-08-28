@@ -124,7 +124,8 @@ class LoopyCodegenContext(CodegenContext):
         self._add_instruction(cinsn)
 
     def add_function_call(self, code, args, prefix="insn"): 
-        subarrayrefs = {}
+        input_refs = []
+        output_refs = []
         loopy_args = code.default_entrypoint.args
         for loopy_arg, (arg, spec) in zip(loopy_args, args, strict=True):
             name_in_kernel = self.add_buffer(arg.buffer_view, spec.intent)
@@ -136,25 +137,25 @@ class LoopyCodegenContext(CodegenContext):
                     self.add_domain(iname, s)
                     indices.append(pym.var(iname))
                 indices = tuple(indices)
-                subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+                ref = lp.symbolic.SubArrayRef(
                     indices, pym.var(name_in_kernel)[indices]
                 )
             else:
                 assert isinstance(loopy_arg, lp.ValueArg)
-                subarrayrefs[arg] = pym.var(name_in_kernel)
+                ref = pym.var(name_in_kernel)
 
-        assignees = tuple(
-            subarrayrefs[arg]
-            for arg, spec in args 
-            if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
-        )
+            if isinstance(loopy_arg.dtype, lp.types.OpaqueType):
+                # no packing, passthrough arg, don't treat as written
+                input_refs.append(ref)
+            else:
+                if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}:
+                    input_refs.append(ref)
+                if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}:
+                    output_refs.append(ref)
+
+        assignees = tuple(output_refs)
         expression = pym.primitives.Call(
-            pym.var(code.default_entrypoint.name),
-            tuple(
-                subarrayrefs[arg]
-                for arg, spec in args 
-                if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
-            ),
+            pym.var(code.default_entrypoint.name), tuple(input_refs)
         )
 
         insn = lp.CallInstruction(

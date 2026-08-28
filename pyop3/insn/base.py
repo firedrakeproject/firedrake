@@ -412,7 +412,7 @@ class Function(pyop3.obj.Object):
 
             if isinstance(dtype, lp.types.OpaqueType):
                 # no packing, passthrough arg
-                loopy_arg = lp.ValueArg(name_, dtype, is_input=is_input, is_output=is_output)
+                loopy_arg = lp.ValueArg(name_, dtype, is_input=True, is_output=False)
             else:
                 loopy_arg = lp.GlobalArg(name_, dtype, is_input=is_input, is_output=is_output)
             loopy_args.append(loopy_arg)
@@ -903,8 +903,12 @@ def fix_intents(tunit, accesses):
     kernel = tunit.default_entrypoint
     new_args = []
     for arg, access in zip(kernel.args, accesses, strict=True):
-        assert isinstance(access, Intent)
-        is_input = access in {Intent.READ, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MAX_RW}
-        is_output = access in {Intent.WRITE, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MIN_WRITE, Intent.MAX_WRITE, Intent.MAX_RW}
+        if isinstance(arg.dtype, lp.types.OpaqueType):
+            # no packing, passthrough arg
+            is_input = True
+            is_output = False
+        else:
+            is_input = access in {Intent.READ, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MAX_RW}
+            is_output = access in {Intent.WRITE, Intent.RW, Intent.INC, Intent.MIN_RW, Intent.MIN_WRITE, Intent.MAX_WRITE, Intent.MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))
