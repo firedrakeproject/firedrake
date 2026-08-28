@@ -517,8 +517,8 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "form" in str(self):
-        #     breakpoint()
+        # if "MatSetValues" in str(self):
+        # #     breakpoint()
         #     import pyop3.debug
         #     pyop3.debug.maybe_breakpoint()
 

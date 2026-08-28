@@ -113,106 +113,6 @@ def expand_loop_contexts(insn: pyop3.insn.Instruction, /) -> pyop3.insn.Instruct
     return LoopContextExpander()(insn, loop_context=idict())
 
 
-class ImplicitPackUnpackExpander(NodeTransformer):
-    def __init__(self):
-        self._name_generator = utils.UniqueNameGenerator()
-
-    def apply(self, expr):
-        return self._apply(expr)
-
-    @functools.singledispatchmethod
-    def _apply(self, expr: Any):
-        raise NotImplementedError(f"No handler provided for {type(expr).__name__}")
-
-    @_apply.register(pyop3.insn.NullInstruction)
-    @_apply.register(pyop3.insn.Exscan)  # assume we are fine
-    def _(self, insn, /):
-        return insn
-
-    # TODO Can I provide a generic "operands" thing? Put in the parent class?
-    @_apply.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop) -> pyop3.insn.Loop:
-        new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
-        return loop.record_new(statements=new_statements)
-
-    @_apply.register
-    def _(self, insn_list: pyop3.insn.InstructionList):
-        return type(insn_list)([insn_ for insn in insn_list for insn_ in enlist(self._apply(insn))])
-
-    @_apply.register
-    def _(self, assignment: pyop3.insn.Assignment):
-        # I think this is fine...
-        return assignment
-
-    @_apply.register
-    def _(self, terminal: pyop3.insn.CalledFunction):
-        gathers = []
-        # NOTE: scatters are executed in LIFO order
-        scatters = []
-        arguments = []
-        for (arg, intent), shape in zip(
-            terminal.function_arguments, terminal.argument_shapes, strict=True
-        ):
-            # emit pack/unpack instructions
-            if _requires_pack_unpack(arg):
-                # TODO: Make generic across Array types
-                if isinstance(arg, Dat):
-                    temporary = Dat.null(arg.axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
-                else:
-                    assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.row_axes.materialize().regionless(), arg.column_axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
-
-                if intent == READ:
-                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
-                elif intent == WRITE:
-                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
-                elif intent == RW:
-                    gathers.append(pyop3.insn.Assignment(temporary, arg, "write"))
-                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "write"))
-                else:
-                    assert intent == INC
-                    gathers.append(pyop3.insn.Assignment(temporary, 0, "write"))
-                    scatters.insert(0, pyop3.insn.Assignment(arg, temporary, "inc"))
-
-                function_arg = LinearDatBufferExpression(temporary.buffer, 0)
-            else:
-                if arg.buffer.is_nested:
-                    raise NotImplementedError("Assume cannot have nest indices here")
-                function_arg = LinearDatBufferExpression(arg.buffer, 0)
-            arguments.append(function_arg)
-
-        return maybe_enlist((*gathers, pyop3.insn.StandaloneCalledFunction(terminal.function, arguments), *scatters))
-
-
-# TODO check this docstring renders correctly
-def expand_implicit_pack_unpack(expr: pyop3.insn.Instruction):
-    """Expand implicit pack and unpack operations.
-
-    An implicit pack/unpack is something of the form
-
-    .. code::
-        kernel(dat[f(p)])
-
-    In order for this to work the ``dat[f(p)]`` needs to be packed
-    into a temporary. Assuming that its intent in ``kernel`` is
-    `pyop3.WRITE`, we would expand this function into
-
-    .. code::
-        tmp <- [0, 0, ...]
-        kernel(tmp)
-        dat[f(p)] <- tmp
-
-    Notes
-    -----
-    For this routine to work, any context-sensitive loops must have
-    been expanded already (with `expand_loop_contexts`). This is
-    because context-sensitive arrays may be packed into temporaries
-    in some contexts but not others.
-
-    """
-    return ImplicitPackUnpackExpander().apply(expr)
-
-
 @functools.singledispatch
 def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
     utils.raise_missing_dispatch_handler(arg)
@@ -306,6 +206,12 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             if intent == READ:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
             elif intent == WRITE:
+                # TODO: Some interpolation kernels for more exotic function
+                # spaces (e.g. HHJ) do not write to all of their DoFs, and
+                # this (somehow) results in NaNs. We get around this for
+                # now by zeroing the temporary on entry, though I think
+                # that this indicates an issue in the local kernel.
+                arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
             elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))

@@ -345,7 +345,7 @@ for (int32_t k=0; k<{size}; k++) {{
 
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
-                    temps.append((temp_name, (arity, cdim)), dat.dtype)
+                    temps.append((temp_name, (arity, cdim), dat.dtype))
                     local_kernel_args.append(temp_name)
 
                     pack_insn = f"""\
@@ -681,7 +681,8 @@ class PlaneSmoother:
         bary = numpy.zeros(gdim)
         ndof = 0
         for p_ in closure_of_p:
-            (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
+            dof = coordinatesSection.getDof(p_) // gdim
+            offset = coordinatesSection.getOffset(p_) // gdim
             bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
             ndof += dof
         bary /= ndof

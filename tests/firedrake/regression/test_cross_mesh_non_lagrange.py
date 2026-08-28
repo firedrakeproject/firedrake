@@ -71,6 +71,8 @@ def test_cross_mesh(V, rank):
         I_manual = assemble(action(I2, I1))  # V_source x V^* -> R
         assert I_manual.arguments() == (TestFunction(V.dual()), TrialFunction(V_source))
         # Direct assembly
+        import pyop3.debug
+        pyop3.debug.enable_conditional_breakpoints()
         I_direct = assemble(interpolate(TrialFunction(V_source), V))  # V_source
         assert I_direct.arguments() == (TestFunction(V.dual()), TrialFunction(V_source))
         assert mat_equals(I_manual, I_direct)
