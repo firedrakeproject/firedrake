@@ -756,7 +756,7 @@ class LoopIndexVar(TerminalExpression):
     @property
     def dtype(self) -> numbers.Number:
         """ Returns int32 for indexing variable """
-        return np.int32 
+        return np.dtype(np.int32)
 
     @property
     def _full_str(self) -> str:
@@ -798,7 +798,8 @@ def _(expr: Expression) -> np.dtype:
 
 @_get_dtype.register(numbers.Number)
 def _(expr: numbers.Number) -> np.dtype:
-    # NOTE: Assumptions made about numerals here but type promotion/resolution happens on .dtype property. 
+    # NOTE: Assumptions made about numerals here, i.e. float == float64, int == int32 
+    # However, type promotion/resolution happens on higher-level .dtype property. 
     is_float = isinstance(expr, float) 
     dtype = "float64" if is_float else "int32"
     return np.dtype(dtype)
