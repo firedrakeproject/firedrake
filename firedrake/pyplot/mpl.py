@@ -11,12 +11,14 @@ except ModuleNotFoundError as e:
     ) from e
 import matplotlib.colors
 import matplotlib.patches
+import matplotlib.transforms
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.collections import LineCollection, PathCollection, PolyCollection
 import mpl_toolkits.mplot3d
-from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import (Line3DCollection, Poly3DCollection,
+                                        patch_collection_2d_to_3d)
 from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
@@ -65,34 +67,154 @@ def _autoscale_view(axes, coords):
             setter(amin, amax)
 
 
-def _get_collection_types(gdim, tdim):
-    if gdim == 2:
-        if tdim == 1:
-            # Probably a CircleCollection?
-            raise NotImplementedError("Didn't get to this yet...")
-        elif tdim == 2:
-            return LineCollection, PolyCollection
-    elif gdim == 3:
-        if tdim == 1:
-            raise NotImplementedError("Didn't get to this one yet...")
-        elif tdim == 2:
-            return Line3DCollection, Poly3DCollection
-        elif tdim == 3:
-            return Poly3DCollection, Poly3DCollection
+def _point_collection(axes, vertices, colors=None, **kwargs):
+    r"""Draw a collection of round markers at the given points
 
-    raise ValueError("Geometric dimension must be either 2 or 3!")
+    The markers are sized in points like those of a scatter plot, so their
+    paths live in display space and only their offsets are in data
+    coordinates.
+
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes whose data transform positions the markers.
+    vertices : numpy.ndarray
+        Array of shape ``(num_points, gdim)`` of point coordinates.
+    colors : optional
+        Colour or array of colours for the markers. The colours arrive under
+        the same keyword that the line collections bounding a 2D mesh take
+        them under.
+    **kwargs
+        Additional keyword arguments for
+        :class:`~matplotlib.collections.PathCollection`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The marker collection, converted to 3D if ``gdim`` is 3.
+    """
+    kwargs.setdefault("sizes", [plt.rcParams["lines.markersize"] ** 2])
+    collection = PathCollection(
+        [Path.unit_circle()],
+        offsets=vertices[:, :2],
+        offset_transform=axes.transData,
+        transform=matplotlib.transforms.IdentityTransform(),
+        facecolors=colors,
+        **kwargs
+    )
+    if vertices.shape[1] == 3:
+        # Shading the markers by depth would take them off the colour that
+        # names them in the legend.
+        patch_collection_2d_to_3d(collection, zs=vertices[:, 2], depthshade=False)
+    return collection
+
+
+def _add_collection(axes, vertices, **kwargs):
+    r"""Draw the mesh entities whose vertices are given and add them to the axes
+
+    The shape of ``vertices`` decides how each entity is drawn: entities with a
+    single vertex become round markers, those with two vertices become line
+    segments, and those with more become polygons. The facets of a 1D mesh are
+    points and those of a 2D mesh are segments, so this covers every entity
+    that a mesh of any dimension is drawn from.
+
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes to add the collection to.
+    vertices : numpy.ndarray
+        Array of shape ``(num_entities, num_vertices, gdim)``.
+    **kwargs
+        Additional keyword arguments for the collection type chosen.
+
+    Returns
+    -------
+    matplotlib.collections.Collection
+        The collection that was added to the axes.
+    """
+    num_vertices, gdim = vertices.shape[1:]
+    if num_vertices == 1:
+        collection = _point_collection(axes, vertices.reshape(-1, gdim), **kwargs)
+    elif num_vertices == 2:
+        segments = LineCollection if gdim == 2 else Line3DCollection
+        collection = segments(vertices, **kwargs)
+    else:
+        polygons = PolyCollection if gdim == 2 else Poly3DCollection
+        collection = polygons(vertices, **kwargs)
+
+    axes.add_collection(collection)
+    return collection
+
+
+def _entity_node_list(cell, dimension):
+    r"""Local node numbers of each entity of the given dimension of a cell
+
+    The vertices of each entity come out in a cycle around its perimeter. FInAT
+    numbers the vertices of a quadrilateral lexicographically, putting 1 and 2
+    diagonally opposite each other; exchanging the last two makes the polygon
+    simple. Entities with any other number of vertices are simplices, which are
+    already in order.
+
+    Parameters
+    ----------
+    cell : FIAT.reference_element.Cell
+        Reference cell whose topology is queried.
+    dimension : int or tuple of int
+        Dimension of the entities to look up. Tensor product cells index their
+        entities by a pair of horizontal and vertical dimensions.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_entities, num_vertices_per_entity)``.
+    """
+    entities = cell.get_topology()[dimension]
+    nodes = np.array([entities[key] for key in sorted(entities)])
+    if nodes.shape[-1] == 4:
+        return nodes[:, [0, 1, 3, 2]]
+    return nodes
+
+
+def _extrude(nodes, offset, num_layers):
+    r"""Replicate the entities of the bottom layer up the columns of an extruded mesh
+
+    Parameters
+    ----------
+    nodes : numpy.ndarray
+        Array of shape ``(num_entities, num_nodes_per_entity)`` of node numbers
+        in the bottom layer.
+    offset : int or numpy.ndarray
+        Increment in node number between successive layers. This broadcasts
+        against ``nodes``.
+    num_layers : int
+        Number of layers of cells in the extruded mesh.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_entities * num_layers, num_nodes_per_entity)``.
+        The entities of each column come out contiguous.
+    """
+    nodes = np.asarray(nodes)
+    offset = np.broadcast_to(offset, nodes.shape)
+    layers = np.arange(num_layers).reshape(1, -1, 1)
+    return (nodes[:, None, :] + offset[:, None, :] * layers).reshape(-1, nodes.shape[-1])
 
 
 @PETSc.Log.EventDecorator()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
-    Typically boundary segments will be marked and coloured, but
-    interior facets that are marked will also be coloured.
+    Only the exterior facets are coloured. Markers on interior facets are
+    ignored, so an internal boundary is drawn like the rest of the interior.
 
     The interior and boundary keyword arguments can be any keyword argument for
     :class:`LineCollection <matplotlib.collections.LineCollection>` and
     related types.
+
+    On an extruded mesh, the bottom and top of the mesh are coloured under
+    the markers ``"bottom"`` and ``"top"``. A periodic extrusion identifies
+    the bottom with the top, so neither is drawn.
 
     :arg mesh: mesh to be plotted
     :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot mesh
@@ -102,11 +224,8 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     """
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
-    BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname == "quadrilateral"
-
-    if mesh.extruded:
-        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
+    if gdim not in {2, 3}:
+        raise ValueError("Geometric dimension must be either 2 or 3!")
 
     if axes is None:
         figure = plt.figure()
@@ -117,81 +236,90 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
-    if element.degree() != 1:
+    if coordinates.function_space().finat_element.space_dimension() != mesh.ufl_cell().num_vertices:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(interpolate(coordinates, V))
 
+    cell = coordinates.function_space().finat_element.cell
+    # Tensor product cells index their entities by a pair of horizontal and
+    # vertical dimensions. The horizontal facets bound the bottom and top of
+    # each column of cells, so there are none unless the mesh is extruded.
+    if mesh.extruded:
+        cell_dim, facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+    else:
+        cell_dim, facet_dim, horiz_facet_dim = tdim, tdim - 1, None
+    num_layers = mesh.layers - 1 if mesh.extruded else 1
+
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
+    cell_node_map = coordinates.cell_node_map()
+    cell_nodes = cell_node_map.values_with_halo
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values_with_halo
-        idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
-        vertices = coords[cell_node_map[:, idx]]
+        idx = _entity_node_list(cell, cell_dim)[0]
+        cells = cell_nodes[:, idx]
+        if mesh.extruded:
+            cells = _extrude(cells, cell_node_map.offset[idx], num_layers)
+        vertices = coords[cells]
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
         interior_kw["linewidths"] = interior_kw.get("linewidths", 1.0)
-        if gdim == 2:
+        if gdim == 2 and tdim == 2:
             interior_kw["facecolors"] = interior_kw.get("facecolors", "none")
 
-        interior_collection = InteriorCollection(vertices, **interior_kw)
-        axes.add_collection(interior_collection)
-        result.append(interior_collection)
+        result.append(_add_collection(axes, vertices, **interior_kw))
 
-    def facet_data(typ):
-        if typ == "interior":
-            facets = mesh.interior_facets
-            node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values_with_halo[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
-        elif typ == "exterior":
-            facets = mesh.exterior_facets
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
-            node_map = coordinates.exterior_facet_node_map().values_with_halo
-        else:
-            raise ValueError("Unhandled facet type")
-        mask = np.zeros(node_map.shape, dtype=bool)
-        for facet_index, local_facet_index in enumerate(local_facet_ids):
-            mask[facet_index, topology[tdim - 1][local_facet_index]] = True
-        faces = node_map[mask].reshape(-1, tdim)
-        return facets, faces
+    # Add colored lines/polygons for the boundary facets. Each facet is drawn
+    # from the nodes of the cell it belongs to that lie on it.
+    facet_node_list = _entity_node_list(cell, facet_dim)
 
-    # Add colored lines/polygons for the boundary facets
-    topology = coordinates.function_space().finat_element.cell.get_topology()
+    exterior_facets = mesh.exterior_facets
+    node_map = coordinates.exterior_facet_node_map()
+    selection = facet_node_list[exterior_facets.local_facet_dat.data_ro_with_halos]
+    exterior_faces = np.take_along_axis(node_map.values_with_halo, selection, axis=1)
+    if mesh.extruded:
+        exterior_faces = _extrude(exterior_faces, node_map.offset[selection], num_layers)
 
-    markers = mesh.exterior_facets.unique_markers
+    # The bottom and top of an extruded mesh are not facets of the base mesh,
+    # so they are drawn from the cells of the lowest and highest layer instead.
+    # A periodic extrusion identifies the two, leaving no boundary there.
+    horizontal_markers = ["bottom", "top"] if (mesh.extruded
+                                               and not mesh.extruded_periodic) else []
+
+    def marker_faces(marker):
+        if marker in horizontal_markers:
+            layer = 0 if marker == "bottom" else num_layers - 1
+            idx = _entity_node_list(cell, horiz_facet_dim)[horizontal_markers.index(marker)]
+            return cell_nodes[:, idx] + layer * cell_node_map.offset[idx]
+
+        indices = exterior_facets.subset(int(marker)).indices
+        if mesh.extruded:
+            # Every facet of the base mesh was extruded into `num_layers`
+            # facets lying consecutively in the array.
+            indices = (num_layers * indices[:, None]
+                       + np.arange(num_layers)).reshape(-1)
+        return exterior_faces[indices, :]
+
+    markers = list(exterior_facets.unique_markers) + horizontal_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
+    boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
-        # matplotlib.cm.get_cmap was deprecated in Matplotlib 3.9, see:
-        # https://matplotlib.org/3.9.0/api/prev_api_changes/api_changes_3.9.0.html#top-level-cmap-registration-and-access-functions-in-mpl-cm
-        try:
-            cmap = matplotlib.cm.get_cmap("Dark2")
-        except AttributeError:
-            cmap = matplotlib.colormaps["Dark2"]
+        cmap = matplotlib.colormaps["Dark2"]
         num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:
         colors = matplotlib.colors.to_rgba_array(boundary_colors)
 
-    boundary_kw = dict(boundary_kw)
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
     for marker, color in zip(markers, colors):
-        vertices = []
-        for typ in ["interior", "exterior"]:
-            facets, faces = facet_data(typ)
-            face_indices = facets.subset(int(marker)).indices
-            marker_faces = faces[face_indices, :]
-            vertices.append(coords[marker_faces])
-        vertices = np.concatenate(vertices)
+        vertices = coords[marker_faces(marker)]
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
-        marker_collection = BoundaryCollection(vertices, **_boundary_kw)
-        axes.add_collection(marker_collection)
-        result.append(marker_collection)
+        result.append(_add_collection(axes, vertices, **_boundary_kw))
 
     # Dirty hack to enable legends for 3D volume plots. See the function
     # `Poly3DCollection.set_3d_properties`.
@@ -964,8 +1092,9 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.layers:
-            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
+        if mesh.extruded:
+            cell_node_list = _extrude(cell_node_list, Q.cell_node_map().offset,
+                                      mesh.layers - 1)
         data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1
