@@ -1,7 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 import dataclasses
 
-from pyop3.lower import LOOPY_TARGET
+from pyop3.compile import LOOPY_TARGET
 from tsfc import default_parameters
 import sys
 from firedrake.utils import ScalarType, ScalarType_c

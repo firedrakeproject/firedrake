@@ -387,7 +387,7 @@ class Function(pyop3.obj.Object):
         preambles=(),
         **kwargs,
     ) -> Function:
-        from pyop3.lower.loopy import LOOPY_LANG_VERSION, LOOPY_TARGET
+        from pyop3.compile.loopy import LOOPY_LANG_VERSION, LOOPY_TARGET
 
         loopy_insn = lp.CInstruction(
             (),

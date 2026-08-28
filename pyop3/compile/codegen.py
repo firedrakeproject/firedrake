@@ -44,7 +44,7 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.lower.loopy import LoopyCodegenContext
+from pyop3.compile.loopy import LoopyCodegenContext
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)

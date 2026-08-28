@@ -44,10 +44,10 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.lower.context import CodegenContext
+from pyop3.compile.context import CodegenContext
 
 # TODO: import other way around?
-from pyop3.lower.transform import (
+from pyop3.compile.transform import (
     with_attach_debugger,
     with_likwid_markers,
     with_petsc_event,
