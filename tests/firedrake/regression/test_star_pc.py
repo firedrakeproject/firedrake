@@ -535,3 +535,53 @@ def test_vanka_coloring():
         assert npatches == expected
 
     assert its[True] == its[False]
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_star_inplace_factorization_reused():
+    """The submatrices must be refreshed when the operator changes.
+
+    A subsolver asked to factor in place overwrites its submatrix with the
+    factors. `PCSetUp_ASM` refills those submatrices with `MAT_REUSE_MATRIX`
+    on a later setup, which fails unless the factored flag has been cleared,
+    so a second solve with a changed coefficient errors or gives the wrong
+    answer.
+    """
+    distribution_parameters = {"partition": True,
+                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(8, 8, distribution_parameters=distribution_parameters)
+    x, y = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    uh = Function(V)
+
+    kappa = Constant(1)
+    a = inner(kappa*grad(u), grad(v))*dx
+    L = inner(cos(pi*x)*cos(pi*y), v)*dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    solver_parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_backend_type": "petscasm",
+        "pc_star_construct_dim": 0,
+        "pc_star_sub_sub_pc_type": "ilu",
+        "pc_star_sub_sub_pc_factor_in_place": None,
+    }
+
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=solver_parameters)
+
+    solver.solve()
+    first = norm(uh)
+
+    # A preonly solve applies the preconditioner once, so starting from zero
+    # again makes the second solve directly comparable: tripling the
+    # coefficient must divide the result by three.
+    kappa.assign(3)
+    uh.zero()
+    solver.solve()
+    assert abs(first/norm(uh) - 3) < 1.0e-8
