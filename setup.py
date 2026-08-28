@@ -10,6 +10,7 @@ from pathlib import Path
 
 import libsupermesh
 import firedrake_rtree
+import rtree
 import numpy as np
 import pybind11
 import petsctools
@@ -138,6 +139,19 @@ rtree_ = ExternalDependency(
     ],
 )
 
+# libspatialindex
+# example:
+# gcc -I/rtree/include
+# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
+libspatialindex_so = Path(rtree.core.rt._name).absolute()
+spatialindex_ = ExternalDependency(
+    include_dirs=[rtree.finder.get_include()],
+    extra_link_args=[str(libspatialindex_so)],
+    runtime_library_dirs=[
+        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+    ],
+)
+
 # libsupermesh
 # example:
 # gcc -Ipath/to/libsupermesh/include
@@ -198,7 +212,7 @@ def extensions():
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(mpi_ + petsc_ + numpy_ + libsupermesh_)
+        **(mpi_ + petsc_ + numpy_ + libsupermesh_ + spatialindex_)
     ))
     cython_list.append(Extension(
         name="firedrake._functionspaceimpl_cy",

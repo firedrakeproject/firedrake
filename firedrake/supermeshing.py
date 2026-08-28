@@ -4,6 +4,8 @@ import ctypes
 import pathlib
 import libsupermesh
 import petsctools
+import rtree
+
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -436,9 +438,14 @@ each supermesh cell.
 
     libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
     dirs = petsctools.get_petsc_dirs() + (libsupermesh_dir,)
-    includes = ["-I%s/include" % d for d in dirs]
-    libs = ["-L%s/lib" % d for d in dirs]
-    libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
+    includes = [f"-I{d}/include" for d in dirs]
+    libs = [
+        *[f"-L{d}/lib" for d in dirs],
+        *[f"-Wl,-rpath,{d}/lib" for d in dirs],
+        "-lpetsc",
+        "-lsupermesh",
+        str(pathlib.Path(rtree.core.rt._name).absolute()),  # libspatialindex.so
+    ]
     dll = load(
         supermesh_kernel_str, "c",
         cppargs=includes,
