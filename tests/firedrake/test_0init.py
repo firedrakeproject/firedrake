@@ -49,17 +49,23 @@ def test_setup_cache_dirs_uses_writable_sys_prefix(clean_cache_env, monkeypatch,
 
 
 def test_setup_cache_dirs_falls_back_when_sys_prefix_is_not_writable(clean_cache_env, monkeypatch, tmp_path):
+    # os.access(..., os.W_OK) always reports True for root regardless of the
+    # file mode, so a real chmod can't simulate "not writable" in CI; fake
+    # os.access itself instead.
     unwritable = tmp_path.joinpath("unwritable")
-    unwritable.mkdir(mode=0o555)
+    unwritable.mkdir()
     monkeypatch.setattr("sys.prefix", str(unwritable))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path.joinpath("home"))
+    real_access = os.access
+    monkeypatch.setattr(
+        "os.access",
+        lambda path, mode, *a, **kw: False if str(path) == str(unwritable) else real_access(path, mode, *a, **kw),
+    )
 
-    try:
-        setup_cache_dirs()
-        root = tmp_path.joinpath("home", ".cache")
-        assert os.environ["PYOP2_CACHE_DIR"] == str(root.joinpath("pyop2"))
-    finally:
-        unwritable.chmod(0o755)
+    setup_cache_dirs()
+
+    root = tmp_path.joinpath("home", ".cache")
+    assert os.environ["PYOP2_CACHE_DIR"] == str(root.joinpath("pyop2"))
 
 
 def test_setup_cache_dirs_honours_firedrake_cache_dir(clean_cache_env, monkeypatch, tmp_path):
