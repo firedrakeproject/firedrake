@@ -33,6 +33,7 @@ from pyop3.buffer import (
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
+    AbstractAssignment,
     AssignmentType,
     Exscan,
     InstructionList,
@@ -44,11 +45,6 @@ from pyop3.insn.base import (
 )
 
 from pyop3.lower.loopy import LoopyCodegenContext
-
-# TODO: import other way around?
-from pyop3.lower.transform import (
-    _collect_temporary_shapes
-)
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)

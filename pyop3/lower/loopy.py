@@ -414,130 +414,7 @@ class LoopyCodegenContext(CodegenContext):
         self.add_assignment(lexpr, rexpr)
 
     def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
-        return self._lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths)
-
-    # TODO: use overloadedexpressionevaluator
-    @functools.singledispatchmethod
-    def _lower_expr(self, obj: Any, /, *args, **kwargs) -> pym.Expression:
-        raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-    @_lower_expr.register(numbers.Number)
-    def _(self, num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
-        return num
-
-
-    @_lower_expr.register(pyop3.expr.Add)
-    def _(self, add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
-        return self._lower_expr(add.a, *args, **kwargs) + self._lower_expr(add.b, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.Sub)
-    def _(self, sub: pyop3.expr.Sub, /, *args, **kwargs) -> pym.Expression:
-        return self._lower_expr(sub.a, *args, **kwargs) - self._lower_expr(sub.b, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.Mul)
-    def _(self, mul: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
-        return self._lower_expr(mul.a, *args, **kwargs) * self._lower_expr(mul.b, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.Modulo)
-    def _(self, mod: pyop3.expr.Mod, /, *args, **kwargs) -> pym.Expression:
-        return self._lower_expr(mod.a, *args, **kwargs) % self._lower_expr(mod.b, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.Or)
-    def _(self, or_: pyop3.expr.Or, /, *args, **kwargs) -> pym.Expression:
-        return pym.primitives.LogicalOr((self._lower_expr(or_.a, *args, **kwargs), self._lower_expr(or_.b, *args, **kwargs)))
-
-
-    @_lower_expr.register(pyop3.expr.Neg)
-    def _(self, neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
-        return -self._lower_expr(neg.a, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.FloorDiv)
-    def _(self, neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
-        return self._lower_expr(neg.a, *args, **kwargs) // self._lower_expr(neg.b, *args, **kwargs)
-
-
-    @_lower_expr.register(pyop3.expr.Comparison)
-    def _(self, cond, /, *args, **kwargs) -> pym.Expression:
-        return pym.primitives.Comparison(
-            self._lower_expr(cond.a, *args, **kwargs),
-            cond._symbol,
-            self._lower_expr(cond.b, *args, **kwargs),
-        )
-
-    @_lower_expr.register(pyop3.expr.AxisVar)
-    def _(self, axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-        return utils.just_one(iname_maps)[axis_var.axis.label]
-
-
-    @_lower_expr.register(pyop3.expr.LoopIndexVar)
-    def _(self, loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
-        return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
-
-
-    @_lower_expr.register(pyop3.expr.ScalarBufferExpression)
-    def _(
-        self,
-        expr: pyop3.expr.ScalarBufferExpression,
-        /,
-        iname_maps,
-        loop_indices,
-        *,
-        intent,
-        **kwargs,
-    ) -> pym.ExpressionNode:
-        return self.lower_buffer_access(expr.buffer_view, [0], iname_maps, loop_indices, intent=intent)
-
-
-    @_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
-    def _(self, expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, *, intent, **kwargs) -> pym.Expression:
-        return self.lower_buffer_access(expr.buffer_view, [expr.layout], iname_maps, loop_indices, intent=intent)
-
-
-    @_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
-    def _(self, expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, *, intent, paths, **kwargs) -> pym.Expression:
-        path = utils.just_one(paths)
-        return self.lower_buffer_access(
-            expr.buffer_view,
-            [expr.layouts[path]],
-            iname_maps,
-            loop_indices,
-            intent=intent,
-        )
-
-
-    @_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
-    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, *, intent, paths) -> pym.Expression:
-        row_path, column_path = paths
-        layouts = (
-            mat_expr.row_layout.linearize(row_path),
-            mat_expr.column_layout.linearize(column_path),
-        )
-        return self.lower_buffer_access(
-            mat_expr.buffer_view,
-            layouts,
-            iname_maps,
-            loop_indices,
-            intent=intent,
-        )
-
-
-    @_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
-    def _(self, expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, *, intent, paths) -> pym.Expression:
-        row_path, column_path = paths
-        layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-        return self.lower_buffer_access(
-            expr.buffer_view,
-            layouts,
-            iname_maps,
-            loop_indices,
-            intent=intent,
-        )
+        return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
 
     def finalize_kernel(self, function_name, compiler_parameters):
         preambles = [
@@ -594,6 +471,130 @@ class LoopyCodegenContext(CodegenContext):
         extent_name = self.add_temporary("p")
         self.add_assignment(pym.var(extent_name), pym_expr)
         return extent_name
+
+
+# TODO: use overloadedexpressionevaluator
+@functools.singledispatch
+def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@_lower_expr.register(numbers.Number)
+def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
+    return num
+
+
+@_lower_expr.register(pyop3.expr.Add)
+def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Sub)
+def _(sub: pyop3.expr.Sub, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(sub.a, *args, **kwargs) - _lower_expr(sub.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Mul)
+def _(mul: pyop3.expr.Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Modulo)
+def _(mod: pyop3.expr.Mod, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Or)
+def _(or_: pyop3.expr.Or, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
+
+
+@_lower_expr.register(pyop3.expr.Neg)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(neg.a, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.FloorDiv)
+def _(neg: pyop3.expr.Neg, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
+
+
+@_lower_expr.register(pyop3.expr.Comparison)
+def _(cond, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.Comparison(
+        _lower_expr(cond.a, *args, **kwargs),
+        cond._symbol,
+        _lower_expr(cond.b, *args, **kwargs),
+    )
+
+@_lower_expr.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+    return utils.just_one(iname_maps)[axis_var.axis.label]
+
+
+@_lower_expr.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
+    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
+
+
+@_lower_expr.register(pyop3.expr.ScalarBufferExpression)
+def _(
+    expr: pyop3.expr.ScalarBufferExpression,
+    /,
+    iname_maps,
+    loop_indices,
+    *,
+    intent,
+    context,
+    **kwargs,
+) -> pym.ExpressionNode:
+    return context.lower_buffer_access(expr.buffer_view, [0], iname_maps, loop_indices, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, *, intent, context, **kwargs) -> pym.Expression:
+    return context.lower_buffer_access(expr.buffer_view, [expr.layout], iname_maps, loop_indices, intent=intent)
+
+
+@_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
+def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, *, intent, paths, context, **kwargs) -> pym.Expression:
+    path = utils.just_one(paths)
+    return context.lower_buffer_access(
+        expr.buffer_view,
+        [expr.layouts[path]],
+        iname_maps,
+        loop_indices,
+        intent=intent,
+    )
+
+
+@_lower_expr.register(pyop3.expr.MatPetscMatBufferExpression)
+def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, *, intent, paths, context) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (
+        mat_expr.row_layout.linearize(row_path),
+        mat_expr.column_layout.linearize(column_path),
+    )
+    return context.lower_buffer_access(
+        mat_expr.buffer_view,
+        layouts,
+        iname_maps,
+        loop_indices,
+        intent=intent,
+    )
+
+
+@_lower_expr.register(pyop3.expr.MatArrayBufferExpression)
+def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, *, intent, paths, context) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
+    return context.lower_buffer_access(
+        expr.buffer_view,
+        layouts,
+        iname_maps,
+        loop_indices,
+        intent=intent,
+    )
 
 class _MinSubscriptOffsetMapper(pym.mapper.IdentityMapper):
 
