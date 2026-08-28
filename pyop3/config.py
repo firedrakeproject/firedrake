@@ -219,6 +219,19 @@ for option_name, option in Pyop3Configuration.OPTIONS.items():
 
 
 # TODO: Included for the PyOP2->pyop3 migration, remove in a later release
+_RENAMED_PYOP2_OPTIONS = {
+    "PYOP2_DEBUG": "PYOP3_DEBUG",
+    "PYOP2_CFLAGS": "PYOP3_EXTRA_CFLAGS",
+    "PYOP2_CXXFLAGS": "PYOP3_EXTRA_CXXFLAGS",
+    "PYOP2_LDFLAGS": "PYOP3_EXTRA_LDFLAGS",
+    "PYOP2_CACHE_DIR": "PYOP3_CACHE_DIR",
+    "PYOP2_NODE_LOCAL_COMPILATION": "PYOP3_NODE_LOCAL_COMPILATION",
+    "PYOP2_LOG_LEVEL": "PYOP3_LOG_LEVEL",
+    "PYOP2_PRINT_CACHE_STATS": "PYOP3_PRINT_CACHE_STATS",
+    "PYOP2_CHECK_SRC_HASHES": "PYOP3_CHECK_SRC_HASHES",
+    "PYOP2_SPMD_STRICT": "PYOP3_SPMD_STRICT",
+}
+
 _REMOVED_PYOP2_OPTIONS = (
     "PYOP2_COMPUTE_KERNEL_FLOPS",
     "PYOP2_SIMD_WIDTH",
@@ -236,6 +249,15 @@ def _prepare_configuration() -> Pyop3Configuration:
     This factory method handles the conversion of any non-string types.
 
     """
+    for old_option, new_option in _RENAMED_PYOP2_OPTIONS.items():
+        if old_option in os.environ:
+            warnings.warn(
+                f"{old_option} is deprecated, please use {new_option} instead",
+                FutureWarning,
+            )
+            os.environ[new_option] = os.environ[old_option]
+            del os.environ[old_option]
+
     for removed_option in _REMOVED_PYOP2_OPTIONS:
         if removed_option in os.environ:
             warnings.warn(
@@ -247,12 +269,6 @@ def _prepare_configuration() -> Pyop3Configuration:
     env_options = {}
     for option_name in Pyop3Configuration.OPTIONS.keys():
         if (env_key := f"PYOP3_{option_name.upper()}") in os.environ:
-            env_options[option_name] = os.environ[env_key]
-        elif (env_key := f"PYOP2_{option_name.upper()}") in os.environ:
-            warnings.warn(
-                f"{env_key} is deprecated, please use 'PYOP3_{option_name.upper()}' instead.",
-                FutureWarning,
-            )
             env_options[option_name] = os.environ[env_key]
     debug_mode = bool(os.environ.get("PYOP3_DEBUG", 0))
 

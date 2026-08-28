@@ -476,7 +476,6 @@ class Dat(Tensor):
 
 
     @property
-    @deprecated(".buffer.state")
     def dat_version(self):
         return self.buffer.state
 
