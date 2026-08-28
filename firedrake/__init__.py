@@ -45,9 +45,10 @@ if _is_logging:
     del atexit
 del petsc
 
-import ufl  # NOTE TO SELF: Required for ufl.__all__ to be registered
+import ufl as _ufl  # NOTE TO SELF: Required for ufl.__all__ to be registered
 from ufl import *  # noqa: F401
-__all__ = ufl.__all__
+__all__ = list(_ufl.__all__)
+del _ufl
 
 from finat.ufl import *  # noqa: F401
 __all__ += ["BrokenElement", "EnrichedElement", "NodalEnrichedElement", "FiniteElement", "FiniteElementBase", "HCurlElement", "HDivElement", "WithMapping", "HDiv", "HCurl", "MixedElement", "TensorElement", "VectorElement", "RestrictedElement", "TensorProductElement"]
@@ -100,6 +101,7 @@ from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
 )
 __all__ += ["Function", "CoordinatelessFunction", "PointEvaluator"]
+#NOTE: firedrake.function has matching __all__ to this list
 
 from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
@@ -125,18 +127,20 @@ from firedrake.preconditioners import (  # noqa: F401
 )
 __all__ += ["PCBase", "SNESBase", "PCSNESBase", "ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC", "AssembledPC", "AuxiliaryOperatorPC", "MassInvPC", "PCDPC", "PatchPC", "PlaneSmoother", "PatchSNES", "P1PC", "P1SNES", "LORPC", "GTMGPC", "PMGPC", "PMGSNES", "HypreAMS", "HypreADS", "FDMPC", "PoissonFDMPC", "TwoLevelPC", "HiptmairPC", "FacetSplitPC", "BDDCPC", "CovariancePC", "OffloadPC", "AuxiliaryOperatorSNES"]
 
-from firedrake.mesh import (  # noqa: F401
-    Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
-    SubDomainData, UNMARKED, DistributedMeshOverlapType,
-    DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
-    AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
-    VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
-)
-__all__ += ["Mesh", "ExtrudedMesh", "VertexOnlyMesh", "RelabeledMesh",
-    "SubDomainData", "UNMARKED", "DistributedMeshOverlapType",
-    "DEFAULT_MESH_NAME", "MeshGeometry", "MeshTopology",
-    "AbstractMeshTopology", "ExtrudedMeshTopology", "Submesh",
-    "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology"]
+import firedrake.mesh as _mesh
+from firedrake.mesh import *  # noqa: F401
+#     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
+#     SubDomainData, UNMARKED, DistributedMeshOverlapType,
+#     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
+#     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
+#     VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
+# )
+__all__ += list(_mesh.__all__)#["Mesh", "ExtrudedMesh", "VertexOnlyMesh", "RelabeledMesh",
+    # "SubDomainData", "UNMARKED", "DistributedMeshOverlapType",
+    # "DEFAULT_MESH_NAME", "MeshGeometry", "MeshTopology",
+    # "AbstractMeshTopology", "ExtrudedMeshTopology", "Submesh",
+    # "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology"]
+del _mesh
 
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
@@ -203,26 +207,28 @@ __all__ += ["Argument", "Coargument", "TestFunction", "TrialFunction",
     "TestFunctions", "TrialFunctions", "derivative", "adjoint",
     "action", "CellSize", "FacetNormal"]
 
-from firedrake.utility_meshes import (  # noqa: F401
-    IntervalMesh, UnitIntervalMesh, PeriodicIntervalMesh,
-    PeriodicUnitIntervalMesh, UnitTriangleMesh, RectangleMesh,
-    TensorRectangleMesh, SquareMesh, UnitSquareMesh, PeriodicRectangleMesh,
-    PeriodicSquareMesh, PeriodicUnitSquareMesh, CircleManifoldMesh,
-    UnitDiskMesh, UnitBallMesh, UnitTetrahedronMesh, TensorBoxMesh,
-    BoxMesh, CubeMesh, UnitCubeMesh, PeriodicBoxMesh, PeriodicUnitCubeMesh,
-    IcosahedralSphereMesh, UnitIcosahedralSphereMesh, OctahedralSphereMesh,
-    UnitOctahedralSphereMesh, CubedSphereMesh, UnitCubedSphereMesh,
-    TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh
-)
-__all__ += ["IntervalMesh", "UnitIntervalMesh", "PeriodicIntervalMesh",
-    "PeriodicUnitIntervalMesh", "UnitTriangleMesh", "RectangleMesh",
-    "TensorRectangleMesh", "SquareMesh", "UnitSquareMesh", "PeriodicRectangleMesh",
-    "PeriodicSquareMesh", "PeriodicUnitSquareMesh", "CircleManifoldMesh",
-    "UnitDiskMesh", "UnitBallMesh", "UnitTetrahedronMesh", "TensorBoxMesh",
-    "BoxMesh", "CubeMesh", "UnitCubeMesh", "PeriodicBoxMesh", "PeriodicUnitCubeMesh",
-    "IcosahedralSphereMesh", "UnitIcosahedralSphereMesh", "OctahedralSphereMesh",
-    "UnitOctahedralSphereMesh", "CubedSphereMesh", "UnitCubedSphereMesh",
-    "TorusMesh", "AnnulusMesh", "SolidTorusMesh", "CylinderMesh"]
+import firedrake.utility_meshes as _utility_meshes
+from firedrake.utility_meshes import *  # noqa: F401
+    # IntervalMesh, UnitIntervalMesh, PeriodicIntervalMesh,
+    # PeriodicUnitIntervalMesh, UnitTriangleMesh, RectangleMesh,
+    # TensorRectangleMesh, SquareMesh, UnitSquareMesh, PeriodicRectangleMesh,
+    # PeriodicSquareMesh, PeriodicUnitSquareMesh, CircleManifoldMesh,
+    # UnitDiskMesh, UnitBallMesh, UnitTetrahedronMesh, TensorBoxMesh,
+    # BoxMesh, CubeMesh, UnitCubeMesh, PeriodicBoxMesh, PeriodicUnitCubeMesh,
+    # IcosahedralSphereMesh, UnitIcosahedralSphereMesh, OctahedralSphereMesh,
+    # UnitOctahedralSphereMesh, CubedSphereMesh, UnitCubedSphereMesh,
+    # TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh
+#)
+__all__ += list(_utility_meshes.__all__)#["IntervalMesh", "UnitIntervalMesh", "PeriodicIntervalMesh",
+#     "PeriodicUnitIntervalMesh", "UnitTriangleMesh", "RectangleMesh",
+#     "TensorRectangleMesh", "SquareMesh", "UnitSquareMesh", "PeriodicRectangleMesh",
+#     "PeriodicSquareMesh", "PeriodicUnitSquareMesh", "CircleManifoldMesh",
+#     "UnitDiskMesh", "UnitBallMesh", "UnitTetrahedronMesh", "TensorBoxMesh",
+#     "BoxMesh", "CubeMesh", "UnitCubeMesh", "PeriodicBoxMesh", "PeriodicUnitCubeMesh",
+#     "IcosahedralSphereMesh", "UnitIcosahedralSphereMesh", "OctahedralSphereMesh",
+#     "UnitOctahedralSphereMesh", "CubedSphereMesh", "UnitCubedSphereMesh",
+#     "TorusMesh", "AnnulusMesh", "SolidTorusMesh", "CylinderMesh"]
+del _utility_meshes
 
 from firedrake.variational_solver import (  # noqa: F401
     LinearVariationalProblem, LinearVariationalSolver,
@@ -245,8 +251,10 @@ __all__ += ["Ensemble", "EnsembleFunction", "EnsembleCofunction",
     "EnsembleFunctionSpace", "EnsembleDualSpace", "EnsembleBJacobiPC",
     "EnsembleBlockDiagonalMat"]
 
+import firedrake.randomfunctiongen as _randomfunctiongen
 from firedrake.randomfunctiongen import *  # noqa: F401
-__all__ += firedrake.randomfunctiongen.__all__
+__all__ += list(_randomfunctiongen.__all__)
+del _randomfunctiongen
 
 from firedrake.external_operators import (  # noqa: F401
     AbstractExternalOperator, assemble_method,
@@ -277,15 +285,17 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot as _plot_module  # NOTE TO SELF: Changed name to _plot_module as adding plot.__all__ to __all__ was confusing the compiler with another plot method elsewhere in the code
+from firedrake._deprecation import plot as _plot  # NOTE TO SELF: Changed name to _plot as adding plot.__all__ to __all__ was confusing the compiler with another plot method elsewhere in the code
 import sys
-sys.modules["firedrake.plot"] = _plot_module
+sys.modules["firedrake.plot"] = _plot
 from firedrake.plot import *  # noqa: F401
-__all__ += _plot_module.__all__
+__all__ += list(_plot.__all__)
 del sys
-del _plot_module
+del _plot
 
 __all__ += ["utils"]  #NOTE TO SELF: Added to make tests compile - check if this is required or if we should import utils in failing tests instead
+#from tsfc import default_parameters
+#__all__ += ["default_parameters"]
 
 def set_blas_num_threads():
     """Try to detect threading and either disable or warn user.
