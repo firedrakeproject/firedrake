@@ -30,11 +30,9 @@ CACHE_ENV_VARS = (
 
 @pytest.fixture
 def clean_cache_env(monkeypatch):
-    # setup_cache_dirs() writes to os.environ directly, so monkeypatch's
-    # usual undo stack won't see those writes; clear before and after.
-    for var in CACHE_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    yield
+    # monkeypatch.delenv() snapshots each variable's prior value (set or
+    # unset) and restores it automatically at teardown, even though
+    # setup_cache_dirs() itself writes to os.environ directly.
     for var in CACHE_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
 
