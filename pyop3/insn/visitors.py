@@ -11,7 +11,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.axis_tree
-import pyop3.compile
+import pyop3.cc
 import pyop3.expr
 import pyop3.expr.visitors
 import pyop3.insn
@@ -407,18 +407,18 @@ class CompilerOptionsCollector(NodeVisitor):
 
     @process.register
     @postorder
-    def _(self, insn: pyop3.insn.InstructionList, /, visited) -> pyop3.compile.CompilerOptions:
-        return sum(visited["instructions"], pyop3.compile.CompilerOptions())
+    def _(self, insn: pyop3.insn.InstructionList, /, visited) -> pyop3.cc.CompilerOptions:
+        return sum(visited["instructions"], pyop3.cc.CompilerOptions())
 
     @process.register
-    def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.compile.CompilerOptions:
+    def _(self, insn: pyop3.insn.TerminalInstruction) -> pyop3.cc.CompilerOptions:
         return insn.compiler_options
 
     @process.register
     @postorder
-    def _(self, insn: pyop3.insn.Loop, /, visited) -> pyop3.compile.CompilerOptions:
-        return sum(visited["statements"], pyop3.compile.CompilerOptions())
+    def _(self, insn: pyop3.insn.Loop, /, visited) -> pyop3.cc.CompilerOptions:
+        return sum(visited["statements"], pyop3.cc.CompilerOptions())
 
 
-def collect_compiler_options(insn: pyop3.insn.Instruction) -> pyop3.compile.CompilerOptions:
+def collect_compiler_options(insn: pyop3.insn.Instruction) -> pyop3.cc.CompilerOptions:
     return CompilerOptionsCollector()(insn)

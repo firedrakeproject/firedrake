@@ -19,7 +19,7 @@ from ufl import inner, dx
 import numpy
 from collections import defaultdict
 import pyop3 as op3
-from pyop3.compile import load
+from pyop3.cc import load
 from pyop3.mpi import COMM_SELF
 from loopy import generate_code_v2
 

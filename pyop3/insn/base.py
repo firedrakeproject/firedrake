@@ -14,7 +14,7 @@ import loopy.tools
 import numpy as np
 from mpi4py import MPI
 
-import pyop3.compile
+import pyop3.cc
 import pyop3.expr
 import pyop3.record
 from pyop3 import utils
@@ -104,7 +104,7 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+    def compiler_options(self) -> pyop3.cc.CompilerOptions:
         """Extra options needed to compile this terminal."""
 
     # }}}
@@ -325,7 +325,7 @@ class Function(pyop3.obj.Object):
 
     code: Any
     _access_descrs: tuple[Intent, ...]
-    _compiler_options: pyop3.compile.CompilerOptions
+    _compiler_options: pyop3.cc.CompilerOptions
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
@@ -352,7 +352,7 @@ class Function(pyop3.obj.Object):
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
 
-        compiler_options = pyop3.compile.CompilerOptions(
+        compiler_options = pyop3.cc.CompilerOptions(
             include_dirs=tuple(include_dirs),
             lib_dirs=tuple(lib_dirs),
             libs=tuple(libs),
@@ -479,7 +479,7 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
     # TODO: look at the arguments too
     @cached_property
-    def compiler_options(self) -> pyop3.compile.CompilerOptions:
+    def compiler_options(self) -> pyop3.cc.CompilerOptions:
         return self.function.compiler_options
 
     # }}}
@@ -640,8 +640,8 @@ class AbstractAssignmentLike(TerminalInstruction):
         return (self.assignee, self.expression)
 
     @cached_property
-    def compiler_options(self) -> pyop3.compile.CompilerOptions:
-        return pyop3.compile.CompilerOptions()
+    def compiler_options(self) -> pyop3.cc.CompilerOptions:
+        return pyop3.cc.CompilerOptions()
 
     @cached_property
     def shape(self):
@@ -852,8 +852,8 @@ class Exscan(AbstractAssignmentLike):
         return self.scan_axis.component.size - 1
 
     @cached_property
-    def compiler_options(self) -> pyop3.compile.CompilerOptions:
-        return pyop3.compile.CompilerOptions()
+    def compiler_options(self) -> pyop3.cc.CompilerOptions:
+        return pyop3.cc.CompilerOptions()
 
     # }}}
 

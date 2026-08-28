@@ -879,7 +879,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     given Firedrake :class:`Function`."""
     from os import path
     from firedrake.pointeval_utils import compile_element
-    from pyop3 import compile as compilation
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
@@ -914,7 +913,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     if ldargs is None:
         ldargs = []
     ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
-    dll = compilation.load(
+    dll = op3.cc.load(
         src, "c",
         cppargs=(
             f"-I{path.dirname(__file__)}",

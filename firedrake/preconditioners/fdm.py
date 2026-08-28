@@ -23,7 +23,7 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
 import pyop3 as op3
-from pyop3.compile import load
+from pyop3.cc import load
 from pyop3.mpi import COMM_SELF
 from pyop3.pyop2_utils import as_tuple
 from tsfc.ufl_utils import extract_firedrake_constants

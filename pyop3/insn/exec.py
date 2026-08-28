@@ -19,8 +19,8 @@ from petsc4py import PETSc
 
 import pyop3.buffer
 import pyop3.cache
+import pyop3.cc
 import pyop3.collections
-import pyop3.compile
 import pyop3.config
 import pyop3.expr
 import pyop3.insn.base
@@ -420,8 +420,8 @@ class Executable:
     """
     code: lp.TranslationUnit
     comm: MPI.Comm
-    extra_compiler_options: pyop3.compile.CompilerOptions = dataclasses.field(
-        default=pyop3.compile.CompilerOptions(), kw_only=True
+    extra_compiler_options: pyop3.cc.CompilerOptions = dataclasses.field(
+        default=pyop3.cc.CompilerOptions(), kw_only=True
     )
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
@@ -451,7 +451,7 @@ class Executable:
             cppargs += ("-DLIKWID_PERFMON",)
             ldargs += ("-llikwid",)
 
-        dll = pyop3.compile.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
+        dll = pyop3.cc.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
 
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid

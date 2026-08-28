@@ -34,7 +34,6 @@ import weakref
 import petsctools
 
 import pyop3 as op3
-import pyop3.compile
 from pyop3.mpi import COMM_SELF
 
 if typing.TYPE_CHECKING:
@@ -138,7 +137,7 @@ class PatchCallable:
             "-lm",
         ]
         comm = self.form.arguments()[0].function_space().comm
-        dll = pyop3.compile.load(
+        dll = op3.cc.load(
             self._callback_code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm
         )
         callback_name = "ComputeJacobian" if len(self.form.arguments()) == 2 else "ComputeResidual"

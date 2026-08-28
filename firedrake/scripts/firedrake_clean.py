@@ -2,7 +2,7 @@
 import os
 import shutil
 from firedrake.configuration import setup_cache_dirs
-from pyop3.compile import clear_compiler_disk_cache as pyop3_clear_cache
+from pyop3.cc import clear_compiler_disk_cache as pyop3_clear_cache
 from firedrake.tsfc_interface import clear_cache as tsfc_clear_cache
 import platformdirs
 

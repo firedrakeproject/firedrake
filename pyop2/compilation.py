@@ -1,1 +1,1 @@
-from pyop3.compile import *  # noqa: F401
+from pyop3.cc import *  # noqa: F401

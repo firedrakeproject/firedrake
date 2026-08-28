@@ -4029,7 +4029,6 @@ values from f.)"""
         the single owning cell from the candidates. This owning cell is the one which is closest to the point
         in the L1 norm in reference coordinates.
         """
-        from pyop3 import compile as compilation
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 
@@ -4090,7 +4089,7 @@ values from f.)"""
                 }}
             """)
 
-            dll = compilation.load(
+            dll = op3.cc.load(
                 src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",

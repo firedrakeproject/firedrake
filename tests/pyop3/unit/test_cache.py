@@ -49,7 +49,7 @@ from pyop3.cache import (
     clear_memory_cache,
     _KNOWN_CACHES,
 )
-from pyop3.compile import load
+from pyop3.cc import load
 from pyop3.config import config
 from pyop3.mpi import (
     MPI,
