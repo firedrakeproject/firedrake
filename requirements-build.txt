@@ -10,6 +10,7 @@ pkgconfig
 petsctools
 pybind11
 setuptools>=77.0.3
+rtree
 
 # Transitive build dependencies
 hatchling

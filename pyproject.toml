@@ -42,6 +42,7 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
+  "rtree",
   "scipy",
   "sympy",
   "islpy<2026.2",
@@ -171,6 +172,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
+  "rtree",
 ]
 build-backend = "setuptools.build_meta"
 
