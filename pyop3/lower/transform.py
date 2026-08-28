@@ -1,18 +1,6 @@
 import textwrap
 
 import loopy as lp
-import functools
-
-from immutabledict import immutabledict as idict
-
-from pyop3.insn.base import (
-    AbstractAssignment,
-    Exscan,
-    InstructionList,
-    Loop,
-    NullInstruction,
-    StandaloneCalledFunction
-)
 
 def with_likwid_markers(knl):
     """
