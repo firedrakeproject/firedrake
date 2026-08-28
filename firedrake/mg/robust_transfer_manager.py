@@ -4,6 +4,7 @@ from finat.ufl import FiniteElement, NodalEnrichedElement, TensorElement
 
 from firedrake import dmhooks
 from firedrake.assemble import get_assembler
+from firedrake.assign import _compatible_elements
 from firedrake.bcs import DirichletBC, restricted_function_space
 from firedrake.function import Function
 from firedrake.functionspace import MixedFunctionSpace
@@ -134,7 +135,7 @@ class RobustTransferManager(TransferManager):
                 partial(u_aux.dat.copy, uf.dat),
             )
         else:
-            if len(set(f.ufl_element() for f in (uf, u_aux, u_patch))) == 1:
+            if all(_compatible_elements(uf.ufl_element(), f.ufl_element()) for f in (u_aux, u_patch)):
                 copy_update = partial(uf.assign, u_aux - u_patch)
             else:
                 wtest = TestFunction(V.dual())
@@ -168,7 +169,7 @@ class RobustTransferManager(TransferManager):
         else:
 
             def copy_callable(source, dest):
-                if source.ufl_element() == dest.ufl_element():
+                if _compatible_elements(dest.ufl_element(), source.ufl_element()):
                     return partial(dest.assign, source)
                 else:
                     R = get_interpolator(interpolate(dest.arguments()[0], source))
