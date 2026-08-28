@@ -176,8 +176,8 @@ class BCBase(object):
         with temp_internal_comm(self._function_space.mesh().comm) as icomm:
             num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
             if num_global_nodes == 0 and icomm.rank == 0:
-                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
-                            "Did you choose the right label?")
+                logger.warning(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                               "Did you choose the right label?")
 
         return bcnodes
 
