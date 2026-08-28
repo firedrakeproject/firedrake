@@ -135,6 +135,34 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
+def _callback_appctx(solver):
+    """Return the application context PETSc should call back into.
+
+    Parameters
+    ----------
+    solver : PETSc.SNES or PETSc.KSP
+        The solver driving the callback.
+
+    Returns
+    -------
+    _SNESContext
+        The application context attached to the solver's DM.
+
+    Raises
+    ------
+    RuntimeError
+        If the solver's DM carries no application context.
+    """
+    dm = solver.getDM()
+    ctx = dmhooks.get_appctx(dm)
+    if ctx is None:
+        raise RuntimeError(
+            f"No application context on DM {dm.handle:#x} of "
+            f"{type(solver).__name__} '{solver.getOptionsPrefix()}'.\n"
+            f"DM attribute stack history:\n{dmhooks.format_attr_trace()}")
+    return ctx
+
+
 class _SNESContext(object):
     """Context holding information for SNES callbacks.
 
@@ -509,8 +537,7 @@ class _SNESContext(object):
         :arg snes: a PETSc SNES object
         :arg X: the current guess (a Vec)
         """
-        dm = snes.getDM()
-        ctx = dmhooks.get_appctx(dm)
+        ctx = _callback_appctx(snes)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -531,8 +558,7 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
-        dm = snes.getDM()
-        ctx = dmhooks.get_appctx(dm)
+        ctx = _callback_appctx(snes)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -566,8 +592,7 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        dm = snes.getDM()
-        ctx = dmhooks.get_appctx(dm)
+        ctx = _callback_appctx(snes)
         problem = ctx._problem
 
         assert J.handle == ctx._jac.petscmat.handle
@@ -600,8 +625,7 @@ class _SNESContext(object):
 
     @staticmethod
     def create_operators(ksp):
-        dm = ksp.getDM()
-        ctx = dmhooks.get_appctx(dm)
+        ctx = _callback_appctx(ksp)
         A = ctx._jac.petscmat
         if ctx.Jp is None:
             return A
@@ -617,8 +641,7 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        dm = ksp.getDM()
-        ctx = dmhooks.get_appctx(dm)
+        ctx = _callback_appctx(ksp)
         problem = ctx._problem
 
         if problem._constant_jacobian and ctx._jacobian_assembled:
