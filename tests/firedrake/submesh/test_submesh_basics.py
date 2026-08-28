@@ -1,4 +1,11 @@
+import os
+import pytest
+import numpy as np
 from firedrake import *
+from petsc4py import PETSc
+
+
+cwd = os.path.abspath(os.path.dirname(__file__))
 
 
 def test_submesh_parent():
@@ -14,3 +21,82 @@ def test_submesh_parent():
     submesh = Submesh(parent, parent.topological_dimension, cell_marker)
     assert submesh.topology.submesh_parent is parent.topology
     assert submesh.submesh_parent is parent
+
+
+def test_submesh_redistribute_codim():
+    # The entities of a submesh of non-zero co-dimension are not the entities
+    # of its parent, so they can not inherit its orientations.
+    mesh = UnitSquareMesh(2, 2)
+    with pytest.raises(NotImplementedError):
+        Submesh(mesh, subdomain_id="on_boundary", redistribute=True)
+
+
+def _curved_mesh(nx=4, degree=2):
+    """Build a unit square whose curved coordinates the plex can not carry.
+
+    The warp bends the boundary as well as the interior, and it does not
+    preserve area. Both properties are necessary. A warp that vanishes on
+    the boundary leaves the perimeter at four, and a shear leaves every
+    area unchanged. Either one passes these tests on a plex that carries
+    no coordinates at all.
+    """
+    mesh = UnitSquareMesh(nx, nx)
+    V = VectorFunctionSpace(mesh, "CG", degree)
+    x, y = SpatialCoordinate(mesh)
+    coordinates = Function(V).interpolate(as_vector([x, y * (1 + 0.3 * sin(2 * pi * x))]))
+    return Mesh(coordinates)
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_curved_coordinates():
+    # The plex carries no curved coordinates, so a submesh of the same
+    # dimension must take them from its parent.
+    mesh = _curved_mesh()
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    mesh.mark_entities(Function(DG0).interpolate(conditional(x > 0.5, 1, 0)), 77)
+
+    submesh = Submesh(mesh, mesh.topological_dimension, 77)
+    assert submesh.coordinates.ufl_element() == mesh.coordinates.ufl_element()
+    area = assemble(Constant(1.0) * dx(submesh))
+    assert np.isclose(area, assemble(conditional(x > 0.5, 1.0, 0.0) * dx(mesh)))
+    # The same region of an affine parent would measure exactly one half.
+    assert not np.isclose(area, 0.5)
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_affine_coordinates():
+    # An affine parent and a submesh of lower dimension carry the same element
+    # up to their cell. The plex therefore already holds the right coordinates.
+    mesh = UnitSquareMesh(3, 3)
+    submesh = Submesh(mesh, 1, "on_boundary", label_name="exterior_facets")
+    assert submesh.coordinates.ufl_element() == \
+        mesh.coordinates.ufl_element().reconstruct(cell=submesh.ufl_cell())
+    assert np.isclose(assemble(Constant(1.0) * dx(submesh)), 4.0)
+
+
+@pytest.mark.parallel([1, 2, 3])
+@pytest.mark.parametrize("degree", [2, 3])
+def test_submesh_curved_codim(degree):
+    # A submesh of lower dimension takes the curved coordinates of its parent
+    # entity by entity. Degree 3 puts two nodes on an edge, so it fails if the
+    # submesh orients that edge differently from the parent.
+    mesh = _curved_mesh(degree=degree)
+    submesh = Submesh(mesh, 1, "on_boundary", label_name="exterior_facets")
+    assert submesh.coordinates.ufl_element() == \
+        mesh.coordinates.ufl_element().reconstruct(cell=submesh.ufl_cell())
+
+    perimeter = assemble(Constant(1.0) * dx(submesh))
+    assert np.isclose(perimeter, assemble(Constant(1.0) * ds(mesh)))
+    # The boundary of an affine parent would measure exactly four.
+    assert not np.isclose(perimeter, 4.0)
+
+
+@pytest.mark.parallel([1, 2])
+def test_submesh_multiple_cell_types_coordinates():
+    # A mesh with several cell types carries no coordinate Function, so a
+    # submesh of it takes the coordinates the plex holds.
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    submesh = Submesh(mesh, mesh.topological_dimension,
+                      PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype")
+    assert submesh.ufl_cell().cellname == "triangle"
