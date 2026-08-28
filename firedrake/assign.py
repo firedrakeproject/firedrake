@@ -47,7 +47,7 @@ class CoefficientCollector(DAGTraverser):
 
     @functools.singledispatchmethod
     def process(self, o: ufl.classes.Expr):
-        return super().process(o)
+        raise NotImplementedError(f"Handler not defined for {type(o).__name__}")
 
     @process.register(ufl.classes.Product)
     @DAGTraverser.postorder
@@ -128,9 +128,6 @@ class CoefficientCollector(DAGTraverser):
     @process.register(ufl.classes.ConstantValue)
     def _(self, o):
         return ((o, 1),)
-
-    def expr(self, o, *operands):
-        raise NotImplementedError(f"Handler not defined for {type(o)}")
 
     def _is_scalar_equiv(self, weighted_coefficients):
         """Return ``True`` if the sequence of ``(coefficient, weight)`` can be compressed to
