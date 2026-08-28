@@ -197,7 +197,7 @@ firedrake = [
 ]
 pyop3 = [
   "*.pyx",
-  "lower/*.c",
+  "compile/*.c",
 ]
 
 [tool.cython-lint]
