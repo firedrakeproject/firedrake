@@ -24,7 +24,8 @@ dependencies = [
   "firedrake-fiat>=2026.4",
   "h5py>3.12.1",
   "immutabledict",
-  "libsupermesh",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -152,7 +153,8 @@ docker = [  # Used in firedrake-vanilla container
 [build-system]
 requires = [
   "Cython>=3.0",
-  "libsupermesh",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
