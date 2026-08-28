@@ -29,6 +29,11 @@ class Expression(Node, abc.ABC):
 
     @property
     @abc.abstractmethod
+    def dtype(self) -> numbers.Number: 
+        pass 
+
+    @property
+    @abc.abstractmethod
     def _full_str(self) -> str:
         pass
 
@@ -218,6 +223,11 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     child_attrs = ("a",)
 
     @property
+    def dtype(self) -> np.dtype:
+        a_dtype = _get_dtype(self.a)
+        return a_dtype 
+
+    @property
     def _full_str(self) -> str:
         return f"{self.symbol}{as_str(self.a)}"
 
@@ -294,6 +304,13 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     def with_operands(self, operands):
         a, b = operands
         return self.record_new(a=a, b=b)
+
+    @property
+    def dtype(self) -> np.dtype:
+        a_dtype = _get_dtype(self.a)
+        b_dtype = _get_dtype(self.b)
+
+        return np.result_type(a_dtype, b_dtype)
 
     # }}}
 
@@ -504,6 +521,14 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
         a, b, c = operands
         return self.record_new(a=a, b=b, c=c)
 
+    @property
+    def dtype(self) -> np.dtype:
+        a_dtype = _get_dtype(self.a)
+        b_dtype = _get_dtype(self.b)
+        c_dtype = _get_dtype(self.c)
+        
+        return np.result_type(a_dtype, b_dtype, c_dtype)
+
     # }}}
 
 
@@ -575,6 +600,10 @@ class NameVar(TerminalExpression):
 
     name: Hashable
 
+    @property
+    def dtype(self) -> np.dtype:
+        return TypeError
+
     def _full_str(self) -> str:
         return f"{utils.pretty_type(self)}('{self.name}')"
 
@@ -631,6 +660,10 @@ class AxisVar(TerminalExpression):
         raise TypeError("not sure that this makes sense")
 
     @property
+    def dtype(self) -> np.dtype:
+        raise TypeError("not sure this makes sense") 
+
+    @property
     def _full_str(self) -> str:
         return f"i_{{{self.axis.label}}}"
 
@@ -663,6 +696,10 @@ class NaN(TerminalExpression):
     @property
     def local_min(self) -> NoReturn:
         raise TypeError
+
+    @property
+    def dtype(self) -> NoReturn:
+        return TypeError 
 
     _full_str = "NaN"
 
@@ -717,6 +754,11 @@ class LoopIndexVar(TerminalExpression):
         raise TypeError("not sure that this makes sense")
 
     @property
+    def dtype(self) -> numbers.Number:
+        """ Returns int32 for indexing variable """
+        return np.int32 
+
+    @property
     def _full_str(self) -> str:
         return f"L_{{{self.loop_index.id}, {self.axis.label}}}"
 
@@ -745,6 +787,21 @@ def _(expr):
 def _(expr):
     return str(expr)
 
+
+@functools.singledispatch
+def _get_dtype(expr: Any) -> np.dtype:
+    return None
+
+@_get_dtype.register(Expression)
+def _(expr: Expression) -> np.dtype:
+    return expr.dtype 
+
+@_get_dtype.register(numbers.Number)
+def _(expr: numbers.Number) -> np.dtype:
+    # NOTE: Assumptions made about numerals here but type promotion/resolution happens on .dtype property. 
+    is_float = isinstance(expr, float) 
+    dtype = "float64" if is_float else "int32"
+    return np.dtype(dtype)
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     from pyop3.expr.visitors import collect_loop_index_vars
