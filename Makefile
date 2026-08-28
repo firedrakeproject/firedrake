@@ -7,7 +7,19 @@ modules:
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
 .PHONY: lint
-lint: srclint actionlint dockerlint
+lint: srclint doclint actionlint dockerlint
+
+# CI passes BASE explicitly (it knows main vs release from the PR's base
+# branch/label). Locally, guess it: whichever of origin/main, origin/release
+# forked from HEAD more recently is the one this branch was cut from.
+BASE ?= $(shell \
+  m=$$(git merge-base HEAD origin/main 2>/dev/null); \
+  r=$$(git merge-base HEAD origin/release 2>/dev/null); \
+  if [ -n "$$r" ] && git merge-base --is-ancestor "$$m" "$$r" 2>/dev/null; then \
+    echo origin/release; \
+  else \
+    echo origin/main; \
+  fi)
 
 # Adds file annotations to Github Actions (only useful on CI)
 GITHUB_ACTIONS_FORMATTING=0
@@ -32,6 +44,12 @@ srclint:
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+
+.PHONY: doclint
+doclint:
+	@echo "    Checking docstrings"
+	@git diff --name-only --diff-filter=ACM $(BASE)...HEAD -- '*.py' \
+	  | xargs -r python -m numpydoc lint
 
 .PHONY: actionlint
 actionlint:

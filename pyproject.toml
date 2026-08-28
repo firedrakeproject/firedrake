@@ -74,12 +74,14 @@ check = [
 ]
 docs = [
   "bibtexparser",
+  "flake8",
   "ipykernel",  # kernel for executing the tutorial notebooks
   "ipympl",  # %matplotlib widget backend used by the tutorial notebooks
   "jupytext",  # convert the .py tutorial notebooks to .ipynb
   "matplotlib",  # needed to resolve API
   "nbsphinx",  # execute and render the tutorial notebooks
   "numpydoc",
+  "pylint",
   "pylit",
   "sphinx",
   "sphinx-autobuild",
@@ -193,3 +195,9 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+
+[tool.numpydoc_validation]
+checks = ["GL06", "GL07", "PR01", "PR02", "PR03", "SS03", "SS05"]
+# exclude matches the dotted object name; exclude_files matches the path.
+exclude = ['\.__init__$']
+exclude_files = ['^tests/', '^firedrake/_version\.py$']
