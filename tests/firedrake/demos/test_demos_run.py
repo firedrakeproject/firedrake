@@ -19,6 +19,7 @@ DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("adaptive_multigrid", "adaptive_multigrid"), ["matplotlib", "netgen", "vtk"]),
+    Demo(("patch", "adaptive_patches"), ["matplotlib"]),
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
     Demo(("boussinesq", "boussinesq"), ["netgen", "vtk"]),
     Demo(("burgers", "burgers"), ["vtk"]),

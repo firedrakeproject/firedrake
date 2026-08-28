@@ -27,6 +27,7 @@ element systems.
    1D Vlasov-Poisson equation using vertical independent function spaces.<demos/vp1d.py>
    Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
    Multigrid on adaptively-refined mesh hierarchies.<demos/adaptive_multigrid.py>
+   Adaptive patch relaxation restricted to the refined region.<demos/adaptive_patches.py>
    Monolithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
    Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>

@@ -1,10 +1,13 @@
 import abc
+import petsctools
 
 from pyop2.datatypes import IntType
+from firedrake.cython import patchimpl
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
+from firedrake.adapt import mark_refined_entities
 from firedrake.dmhooks import get_function_space
-from firedrake.mesh import DistributedMeshOverlapType
+from firedrake.mesh import DistributedMeshOverlapType, MeshGeometry
 from firedrake.logging import warning
 from firedrake.exceptions import NonUniqueMeshSequenceError
 from tinyasm import _tinyasm as tinyasm
@@ -153,6 +156,15 @@ class ASMStarPC(ASMPatchPC):
     coloring of the mesh entities. This is specified via the option
     `pc_star_use_coloring`.
 
+    The mesh entities that get a patch may be restricted to those marked
+    by a `PETSc.DMLabel` on the mesh's DMPlex, named by the option
+    `pc_star_construct_label` and holding them in the stratum
+    `pc_star_construct_label_value`. The option `pc_star_adaptive` builds
+    that label with `~firedrake.adapt.mark_refined_entities`, so that a
+    smoother on an adaptively refined level only relaxes the entities whose
+    star meets the refined region. The coloring, if requested, then colors
+    only the marked entities.
+
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
     `pc_star_mat_ordering_type`.
@@ -176,16 +188,27 @@ class ASMStarPC(ASMPatchPC):
 
         use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
+        label, value = get_construct_label(mesh, self.prefix)
+
+        # Take the star of every seed point, one patch at a time
+        seeds, seed_offsets = get_seeds(mesh_dm, use_coloring, depth, 1, label, value)
+        points, star_offsets, patch_offsets = patchimpl.create_star_points(mesh_dm, seeds, seed_offsets)
+        if ordering != "natural":
+            # Each star is reordered on its own, since it is a patch of its own
+            # unless a coloring grouped it with others
+            for s in range(len(star_offsets) - 1):
+                star = slice(star_offsets[s], star_offsets[s+1])
+                points[star] = order_points(mesh_dm, points[star], ordering, self.prefix)
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
-        colors = get_colors(mesh_dm, use_coloring, depth, distance=1)
-        ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, self.prefix, color)
-                for color in colors]
-        return ises
+        return patchimpl.create_patch_ises(points, star_offsets[patch_offsets],
+                                           [W.dm.getLocalSection() for W in V],
+                                           [W.block_size for W in V],
+                                           V_local_ises_indices)
 
 
 class ASMVankaPC(ASMPatchPC):
@@ -321,8 +344,6 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
     :returns: the permuted array of points
     '''
-    # Order points by decreasing topological dimension (interiors, faces, edges, vertices)
-    points = points[::-1]
     if ordering_type == "natural":
         return points
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
@@ -553,30 +574,128 @@ def validate_overlap(mesh, patch_dim, patch_type):
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
 
 
-def get_colors(mesh_dm, use_coloring, depth, distance=1):
-    """Returns a coloring of the mesh entities.
+def get_construct_label(mesh: MeshGeometry, prefix: str) -> tuple[PETSc.DMLabel | None, int]:
+    """Return the label restricting the mesh entities that get a patch.
 
-    :arg mesh_dm: the DMPlex
-    :arg use_coloring: if True computes the coloring,
-        otherwise each entity gets its own color
-    :arg depth: the entity dimension
-    :arg distance: the coloring distance
+    Parameters
+    ----------
+    mesh
+        The mesh the patches are built on.
+    prefix
+        The `PETSc.Options` prefix of the preconditioner.
 
-    :returns: an iterable of PETSc.IS or int defining each color
+    Returns
+    -------
+    tuple of PETSc.DMLabel or None, and int
+        The label marking the entities and the stratum value holding them, or
+        ``(None, 0)`` if the options select no label, in which case every
+        entity of the stratum gets a patch.
+
+    Raises
+    ------
+    ValueError
+        If the options name a label the mesh does not have.
+
+    """
+    opts = PETSc.Options(prefix)
+    if opts.getBool("adaptive", default=False):
+        return mark_refined_entities(mesh), 1
+    name = opts.getString("construct_label", default="")
+    if not name:
+        return None, 0
+    mesh_dm = mesh.topology_dm
+    if not mesh_dm.hasLabel(name):
+        raise ValueError(f"{prefix}construct_label names the label {name!r}, "
+                         "which the mesh does not have")
+    return mesh_dm.getLabel(name), opts.getInt("construct_label_value", default=1)
+
+
+def get_colors(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: int = 1,
+               label: PETSc.DMLabel | None = None, value: int = 0):
+    """Return a coloring of the mesh entities.
+
+    Parameters
+    ----------
+    mesh_dm
+        The mesh topology.
+    use_coloring
+        If `True` compute the coloring, otherwise give each entity its own color.
+    depth
+        The topological dimension of the entities.
+    distance
+        The coloring distance.
+    label
+        A label selecting the entities, or `None` for all of them.
+    value
+        The stratum of ``label`` holding the entities.
+
+    Returns
+    -------
+    iterable of PETSc.IS, or iterable of int
+        The entities of each color.
+
     """
     if use_coloring:
-        opts_modified = False
-        opts = PETSc.Options()
-        if "mat_coloring_type" not in opts:
-            opts_modified = True
-            coloring_type = "power" if distance > 2 else "greedy"
-            opts.setValue("mat_coloring_type", coloring_type)
-        colors = mesh_dm.createColoring(depth=depth, distance=distance)
-        if opts_modified:
-            opts.delValue("mat_coloring_type")
-    else:
+        # Greedy, the default, only supports distances 1 and 2
+        parameters = {"mat_coloring_type": "power" if distance > 2 else "greedy"}
+        with petsctools.inserted_options(parameters=parameters,
+                                         options_prefix="dm_plex_coloring_"):
+            # Colors the subgraph the selected entities induce, so restricting
+            # them can only merge colors, never split one
+            colors = mesh_dm.createColoringLabel(depth=depth, distance=distance,
+                                                 label=label, value=value)
+    elif label is None:
         colors = range(*mesh_dm.getDepthStratum(depth))
+    else:
+        # A completed label spans every stratum, so keep only the entities we seed with
+        pstart, pend = mesh_dm.getDepthStratum(depth)
+        points = numpy.empty(0, dtype=IntType)
+        if label.getStratumSize(value) > 0:
+            points = label.getStratumIS(value).indices
+        colors = points[(points >= pstart) & (points < pend)]
     return colors
+
+
+def get_seeds(mesh_dm: PETSc.DMPlex, use_coloring: bool, depth: int, distance: int = 1,
+              label: PETSc.DMLabel | None = None,
+              value: int = 0) -> tuple[numpy.ndarray, numpy.ndarray]:
+    """Return the mesh entities that each patch is built around.
+
+    Parameters
+    ----------
+    mesh_dm
+        The mesh topology.
+    use_coloring
+        If `True` group the entities by a coloring, otherwise give each entity
+        its own patch.
+    depth
+        The topological dimension of the entities.
+    distance
+        The coloring distance.
+    label
+        A label selecting the entities, or `None` for all of them.
+    value
+        The stratum of ``label`` holding the entities.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The entities patch by patch, and the offsets saying where each patch
+        starts in them.
+
+    """
+    colors = get_colors(mesh_dm, use_coloring, depth, distance, label, value)
+    if isinstance(colors, range):
+        seeds = numpy.arange(colors.start, colors.stop, dtype=IntType)
+    elif use_coloring:
+        indices = [numpy.asarray(color.indices, dtype=IntType) for color in colors]
+        offsets = numpy.cumsum([0, *(len(i) for i in indices)], dtype=IntType)
+        if len(indices) == 0:
+            return numpy.empty(0, dtype=IntType), offsets
+        return numpy.concatenate(indices), offsets
+    else:
+        seeds = numpy.asarray(colors, dtype=IntType)
+    return seeds, numpy.arange(len(seeds) + 1, dtype=IntType)
 
 
 def get_entity_dofs(V, V_local_ises_indices, points):
@@ -621,31 +740,12 @@ def get_star_points(mesh_dm, ordering, prefix, seed_points):
         # Only build patches over owned DoFs
         if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
             continue
-        # Create point list from mesh DM
+        # Create point list from mesh DM, by decreasing topological dimension
+        # (interiors, faces, edges, vertices)
         star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-        star = order_points(mesh_dm, star, ordering, prefix)
+        star = order_points(mesh_dm, star[::-1], ordering, prefix)
         points.extend(star)
     return points
-
-
-def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
-    """Return DOFs in the star of each point in seed_points.
-
-    :arg V: the FunctionSpace to extract DOFs from
-    :arg V_local_ises_indices: V.local_ises.indices
-    :arg mesh_dm: the DMPlex
-    :arg ordering: a Mat.OrderingType indicating the ordering type
-    :arg prefix: the PETSc.Options prefix to further specify the ordering
-    :seed_points: an iterable of point indices to construct the star patches
-
-    :returns: A PETSc.IS with the degrees of freedom in the star patches
-    """
-    points = get_star_points(mesh_dm, ordering, prefix, seed_points)
-    indices = get_entity_dofs(V, V_local_ises_indices, points)
-    indices = numpy.array(indices, dtype=PETSc.IntType)
-    indices = indices[indices >= 0]
-    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-    return iset
 
 
 def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
@@ -672,9 +772,10 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         # Only build patches over owned DoFs
         if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
             continue
-        # Create point list from mesh DM
+        # Create point list from mesh DM, by decreasing topological dimension
+        # (interiors, faces, edges, vertices)
         star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-        star = order_points(mesh_dm, star, ordering, prefix)
+        star = order_points(mesh_dm, star[::-1], ordering, prefix)
         if include_star:
             Q_points.extend(star)
         else:
