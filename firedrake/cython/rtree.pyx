@@ -1,5 +1,6 @@
 # cython: language_level=3
 
+from firedrake.utils import IntType
 cimport numpy as np
 import numpy as np
 import ctypes
@@ -181,7 +182,7 @@ def discover_remote_roots(
 
     Returns
     -------
-    remote : (nleaves, 2) int32 array
+    remote : (nleaves, 2) IntType array
         For every local candidate leaf, the MPI rank and local index of its
         remote root point.
     """
@@ -198,7 +199,7 @@ def discover_remote_roots(
         size_t *send_offsets = NULL
         size_t n_points = points.shape[0], nranks_to = 0
         np.ndarray[np.uintp_t, ndim=1, mode="c"] received
-        np.ndarray[np.int32_t, ndim=2, mode="c"] remote
+        np.ndarray[PetscInt, ndim=2, mode="c"] remote
         list recv_messages = []
 
     # MPI does not have a builtin type for size_t
@@ -262,7 +263,7 @@ def discover_remote_roots(
             raise RuntimeError("rtree_free_offsets failed")
 
     # create remote array for candidate star forest
-    remote = np.empty((nleaves, 2), dtype=np.int32)
+    remote = np.empty((nleaves, 2), dtype=IntType)
     for source_rank, received in recv_messages:
         count = received.shape[0]
         remote[recv_offset:recv_offset + count, 0] = source_rank

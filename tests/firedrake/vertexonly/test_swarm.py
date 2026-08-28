@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.cython import rtree
 from firedrake.mesh import FiredrakeDMSwarm, _pic_swarm_in_mesh
+from firedrake.utils import IntType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -415,7 +416,7 @@ def test_discover_remote_roots():
 
     remote = rtree.discover_remote_roots(tree, points, comm)
 
-    assert remote.dtype == np.int32
+    assert remote.dtype == IntType
     assert {tuple(node) for node in remote.tolist()} == expected
     sf = PETSc.SF().create(comm=comm)
     sf.setGraph(len(points), None, remote)
