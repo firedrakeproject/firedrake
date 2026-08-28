@@ -86,8 +86,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
     for ex in cs_expr:
-        # ex = expand_implicit_pack_unpack(ex)
-
         # add external loop indices as kernel arguments
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}

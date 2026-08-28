@@ -45,3 +45,7 @@ MIN_RW = Intent.MIN_RW
 MIN_WRITE = Intent.MIN_WRITE
 MAX_RW = Intent.MAX_RW
 MAX_WRITE = Intent.MAX_WRITE
+
+# ambiguous old values
+MAX = MAX_RW
+MIN = MIN_RW

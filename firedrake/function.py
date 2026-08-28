@@ -573,10 +573,21 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Store data into ``C struct''
         c_function = _CFunction()
         c_function.coords = coordinates.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
-        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        c_function.coords_map = coordinates._cell_dof_map_array.ctypes.data_as(POINTER(as_ctypes(IntType)))
         c_function.f = self.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
-        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        c_function.f_map = self._cell_dof_map_array.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
+
+    @cached_property
+    def _cell_dof_map_array(self):
+        # This is a cached property to make sure it isn't cleaned up
+        if self.function_space().index:
+            # component of a mixed space
+            label = self.function_space().parent._labels[self.function_space().index]
+            map_dat =  self.function_space().parent.cell_dof_map_dat[:, label]
+        else:
+            map_dat = self.function_space().cell_dof_map_dat
+        return map_dat.data_ro
 
     @property
     @PETSc.Log.EventDecorator()
@@ -631,7 +642,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
-            return self.dat.data_ro
+            return float(self)
 
         # Need to ensure data is up-to-date for reading
         self.dat.buffer.assemble()
@@ -660,9 +671,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
-
-        if mesh_unique.variable_layers:
-            raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
         gdim = mesh.geometric_dimension
@@ -892,12 +900,11 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
-              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
+              t0[{gdim}*i + j] = dat0[map0[{coords_shape}*{gdim}*start + {gdim}*i + j]];
           for (int32_t i = 0; i < {func_shape}; ++i)
-            for (int32_t j = 0; j < {func_bsize}; ++j) {{
-              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j];
-            }}
-          evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
+            for (int32_t j = 0; j < {func_bsize}; ++j)
+              t1[{func_bsize}*i + j] = dat1[map1[{func_shape}*{func_bsize}*start + {func_bsize}*i + j]];
+          evaluate_kernel(farg0, farg1, t0, t1);
         }}"""
     )
     src.append(wrapper_src)

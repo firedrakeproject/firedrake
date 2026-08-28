@@ -60,9 +60,7 @@ def test_submesh_comm_self_entity_classes(ignore_halo):
 
     plex = submesh.topology_dm
     pStart, pEnd = plex.getChart()
-    assert plex.getStratumSize("pyop2_core", 1) == pEnd - pStart
-    assert plex.getStratumSize("pyop2_owned", 1) == 0
-    assert plex.getStratumSize("pyop2_ghost", 1) == 0
+    assert plex.getStratumSize("firedrake_is_ghost", 1) == 0
 
 
 @pytest.mark.parallel([1, 3])

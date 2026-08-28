@@ -61,8 +61,10 @@ __all__ += [
 from pyop3.constants import (
     DECIDE,
     INC,
+    MAX,
     MAX_RW,
     MAX_WRITE,
+    MIN,
     MIN_RW,
     MIN_WRITE,
     READ,
@@ -72,8 +74,10 @@ from pyop3.constants import (
 __all__ += [
     "DECIDE",
     "INC",
+    "MAX",
     "MAX_RW",
     "MAX_WRITE",
+    "MIN",
     "MIN_RW",
     "MIN_WRITE",
     "READ",

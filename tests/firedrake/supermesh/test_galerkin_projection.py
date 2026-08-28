@@ -49,7 +49,6 @@ def B(pairs):
     return pairs[1]
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_galerkin_projection(mesh, shapify, A, B):
     family_A, degree_A = A
     family_B, degree_B = B
