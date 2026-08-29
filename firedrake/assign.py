@@ -86,7 +86,8 @@ def _make_section_sf(point_sf, root_V, leaf_V):
             raise RuntimeError("Point SF does not cover the nodes of the leaf function space")
         section_sf = point_sf.createSectionSF(root_section, remote_offsets, leaf_section)
         # A submesh only covers part of its parent, so not every root node
-        # is reduced into.
+        # is reduced into. `point_sf` addresses each root on its owner, so a
+        # covered root is one this rank owns.
         return cache.setdefault(key, (section_sf, section_sf.computeDegree() > 0))
 
 
@@ -385,7 +386,9 @@ class Assigner:
 
         The nodes of the two spaces correspond one to one. The expression is
         evaluated in the source layout. One communication then moves the
-        result into the target layout.
+        result into the target layout: a broadcast onto the submesh, which
+        covers every one of its nodes, or a reduction onto the parent, which
+        reaches only the nodes the submesh covers.
         """
         target_V = lhs_func.function_space()
         source_V, = set(f.function_space() for f in funcs)
@@ -405,15 +408,13 @@ class Assigner:
         if target_is_submesh:
             section_sf.bcastBegin(mtype, source_data, target_data, MPI.REPLACE)
             section_sf.bcastEnd(mtype, source_data, target_data, MPI.REPLACE)
-            # Every node of a submesh, including its halo, has a counterpart
-            # in the parent.
             indices = Ellipsis if subset is None else subset.indices
             assign_to_halos = True
         else:
             section_sf.reduceBegin(mtype, source_data, target_data, MPI.REPLACE)
             section_sf.reduceEnd(mtype, source_data, target_data, MPI.REPLACE)
-            # Only the owned parent nodes that the submesh covers have been
-            # reduced into; the parent halo never is.
+            # A reduction reaches owned nodes alone, so the halo of the
+            # assignee is left stale for a later exchange to fill in.
             owned = covered_roots[:target_V.dof_dset.size]
             comm = target_V.mesh().comm
             if not comm.allreduce(owned.all(), op=MPI.LAND) and not allow_missing_dofs:

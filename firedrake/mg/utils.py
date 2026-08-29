@@ -481,7 +481,7 @@ def transfer_mesh(mesh):
         ``mesh`` itself, or the mesh it was redistributed from.
 
     """
-    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
+    return mesh.submesh_parent if mesh.is_redistributed else mesh
 
 
 def _redistribution_ancestors(topology):
@@ -503,7 +503,7 @@ def _redistribution_ancestors(topology):
 
     """
     yield topology
-    while topology.submesh_point_sf is not None:
+    while topology.is_redistributed:
         topology = topology.submesh_parent
         yield topology
 
@@ -528,8 +528,10 @@ def set_level(obj, hierarchy, level):
 
     Parameters
     ----------
-    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        The object to attach the hierarchy and level info to.
+    obj : firedrake.mesh.MeshGeometry
+        The mesh to attach the hierarchy and level info to. The meshes it was
+        redistributed from take the same level, because the transfer
+        operators work on those.
     hierarchy : HierarchyBase
         The hierarchy ``obj`` belongs to.
     level : Fraction
@@ -537,7 +539,7 @@ def set_level(obj, hierarchy, level):
 
     Returns
     -------
-    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+    firedrake.mesh.MeshGeometry
         ``obj``, unchanged.
 
     """

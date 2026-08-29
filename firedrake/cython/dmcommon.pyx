@@ -4123,7 +4123,8 @@ def submesh_vertex_numbering(PETSc.SF point_sf,
     roots = np.full(nroots, -1, dtype=IntType)
     for p in range(ppStart, ppEnd):
         CHKERR(PetscSectionGetDof(parent_numbering.sec, p, &dof))
-        # Points not owned by this rank carry complementary inverses.
+        # A global section negates the dof and the offset of a point that
+        # this rank does not own, so compare and store their magnitudes.
         if cabs(dof) > 0:
             CHKERR(PetscSectionGetOffset(parent_numbering.sec, p, &offset))
             roots[p - ppStart] = cabs(offset)
