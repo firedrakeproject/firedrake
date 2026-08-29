@@ -4078,6 +4078,144 @@ def submesh_create(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def submesh_vertex_numbering(PETSc.SF point_sf,
+                             PETSc.Section parent_numbering,
+                             PETSc.Section numbering):
+    """Inherit the universal vertex numbering of the submesh parent.
+
+    Parameters
+    ----------
+    point_sf : PETSc.SF
+        SF whose roots are the points of the parent plex and whose leaves
+        are the points of the submesh plex.
+    parent_numbering : PETSc.Section
+        Section describing the universal vertex numbering of the parent.
+    numbering : PETSc.Section
+        Section describing the universal vertex numbering of the submesh.
+
+    Returns
+    -------
+    PETSc.Section
+        Copy of ``numbering`` in which each vertex carries the universal
+        number of the corresponding vertex of the parent.
+
+    Notes
+    -----
+    Cell closures are ordered by universal vertex number, so a submesh that
+    inherits the numbering of its parent orients its entities exactly as the
+    parent does. The nodes of a function space are then in one-to-one
+    correspondence on the two meshes, even though the meshes are distributed
+    differently.
+
+    """
+    cdef:
+        PETSc.Section inherited
+        PetscInt nroots, pStart, pEnd, ppStart, ppEnd, p, dof, offset
+        np.ndarray[PetscInt, ndim=1, mode="c"] roots, leaves
+        MPI.Datatype typ
+        MPI.Op replace = MPI.REPLACE
+
+    CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, NULL, NULL, NULL))
+    ppStart, ppEnd = parent_numbering.getChart()
+    if ppEnd - ppStart != nroots:
+        raise ValueError("Point SF must have one root per point of the parent plex")
+    pStart, pEnd = numbering.getChart()
+    roots = np.full(nroots, -1, dtype=IntType)
+    for p in range(ppStart, ppEnd):
+        CHKERR(PetscSectionGetDof(parent_numbering.sec, p, &dof))
+        # A global section negates the dof and the offset of a point that
+        # this rank does not own, so compare and store their magnitudes.
+        if cabs(dof) > 0:
+            CHKERR(PetscSectionGetOffset(parent_numbering.sec, p, &offset))
+            roots[p - ppStart] = cabs(offset)
+    leaves = np.full(pEnd - pStart, -1, dtype=IntType)
+    try:
+        tdict = MPI.__TypeDict__
+    except AttributeError:
+        tdict = MPI._typedict
+    typ = tdict[roots.dtype.char]
+    CHKERR(PetscSFBcastBegin(point_sf.sf, typ.ob_mpi,
+                             <const void *>roots.data,
+                             <void *>leaves.data,
+                             replace.ob_mpi))
+    CHKERR(PetscSFBcastEnd(point_sf.sf, typ.ob_mpi,
+                           <const void *>roots.data,
+                           <void *>leaves.data,
+                           replace.ob_mpi))
+    inherited = numbering.clone()
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(inherited.sec, p, &dof))
+        if cabs(dof) > 0:
+            offset = leaves[p - pStart]
+            if offset < 0:
+                raise RuntimeError("Found a vertex with no counterpart in the submesh parent")
+            CHKERR(PetscSectionSetOffset(inherited.sec, p,
+                                         offset if dof > 0 else cneg(offset)))
+    return inherited
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_cell_orientations(PETSc.DM parent_plex,
+                              PETSc.Section parent_cell_numbering,
+                              np.ndarray parent_orientations,
+                              PETSc.SF point_sf,
+                              PETSc.DM plex,
+                              PETSc.Section cell_numbering):
+    """Inherit the cell orientations of the submesh parent.
+
+    Parameters
+    ----------
+    parent_plex : PETSc.DM
+        The parent plex.
+    parent_cell_numbering : PETSc.Section
+        Section describing the cell numbering of the parent.
+    parent_orientations : numpy.ndarray
+        Cell orientations of the parent.
+    point_sf : PETSc.SF
+        SF whose roots are the points of ``parent_plex`` and whose leaves
+        are the points of ``plex``.
+    plex : PETSc.DM
+        The submesh plex.
+    cell_numbering : PETSc.Section
+        Section describing the cell numbering of the submesh.
+
+    Returns
+    -------
+    numpy.ndarray
+        Cell orientations of the submesh.
+
+    """
+    cdef:
+        MPI.Datatype dtype
+        PETSc.Section new_section
+        PetscInt *new_values = NULL
+        PetscInt c, cStart, cEnd, l, r
+        np.ndarray orientations
+
+    try:
+        tdict = MPI.__TypeDict__
+    except AttributeError:
+        tdict = MPI._typedict
+    dtype = tdict[np.dtype(IntType).char]
+    new_section = PETSc.Section().create(comm=plex.comm)
+    CHKERR(DMPlexDistributeData(parent_plex.dm, point_sf.sf,
+                                parent_cell_numbering.sec, dtype.ob_mpi,
+                                <void *>parent_orientations.data,
+                                new_section.sec, <void **>&new_values))
+    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    orientations = np.empty(cEnd - cStart, dtype=IntType)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &l))
+        CHKERR(PetscSectionGetOffset(new_section.sec, c, &r))
+        orientations[l] = new_values[r]
+    if new_values != NULL:
+        CHKERR(PetscFree(new_values))
+    return orientations
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def submesh_correct_entity_classes(PETSc.DM dm,
                                    PETSc.DM subdm,
                                    PETSc.SF ownership_transfer_sf):
