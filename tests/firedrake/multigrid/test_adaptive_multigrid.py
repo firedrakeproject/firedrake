@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.mg.utils import (coarse_cell_to_fine_node_map, transfer_mesh,
-                                transfer_node_subset)
+from firedrake.mg.utils import (coarse_cell_to_fine_node_map, preserved_node_sf,
+                                transfer_mesh, transfer_node_subset)
 from firedrake.utils import complex_mode
 
 
@@ -431,7 +431,6 @@ def _representable_expr(mesh, degree):
 
 def _copied_nodes(mh, V):
     """Count the nodes of ``V`` that the transfers copy rather than evaluate."""
-    from firedrake.mg.utils import preserved_node_sf
     copied = 0
     for level in range(len(mh) - 1):
         V_coarse = V.reconstruct(mesh=mh[level])
