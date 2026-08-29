@@ -307,7 +307,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
-        if redistribute and fmesh.has_empty_rank:
+        if redistribute and fmesh.any_rank_is_empty:
             fmesh = firedrake.Submesh(fmesh, redistribute=True)
         cdm = make_unoverlapped_dm(fmesh.topology_dm)
         lgmaps.append((impl.create_lgmap(cdm), impl.create_lgmap(fmesh.topology_dm)))

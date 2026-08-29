@@ -324,7 +324,7 @@ def test_submesh_assign_function_redistributed(mesh_type, family, degree):
     mesh = UnitSquareMesh(4, 4, quadrilateral=(mesh_type == "quadrilateral"))
     submesh = Submesh(mesh, redistribute=True)
     assert submesh.topology.submesh_parent is mesh.topology
-    assert submesh.topology.submesh_point_sf is not None
+    assert submesh.topology.is_redistributed
 
     V = FunctionSpace(mesh, family, degree)
     V_sub = FunctionSpace(submesh, family, degree)
