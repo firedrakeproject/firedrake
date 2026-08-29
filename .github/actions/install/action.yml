@@ -165,17 +165,13 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
-        firedrake-clean
-        pip list
-
-    - name: 'DROP BEFORE MERGE: build FIAT from the PR stack'
-      shell: bash
-      run: |
-        . venv/bin/activate
-        : # Head of the stack firedrakeproject/fiat#282 -> #284 -> #281 -> #286
+        : # DROP BEFORE MERGE: the TSFC changes here need the GEM changes in the
+        : # FIAT stack firedrakeproject/fiat#282 -> #284 -> #281 -> #286, whose
+        : # head carries all four.  This has to land before anything imports
+        : # Firedrake, firedrake-clean below included.
         pip install --no-deps --force-reinstall --ignore-installed \
           git+https://github.com/firedrakeproject/fiat.git@pbrubeck/coffee-scalar-factor
-        : # The code generators changed, so discard kernels built against main
+
         firedrake-clean
         pip list
 
