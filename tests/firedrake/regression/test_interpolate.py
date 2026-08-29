@@ -641,6 +641,24 @@ def test_interpolator_reuse(family, degree, mode):
         assert np.allclose(result.dat.data, expected)
 
 
+@pytest.mark.parallel([1, 3])
+def test_square_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(V)
+
+    # Source and target agree, so the interpolation has a diagonal to carry
+    # the boundary rows, just as a Form on the same spaces does.
+    I = assemble(interpolate(2 * TrialFunction(V), V), bcs=[DirichletBC(V, 0, 1)])
+    result = assemble(action(I, w))
+
+    expected = Function(V).assign(2 * w)
+    DirichletBC(V, w, 1).apply(expected)
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
 def test_mixed_space_bcs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)

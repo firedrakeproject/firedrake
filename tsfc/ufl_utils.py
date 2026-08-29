@@ -1,10 +1,11 @@
 """Utilities for preprocessing UFL objects."""
 
-from functools import singledispatch
+from functools import singledispatch, singledispatchmethod
 
 import numpy
 
 import ufl
+from ufl.algorithms.map_integrands import map_integrands
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -19,22 +20,105 @@ from ufl.algorithms.remove_component_tensors import remove_component_tensors
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.algorithms.signature import compute_expression_signature
+from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
 from ufl.classes import (Abs, Argument, CellOrientation,
-                         Expr, FloatValue, Division,
+                         Expr, FloatValue, Division, ReferenceValue,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
 from ufl.domain import extract_domains, extract_unique_domain
 
+import gem
 from gem.node import MemoizerArg
+
+from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import FiniteElement, TensorElement
 
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 
 
 preserve_geometry_types = (CellVolume, FacetArea)
+
+# Prefix that forces TSFC to do runtime tabulation for a gem.Variable.
+RUNTIME_VARIABLE_PREFIX = "rt_"
+
+
+def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE_PREFIX + "X"):
+    """Construct a Quadrature FiniteElement for interpolation onto a runtime
+    point, e.g. a VertexOnlyMesh point known only at run time.
+
+    Parameters
+    ----------
+    domain : ufl.AbstractDomain
+        The source domain.
+    ufl_element : finat.ufl.finiteelement.FiniteElement
+        The UFL element of the target FunctionSpace.
+    rt_var_name : str
+        Name of the gem.Variable holding the point, prefixed with
+        `RUNTIME_VARIABLE_PREFIX` to force TSFC to tabulate it at run time.
+    """
+    assert rt_var_name.startswith(RUNTIME_VARIABLE_PREFIX)
+
+    cell = domain.ufl_cell()
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+
+    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
+    rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if shape:
+        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
+        rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
+    return rt_element
+
+
+class InterpolateMapper(DAGTraverser):
+    """Represent interpolation in the target element's reference frame."""
+
+    @singledispatchmethod
+    def process(self, o: Expr) -> Expr:
+        """Process ``o``."""
+        return super().process(o)
+
+    @process.register(Expr)
+    def _(self, o: Expr) -> Expr:
+        """Reuse if untouched."""
+        return self.reuse_if_untouched(o)
+
+    @process.register(ufl.Interpolate)
+    @DAGTraverser.postorder
+    def _(self, o: ufl.Interpolate, operand: Expr) -> Expr:
+        """Represent an Interpolate node in the target element's reference frame."""
+        dual_arg, _ = o.argument_slots()
+        domain = (
+            extract_unique_domain(operand)
+            or dual_arg.ufl_function_space().ufl_domain()
+        )
+        element = o.ufl_element()
+        operand = apply_mapping(operand, element, domain)
+        expr = o._ufl_expr_reconstruct_(operand, v=dual_arg)
+        return element.pullback.apply(ReferenceValue(expr), domain)
+
+
+def lower_form_interpolations(form: ufl.Form) -> ufl.Form:
+    """Represent interpolation nodes in a form in reference space.
+
+    Parameters
+    ----------
+    form : ufl.Form
+        Form containing interpolation nodes.
+
+    Returns
+    -------
+    ufl.Form
+        Form with target-element mappings made explicit.
+    """
+    return map_integrands(InterpolateMapper(), form)
 
 
 def compute_form_data(form,
@@ -395,6 +479,22 @@ def apply_mapping(expression, element, domain):
     mapping = element.mapping().lower()
     if mapping == "identity":
         rexpression = expression
+    elif isinstance(element.pullback, ufl.MixedPullback):
+        flat = [expression[index] for index in numpy.ndindex(expression.ufl_shape)]
+        reference_components = []
+        offset = 0
+        for subelement, subdomain in zip(element.sub_elements, mesh.iterable_like(element)):
+            physical_shape = subelement.pullback.physical_value_shape(subelement, subdomain)
+            size = int(numpy.prod(physical_shape, dtype=int))
+            piece = as_tensor(numpy.asarray(flat[offset:offset + size]).reshape(physical_shape))
+            mapped = apply_mapping(piece, subelement, subdomain)
+            reference_components.extend(
+                mapped[index] for index in numpy.ndindex(mapped.ufl_shape)
+            )
+            offset += size
+        rexpression = as_tensor(
+            numpy.asarray(reference_components).reshape(element.reference_value_shape)
+        )
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)

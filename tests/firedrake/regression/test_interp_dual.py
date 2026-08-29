@@ -131,6 +131,25 @@ def test_assemble_interp_adjoint_model(V1, V2):
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
 
+def test_assemble_interp_adjoint_direct_sum():
+    # A restricted element is a direct sum, so it tabulates into a Concatenate
+    # that the dual argument has to contract one summand at a time.
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    element = FiniteElement("Lagrange", mesh.ufl_cell(), 3)
+    Vf = FunctionSpace(mesh, RestrictedElement(element, "facet"))
+    Vc = FunctionSpace(mesh, RestrictedElement(element.reconstruct(degree=1), "facet"))
+
+    uc = Function(Vc)
+    uc.dat.data_wo[...] = np.arange(1, 1 + uc.dat.data_ro.size)
+    rf = Cofunction(Vf.dual())
+    rf.dat.data_wo[...] = np.arange(1, 1 + rf.dat.data_ro.size)
+
+    # Restriction is the adjoint of prolongation.
+    uf = assemble(interpolate(uc, Vf))
+    rc = assemble(interpolate(TestFunction(Vc), rf))
+    assert np.isclose(assemble(action(rf, uf)), assemble(action(rc, uc)))
+
+
 def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
     if complex_mode:
         f1 = Constant(3 - 5.j) * f1
@@ -395,3 +414,153 @@ def test_assemble_action_adjoint(V1, V2):
         assert isinstance(res4, Cofunction)
         assert res4.function_space() == V1.dual()
         assert np.allclose(res.dat.data, res4.dat.data)
+
+
+def test_assemble_interp_vector_matrix():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+    W = VectorFunctionSpace(mesh, "DG", 1, dim=2)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(as_vector((x + 2*y, 2*x - y)))
+
+    operator = assemble(interpolate(TrialFunction(V), W))
+    actual = assemble(action(operator, f))
+    expected = assemble(interpolate(f, W))
+
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+def test_assemble_interp_mixed_vector_matrix():
+    mesh = UnitSquareMesh(2, 2)
+    X = VectorFunctionSpace(mesh, "CG", 2)
+    Y = VectorFunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = X * V
+    W = Y * V
+    x, y = SpatialCoordinate(mesh)
+    f = Function(Z)
+    f.sub(0).interpolate(as_vector((x + 2*y, 2*x - y)))
+    f.sub(1).interpolate(x - y)
+
+    operator = assemble(interpolate(TrialFunction(Z), W), mat_type="nest")
+    actual = assemble(action(operator, f))
+    expected = assemble(interpolate(f, W))
+
+    for actual_subfunction, expected_subfunction in zip(
+        actual.subfunctions, expected.subfunctions
+    ):
+        assert np.allclose(
+            actual_subfunction.dat.data_ro,
+            expected_subfunction.dat.data_ro,
+        )
+
+
+def test_interpolate_mixed_vector_in_bilinear_form():
+    from firedrake.assemble import ExplicitMatrixAssembler, get_assembler
+
+    mesh = UnitSquareMesh(2, 2)
+    X = VectorFunctionSpace(mesh, "CG", 2)
+    Y = VectorFunctionSpace(mesh, "DG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = X * V
+    W = Y * V
+    x, y = SpatialCoordinate(mesh)
+    f = Function(Z)
+    f.sub(0).interpolate(as_vector((x + 2*y, 2*x - y)))
+    f.sub(1).interpolate(x - y)
+    v = TestFunction(W)
+    form = inner(interpolate(TrialFunction(Z), W), v) * dx
+
+    assembler = get_assembler(form, mat_type="nest")
+    assert isinstance(assembler, ExplicitMatrixAssembler)
+    operator = assembler.assemble()
+    actual = assemble(action(operator, f))
+    interpolated = assemble(interpolate(f, W))
+    expected = assemble(inner(interpolated, v) * dx)
+
+    for actual_subfunction, expected_subfunction in zip(
+        actual.subfunctions, expected.subfunctions
+    ):
+        assert np.allclose(
+            actual_subfunction.dat.data_ro,
+            expected_subfunction.dat.data_ro,
+        )
+
+
+@pytest.mark.parallel(2)
+def test_interpolate_in_form_compiled_reuse():
+    from firedrake.assemble import OneFormAssembler, get_assembler
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "DG", 1)
+    x, y = SpatialCoordinate(mesh)
+    u = Function(V)
+    v = TestFunction(W)
+    interpolation = interpolate(u, W)
+    form = inner(interpolation, v) * dx
+    assembler = get_assembler(form)
+
+    assert isinstance(assembler, OneFormAssembler)
+    for scale in (1, 3):
+        u.interpolate(scale * (x + y))
+        actual = assembler.assemble()
+        expected = assemble(inner(assemble(interpolation), v) * dx)
+        assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_interpolate_in_form_mapped_derivative():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "RT", 1)
+    x, y = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(as_vector((x**2 + y, x - y**2)))
+    interpolation = interpolate(u, W)
+
+    actual = assemble(inner(grad(interpolation), grad(interpolation)) * dx)
+    interpolated = assemble(interpolation)
+    expected = assemble(inner(grad(interpolated), grad(interpolated)) * dx)
+    assert np.isclose(actual, expected)
+
+
+def test_interpolate_in_bilinear_form():
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(W)
+    operator = assemble(inner(interpolate(u, W), v) * dx)
+
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x + 1)
+    actual = assemble(action(operator, f))
+    expected = assemble(inner(assemble(interpolate(f, W)), v) * dx)
+    assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_interpolate_in_interior_facet_form():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "DG", 1)
+    x, y = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(x**2 + y)
+    v = TestFunction(W)
+    interpolation = interpolate(u, W)
+
+    actual = assemble(jump(interpolation) * jump(v) * dS)
+    interpolated = assemble(interpolation)
+    expected = assemble(jump(interpolated) * jump(v) * dS)
+    assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_cross_mesh_interpolate_in_form_uses_base_form_assembler():
+    from firedrake.assemble import BaseFormAssembler, get_assembler
+
+    source_mesh = UnitSquareMesh(1, 1)
+    target_mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(source_mesh, "CG", 1)
+    W = FunctionSpace(target_mesh, "CG", 1)
+    v = TestFunction(W)
+    form = inner(interpolate(Function(V), W), v) * dx(domain=target_mesh)
+
+    assert isinstance(get_assembler(form), BaseFormAssembler)
