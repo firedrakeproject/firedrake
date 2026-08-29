@@ -251,12 +251,14 @@ def get_restriction_indices(V, W):
         return _get_restriction_indices_extruded(V, W)
 
     # The restriction of an element keeps the nodes of the entities it does not
-    # drop. An assignment from V to W therefore pairs those nodes off.
+    # drop. An assignment from V to W therefore pairs those nodes off. The
+    # numbers ride in a ScalarType Function, which holds every integer below
+    # 2**53 exactly and, in complex mode, holds it in the real part.
     node_numbers = Function(V)
     node_numbers.dat.data_wo_with_halos.flat[...] = numpy.arange(V.dof_count)
     indices = numpy.concatenate([numpy.reshape(Function(Wsub).assign(node_numbers).dat.data_ro, -1)
                                  for Wsub in W])
-    return indices.astype(PETSc.IntType)
+    return indices.real.astype(PETSc.IntType)
 
 
 def _get_restriction_indices_extruded(V, W):
