@@ -131,6 +131,25 @@ def test_assemble_interp_adjoint_model(V1, V2):
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
 
+def test_assemble_interp_adjoint_direct_sum():
+    # A restricted element is a direct sum, so it tabulates into a Concatenate
+    # that the dual argument has to contract one summand at a time.
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    element = FiniteElement("Lagrange", mesh.ufl_cell(), 3)
+    Vf = FunctionSpace(mesh, RestrictedElement(element, "facet"))
+    Vc = FunctionSpace(mesh, RestrictedElement(element.reconstruct(degree=1), "facet"))
+
+    uc = Function(Vc)
+    uc.dat.data_wo[...] = np.arange(1, 1 + uc.dat.data_ro.size)
+    rf = Cofunction(Vf.dual())
+    rf.dat.data_wo[...] = np.arange(1, 1 + rf.dat.data_ro.size)
+
+    # Restriction is the adjoint of prolongation.
+    uf = assemble(interpolate(uc, Vf))
+    rc = assemble(interpolate(TestFunction(Vc), rf))
+    assert np.isclose(assemble(action(rf, uf)), assemble(action(rc, uc)))
+
+
 def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
     if complex_mode:
         f1 = Constant(3 - 5.j) * f1
