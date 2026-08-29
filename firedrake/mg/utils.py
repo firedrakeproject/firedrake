@@ -78,13 +78,10 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # Adaptive refinement gives coarse cells different numbers of fine
-        # descendants. Each row of coarse_to_fine_nodes is therefore padded
-        # with -1, out to the busiest coarse cell's count, and op2.Map cannot
-        # hold a negative index. Fill each padded slot with a duplicate of a
-        # real entry from its own row. The injection kernel only reads
-        # through this map, and picks the candidate that matches the coarse
-        # node's physical location, so a repeated entry changes nothing.
+        # op2.Map cannot hold the -1 that pads a short row, so fill each
+        # padded slot with a real entry from its own row. The injection
+        # kernel picks the candidate that matches the coarse node's physical
+        # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
         if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
