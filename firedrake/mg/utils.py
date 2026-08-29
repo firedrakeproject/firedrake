@@ -12,32 +12,6 @@ from firedrake.halo import _get_mtype
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
-    """Map each fine node to the nodes of its parent coarse cell.
-
-    A fine cell has exactly one parent. This holds for uniform refinement
-    and for adaptive refinement. ``hierarchy.fine_to_coarse_cells`` is
-    therefore one column wide, and it holds no padding. This map needs no
-    special handling for adaptive refinement.
-
-    `coarse_node_to_fine_node_map` runs in the other direction. There the
-    number of children varies, and padding does appear.
-
-    `prolong` and `restrict` both read through this map.
-
-    Parameters
-    ----------
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space.
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space, on the previous level of the same
-        hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the nodes of ``Vf`` to the nodes of ``Vc``.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
@@ -73,40 +47,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
-    """Map each coarse node to the fine nodes it could come from.
-
-    A coarse node gets one candidate per fine cell that descends from it.
-    Uniform refinement gives every coarse cell the same number of children.
-    Every row is then full. Adaptive refinement gives them different
-    numbers. ``hierarchy.coarse_to_fine_cells`` then right-pads its short
-    rows with -1, out to the busiest coarse cell's count.
-
-    This map fills that padding, because `op2.Map` cannot hold a negative
-    index. `fine_node_to_coarse_node_map` runs in the other direction. One
-    parent per fine cell makes padding impossible there.
-
-    Injection into a space with a pointwise dual basis reads through this
-    map. Injection into a DG space uses `coarse_cell_to_fine_node_map`
-    instead. That map handles its padding a different way.
-
-    Parameters
-    ----------
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space.
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space, on the next level of the same hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the nodes of ``Vc`` to the nodes of ``Vf``.
-
-    Raises
-    ------
-    RuntimeError
-        If an owned coarse node has no fine node to inject from.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
@@ -143,13 +83,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # real entry from its own row. The injection kernel only reads
         # through this map, and picks the candidate that matches the coarse
         # node's physical location, so a repeated entry changes nothing.
-        #
-        # Every rank runs this fill. The partition decides which rows hold
-        # padding, so the fill must not depend on a rank-local test.
-        # The check covers the owned rows alone. coarse_to_fine_cells spans
-        # the owned coarse cells, so most halo rows hold no candidate at all.
-        # Those rows keep the zero filler, and injection visits owned nodes
-        # only, so nothing reads them.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
         if not nonempty[:Vc.node_set.size].all():
@@ -166,36 +99,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
-    """Map each coarse cell to the fine nodes of all its children.
-
-    Each row holds one block of nodes per child cell. The blocks are stored
-    back to back. Uniform refinement gives every coarse cell the same number
-    of children, so every row is full. Adaptive refinement gives them
-    different numbers. ``hierarchy.coarse_to_fine_cells`` then right-pads
-    its short rows with -1, and that padding reaches this map.
-
-    The padding stays as it is. The DG injection kernel reads
-    `coarse_cell_child_count`. It stops at a coarse cell's own children, and
-    so never reads a padded block.
-
-    `coarse_node_to_fine_node_map` fills its padding instead. The kernel
-    that reads that map visits every candidate.
-
-    The DG branch of `inject` reads through this map.
-
-    Parameters
-    ----------
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space.
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space, on the next level of the same hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the cells of ``Vc``'s mesh to the nodes of ``Vf``.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
