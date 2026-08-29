@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.mg.utils import transfer_node_subset
+from firedrake.mg.utils import preserved_node_sf
 from firedrake.utils import complex_mode
 
 
@@ -356,13 +356,10 @@ def _copied_nodes(mh, V):
     for level in range(len(mh) - 1):
         V_coarse = V.reconstruct(mesh=mh[level])
         V_fine = V.reconstruct(mesh=mh[level + 1])
-        subset = transfer_node_subset(V_coarse, V_fine)
-        # A Subset's .indices spans the owned range, like node_set.size does.
-        # But when nothing is preserved, transfer_node_subset falls back to
-        # the fine node_set itself, whose .indices spans the larger
-        # owned+halo total_size. Cap at node_set.size before differencing.
-        visited = min(len(subset.indices), V_fine.node_set.size)
-        copied += V_fine.node_set.size - visited
+        section_sf = preserved_node_sf(V_coarse, V_fine)
+        if section_sf is not None:
+            _, preserved, _ = section_sf.getGraph()
+            copied += len(preserved)
     return mh[0].comm.allreduce(copied, MPI.SUM)
 
 
