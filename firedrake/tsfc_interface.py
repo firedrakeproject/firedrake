@@ -193,7 +193,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(),
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
-    access : pyop2.Access
+    access : pyop2.types.access.Access
         Access mode for the output tensor.
 
     Returns

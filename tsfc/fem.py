@@ -418,8 +418,19 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
                 evaluation = gem.MathFunction("conj", evaluation)
             # The dual argument contracts over the nodes, so the basis indices
             # are reduction indices like the points, not return value indices.
-            evaluation = evaluation * gem_duals[0][basis_indices]
-            quadrature_multiindex += tuple(basis_indices)
+            # A direct sum tabulates into a Concatenate that splits only
+            # along the dual argument, so reduce each summand here.
+            dual, = gem.optimise.remove_componenttensors(
+                [gem_duals[0][basis_indices]]
+            )
+            summands = []
+            for var, expr in unconcatenate([(dual, evaluation)],
+                                           kernel_cfg["index_cache"]):
+                product = gem.Product(expr, var)
+                indices = tuple(i for i in var.index_ordering()
+                                if i in product.free_indices)
+                summands.append(gem.IndexSum(product, indices))
+            evaluation = gem.optimise.make_sum(summands)
             basis_indices = ()
 
     return evaluation, quadrature_multiindex, basis_indices
