@@ -1,294 +1,158 @@
 # Firedrake
 
 Firedrake is an automated system for the portable solution of partial differential equations using
-the finite element method. The codebase is primarily Python, relying heavily on code generation
-and high-performance C backends to achieve scalability and speed. Firedrake is highly composable and
-fully differentiable, enabling the automatic generation of tangent linear and adjoint models for
-PDE-constrained optimization.
-
-Firedrake's full contribution process is documented at
-[Contributing to Firedrake](https://firedrakeproject.org/contribute.html). In short, for AI-assisted
-contributions: declare that AI was used and which tool; a human must lead the PR, understand every
-change, and answer reviewer questions themselves rather than relaying them to the AI; the code must
-have been run locally to confirm it works; and AI should not be used to close issues labelled
-'good first issue'. The full, authoritative conditions are in the
-[AI contribution policy](https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy).
+the finite element method (FEM). The codebase is primarily Python, with code generation and
+high-performance C backends for scalability and speed.
 
 ## Project Architecture
 
-Firedrake solves variational problems discretized with finite elements through a coordinated
-toolchain:
+Firedrake's toolchain, in order:
 
-* **PETSc:** Firedrake relies on PETSc (specifically `DMPlex`) for scalable mesh management and
-  parallel data distribution. PETSc's `PC`/`KSP`/`SNES` are used extensively as the underlying
-  preconditioners and linear/nonlinear solvers, respectively.
-* **UFL (Unified Form Language):** Users symbolically specify their variational problems and forms
-  using UFL.
-* **TSFC (Two-Stage Form Compiler):** TSFC automatically generates highly optimized C code to assemble
-  the UFL integrals, in two stages:
-  1. **Lowering to GEM:** TSFC lowers UFL into the GEM tensor language. GEM represents expressions over
-     quadrature points involving compile-time pre-tabulated basis functions provided by **FInAT** and
-     **FIAT**.
-  2. **Lowering to Loopy:** The GEM expressions are then lowered into **loopy** kernels.
-* **PyOP2:** Finally, the generated loopy kernels are wrapped and executed by PyOP2, which handles the
-  parallel execution of loops over mesh cells and facets.
-* **pyadjoint:** Firedrake integrates with `pyadjoint` for algorithmic differentiation. Annotated
-  operations (assembly, interpolation, variational solves, boundary condition application, ...) are
-  recorded on a `Tape` as a DAG of `Block`s; a `ReducedFunctional` composed with one or more `Control`s
-  can then be evaluated, differentiated (adjoint or tangent-linear), and checked with a `taylor_test`.
-  Taping happens at the level of Firedrake's own operations, not the underlying numerics, so any new
-  feature assembled purely from already-annotated building blocks is differentiable automatically.
+* **PETSc:** `DMPlex` manages meshes and parallel data distribution. `PC`/`KSP`/`SNES` are the
+  preconditioners and linear/nonlinear solvers.
+* **UFL (Unified Form Language):** Users write variational problems and forms in UFL.
+* **TSFC (Two-Stage Form Compiler):** Generates optimized C to assemble UFL integrals, in two stages:
+  1. **Lowering to GEM:** TSFC lowers UFL into GEM, a tensor language for expressions over quadrature
+     points, using basis functions pre-tabulated by **FInAT** and **FIAT**.
+  2. **Lowering to Loopy:** GEM lowers into **loopy** kernels.
+* **PyOP2:** Wraps and executes the loopy kernels, parallelizing loops over mesh cells and facets.
 
 ## Core Working Rules
 
-* **Mathematical Root Causes:** Bug fixes must address the underlying core mathematical or
-  architectural issue. Do not merely patch particular failing test cases or edge cases.
-* **Generality Over Complexity:** Avoid increasing code complexity with complicated bookkeeping or
-  special-case logic. Firedrake relies on the mathematical generality of finite elements.
-* **Unified Abstractions:** Proper Firedrake code avoids branching on the wide range of discretizations
-  (e.g., cell type, polynomial degree, or finite element family) or execution states (serial vs. MPI
-  parallel). Rely on UFL, TSFC, PyOP2, and PETSc abstractions to handle these variations
-  transparently.
-* **Preserve Style:** Preserve Firedrake style and naming conventions. Keep edits minimal and local to
-  the requested change. Match existing patterns in the package you are modifying.
-* **Avoid Duplication:** Avoid unnecessary code duplication. Prefer reusing or extending nearby logic
-  when it keeps behavior clear and local. Do not add speculative abstractions or broad refactors unless
-  explicitly requested.
-* **Do Not Trust Memorized API Shapes:** Firedrake, UFL, and PETSc/petsc4py APIs change over time —
-  properties become methods, arguments get renamed, call signatures get deprecated. An LLM's trained
-  knowledge reflects a snapshot that may already be stale, and will confidently reproduce the old,
-  no-longer-correct form (e.g. calling a now-method as a bare attribute, or vice versa). Before calling
-  an API you have not just seen used in this codebase, verify its actual current signature by reading
-  the installed Firedrake/UFL/PETSc source rather than relying on memorized patterns.
-* **Document The Present, Not The Past:** When fixing code that was wrong, do not leave comments or
-  prose explaining what the removed, incorrect approach used to do or why it was wrong. Keep comments
-  and documentation focused on the current, correct code; a reader should never need the history of
-  what used to be there to understand why the present code is right.
-* **Composability And Differentiability:** New features are expected to compose with existing ones
-  without special-casing, and, via `pyadjoint`, to remain differentiable when built from already-taped
-  operations. Prefer the annotated, top-level API (e.g. `firedrake.assemble`) over a lower-level
-  equivalent that bypasses it (e.g. calling an `Interpolator`'s own `.assemble()` directly) even when
-  both give the same forward numbers — the lower-level call silently drops out of the tape, and no test
-  will notice unless it specifically exercises pyadjoint. When a change could plausibly sit on the tape,
-  verify differentiability explicitly with a `taylor_test`, not just a forward-value check.
+* **Mathematical Root Causes:** Fix the underlying mathematical or architectural cause. Do not patch
+  individual failing test cases.
+* **Generality Over Complexity:** Rely on the mathematical generality of finite elements. Do not add
+  special-case bookkeeping or branching.
+* **Unified Abstractions:** Do not branch on cell type, polynomial degree, element family, or serial
+  vs. MPI-parallel execution. Use the UFL/TSFC/PyOP2/PETSc abstraction that already handles it — see
+  Anti-Patterns.
+* **Preserve Coding Style:** Match the naming and patterns of the package you are editing. Keep edits minimal
+  and local to the requested change. However, do not match the terse, telegraphic style of existing
+  comments and docstrings.
+* **Avoid Duplication:** Reuse or extend nearby logic instead of duplicating it. Do not add speculative
+  abstractions or broad refactors unless asked.
+* **Do Not Trust Memorized API Shapes:** Read a Firedrake, UFL, or PETSc/petsc4py API's current
+  signature from the installed source before calling it, unless you have just seen it used in this
+  codebase.
+* **Document The Present, Not The Past:** Do not describe a removed or rejected approach in a comment
+  or docstring. Document only what the current code does.
 
 ## Coding Style And Conventions
 
-* **Class Attributes:** Every attribute a class can hold must be declared in one visible place, either
-  initialized in the constructor (`__init__`) or, for state that is expensive or unnecessary to compute
-  eagerly, declared as a `functools.cached_property`. Avoid discovering an attribute's existence via
-  `hasattr`/`setattr`/`getattr` scattered across methods — laziness is fine, ad hoc laziness is not.
-* **No Python Mesh Loops:** The Firedrake style strictly avoids using Python `for` loops to iterate
-  over degrees of freedom (DoFs) or cells in a mesh.
-* **Prefer Code Generation/PETSc:** All mesh-level or DoF-level operations must be implemented using
-  PyOP2-driven kernels or DMPlex operations. These should be accessed either through `petsc4py` or
-  Firedrake's internal Cython wrappers.
-* **NumPy Is Fine, Repeatedly Touching Whole Arrays Is Not:** NumPy is the right tool for index
-  computations, small metadata configurations, and vectorized pre/post-processing. The anti-pattern is
-  not "using NumPy" but iterating a large array element-by-element (in a Python `for` loop) or
-  otherwise touching the same whole array repeatedly outside of a single vectorized expression — that
-  is what defeats NumPy's own performance model, on top of bypassing PyOP2/code-generation for
-  mesh-bound data.
-* **Docstrings Are Always `numpydoc`:** Every docstring you write or touch — public API, private helper,
-  Cython function in `firedrake/cython/*.pyx`, test helper — must be `numpydoc`, using its section
-  headings (`Parameters`, `Returns`, `Raises`, `Notes`). Never write the old Sphinx field-list style
-  (`:arg x:`, `:param x:`, `:returns:`, `:rtype:`) in new or edited code, and do not copy it from the
-  surrounding file: much of Firedrake predates the convention, so matching the neighbouring docstrings
-  is precisely the wrong instinct — this is the one place where "preserve the existing style" does not
-  apply. Being private, internal, or compiled is not an excuse to skip the docstring, to downgrade its
-  format, or to leave the arguments undocumented: give every parameter and every return value its
-  `numpydoc` entry, however small the helper.
-* **Type Hints:** New code should include type hints on function/method signatures.
-* **Demos Are Literate Programs:** `pylit` converts each `demos/<name>/<name>.py.rst` into a `.py` that
-  `tests/firedrake/demos/test_demos_run.py` executes, so prose and code must stay in step. A paragraph
-  ending in `::` makes the indented block after it *executable*; a `.. code-block:: python` directive is
-  excluded from that rule, so its snippet renders in the docs but never runs. Prefer `::` — reach for
-  the directive only for an illustrative fragment naming things the demo never defines.
-
-## Design And Debugging Method
-
-How to spend effort on any feature or bug: the first three shape a design before writing code,
-the last two localize a failure before reading code.
-
-* **Design by nearest working neighbor.** Some existing feature already solves a structurally
-  identical problem. Grep for the invariant yours must satisfy (the type handled, the hook fired,
-  the kwarg accepted), read how the neighbor earns it, and implement only the delta.
-* **Write the state contract before the code.** For anything flowing through a cached, replayed,
-  or lazily-refreshed system, answer up front: who owns it, when is it refreshed, what happens on
-  reuse or in-place mutation, how does a replay recover it. Stale-state bugs fail far from their
-  cause and only under reuse.
-* **Classify the mathematical structure before choosing machinery.** Affine and linear
-  dependencies have closed-form contributions (identities, fixed operators, exact zeros for higher
-  derivatives); recognizing an exact zero lets you skip a code path instead of fixing it.
-* **Attribute before you analyze.** Shrink *where* with one-delta experiments — each ingredient
-  toggled in isolation against a known-good baseline, consecutive CI failure sets diffed, a single
-  hunk reverted, the merge base rerun — then read code for *why*.
-* **Census the consumers before changing a lifecycle.** Changing *when* or *how often* something
-  is computed (rather than its value) is safe only after grepping every access site: some consumer
-  calls it in a context you did not design for (per nonlinear iteration, inside a PETSc callback,
-  on every attribute read).
+* **Class Attributes:** Declare every attribute in `__init__`, or as a `functools.cached_property` for
+  state that is expensive to compute eagerly. Do not discover an attribute via
+  `hasattr`/`setattr`/`getattr` — see Anti-Patterns.
+* **No Python Mesh Loops:** Never iterate over degrees of freedom or cells with a Python `for` loop —
+  see Anti-Patterns.
+* **Prefer Code Generation/PETSc:** Implement mesh-level or DoF-level operations through PyOP2-driven
+  kernels or DMPlex, via `petsc4py` or Firedrake's Cython wrappers.
+* **NumPy For Vectorized Work Only:** Use NumPy for index computation and vectorized pre/post-processing.
+  Do not iterate a large array element-by-element, or touch the same whole array repeatedly outside one
+  vectorized expression.
+* **Docstrings and Type Hints:** The codebase is mid-migration and inconsistently documented and typed.
+  All public-facing APIs that you touch must be updated to `numpydoc`-style.
+  Add type hints to new function/method signatures.
 
 ## Testing Requirements
 
-* **Pull Requests:** All PRs must include comprehensive tests demonstrating that the new feature works
-  or the bug is fixed.
-* If behavior changes, update the relevant test blocks and ensure that parallel runs (MPI) yield
-  correct and identical mathematical results to serial runs.
-* Keep tests targeted. Add or update the narrowest test that proves the behavior you changed.
-* Do not create new test files for this. Add the new test(s) to the existing test file(s) that already
-  cover the feature or module being changed.
+* Add tests that demonstrate the new feature or bug fix, in the existing test file for that module.
+* When behavior changes, update the affected tests and confirm parallel (MPI) runs match serial
+  results.
+* Add or update the narrowest test that proves the change.
 
 ## Pull Request Expectations
 
-* All changes are expected to arrive through GitHub Pull Requests.
-* Keep diffs reviewable and focused.
-* Before concluding work, ensure `make srclint` passes, and verify that the relevant subset of the
-  pytest test suite succeeds locally.
+* All changes land through GitHub pull requests. Keep diffs focused.
+* Before requesting review: `make srclint`, ensure the relevant test subset is green, and read the
+  [pre-submission checklist](https://firedrakeproject.org/contribute.html#pre-submission-checklist) in
+  `docs/source/contribute.rst`.
+* Contributions assisted by AI must state which tool was used and apply the `LLM used` pull request label.
 
 ## Development Toolchain
 
 ### Environment Setup
 
-* **Editable installs across the stack:** A bug can live in Firedrake or in any of its component
-  packages (PETSc, petsc4py, UFL, FIAT, FInAT, TSFC, PyOP2, loopy). Follow the
-  ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages) instructions
-  in the install docs to get a component installed in editable mode so source edits take effect without
-  reinstalling, and check which branch/commit of each component is actually active before assuming a
-  fix belongs in Firedrake itself.
-* **Branch pairing across the stack:** Firedrake's `main` and `release` branches go hand in hand with
-  the `main` and `release` branches of its components (FIAT, UFL, ...). A CI failure may be
-  unreproducible locally simply because a component checkout in the venv sits on some other branch —
-  check `git -C $VIRTUAL_ENV/src/<pkg> branch`, switch to the branch matching the Firedrake branch
-  under test, run `firedrake-clean`, and reproduce again before hunting for the bug in Firedrake
-  itself.
-* **`petsc4py`/PETSc version skew:** `petsc4py` is a compiled extension built against one specific
-  PETSc checkout. If you switch the PETSc branch/commit underneath an existing venv (e.g. to bisect a
-  PETSc-side issue) without rebuilding `petsc4py` against it, `import firedrake` fails with a confusing
-  `undefined symbol: ...` error from `petsc4py`'s `.so` — not a Firedrake traceback, and easy to
-  misattribute to whatever you were just changing. Rebuild `petsc4py` (and re-run
-  `pip install --no-build-isolation -e .` for it) after switching PETSc, rather than debugging the
-  symptom.
-* **Caching:** Generated TSFC kernels and compiled PyOP2 code are cached on disk, under
-  `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR`. These are not pre-set shell variables — do not
-  expect `echo $PYOP2_CACHE_DIR` to show anything. `firedrake.configuration.setup_cache_dirs()` sets
-  them in-process, defaulting to `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`, as one of the first things
-  `import firedrake` does (right after PETSc initialization, before PyOP2 loads) unless you already
-  exported them yourself beforehand. This also means that if PETSc initialization itself fails (e.g.
-  the version-skew symptom above), these variables never get set at all. If a code-generation change
-  does not seem to take effect, or you suspect a stale kernel, run `firedrake-clean` before re-testing
-  (it prints the actual paths in use).
-* **Smoke test after install/rebuild:** `firedrake-check` runs a small grouped-by-process-count subset
-  of the regression suite; use it to sanity-check an environment before investing time in a full test
-  run.
+* **Editable installs:** Install PETSc, petsc4py, UFL, FIAT, FInAT, TSFC, PyOP2, and loopy in editable
+  mode (see ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages)) so
+  source edits take effect without reinstalling. Check each component's active branch/commit before
+  assuming a fix belongs in Firedrake.
+* **`petsc4py`/PETSc version skew:** Rebuild `petsc4py` (`pip install --no-build-isolation -e .`) after
+  switching the PETSc branch/commit under an existing venv. A stale `petsc4py` fails `import firedrake`
+  with an `undefined symbol: ...` error, not a Firedrake traceback.
+* **Caching:** `import firedrake` sets `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`, `PYOP2_CACHE_DIR`, and
+  `XDG_CACHE_HOME`, all derived from `FIREDRAKE_CACHE_DIR` (default `sys.prefix/.cache`, or `~/.cache`
+  if that isn't writable). Run `firedrake-clean` if a change to the code generator does not take
+  effect.
+* **Isolated cache:** Set `FIREDRAKE_CACHE_DIR` to a scratch directory before running Firedrake to keep
+  one variant's cached kernels from leaking into another's, e.g. for an A/B comparison.
+* **Scratch caches are yours to clean up:** `firedrake-clean` only clears the caches implied by the
+  *current* environment, so it can't find a `FIREDRAKE_CACHE_DIR` from an earlier, different run.
+  Delete a scratch cache directory yourself once you're done with it.
+* **Smoke test:** `firedrake-check` runs a process-count-grouped subset of the regression suite; use it
+  before a full run.
 
 ### Testing
 
-* **Parallel tests:** Tests that must run under MPI are marked `@pytest.mark.parallel` (optionally
-  `@pytest.mark.parallel(nprocs=N)` or `@pytest.mark.parallel([1, 3])` for multiple process counts), via
-  the `mpi-pytest` plugin. Plain `pytest test_foo.py` does exercise them: for each parallel test it
-  self-forks an `mpiexec` subprocess with the right `nprocs`, one test at a time, which is slow and
-  produces one nested pytest report per test. To instead run every `nprocs=3` test in `test_foo.py`
-  together, directly under a single outer `mpiexec`, filter on the `parallel[match]` marker that the
-  plugin attaches to tests whose `nprocs` equals the launched communicator size:
+* **Parallel tests:** Tests that need MPI are marked `@pytest.mark.parallel` (`nprocs=N`, or a list for
+  multiple counts), run via the `mpi-pytest` plugin. Plain `pytest test_foo.py` self-forks one
+  `mpiexec` subprocess per parallel test, one nested report each. Run every test at a given `nprocs`
+  together, under one outer `mpiexec`, filtered on `parallel[match]`:
   ```bash
   mpiexec -n 3 python -m pytest -m "parallel[match]" test_foo.py
   ```
-  Tests requiring a different `nprocs` are collected but skipped (not run) by this invocation; do not
-  conclude a parallel code path is untested just because a plain, unmarked `pytest` run was green.
-* **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI; look at
-  it (and `.github/workflows/pr.yml`/`core.yml`) if a failure only reproduces in CI and not locally.
-* **CI triage:** `gh pr checks <PR#>` lists job statuses. When `gh run view --log` returns nothing
-  (it does for very large logs), download the log with
-  `gh api repos/<org>/<repo>/actions/jobs/<job-id>/logs` and grep for `FAILED`. Before debugging
-  anything, fetch the failure list of the *previous* run of the same PR: the difference between the
-  two failure sets attributes each failure to the commits pushed in between.
+  Tests at other `nprocs` are collected but skipped. A green unmarked `pytest` run is not evidence
+  that the parallel tests passed.
+* **Splitting for CI:** `firedrake-run-split-tests` shards the suite by process count for CI. Check it
+  and `.github/workflows/pr.yml`/`core.yml` if a failure reproduces only in CI.
 * **Narrow reproduction first:** Run the single failing test node (`pytest path::test_name -k ...`)
-  before the full module; the suite is large and full-module reruns are slow to iterate against.
-* **Test mathematical correctness, not just that it runs or looks structurally right.** Neither "no
-  exception was raised" nor `==` agreement between two expressions proves the result is
-  correct — two independently-built expressions can match structurally while sharing the same wrong
-  derivative or simplification rule. Verify the actual mathematical claim: evaluate numerically and
-  compare against a  hand-computed or finite-difference value, or use a Taylor test for anything
-  claiming to be a derivative.
-* **Taylor-test-everything is the immune system:** Taylor-test a `ReducedFunctional`, ensuring that any
-  new feature built from existing, annotated Firedrake operations is automatically differentiable.
-
-### Documentation
-
-* **Verify docs compile cleanly before claiming a docstring change is done:** `cd docs && make html`
-  builds with Sphinx's `-W` flag (warnings are fatal) and `nitpicky = True` (every cross-reference must
-  resolve or the build fails). Passing `flake8`/type checks says nothing about this — a syntactically
-  fine `numpydoc` docstring can still break the docs build.
-* **Only members listed in a module's `__all__` are rendered:** `automodule` directives in
-  `docs/source/*.rst` use `:members: :undoc-members:`. If the module defines `__all__`, only those
-  names are documented — a public, non-underscore function/class outside `__all__` is silently skipped
-  by Sphinx, so its docstring is never checked by the build regardless of formatting.
-* **numpydoc `Parameters`/`Returns` type fields are cross-reference targets, not free text:** in
-  a rendered (i.e. `__all__`-listed) docstring, each `type` line is split on `,`/`|`/" or "/" of " and
-  every resulting token is turned into a `:py:class:` xref lookup. Concretely:
-  - A bare `, optional` suffix on a type line fails (`optional` isn't a class anywhere) — instead say
-    "Defaults to ..." in the description prose rather than appending `, optional` to the type.
-  - A local/short class name (e.g. `DirichletBC`) resolves automatically as long as that class is
-    itself documented elsewhere via its own `__all__`-gated `automodule` entry; you do not need to
-    spell out its full module path.
-  - For third-party types, use the fully-qualified dotted path that the type actually resolves under
-    (e.g. `pyop2.op2.Kernel`, not the locally-aliased `op2.Kernel`) — check
-    `docs/source/conf.py`'s `intersphinx_mapping` and `nitpick_ignore_regex` for what's already
-    reachable before assuming a new ignore-list entry is needed; grep existing docstrings for the same
-    type first, since there is almost always a working precedent to copy rather than a new
-    `nitpick_ignore_regex` entry to add.
+  before the full module.
 
 ### Debugging
 
-* **Generated kernels:** By default, generated C is compiled optimized and
-  without debug symbols, so a debugger attached to the Python process cannot meaningfully step through
-  it. Set `PYOP2_DEBUG=1` to compile with `-O0 -g` instead, which is the prerequisite for using
-  `gdb`/`cgdb` on the compiled kernel at all.
-* **Cross-rank code-generation mismatches:** If a parallel run raises `CompilationError: Generated code
-  differs across ranks`, the mismatching per-rank source is dumped under
-  `<cache_dir>/mismatching-kernels/src-rank*.c`. Diffing the two sources only tells you *what* differs;
-  the actual fix is almost always upstream of that, in whatever Python-level parameter or branch is
-  computed differently per rank and fed into code generation (e.g. a rank-local decision that should be
-  a collective/global one) — make that decision the same on every rank, rather than patching the
-  generated source or the difference itself.
-* **Parallel deadlocks:** `PYOP2_SPMD_STRICT=1` adds barriers around calls
-  marked `@collective` and around cache access, trading overhead for a much narrower failure point when
-  ranks disagree about control flow.
-* **Logging:** `firedrake.logging.set_log_level()` (or the `PYOP2_LOG_LEVEL` environment variable)
-  raises verbosity of Firedrake's/PyOP2's own logger, independent of PETSc's `-log_view`/`-info`.
-* **PETSc-level diagnostics:** Since the linear/nonlinear solve ultimately runs through petsc4py,
-  standard PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`, `-log_view`, `-start_in_debugger`)
-  can be passed through Firedrake's `solver_parameters` or the command line exactly as in a plain PETSc
+* **Generated kernels:** Set `PYOP2_DEBUG=1` to compile generated C with `-O0 -g`, needed for
+  `gdb`/`cgdb` on a compiled kernel.
+* **Mismatches when ranks generate different code:** `CompilationError: Generated code differs across
+  ranks` dumps the mismatching per-rank source under `<cache_dir>/mismatching-kernels/src-rank*.c`. Fix
+  the Python-level value that is computed differently per rank and that feeds into code generation, not
+  the generated source.
+* **Parallel deadlocks:** `PYOP2_SPMD_STRICT=1` adds barriers around `@collective` calls and
+  cache access, to narrow down where ranks disagree on control flow.
+* **Logging:** `firedrake.logging.set_log_level()` (or `PYOP2_LOG_LEVEL`) sets Firedrake/PyOP2 log
+  verbosity, independent of PETSc's `-log_view`/`-info`.
+* **PETSc-level diagnostics:** Pass PETSc options (`-ksp_view`, `-snes_view`, `-ksp_monitor`,
+  `-log_view`, `-start_in_debugger`) through `solver_parameters` or the command line, as in any PETSc
   application.
-* **Errors inside PETSc callbacks do not surface as their own traceback:** under pytest they often
-  appear as a bare `Segmentation fault` with no Firedrake frames; standalone they appear as
-  `petsc4py.PETSc.Error: error code 101` whose *first* chained traceback (e.g. a `TypeError` about
-  the callback context in `petscsnes.pxi`) describes the corrupted callback state, not the cause.
-  Rerun the failing test as a standalone script to expose the chained tracebacks, and read the PETSc
-  call stack inside the error (`PCSetUp_MG` → `SNESComputeFunction`, ...) to identify *which*
-  callback was executing.
-* **Construction-time code re-runs inside solver callbacks:** geometric multigrid coarsens the
-  entire problem lazily inside `PCSetUp`, through the `coarsen` singledispatch in
-  `firedrake/mg/ufl_utils.py` — whatever a feature does at construction time (e.g. `DirichletBC`
-  interpolating or projecting its boundary value into the space) is re-executed per level inside
-  that PETSc callback. Objects that carry solvers or attach DM hooks (a `Projector`, a variational
-  solver) must be built once and cached, never rebuilt on each call of an accessor that may fire
-  there: repeatedly constructing and garbage-collecting a solver stack inside `PCSetUp_MG` corrupts
-  the DM callback state and segfaults far from the allocation site. Extruded (hexahedral)
-  hierarchies are the stress test: tensor-product elements (NCE/NCF) have no dual-basis
-  interpolation, so paths that interpolate on simplices take the projection fallback there.
 
 ### Reproducible Environments
 
-* **Docker:** Pull one of the published images from
-  [Docker Hub](https://hub.docker.com/u/firedrakeproject) (e.g. `firedrakeproject/firedrake:latest`,
-  or `:dev-main`/`:dev-release` for the latest commit on each branch — see the
-  [install docs](https://firedrakeproject.org/install.html#docker)) to rule out "works on my machine"
-  environment drift before chasing a hard-to-reproduce bug.
+* **Docker:** Pull a published image from
+  [Docker Hub](https://hub.docker.com/u/firedrakeproject) (`firedrakeproject/firedrake:latest`, or
+  `:dev-main`/`:dev-release` — see the
+  [install docs](https://firedrakeproject.org/install.html#docker)) to rule out environment drift
+  before chasing a hard-to-reproduce bug.
+
+## Grammar & Style Rules for Technical Prose
+
+Write as an expert technical writer addressing a peer (a mathematician or software engineer).
+Use ASD-STE100. Write clear, complete sentences rather than grammatically convoluted shortcuts.
+All comments, docstrings, and documentation must adhere to the following standards:
+
+* **Active Verbs Over Noun-Stacking:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
+   - **WRONG:** `# Process boundary facet normal orientation sign correction.`
+   - **RIGHT:** `# Flips boundary facets so their normals point outside the mesh.`
+
+* **Explicit Relative Pronouns:** Never drop pronouns like `that`, `which`, or `where` to condense sentences.
+   - **WRONG:** `# Function updates tensor values modified during solve step.`
+   - **RIGHT:** `# Updates tensor values that were modified during the solve step.`
+
+* **Subject-Verb Alignment:** Ensure that introductory prepositional phrases modify the actual grammatical
+subject of the main clause. Avoid dangling modifiers.
+   - **WRONG**: `# Using the tangent linear model, $O(M)$ solves are needed.`
+   - **RIGHT**: `# The tangent linear approach requires $O(M)$ solves.`
 
 ## Anti-Patterns
 
-These must be avoided when writing code, and flagged when reviewing it.
+Each pattern below is a WRONG/RIGHT pair to read.
 
 ### Branching On Discretization Or Execution State
 
@@ -317,10 +181,9 @@ def stable_timestep(mesh, velocity, cfl=0.5):
     return dt
 ```
 
-RIGHT — `CellDiameter` is defined uniformly for every cell type, so the branch on `cellname()` does
-nothing but duplicate the same call. A per-cell timestep comes from interpolating into a `DG0` space,
-and its global minimum from a PETSc `Vec`'s own collective `min()`, called unconditionally by every
-rank rather than hand-rolled behind a `mesh.comm.rank` guard:
+RIGHT — `CellDiameter` is defined uniformly for every cell type, so the branch on `cellname()`
+duplicates the same call. A per-cell timestep comes from interpolating into a `DG0` space, and its
+global minimum from a PETSc `Vec`'s own collective `min()`, called unconditionally by every rank:
 
 ```python
 def stable_timestep(mesh, velocity, cfl=0.5):
@@ -351,10 +214,9 @@ class ResidualMonitor:
         print(f"iteration {it}: |F| = {norm(self._work)}")
 ```
 
-RIGHT — Laziness itself is fine — allocating a `Function` is not free, and this monitor may never be
-attached to a solve — but express it with `functools.cached_property` rather than ad hoc
-`hasattr`/`setattr`. The attribute is declared once, in the class body, and is computed and memoized
-automatically on first access:
+RIGHT — Express the laziness with `functools.cached_property` instead of ad hoc
+`hasattr`/`setattr`. The attribute is declared once, in the class body, computed and memoized on
+first access:
 
 ```python
 from functools import cached_property
@@ -404,17 +266,16 @@ class KSPWrapper:
         self._ksp.solve(b, x)
 ```
 
-This is exactly the pattern used by `PCSNESBase` (`firedrake/preconditioners/base.py`), the base class
-every Firedrake `PCBase`/`SNESBase` preconditioner inherits: its `__init__` sets
-`self.initialized = False`, and `setUp()` dispatches to `initialize()` or `update()` based on that flag
-rather than probing for the presence of state built by `initialize()`. A boolean records intent and is
-trivially greppable; `hasattr` is indistinguishable from "I forgot to initialize this" until it fails.
+`PCSNESBase` (`firedrake/preconditioners/base.py`), the base class that every
+`PCBase`/`SNESBase` preconditioner inherits, uses exactly this pattern: `__init__` sets
+`self.initialized = False`, and `setUp()` dispatches to `initialize()` or `update()` on that flag. A
+boolean is greppable; `hasattr` is indistinguishable from a forgotten initialization until it fails.
 
 ### Python-Level Looping Over Mesh-Bound Array Data
 
-WRONG — Pulling mesh/DoF data into a Python `for` loop, whether or not NumPy is involved. The problem
-is the loop, not NumPy: a genuinely vectorized NumPy expression over the same array would be fine, but
-would still bypass PyOP2/code-generation for anything mesh-bound:
+WRONG — Pulling mesh/DoF data into a Python `for` loop. The problem is the loop, not NumPy — a
+vectorized NumPy expression over the same array is fine, but still bypasses PyOP2/code-generation for
+mesh-bound data:
 
 ```python
 # Anti-pattern: Python-level loop over mesh coordinates instead of a code-generated kernel
@@ -448,10 +309,10 @@ non-variational, per-DoF transform), there are two sanctioned escape hatches, in
    par_loop((domain, instructions), dx, {"A": (A, RW), "B": (B, READ)})
    ```
 
-2. A compiled Cython loop over the raw DoF array, following the same pattern Firedrake's own
-   `firedrake/cython/` wrappers use for mesh-topology bookkeeping (see below), for the rare case where
-   even a `par_loop` kernel is too restrictive (e.g. the transform needs a general-purpose C library
-   call that loopy cannot express):
+2. A compiled Cython loop over the raw DoF array — the same pattern that Firedrake's own
+   `firedrake/cython/` wrappers use for bookkeeping on mesh topology (see below) — for the rare case
+   where a `par_loop` kernel cannot express the transform (e.g. it needs a general-purpose C library
+   call):
 
    ```cython
    # heavy_math.pyx, compiled ahead of time -- not a plain Python loop
@@ -466,16 +327,10 @@ non-variational, per-DoF transform), there are two sanctioned escape hatches, in
 
    called from Python as `apply_heavy_math(mesh.coordinates.dat.data)`.
 
-Compute-heavy operations that could otherwise be code-generated bypass Firedrake's parallelization,
-cache-optimization, and MPI scaling capabilities, acting as massive performance bottlenecks.
-
-This rule is about Python-level loops. Explicit loops over mesh entities (cells, facets, closures) are
-the norm, not an exception, inside Firedrake's own Cython wrappers in `firedrake/cython/`
-(`dmcommon.pyx`, `extrusion_numbering.pyx`, `mgimpl.pyx`, `patchimpl.pyx`, ...), which exist precisely
-to implement mesh-topology bookkeeping that has no UFL/TSFC representation — e.g. `create_cell_closure()`
-in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the FIAT-ordered closure map that later
-code generation depends on. These loops are compiled and typed (`cdef`/`PetscInt`,
-`@cython.boundscheck(False)`), operating directly on DMPlex point ranges rather than interpreted Python
-objects — that combination, not mere placement in a `.pyx` file, is what makes them acceptable. Do not
-use this as license to write a plain Python loop over `.dat.data` and call it fine because "Firedrake
-has C-level loops elsewhere."
+This rule is about Python-level loops. Firedrake's own Cython wrappers in `firedrake/cython/`
+(`dmcommon.pyx`, `extrusion_numbering.pyx`, `mgimpl.pyx`, `patchimpl.pyx`, ...) loop over mesh entities
+routinely, for bookkeeping on mesh topology with no UFL/TSFC representation — e.g. `create_cell_closure()`
+in `dmcommon.pyx` loops `for c in range(cStart, cEnd)` to build the closure map that code generation
+depends on. These loops are compiled and typed (`cdef`/`PetscInt`, `@cython.boundscheck(False)`), on
+DMPlex point ranges, not interpreted Python objects. A plain Python loop over `.dat.data` is not fine
+merely because "Firedrake has C-level loops elsewhere."
