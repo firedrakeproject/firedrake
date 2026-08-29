@@ -216,7 +216,7 @@ class PatchCallable:
     def _wrapper_kernel_code(self) -> str:
         temp_counter = itertools.count()
 
-        temps: list[tuple[str, tuple[int, ...]]] = []
+        temps: list[tuple[str, tuple[int, ...], numpy.dtype]] = []
         pack_insns: list[str] = []
         local_kernel_args: list[str] = []
 
@@ -234,7 +234,7 @@ class PatchCallable:
         if len(self.form.arguments()) == 2:
             row_size, column_size = sizes
 
-            temps.append((temp_name, (row_size, column_size)))
+            temps.append((temp_name, (row_size, column_size), PETSc.ScalarType))
 
             pack_insn = f"""\
 for (int32_t k=0; k<{row_size}*{column_size}; k++)
@@ -249,7 +249,7 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
         else:
             size, = sizes
 
-            temps.append((temp_name, (size,)))
+            temps.append((temp_name, (size,), PETSc.ScalarType))
 
             pack_insn = f"""\
 for (int32_t k=0; k<{size}; k++)
@@ -277,7 +277,7 @@ for (int32_t k=0; k<{size}; k++) {{
                         temp_name = f"t_{next(temp_counter)}"
                         map_name = self._names[map_]
                         arity = map_.arity
-                        temps.append((temp_name, (arity, cdim)))
+                        temps.append((temp_name, (arity, cdim), dat.dtype))
                         local_kernel_args.append(temp_name)
 
                         pack_insn = f"""\
@@ -291,7 +291,7 @@ for (int32_t k=0; k<{arity}; k++)
                     assert isinstance(dat, op2.Global)
                     if self.kinfo.integral_type.startswith("interior_facet"):
                         temp_name = f"t_{next(temp_counter)}"
-                        temps.append((temp_name, (2, cdim)))
+                        temps.append((temp_name, (2, cdim), dat.dtype))
                         local_kernel_args.append(temp_name)
 
                         pack_insn = f"""\
@@ -312,7 +312,7 @@ for (int32_t l=0; l<{cdim}; l++) {{
             assert self._state_index is not None
             temp_name = f"t_{next(temp_counter)}"
             size = sizes[0]
-            temps.append((temp_name, (size,)))
+            temps.append((temp_name, (size,), PETSc.ScalarType))
 
             local_kernel_args.insert(self._state_index, temp_name)
 
@@ -323,8 +323,8 @@ for (int32_t k=0; k<{size}; k++)
 
         # generate the rest
         temp_decls = []
-        for temp_name, temp_shape in temps:
-            temp_decl = f"PetscScalar {temp_name}[{'*'.join(map(str, temp_shape))}];"
+        for temp_name, temp_shape, temp_dtype in temps:
+            temp_decl = f"{as_cstr(temp_dtype)} {temp_name}[{'*'.join(map(str, temp_shape))}];"
             temp_decls.append(temp_decl)
         temp_decls_str = "\n".join(temp_decls)
         pack_insns_str = "\n".join(pack_insns)
