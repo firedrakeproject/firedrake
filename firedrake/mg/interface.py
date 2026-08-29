@@ -281,7 +281,8 @@ def inject(fine, coarse):
                          coarse.dat(op2.INC, coarse.cell_node_map()),
                          fine.dat(op2.READ, compose_map(fine)),
                          fine_coords.dat(op2.READ, compose_map(fine_coords)),
-                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()),
+                         utils.coarse_cell_child_count(Vc, Vf)(op2.READ))
 
         if needs_quadrature:
             # Transfer to the actual target space
