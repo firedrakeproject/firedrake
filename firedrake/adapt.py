@@ -91,7 +91,7 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, refined_mesh, redistribute=
 
     """
     _copy_adaptive_refinement_metadata(coarse_mesh, refined_mesh)
-    if not (redistribute and refined_mesh.has_empty_rank):
+    if not (redistribute and refined_mesh.any_rank_is_empty):
         return refined_mesh
     redist_mesh = Submesh(refined_mesh, redistribute=True, name=refined_mesh.name)
     _copy_adaptive_refinement_metadata(refined_mesh, redist_mesh)
