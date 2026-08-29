@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy
 from fractions import Fraction
 from pyop2 import op2
@@ -73,13 +75,10 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # Adaptive refinement gives coarse cells different numbers of fine
-        # descendants. Each row of coarse_to_fine_nodes is therefore padded
-        # with -1, out to the busiest coarse cell's count, and op2.Map cannot
-        # hold a negative index. Fill each padded slot with a duplicate of a
-        # real entry from its own row. The injection kernel only reads
-        # through this map, and picks the candidate that matches the coarse
-        # node's physical location, so a repeated entry changes nothing.
+        # op2.Map cannot hold the -1 that pads a short row, so fill each
+        # padded slot with a real entry from its own row. The injection
+        # kernel picks the candidate that matches the coarse node's physical
+        # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
         if not nonempty[:Vc.node_set.size].all():
@@ -151,17 +150,16 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
                                              offset=offset))
 
 
-def coarse_cell_child_count(Vc, Vf):
+def coarse_cell_child_count(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> op2.Dat:
     """Count the fine cells that each coarse cell was refined into.
 
-    Uniform refinement gives every coarse cell the same number of children.
-    Every count then equals the width of a `coarse_cell_to_fine_node_map`
-    row. Adaptive refinement leaves some coarse cells alone, and splits
-    others. A coarse cell then has from one child up to the busiest cell's
-    count. The map pads its short rows out to that busiest count.
-
-    The DG injection kernel reads this count. It stops at a coarse cell's
-    own children, and so leaves that padding alone.
+    A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
+    coarse cell's count, so its width overstates how many children most cells
+    have. The DG injection kernel reads this count to stop at a coarse cell's
+    own children, and so leaves the padding alone.
 
     Parameters
     ----------
@@ -173,7 +171,9 @@ def coarse_cell_child_count(Vc, Vf):
     Returns
     -------
     pyop2.types.dat.Dat
-        One count per cell of ``Vc``'s mesh, over that mesh's cell set.
+        One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
+        cells are left at zero: a par_loop visits the core and owned parts
+        only, so the kernel never reads them.
 
     """
     mesh = Vc.mesh()

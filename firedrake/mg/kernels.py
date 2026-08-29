@@ -615,10 +615,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     offsets = [entity * arg.shape[0] if arg.name in macro_names else None
                for arg in eval_args]
 
-    # A coarse cell that adaptive refinement left alone has fewer children
-    # than the busiest cell of the level, and coarse_cell_to_fine_node_map
-    # pads its row out to that width. Stop at this cell's own children, so
-    # the padding is never read.
+    # Stop at this coarse cell's own children, so the kernel never reads the
+    # padded slots of its coarse_cell_to_fine_node_map row.
     nchild_arg = lp.GlobalArg("nchild", dtype=IntType, shape=(1,))
     domains.append(f"{{ [entity]: 0 <= entity < {ncell} }}")
     fill_insn, extra_domains = _generate_call_insn(
