@@ -16,9 +16,6 @@ import gem.impero_utils as impero_utils
 
 import finat
 from finat.element_factory import as_fiat_cell
-from finat.point_set import UnknownPointSet
-from finat.quadrature import QuadratureRule
-from finat.ufl import FiniteElement, TensorElement
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
@@ -157,23 +154,9 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
         target_domain.topological_dimension == 0
         and source_domain.topological_dimension > 0
     ):
-        cell = source_domain.ufl_cell()
-        point_expr = gem.Variable("rt_X", (1, cell.topological_dimension))
-        point_set = UnknownPointSet(point_expr)
-        rule = QuadratureRule(
-            point_set, weights=[1.0], ref_el=as_fiat_cell(cell)
+        target_element = ufl_utils.runtime_quadrature_element(
+            source_domain, target_element
         )
-        shape = target_element.pullback.physical_value_shape(
-            target_element, target_domain
-        )
-        target_element = FiniteElement(
-            "Quadrature", cell=cell, degree=0, quad_scheme=rule
-        )
-        if shape:
-            symmetry = None if len(shape) < 2 else expression.ufl_element().symmetry()
-            target_element = TensorElement(
-                target_element, shape=shape, symmetry=symmetry
-            )
 
     operand = apply_mapping(operand, target_element, source_domain)
     operand = ufl_utils.preprocess_expression(
@@ -259,7 +242,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
     mesh = integral_data.domain
-    if isinstance(integral_data, TSFCInterpolationData):
+    expression = getattr(integral_data, "expression", None)
+    if expression is not None:
         iteration_domain = integral_data.iteration_domain
         all_meshes = tuple(integral_data.domain_integral_type_map)
     else:
@@ -294,10 +278,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
     ctx = builder.create_context()
-    if isinstance(integral_data, TSFCInterpolationData):
+    if expression is not None:
         params = parameters.copy()
         interpolate_exprs = builder.compile_interpolate(
-            integral_data.expression, integral_data.target_element, params, ctx
+            expression, integral_data.target_element, params, ctx
         )
         builder.stash_integrals(interpolate_exprs, params, ctx)
     else:
@@ -444,7 +428,8 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
                       integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
-                      argument_multiindices=argument_multiindices,
+                      argument_multiindices=tuple(argument_multiindices[n]
+                                                  for n in sorted(argument_multiindices)),
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
 
@@ -454,11 +439,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     except KeyError:
         # FInAT only elements
         raise NotImplementedError(f"Don't know how to create FIAT element for {ufl_element}")
-
-    # Allow interpolation onto QuadratureElements to refer to the quadrature
-    # rule they represent
-    if isinstance(to_element, finat.QuadratureElement):
-        kernel_cfg["quadrature_rule"] = to_element._rule
 
     evaluation, quadrature_multiindex, basis_indices = fem.dual_evaluate(expression, to_element, kernel_cfg)
     dual_arg, _ = expression.argument_slots()

@@ -236,11 +236,38 @@ class ExtractSubBlock(MultiFunction):
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
 
+    def _zero_interpolate(self, o):
+        """Result of an Interpolate whose operand or target block is Zero."""
+        if self._splitting_interpolate:
+            return self(ZeroBaseForm(o.arguments()))
+        return Zero(o.ufl_shape)
+
+    @staticmethod
+    def _select_components(V, indices, operand):
+        """Flatten the sub-blocks of ``operand`` whose subspace is in ``indices``."""
+        components = []
+        cur = 0
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(operand[k] for k in range(cur, cur + Vi.value_size))
+            cur += Vi.value_size
+        return components
+
+    @staticmethod
+    def _embed_components(V, indices, values):
+        """Embed ``values`` into V's full shape, zero outside ``indices``."""
+        values = iter(values)
+        components = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(next(values) for _ in range(Vi.value_size))
+            else:
+                components.extend(Zero() for _ in range(Vi.value_size))
+        return components
+
     def interpolate(self, o, operand):
         if isinstance(operand, Zero):
-            if self._splitting_interpolate:
-                return self(ZeroBaseForm(o.arguments()))
-            return Zero(o.ufl_shape)
+            return self._zero_interpolate(o)
 
         dual_arg, _ = o.argument_slots()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
@@ -258,34 +285,19 @@ class ExtractSubBlock(MultiFunction):
         W = sub_dual_arg.function_space()
 
         # Unflatten the expression into the target shape
-        cur = 0
-        components = []
-        for i, Vi in enumerate(V):
-            if i in indices:
-                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
-            cur += Vi.value_size
-
+        components = self._select_components(V, indices, operand)
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
-            if self._splitting_interpolate:
-                return self(ZeroBaseForm(o.arguments()))
-            return Zero(o.ufl_shape)
+            return self._zero_interpolate(o)
 
         interpolation = o._ufl_expr_reconstruct_(operand, sub_dual_arg)
         if self._splitting_interpolate:
             return interpolation
 
-        interpolation_components = iter(
+        interpolation_components = (
             interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape)
         ) if interpolation.ufl_shape else iter((interpolation,))
-        components = []
-        for i, Vi in enumerate(V):
-            if i in indices:
-                components.extend(
-                    next(interpolation_components) for _ in range(Vi.value_size)
-                )
-            else:
-                components.extend(Zero() for _ in range(Vi.value_size))
+        components = self._embed_components(V, indices, interpolation_components)
         return as_tensor(numpy.reshape(components, V.value_shape))
 
 
