@@ -39,7 +39,7 @@ Prizes
 
 The prizes for best presentation by a student or postdoc were won by Fabian
 Laakmann and
-`Reuben Nixon-Hill <https://www.imperial.ac.uk/people/reuben.nixon-hill10>`_.
+Reuben Nixon-Hill.
 
 Each winner receives a copy of `PETSc for Partial Differential Equations:
 Numerical Solutions in C and Python <https://epubs.siam.org/doi/10.1137/1.9781611976311>`_

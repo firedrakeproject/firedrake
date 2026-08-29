@@ -34,6 +34,8 @@ srclint:
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+	@echo "    Linting Cython code"
+	@cython-lint firedrake/cython
 
 .PHONY: actionlint
 actionlint:

@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -354,7 +355,12 @@ def test_DG0(mh, operator):
         u_fine.interpolate(stepf)
         assert errornorm(stepf, u_fine) <= 1e-12
 
-        inject(u_fine, u_coarse)
+        if complex_mode:
+            with pytest.raises(NotImplementedError):
+                inject(u_fine, u_coarse)
+            return
+        else:
+            inject(u_fine, u_coarse)
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
