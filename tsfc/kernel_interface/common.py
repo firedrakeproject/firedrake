@@ -404,6 +404,15 @@ def _terminal_reductions(assignments):
     return terminal
 
 
+def get_index_ordering(quadrature_indices, return_variables, assignments=()):
+    """Return the single best-guess outermost loop ordering.
+
+    For callers that compile one ordering rather than costing several.
+    """
+    return index_orderings(quadrature_indices, return_variables,
+                           assignments)[0]
+
+
 def index_orderings(quadrature_indices, return_variables, assignments=()):
     """Return the candidate outermost loop orderings, best guess first.
 
