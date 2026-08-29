@@ -85,7 +85,8 @@ def main():
         warn(f"""\
 You have selected an older configuration of Firedrake that we no longer test:
 
-  {arch_key_str} (last modified {arch.last_modified})
+  {arch_key_str}
+  (last modified {arch.last_modified})
 
 If you encounter issues please get in touch with the Firedrake team on GitHub or Slack.""")
     elif arch_key in COMMUNITY_ARCHS:
@@ -93,7 +94,8 @@ If you encounter issues please get in touch with the Firedrake team on GitHub or
         warn(f"""\
 You have selected an untested, community-maintained Firedrake configuration:
 
-  {arch_key_str} (last modified {arch.last_modified})
+  {arch_key_str}
+  (last modified {arch.last_modified})
 
 If you encounter issues please contact {arch.maintainer} {arch.contact}.""")
     else:
@@ -243,6 +245,10 @@ def detect_os() -> "OS":
                         return OS.UBUNTU_2604_X86_64
                     elif platform.machine() == "aarch64":
                         return OS.UBUNTU_2604_AARCH64
+            elif os_info["NAME"] == "Fedora Linux":
+                if os_info["VERSION_ID"] == "44":
+                    if platform.machine() == "x86_64":
+                        return OS.FEDORA_44_X86_64
 
     elif platform.system() == "Darwin":
         if platform.machine() == "arm64":
@@ -259,6 +265,7 @@ class OS(enum.Enum):
     UBUNTU_2404_AARCH64 = "ubuntu24.04-aarch64"
     UBUNTU_2604_X86_64 = "ubuntu26.04-x86_64"
     UBUNTU_2604_AARCH64 = "ubuntu26.04-aarch64"
+    FEDORA_44_X86_64 = "fedora44-x86_64"
     MACOS_ARM64 = "macos-arm64"
     UNKNOWN = "unknown"
 
@@ -1367,6 +1374,66 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
         extra_url="https://repo.radeon.com/amdgpu-install/7.2.4/ubuntu/noble/amdgpu-install_7.2.4.70204-1_all.deb",
     ),
 
+    (OS.FEDORA_44_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.NO_GPU): CommunityArch(
+        name="default",
+        maintainer="Thomas Duvernay",
+        contact="at thomas.duvernay@proton.me",
+        last_modified="2026-08-17",
+        system_packages=[
+            "@development-tools",
+            "@c-development",
+            "boost-openmpi-devel",
+            "cmake",
+            "gcc-gfortran",
+            "ninja-build",
+            "pkgconf-pkg-config",
+            "python3-devel",
+            "python3-pip",
+
+            # PETSc external packages
+            "fftw-devel",
+            "fftw-openmpi-devel",
+            "hdf5-openmpi-devel",
+            "hwloc-devel",
+            "hypre-openmpi-devel",
+            "lapack-devel",
+            "MUMPS-openmpi-devel",
+            "netcdf-openmpi-devel",
+            "openblas-devel",
+            "openmpi-devel",
+            "ptscotch-openmpi-devel",
+            "scalapack-openmpi-devel",
+            "suitesparse-devel",
+            "SuperLU-devel",
+            "superlu_dist-openmpi-devel"
+        ],
+        extra_petsc_configure_options=[
+            "--with-bison",
+            "--with-fftw",
+            "--with-hdf5-include=/usr/include/openmpi-x86_64",
+            "--with-hdf5-lib=[/usr/lib64/openmpi/lib/libhdf5.so,/usr/lib64/openmpi/lib/libhdf5_hl.so]",
+            "--with-hwloc",
+            "--with-hypre",
+            "--download-metis",
+            "--with-mumps",
+            "--with-netcdf",
+            "--download-pnetcdf",
+            "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/openmpi-x86_64/scotch",
+            "--with-scalapack-lib=/usr/lib64/openmpi/lib/libscalapack.so",
+            "--with-suitesparse",
+            "--with-superlu_dist",
+            "--with-zlib",
+        ],
+        coptflags=["-O3", "-march=native", "-mtune=native"],
+        cxxoptflags=["-O3", "-march=native", "-mtune=native"],
+        foptflags=["-O3", "-march=native", "-mtune=native"],
+        include_dirs=[
+            "/usr/include/openmpi-x86_64/hypre",
+            "/usr/include/openmpi-x86_64/superlu_dist",
+        ],
+    ),
 }
 
 

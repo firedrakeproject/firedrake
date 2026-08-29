@@ -10,10 +10,12 @@ from pathlib import Path
 
 import libsupermesh
 import firedrake_rtree
+import rtree
 import numpy as np
 import pybind11
 import petsctools
 from Cython.Build import cythonize
+import Cython.Compiler.Options as cython_options
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
@@ -137,6 +139,19 @@ rtree_ = ExternalDependency(
     ],
 )
 
+# libspatialindex
+# example:
+# gcc -I/rtree/include
+# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
+libspatialindex_so = Path(rtree.core.rt._name).absolute()
+spatialindex_ = ExternalDependency(
+    include_dirs=[rtree.finder.get_include()],
+    extra_link_args=[str(libspatialindex_so)],
+    runtime_library_dirs=[
+        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+    ],
+)
+
 # libsupermesh
 # example:
 # gcc -Ipath/to/libsupermesh/include
@@ -204,7 +219,7 @@ def extensions():
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(mpi_ + petsc_ + numpy_ + libsupermesh_)
+        **(mpi_ + petsc_ + numpy_ + libsupermesh_ + spatialindex_)
     ))
     # pyop2/sparsity.pyx: petsc, numpy,
     cython_list.append(Extension(
@@ -222,6 +237,8 @@ def extensions():
         sources=sorted(glob("tinyasm/*.cpp")),  # Sort source files for reproducibility
         **(mpi_ + petsc_ + pybind11_)
     ))
+    cython_options.extra_warnings = True
+    cython_options.warning_errors = True
     return cythonize(cython_list) + pybind11_list
 
 
