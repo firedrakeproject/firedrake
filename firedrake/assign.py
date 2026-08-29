@@ -707,8 +707,10 @@ class Assigner:
         moves the result into the target layout.
 
         ``target_is_leaf`` says which of the two carries the subset of the
-        nodes. Data travels from root to leaf by broadcast, and from leaf to
-        root by reduction. Only a reduction can miss nodes.
+        nodes. Data travels from root to leaf by broadcast, which reaches
+        every leaf, and from leaf to root by reduction, which reaches only
+        the owned roots that a leaf points at. Only a reduction can therefore
+        miss nodes, and only a reduction leaves the halo stale.
         """
         target_V = lhs_func.function_space()
         source_V, = set(f.function_space() for f in funcs)
@@ -790,17 +792,12 @@ class Assigner:
         if target_is_leaf:
             section_sf.bcastBegin(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
             section_sf.bcastEnd(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
-            # Every node of a submesh, including its halo, has a counterpart
-            # in the parent.
             covered = np.ones(target_buffer_data.shape[0], dtype=bool)
             halos_valid = True
         else:
             section_sf.reduceBegin(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
             section_sf.reduceEnd(mtype, source_buffer_data, target_buffer_data, MPI.REPLACE)
-            # Only the owned parent nodes that the source covers have been
-            # reduced into; the parent halo never is.
-            covered = np.zeros(target_buffer_data.shape[0], dtype=bool)
-            covered[:target_V.dof_dset.size] = covered_roots[:target_V.dof_dset.size]
+            covered = covered_roots
             halos_valid = False
         return target_buffer.dat.data_ro_with_halos, covered, halos_valid
 
