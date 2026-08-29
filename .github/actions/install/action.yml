@@ -164,19 +164,15 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
-        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/interp-mixed
-        pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/ufl.git@pbrubeck/interpolate-holes
-        firedrake-clean
-        pip list
-
-    - name: 'DROP BEFORE MERGE: build FIAT from the PR stack'
-      shell: bash
-      run: |
-        . venv/bin/activate
-        : # Head of the stack firedrakeproject/fiat#282 -> #284 -> #281 -> #286
+        : # DROP BEFORE MERGE: this branch integrates several PR stacks, so it
+        : # needs the FIAT and UFL branches that integrate the siblings of
+        : # those stacks rather than any one stack's head.  This has to land
+        : # before anything imports Firedrake, firedrake-clean below included.
         pip install --no-deps --force-reinstall --ignore-installed \
-          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/coffee-scalar-factor
-        : # The code generators changed, so discard kernels built against main
+          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/gn-multigrid
+        pip install --no-deps --force-reinstall --ignore-installed \
+          git+https://github.com/firedrakeproject/ufl.git@pbrubeck/gn-multigrid
+
         firedrake-clean
         pip list
 
