@@ -325,7 +325,7 @@ def test_submesh_assign_function_redistributed(mesh_type, family, degree):
     mesh = UnitSquareMesh(4, 4, quadrilateral=(mesh_type == "quadrilateral"))
     submesh = Submesh(mesh, redistribute=True)
     assert submesh.topology.submesh_parent is mesh.topology
-    assert submesh.topology.submesh_point_sf is not None
+    assert submesh.topology.is_redistributed
 
     V = FunctionSpace(mesh, family, degree)
     V_sub = FunctionSpace(submesh, family, degree)
@@ -396,7 +396,9 @@ def test_submesh_assign_cell_subset_redistributed():
     composed.assign(f_sub, subset=mesh.cell_subset(7), allow_missing_dofs=True)
     written = composed.dat.data_ro != sentinel
     assert np.allclose(composed.dat.data_ro[written], source.dat.data_ro[written])
-    assert mesh.comm.allreduce(int(written[:V.dof_dset.size].sum())) == 91
+    # The submesh covers the marked cells, so its nodes are exactly the ones
+    # written. Which they are cannot depend on how the mesh is partitioned.
+    assert mesh.comm.allreduce(int(written[:V.dof_dset.size].sum())) == f_sub.function_space().dim()
 
 
 @pytest.mark.parametrize("family,degree", [("CG", 3), ("RT", 2)])

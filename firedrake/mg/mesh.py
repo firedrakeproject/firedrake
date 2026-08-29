@@ -43,7 +43,9 @@ class HierarchyBase(object):
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
         List of numpy arrays for each level pair, mapping each coarse cell
-        into fine cells it intersects.
+        into fine cells it intersects. Every row is as wide as the busiest
+        coarse cell's count, so a coarse cell with fewer fine cells has its
+        row right-padded with -1.
     fine_to_coarse_cells :
         List of numpy arrays for each level pair, mapping each fine cell into
         coarse cells it intersects.
@@ -331,7 +333,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
-        if redistribute and fmesh.has_empty_rank:
+        if redistribute and fmesh.any_rank_is_empty:
             fmesh = firedrake.Submesh(fmesh, redistribute=True)
         cdm = make_unoverlapped_dm(fmesh.topology_dm)
         lgmaps.append((impl.create_lgmap(cdm), impl.create_lgmap(fmesh.topology_dm)))

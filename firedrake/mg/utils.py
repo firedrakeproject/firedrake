@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy
 from fractions import Fraction
 from mpi4py import MPI
@@ -22,32 +24,6 @@ def identity_node_map(V):
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
-    """Map each fine node to the nodes of its parent coarse cell.
-
-    A fine cell has exactly one parent. This holds for uniform refinement
-    and for adaptive refinement. ``hierarchy.fine_to_coarse_cells`` is
-    therefore one column wide, and it holds no padding. This map needs no
-    special handling for adaptive refinement.
-
-    `coarse_node_to_fine_node_map` runs in the other direction. There the
-    number of children varies, and padding does appear.
-
-    `prolong` and `restrict` both read through this map.
-
-    Parameters
-    ----------
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space.
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space, on the previous level of the same
-        hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the nodes of ``Vf`` to the nodes of ``Vc``.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
@@ -83,40 +59,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
-    """Map each coarse node to the fine nodes it could come from.
-
-    A coarse node gets one candidate per fine cell that descends from it.
-    Uniform refinement gives every coarse cell the same number of children.
-    Every row is then full. Adaptive refinement gives them different
-    numbers. ``hierarchy.coarse_to_fine_cells`` then right-pads its short
-    rows with -1, out to the busiest coarse cell's count.
-
-    This map fills that padding, because `op2.Map` cannot hold a negative
-    index. `fine_node_to_coarse_node_map` runs in the other direction. One
-    parent per fine cell makes padding impossible there.
-
-    Injection into a space with a pointwise dual basis reads through this
-    map. Injection into a DG space uses `coarse_cell_to_fine_node_map`
-    instead. That map handles its padding a different way.
-
-    Parameters
-    ----------
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space.
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space, on the next level of the same hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the nodes of ``Vc`` to the nodes of ``Vf``.
-
-    Raises
-    ------
-    RuntimeError
-        If an owned coarse node has no fine node to inject from.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
@@ -146,20 +88,10 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # Adaptive refinement gives coarse cells different numbers of fine
-        # descendants. Each row of coarse_to_fine_nodes is therefore padded
-        # with -1, out to the busiest coarse cell's count, and op2.Map cannot
-        # hold a negative index. Fill each padded slot with a duplicate of a
-        # real entry from its own row. The injection kernel only reads
-        # through this map, and picks the candidate that matches the coarse
-        # node's physical location, so a repeated entry changes nothing.
-        #
-        # Every rank runs this fill. The partition decides which rows hold
-        # padding, so the fill must not depend on a rank-local test.
-        # The check covers the owned rows alone. coarse_to_fine_cells spans
-        # the owned coarse cells, so most halo rows hold no candidate at all.
-        # Those rows keep the zero filler, and injection visits owned nodes
-        # only, so nothing reads them.
+        # op2.Map cannot hold the -1 that pads a short row, so fill each
+        # padded slot with a real entry from its own row. The injection
+        # kernel picks the candidate that matches the coarse node's physical
+        # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
         if not nonempty[:Vc.node_set.size].all():
@@ -176,36 +108,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
-    """Map each coarse cell to the fine nodes of all its children.
-
-    Each row holds one block of nodes per child cell. The blocks are stored
-    back to back. Uniform refinement gives every coarse cell the same number
-    of children, so every row is full. Adaptive refinement gives them
-    different numbers. ``hierarchy.coarse_to_fine_cells`` then right-pads
-    its short rows with -1, and that padding reaches this map.
-
-    The padding stays as it is. The DG injection kernel reads
-    `coarse_cell_child_count`. It stops at a coarse cell's own children, and
-    so never reads a padded block.
-
-    `coarse_node_to_fine_node_map` fills its padding instead. The kernel
-    that reads that map visits every candidate.
-
-    The DG branch of `inject` reads through this map.
-
-    Parameters
-    ----------
-    Vc : firedrake.functionspaceimpl.WithGeometry
-        The coarse function space.
-    Vf : firedrake.functionspaceimpl.WithGeometry
-        The fine function space, on the next level of the same hierarchy.
-
-    Returns
-    -------
-    pyop2.types.map.Map
-        A map from the cells of ``Vc``'s mesh to the nodes of ``Vf``.
-
-    """
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
@@ -261,17 +163,16 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
                                              offset=offset))
 
 
-def coarse_cell_child_count(Vc, Vf):
+def coarse_cell_child_count(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> op2.Dat:
     """Count the fine cells that each coarse cell was refined into.
 
-    Uniform refinement gives every coarse cell the same number of children.
-    Every count then equals the width of a `coarse_cell_to_fine_node_map`
-    row. Adaptive refinement leaves some coarse cells alone, and splits
-    others. A coarse cell then has from one child up to the busiest cell's
-    count. The map pads its short rows out to that busiest count.
-
-    The DG injection kernel reads this count. It stops at a coarse cell's
-    own children, and so leaves that padding alone.
+    A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
+    coarse cell's count, so its width overstates how many children most cells
+    have. The DG injection kernel reads this count to stop at a coarse cell's
+    own children, and so leaves the padding alone.
 
     Parameters
     ----------
@@ -283,7 +184,9 @@ def coarse_cell_child_count(Vc, Vf):
     Returns
     -------
     pyop2.types.dat.Dat
-        One count per cell of ``Vc``'s mesh, over that mesh's cell set.
+        One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
+        cells are left at zero: a par_loop visits the core and owned parts
+        only, so the kernel never reads them.
 
     """
     mesh = Vc.mesh()
@@ -339,7 +242,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
     -------
     PETSc.SF
         An SF with roots on the points of ``coarse_mesh`` and leaves on the
-        unrefined points of ``fine_mesh``. Returns `None` if refinement
+        unrefined points of ``fine_mesh``. It has no leaves where refinement
         changed every cell, as a uniform refinement does.
 
     """
@@ -350,12 +253,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
         fine_plex, fine_mesh._cell_numbering,
         coarse_to_fine,
     )
-    leaves, = numpy.nonzero(fine_to_coarse_points >= 0)
-    # A uniform refinement preserves no points. Every rank must agree on
-    # whether to build the SF at all, not just the ranks with no leaves.
-    if not fine_plex.comm.tompi4py().allreduce(len(leaves) > 0, op=MPI.LOR):
-        return None
-    leaves = leaves.astype(IntType)
+    leaves = numpy.nonzero(fine_to_coarse_points >= 0)[0].astype(IntType)
     # Refinement acts on each rank's own plex. A fine point and the coarse
     # point it was copied from always live on the same rank.
     remote = numpy.empty((len(leaves), 2), dtype=IntType)
@@ -367,7 +265,10 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
     return point_sf
 
 
-def preserved_node_sf(Vc, Vf):
+def preserved_node_sf(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> PETSc.SF | None:
     """Find the nodes that adaptive refinement leaves unchanged.
 
     An unrefined cell has the same nodes in both spaces. The transfer
@@ -383,21 +284,28 @@ def preserved_node_sf(Vc, Vf):
 
     Returns
     -------
-    PETSc.SF
-        An SF with roots on the nodes of ``Vc`` and leaves on the matching
-        nodes of ``Vf``. Returns `None` if no nodes match.
+    PETSc.SF or None
+        An SF with roots on the nodes of ``Vc`` and leaves on the owned nodes
+        of ``Vf`` that match. `None` says that no node matches anywhere, so
+        that a caller can skip the copy and evaluate every node instead.
+
+    Notes
+    -----
+    Four things stop any node from matching, and every rank reaches the same
+    verdict on each of them:
+
+    * the two spaces lay their nodes out differently, because their elements
+      or their boundary sets differ;
+    * one of the meshes is extruded. Its DMPlex holds the base mesh alone, so
+      a point there stands for a whole vertical column of nodes and a
+      `PETSc.Section` cannot address one node within that column;
+    * the two meshes are not consecutive levels of one hierarchy;
+    * the refinement is uniform, and so rebuilt every cell.
 
     """
     if Vc.ufl_element() != Vf.ufl_element() or Vc.boundary_set != Vf.boundary_set:
-        # A space and its counterpart on the refined mesh use the same node
-        # layout on an unrefined cell only when the element and the boundary
-        # set both match.
         return None
     if Vc.extruded or Vf.extruded:
-        # The DMPlex of an extruded mesh stores only the 2D base mesh. Each
-        # point there represents a whole vertical column of nodes, and a
-        # Section cannot address one node within that column. Give up here
-        # and let the transfer kernel evaluate every node instead.
         return None
     hierarchy, levelc = get_level(Vc.mesh())
     _, levelf = get_level(Vf.mesh())
@@ -411,8 +319,6 @@ def preserved_node_sf(Vc, Vf):
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         point_sf = _preserved_point_sf(Vc.mesh().topology, Vf.mesh().topology,
                                        coarse_to_fine)
-        if point_sf is None:
-            return cache.setdefault(key, None)
         root_section = Vc.dm.getSection()
         leaf_section = Vf.dm.getSection()
         # `distributeSection` builds its own section over the range of points
@@ -430,12 +336,20 @@ def preserved_node_sf(Vc, Vf):
         # a ghost fine node reduced onto its coarse node would count twice.
         nroots, ilocal, iremote = section_sf.getGraph()
         owned = ilocal < Vf.node_set.size
+        # Every rank must agree on whether to copy or to evaluate, or they
+        # generate different code. A rank with no owned leaf of its own still
+        # takes part where another rank has one.
+        if not Vf.mesh().comm.allreduce(bool(owned.any()), op=MPI.LOR):
+            return cache.setdefault(key, None)
         trimmed = PETSc.SF().create(comm=section_sf.comm)
         trimmed.setGraph(nroots, ilocal[owned], iremote[owned])
         return cache.setdefault(key, trimmed)
 
 
-def transfer_node_subset(Vc, Vf):
+def transfer_node_subset(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> op2.Set:
     """Find the fine nodes that the transfer kernels must evaluate.
 
     These are the nodes of ``Vf`` that :func:`preserved_node_sf` does not
@@ -451,8 +365,9 @@ def transfer_node_subset(Vc, Vf):
     Returns
     -------
     pyop2.types.set.Set or pyop2.types.set.Subset
-        A subset of the nodes of ``Vf``, or ``Vf.node_set`` itself if
-        :func:`preserved_node_sf` found no preserved nodes.
+        A subset of the nodes of ``Vf``. Where nothing is preserved this is
+        ``Vf.node_set`` itself, which spares the kernel a level of
+        indirection that would index every node anyway.
 
     """
     section_sf = preserved_node_sf(Vc, Vf)
@@ -481,7 +396,6 @@ def prolong_preserved_nodes(coarse, fine):
         computed its other nodes.
 
     """
-
     section_sf = preserved_node_sf(coarse.function_space(), fine.function_space())
     if section_sf is None:
         return
@@ -508,8 +422,15 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
         The cofunction on the coarse mesh. It already holds the contribution
         that the transfer kernel accumulated from the other fine nodes.
 
-    """
+    Notes
+    -----
+    This adds rather than copies, at every stage. A coarse basis function
+    does not vanish on the cells around a preserved node that refinement did
+    split, so the same coarse node also collects a contribution from the
+    kernel. Several preserved fine nodes can likewise reduce onto one coarse
+    node, and the coarse node can be a ghost on the rank that owns them.
 
+    """
     coarse_V = coarse_dual.function_space()
     section_sf = preserved_node_sf(coarse_V, fine_dual.function_space())
     if section_sf is None:
@@ -520,8 +441,6 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
     target = buffer.dat.data_wo_with_halos
     section_sf.reduceBegin(mtype, source, target, MPI.SUM)
     section_sf.reduceEnd(mtype, source, target, MPI.SUM)
-    # A preserved coarse node can be a ghost on the rank that owns the
-    # matching fine node. Reduce the contributions onto the owning rank.
     buffer.dat.local_to_global_begin(op2.INC)
     buffer.dat.local_to_global_end(op2.INC)
     coarse_dual.dat.data[...] += buffer.dat.data_ro
@@ -565,7 +484,7 @@ def transfer_mesh(mesh):
         ``mesh`` itself, or the mesh it was redistributed from.
 
     """
-    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
+    return mesh.submesh_parent if mesh.is_redistributed else mesh
 
 
 def _redistribution_ancestors(topology):
@@ -587,7 +506,7 @@ def _redistribution_ancestors(topology):
 
     """
     yield topology
-    while topology.submesh_point_sf is not None:
+    while topology.is_redistributed:
         topology = topology.submesh_parent
         yield topology
 
@@ -612,8 +531,10 @@ def set_level(obj, hierarchy, level):
 
     Parameters
     ----------
-    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        The object to attach the hierarchy and level info to.
+    obj : firedrake.mesh.MeshGeometry
+        The mesh to attach the hierarchy and level info to. The meshes it was
+        redistributed from take the same level, because the transfer
+        operators work on those.
     hierarchy : HierarchyBase
         The hierarchy ``obj`` belongs to.
     level : Fraction
@@ -621,7 +542,7 @@ def set_level(obj, hierarchy, level):
 
     Returns
     -------
-    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+    firedrake.mesh.MeshGeometry
         ``obj``, unchanged.
 
     """

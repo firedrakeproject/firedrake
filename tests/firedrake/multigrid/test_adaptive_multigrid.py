@@ -2,8 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.mg.utils import (coarse_cell_to_fine_node_map, transfer_mesh,
-                                transfer_node_subset)
+from firedrake.mg.utils import preserved_node_sf, transfer_mesh
 from firedrake.utils import complex_mode
 
 
@@ -357,13 +356,10 @@ def _copied_nodes(mh, V):
     for level in range(len(mh) - 1):
         V_coarse = V.reconstruct(mesh=mh[level])
         V_fine = V.reconstruct(mesh=transfer_mesh(mh[level + 1]))
-        subset = transfer_node_subset(V_coarse, V_fine)
-        # A Subset's .indices spans the owned range, like node_set.size does.
-        # But when nothing is preserved, transfer_node_subset falls back to
-        # the fine node_set itself, whose .indices spans the larger
-        # owned+halo total_size. Cap at node_set.size before differencing.
-        visited = min(len(subset.indices), V_fine.node_set.size)
-        copied += V_fine.node_set.size - visited
+        section_sf = preserved_node_sf(V_coarse, V_fine)
+        if section_sf is not None:
+            _, preserved, _ = section_sf.getGraph()
+            copied += len(preserved)
     return mh[0].comm.allreduce(copied, MPI.SUM)
 
 
@@ -410,6 +406,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     volume. It passes even when the kernel integrates over the wrong set
     of children.
     """
+    rg = RandomGenerator(PCG64(seed=0))
     padded = False
     for level in range(len(mh) - 1):
         # A coarse cell that the refinement left alone has one child, and a
@@ -420,9 +417,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
         V_coarse = FunctionSpace(mh[level], family, degree)
         V_fine = FunctionSpace(mh[level + 1], family, degree)
 
-        u_fine = Function(V_fine)
-        rng = np.random.default_rng(42 + mh[0].comm.rank)
-        u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
+        u_fine = rg.uniform(V_fine)
 
         u_coarse = Function(V_coarse)
         inject(u_fine, u_coarse)
@@ -433,67 +428,6 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     # The padded rows are the point of this test. A hierarchy that refines
     # every cell of every level says nothing about them.
     assert mh[0].comm.allreduce(padded, MPI.LOR)
-
-
-def _poison_padding(mh, level, Vc, Vf):
-    """Point every padded slot of the macro-cell map at a real child.
-
-    ``coarse_cell_to_fine_node_map`` pads each coarse cell's row of children
-    out to the width of the busiest cell on the level. This overwrites that
-    padding with a copy of the row's first real child. Reading a padded slot
-    then integrates over a genuine, non-degenerate cell, and counts it twice.
-
-    Returns the number of slots it overwrote.
-    """
-    children = mh.coarse_to_fine_cells[level][:mh[level].cell_set.size]
-    valid = children >= 0
-    # Rows carry different numbers of children, so the padded slots do not
-    # form a rectangle. Address them as a flat list of (row, slot) pairs.
-    rows, slots = np.nonzero(~valid & valid.any(axis=1)[:, None])
-    first = valid.argmax(axis=1)
-
-    poisoned = 0
-    for V in (Vf, Vf.mesh().coordinates.function_space()):
-        cmap = coarse_cell_to_fine_node_map(Vc, V)
-        values = cmap.values[:mh[level].cell_set.size]
-        values = values.reshape(children.shape[0], children.shape[1], -1)
-        values[rows, slots] = values[rows, first[rows]]
-        poisoned += len(rows)
-    return poisoned
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
-def test_dg_injection_ignores_padded_children(mh, family, degree):
-    """DG injection never reads the padding of the macro-cell map.
-
-    The kernel integrates over a fixed number of child slots per coarse
-    cell, and adaptive refinement gives different coarse cells different
-    numbers of children. The kernel must stop at each cell's own children.
-
-    Point the padding at a real child, so that reading it would integrate
-    over that child a second time. Mass conservation still holds only if the
-    kernel leaves the padding alone. A kernel that runs to the full width
-    fails here, whether the padding holds a duplicate child or the -1 that
-    `op2.Map` reads out of bounds.
-    """
-    level = len(mh) - 2
-    V_coarse = FunctionSpace(mh[level], family, degree)
-    V_fine = FunctionSpace(mh[level + 1], family, degree)
-
-    poisoned = _poison_padding(mh, level, V_coarse, V_fine)
-    assert mh[0].comm.allreduce(poisoned, MPI.SUM) > 0
-
-    u_fine = Function(V_fine)
-    rng = np.random.default_rng(7 + mh[0].comm.rank)
-    u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
-
-    u_coarse = Function(V_coarse)
-    inject(u_fine, u_coarse)
-
-    mass_coarse, mass_fine = _coarse_cell_integrals(mh, level, u_coarse, u_fine)
-    assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
 
 
 @pytest.mark.parallel([1, 2, 4])

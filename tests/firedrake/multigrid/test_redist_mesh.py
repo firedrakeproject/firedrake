@@ -82,7 +82,7 @@ def test_adaptive_hierarchy_redistributes_empty_ranks():
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1),
                "partitioner_type": "simple"}
     mesh = UnitSquareMesh(1, 1, distribution_parameters=dparams)
-    assert mesh.has_empty_rank
+    assert mesh.any_rank_is_empty
     mh = MeshHierarchy(mesh)
 
     # Mark only one of the two cells, so the refined mesh keeps both a
@@ -92,8 +92,8 @@ def test_adaptive_hierarchy_redistributes_empty_ranks():
     markers.dat.data_wo[:1] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    assert refined_mesh.topology.submesh_point_sf is not None
-    assert not refined_mesh.has_empty_rank
+    assert refined_mesh.topology.is_redistributed
+    assert not refined_mesh.any_rank_is_empty
     mh.add_mesh(refined_mesh)
 
     V_coarse = FunctionSpace(mesh, "CG", 1)
