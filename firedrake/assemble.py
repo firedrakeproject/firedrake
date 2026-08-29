@@ -13,7 +13,7 @@ import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from finat.element_factory import create_element
-from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.ufl_utils import extract_firedrake_constants, RUNTIME_VARIABLE_PREFIX
 import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, parameters, solving,
@@ -152,6 +152,16 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
+def _integrand_is_compilable(integral):
+    """Can TSFC compile every base form operator in this integrand?"""
+    valid_domains = set(integral.extra_domain_integral_type_map())
+    valid_domains.add(integral.ufl_domain())
+    return all(
+        isinstance(op, ufl.Interpolate) and set(extract_domains(op)) <= valid_domains
+        for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
+    )
+
+
 def get_assembler(form, *args, **kwargs):
     """Create an assembler.
 
@@ -171,24 +181,10 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    base_form_operands = BaseFormAssembler.base_form_operands(form)
-    can_compile = not base_form_operands
     if isinstance(form, ufl.form.Form):
-        can_compile = True
-        for integral in form.integrals():
-            valid_domains = set(integral.extra_domain_integral_type_map())
-            valid_domains.add(integral.ufl_domain())
-            for op in ufl.algorithms.extract_base_form_operators(
-                integral.integrand()
-            ):
-                if (
-                    not isinstance(op, ufl.Interpolate)
-                    or not set(extract_domains(op)) <= valid_domains
-                ):
-                    can_compile = False
-                    break
-            if not can_compile:
-                break
+        can_compile = all(map(_integrand_is_compilable, form.integrals()))
+    else:
+        can_compile = not BaseFormAssembler.base_form_operands(form)
 
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         diagonal = kwargs.pop('diagonal', False)
@@ -1076,6 +1072,21 @@ class ParloopFormAssembler(FormAssembler):
 
         return self.result(tensor)
 
+    def compile(self):
+        """Compile the local kernels now, rather than lazily inside `assemble`."""
+        self.local_kernels
+
+    @cached_property
+    def input_dats(self):
+        """The `pyop2.types.Dat` read by this assembler's parloops."""
+        dats = set()
+        for local_kernel, _ in self.local_kernels:
+            for coeff in _FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo):
+                dats.update(coeff.dat)
+            for coords in _FormHandler.iter_active_coordinates(self._form, local_kernel.kinfo):
+                dats.update(coords.dat)
+        return dats
+
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):
         """Apply boundary condition."""
@@ -1904,6 +1915,19 @@ class _GlobalKernelBuilder:
         return entity_dofs_key(finat_element.entity_dofs()), real_tensorproduct, eperm_key
 
 
+# FIXME: name-matching is a stopgap; get this from a coefficient map handed
+# down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
+_RUNTIME_TABULATION_ARG_NAME = RUNTIME_VARIABLE_PREFIX + "X"
+
+
+def _check_runtime_tabulation_arg(arg, mesh):
+    if (
+        arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME
+        or not isinstance(mesh.topology, VertexOnlyMeshTopology)
+    ):
+        raise NotImplementedError("Unknown runtime tabulation argument")
+
+
 @functools.singledispatch
 def _as_global_kernel_arg(tsfc_arg, self):
     raise NotImplementedError
@@ -1985,11 +2009,7 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
 def _as_global_kernel_arg_tabulation(arg, self):
-    if (
-        arg.loopy_arg.name != "rt_X"
-        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
-    ):
-        raise NotImplementedError("Unknown runtime tabulation argument")
+    _check_runtime_tabulation_arg(arg, self._mesh)
     return self._make_dat_global_kernel_arg(
         self._mesh.reference_coordinates.function_space()
     )
@@ -2359,11 +2379,7 @@ def _as_parloop_arg_constant(arg, self):
 
 @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
 def _as_parloop_arg_tabulation(arg, self):
-    if (
-        arg.loopy_arg.name != "rt_X"
-        or not isinstance(self._mesh.topology, VertexOnlyMeshTopology)
-    ):
-        raise NotImplementedError("Unknown runtime tabulation argument")
+    _check_runtime_tabulation_arg(arg, self._mesh)
     reference_coordinates = self._mesh.reference_coordinates
     map_ = self._get_map(reference_coordinates.function_space())
     return op2.DatParloopArg(reference_coordinates.dat, map_)

@@ -119,6 +119,21 @@ class ContextBase(ProxyKernelInterface):
     def index_cache(self):
         return {}
 
+    def dual_evaluation_config(self, domain, restriction):
+        """Kernel config for dual-evaluating a nested Interpolate at ``domain``.
+
+        :arg domain: the domain the nested Interpolate is evaluated on.
+        :arg restriction: restriction of the modified terminal wrapping it.
+        """
+        return dict(
+            interface=CellVolumeKernelInterface(self, domain, restriction),
+            ufl_cell=domain.ufl_cell(),
+            integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
+            argument_multiindices=self.argument_multiindices,
+            index_cache=self.index_cache,
+            scalar_type=self.scalar_type,
+        )
+
     @cached_property
     def translator(self):
         # NOTE: reference cycle!
@@ -356,6 +371,9 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
         The GEM expression for the local interpolated values, the multiindex
         to contract it on, and the basis indices of the return value.
     """
+    if isinstance(to_element, finat.QuadratureElement):
+        kernel_cfg = dict(kernel_cfg, quadrature_rule=to_element._rule)
+
     dual_arg, operand = expression.argument_slots()
     fn = DualEvaluationCallable(operand, kernel_cfg)
 
@@ -429,11 +447,8 @@ class DualEvaluationCallable:
             translation_context = PointSetContext(**kernel_cfg)
 
         gem_expr, = compile_ufl(self.expression, translation_context, point_sum=False)
-        argument_multiindices = kernel_cfg["argument_multiindices"]
-        if hasattr(argument_multiindices, "values"):
-            argument_multiindices = argument_multiindices.values()
         assert set(gem_expr.free_indices) <= set(
-            chain(point_set.indices, *argument_multiindices)
+            chain(point_set.indices, *kernel_cfg["argument_multiindices"])
         )
         return gem_expr
 
@@ -858,18 +873,7 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
         or dual_arg.ufl_function_space().ufl_domain()
     )
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
-    kernel_cfg = {
-        "interface": CellVolumeKernelInterface(
-            ctx, domain, mt.restriction),
-        "ufl_cell": domain.ufl_cell(),
-        "integration_dim": as_fiat_cell(domain.ufl_cell()).get_dimension(),
-        "argument_multiindices": ctx.argument_multiindices,
-        "index_cache": ctx.index_cache,
-        "scalar_type": ctx.scalar_type,
-    }
-    if isinstance(element, finat.QuadratureElement):
-        kernel_cfg["quadrature_rule"] = element._rule
-
+    kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
     evaluation, quadrature_multiindex, basis_indices = dual_evaluate(terminal, element, kernel_cfg)
     # The interpolation points are internal to the local solve, so contract
     # them here: only the form's own quadrature points stay free.
@@ -923,16 +927,15 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
     value_dict = {}
     for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
-        if not hasattr(vec_beta, "index_ordering"):
+        if not isinstance(vec_beta, (gem.Indexed, gem.FlexiblyIndexed)):
+            # An interpolated value is a computed expression, not an indexed
+            # dat, so there is nothing to unconcatenate.
             value = gem.IndexSum(gem.Product(vec_beta, table_qi), beta)
             value_dict[alpha] = gem.ComponentTensor(gem.optimise.contraction(value), zeta)
             continue
 
         summands = []
-        argument_multiindices = ctx.argument_multiindices
-        if hasattr(argument_multiindices, "values"):
-            argument_multiindices = argument_multiindices.values()
-        unsummed_indices = set(chain(*argument_multiindices))
+        unsummed_indices = set(chain(*ctx.argument_multiindices))
         unsummed_indices.update(ctx.unsummed_coefficient_indices)
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
             product = gem.Product(expr, var)
@@ -948,10 +951,7 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    argument_multiindices = ctx.argument_multiindices
-    if hasattr(argument_multiindices, "values"):
-        argument_multiindices = argument_multiindices.values()
-    allowed_indices = set(chain(ctx.point_indices, *argument_multiindices))
+    allowed_indices = set(chain(ctx.point_indices, *ctx.argument_multiindices))
     unexpected_indices = (
         set(result.free_indices)
         - ctx.unsummed_coefficient_indices
