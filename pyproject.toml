@@ -28,7 +28,8 @@ dependencies = [
   # TODO RELEASE
   "firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree@main",
   "immutabledict",
-  "libsupermesh>=2026.0",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -42,6 +43,7 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
+  "rtree",
   "scipy",
   "sympy",
   "islpy<2026.2",
@@ -161,7 +163,8 @@ requires = [
   "Cython>=3.0",
   # TODO RELEASE
   "firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree@main",
-  "libsupermesh>=2026.0",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
@@ -171,6 +174,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
+  "rtree",
 ]
 build-backend = "setuptools.build_meta"
 
