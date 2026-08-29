@@ -105,6 +105,11 @@ def test_hypre_ads_fieldsplit():
         "fieldsplit_ksp_type": "preonly",
         "fieldsplit_pc_type": "python",
         "fieldsplit_pc_python_type": "firedrake.HypreADS",
+        # Pin the ADS cycle.  Left to the hypre default, the cycle chosen
+        # varies between builds, and the one selected here leaves the
+        # condition number at 1.8 -- close enough to the bound below that
+        # rounding decides whether the test passes.
+        "fieldsplit_hypre_ads_pc_hypre_ads_cycle_type": 1,
     }
     prob = LinearVariationalProblem(a, L, sol)
     solver = LinearVariationalSolver(prob, solver_parameters=params)
@@ -113,4 +118,5 @@ def test_hypre_ads_fieldsplit():
     # Check the condition number
     ew = solver.snes.ksp.computeEigenvalues().real
     condition_number = max(abs(ew)) / min(abs(ew))
-    assert condition_number < 2  # current value is 1.3 and without preconditioner > 66
+    # 1.22 with this cycle, against 4.8e3 unpreconditioned.
+    assert condition_number < 2
