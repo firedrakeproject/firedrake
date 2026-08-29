@@ -8,6 +8,7 @@ from functools import singledispatch
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.jagged import compact_index_layout, simplex_lattice_ranks
 from gem.node import Memoizer
 
 import islpy as isl
@@ -216,7 +217,7 @@ class LoopyContext(object):
         except KeyError:
             table = p.Variable(self.name_gen("lattice_rank"))
             self.lattice_ranks[shape] = (
-                table, gem.simplex_lattice_ranks(component))
+                table, simplex_lattice_ranks(component))
         return p.Subscript(table, tuple(self.active_indices[index]
                                         for index in component))
 
@@ -281,7 +282,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
         if isinstance(temp, gem.Constant):
             shape, layout = temp.shape, None
         else:
-            shape, layout = gem.compact_index_layout(
+            shape, layout = compact_index_layout(
                 tuple(ctx.indices[temp]))
             shape += temp.shape
         descriptors.append((temp, dtype, shape, layout))
