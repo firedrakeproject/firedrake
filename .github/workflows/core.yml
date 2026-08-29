@@ -567,6 +567,14 @@ jobs:
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+
+          : # DROP BEFORE MERGE: this job installs Firedrake itself rather than
+          : # going through .github/actions/install, so it needs its own copy of
+          : # the FIAT stack, and for the same reason: firedrake-clean below
+          : # imports Firedrake, and so the tsfc that needs those GEM changes.
+          pip install --no-deps --force-reinstall --ignore-installed \
+            git+https://github.com/firedrakeproject/fiat.git@pbrubeck/coffee-scalar-factor
+
           firedrake-clean
           pip list
 
