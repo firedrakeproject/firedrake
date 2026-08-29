@@ -853,9 +853,20 @@ class SameMeshInterpolator(Interpolator):
             )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        from firedrake.assemble import ParloopFormAssembler
+
         assembler = self._get_form_assembler(
             bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
         )
+        # Compile here rather than inside the callable below, so that a target
+        # element the code generator cannot dual evaluate is reported to
+        # whoever asked for the callable.  DirichletBC asks for one to find out
+        # whether it can interpolate its value, and projects instead when it
+        # cannot; a kernel left to the callable hides that from it until the
+        # boundary condition is first applied.
+        if isinstance(assembler, ParloopFormAssembler):
+            assembler.local_kernels
+
         copyout = ()
         inputs = tuple(
             coefficient for coefficient in extract_coefficients(self._assembler_form)
