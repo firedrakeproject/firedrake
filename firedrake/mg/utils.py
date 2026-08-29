@@ -229,7 +229,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
     -------
     PETSc.SF or None
         An SF with roots on the points of ``coarse_mesh`` and leaves on the
-        unrefined points of ``fine_mesh``. Returns `None` if refinement
+        unrefined points of ``fine_mesh``. It has no leaves where refinement
         changed every cell, as a uniform refinement does.
 
     """
@@ -240,12 +240,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
         fine_plex, fine_mesh._cell_numbering,
         coarse_to_fine,
     )
-    leaves, = numpy.nonzero(fine_to_coarse_points >= 0)
-    # A uniform refinement preserves no points. Every rank must agree on
-    # whether to build the SF at all, not just the ranks with no leaves.
-    if not fine_plex.comm.tompi4py().allreduce(len(leaves) > 0, op=MPI.LOR):
-        return None
-    leaves = leaves.astype(IntType)
+    leaves = numpy.nonzero(fine_to_coarse_points >= 0)[0].astype(IntType)
     # Refinement acts on each rank's own plex. A fine point and the coarse
     # point it was copied from always live on the same rank.
     remote = numpy.empty((len(leaves), 2), dtype=IntType)
@@ -311,8 +306,6 @@ def preserved_node_sf(
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         point_sf = _preserved_point_sf(Vc.mesh().topology, Vf.mesh().topology,
                                        coarse_to_fine)
-        if point_sf is None:
-            return cache.setdefault(key, None)
         root_section = Vc.dm.getSection()
         leaf_section = Vf.dm.getSection()
         # `distributeSection` builds its own section over the range of points
