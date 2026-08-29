@@ -10,7 +10,6 @@ from ufl.utils.sequences import max_degree
 from ufl.domain import MeshSequence, extract_unique_domain
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
-import finat
 import gem
 import gem.impero_utils as impero_utils
 import petsctools
@@ -158,7 +157,7 @@ class KernelBuilderMixin(object):
             not the dual argument's own element when the target is a point
             cloud: the points are then only known at run time, so the target
             is a quadrature element on the source cell.
-        :arg params: a dict containing "quadrature_rule".
+        :arg params: a dict containing "mode".
         :arg ctx: context created with :meth:`create_context` method.
 
         See :meth:`create_context` for typical calling sequence.
@@ -172,8 +171,6 @@ class KernelBuilderMixin(object):
             argument_multiindices=self.argument_multiindices,
             index_cache=ctx["index_cache"],
         )
-        if isinstance(target_element, finat.QuadratureElement):
-            config["quadrature_rule"] = target_element._rule
         evaluation, quadrature_multiindex, basis_indices = fem.dual_evaluate(
             expression, target_element, config
         )
