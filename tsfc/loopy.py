@@ -8,6 +8,7 @@ from functools import singledispatch
 from collections import defaultdict, OrderedDict
 
 from gem import gem, impero as imp
+from gem.jagged import compact_index_layout, simplex_lattice_ranks
 from gem.node import Memoizer
 
 import islpy as isl
@@ -124,7 +125,10 @@ class LoopyContext(object):
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
         self.tabulated = (None, ())  # axes and inames of the preceding tabulation
+        self.index_parents = {}  # iname -> parent inames bounding a jagged index
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
+        self.compact_indices = {}  # temporary -> compact index layout
+        self.lattice_ranks = {}  # lattice shape -> rank table and its entries
         self.name_gen = UniqueNameGenerator()
         self.target = target
         self.loop_priorities = set()  # used to avoid disadvantageous loop interchanges
@@ -174,6 +178,12 @@ class LoopyContext(object):
     # Generate pym variable or subscript
     def pymbolic_variable(self, node):
         pym = self._gem_to_pym_var(node)
+        if node in self.compact_indices:
+            indices = tuple(
+                self.lattice_rank(item) if isinstance(item, tuple)
+                else self.active_indices[item]
+                for item in self.compact_indices[node])
+            return p.Subscript(pym, indices) if indices else pym
         if node in self.indices:
             indices = self.fetch_multiindex(self.indices[node])
             if indices:
@@ -188,6 +198,38 @@ class LoopyContext(object):
             pym = p.Variable(name)
             self.gem_to_pymbolic[node] = pym
         return pym
+
+    def lattice_rank(self, component):
+        """Look up the compact rank of the active simplex lattice point.
+
+        A simplex lattice is stored along one compact dimension, so a
+        temporary indexed by the lattice is subscripted by the rank of
+        the point rather than by the lattice indices themselves. The
+        ranks are tabulated once per lattice shape, which keeps the
+        lattice visible in the AST and keeps the polynomial that defines
+        the rank out of the loop body.
+        """
+        # Equal degree and dimension describe a simplex lattice fully,
+        # so every lattice of one shape shares a single table.
+        shape = (component[0].extent, len(component))
+        try:
+            table, _ = self.lattice_ranks[shape]
+        except KeyError:
+            table = p.Variable(self.name_gen("lattice_rank"))
+            self.lattice_ranks[shape] = (
+                table, simplex_lattice_ranks(component))
+        return p.Subscript(table, tuple(self.active_indices[index]
+                                        for index in component))
+
+    def lattice_rank_tables(self, address_space):
+        """Declare a read-only table for each tabulated simplex lattice."""
+        return [
+            lp.TemporaryVariable(
+                table.name, shape=ranks.shape, dtype=ranks.dtype,
+                initializer=ranks, address_space=address_space,
+                read_only=True)
+            for table, ranks in self.lattice_ranks.values()
+        ]
 
     def active_inames(self):
         # Return all active indices
@@ -235,17 +277,30 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
 
     # Create arguments
     data = list(args)
-    for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
+    descriptors = []
+    for temp, dtype in assign_dtypes(impero_c.temporaries, scalar_type):
+        if isinstance(temp, gem.Constant):
+            shape, layout = temp.shape, None
+        else:
+            shape, layout = compact_index_layout(
+                tuple(ctx.indices[temp]))
+            shape += temp.shape
+        descriptors.append((temp, dtype, shape, layout))
+    for i, (temp, dtype, shape, layout) in enumerate(descriptors):
         name = "t%d" % i
         if isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
-            shape = tuple([i.extent for i in ctx.indices[temp]]) + temp.shape
-            data.append(lp.TemporaryVariable(name, shape=shape, dtype=dtype, initializer=None, address_space=lp.AddressSpace.LOCAL, read_only=False))
+            data.append(lp.TemporaryVariable(
+                name, shape=shape, dtype=dtype, initializer=None,
+                address_space=lp.AddressSpace.LOCAL, read_only=False))
+            ctx.compact_indices[temp] = layout
         ctx.gem_to_pymbolic[temp] = p.Variable(name)
 
     # Create instructions
     instructions = statement(impero_c.tree, ctx)
+
+    data.extend(ctx.lattice_rank_tables(lp.AddressSpace.LOCAL))
 
     # add a no-op touching all kernel arguments to make sure they
     # are not silently dropped
@@ -258,7 +313,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
 
     # Create domains
-    domains = create_domains(ctx.index_extent.items())
+    domains = create_domains(ctx.index_extent.items(), ctx.index_parents)
 
     # Create loopy kernel
     knl = lp.make_kernel(
@@ -277,16 +332,30 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     return knl, event_name
 
 
-def create_domains(indices):
-    """ Create ISL domains from indices
+def create_domains(indices, index_parents=None):
+    """Create ISL domains for independent and dependent indices.
 
-    :arg indices: iterable of (index_name, extent) pairs
-    :returns: A list of ISL sets representing the iteration domain of the indices."""
+    Parameters
+    ----------
+    indices : iterable of tuple
+        Index names and their static extents.
+    index_parents : mapping, optional
+        Parent inames for simplex-lattice bounds.
 
+    Returns
+    -------
+    list of isl.Set
+        Iteration domains for Loopy.
+    """
     domains = []
     for idx, extent in indices:
-        inames = isl.make_zero_and_vars([idx])
-        domains.append(((inames[0].le_set(inames[idx])) & (inames[idx].lt_set(inames[0] + extent))))
+        parents = index_parents.get(idx, ()) if index_parents else ()
+        inames = isl.make_zero_and_vars([idx], parents)
+        bound = inames[0] + extent
+        for parent in parents:
+            bound = bound - inames[parent]
+        domains.append(inames[0].le_set(inames[idx])
+                       & inames[idx].lt_set(bound))
 
     if not domains:
         domains = [isl.BasicSet("[] -> {[]}")]
@@ -334,6 +403,13 @@ def statement_for(tree, ctx):
     assert extent
     idx = ctx.name_gen(ctx.index_names[tree.index])
     ctx.index_extent[idx] = extent
+    if isinstance(tree.index, gem.JaggedIndex) and \
+            all(parent in ctx.active_indices for parent in tree.index.parents):
+        # Tighten the loop bound of a jagged index nested inside its parents.
+        # If a parent loop is not in scope, the rectangular bound `extent`
+        # remains correct: jagged expressions are zero-padded.
+        ctx.index_parents[idx] = tuple(ctx.active_indices[parent].name
+                                       for parent in tree.index.parents)
     with active_indices({tree.index: p.Variable(idx)}, ctx) as ctx_active:
         return statement(tree.children[0], ctx_active)
 
@@ -378,13 +454,24 @@ def statement_evaluate(leaf, ctx):
     elif isinstance(expr, gem.Constant):
         return []
     elif isinstance(expr, gem.ComponentTensor):
-        axes, idx = ctx.tabulated
-        if axes != expr.multiindex:
-            idx = ctx.gem_to_pym_multiindex(expr.multiindex)
-            ctx.tabulated = (expr.multiindex, idx)
+        implicit_axes = tuple(
+            index for index in expr.multiindex
+            if index not in ctx.active_indices)
+        axes, implicit_values = ctx.tabulated
+        if axes != implicit_axes:
+            implicit_values = ctx.gem_to_pym_multiindex(implicit_axes)
+            ctx.tabulated = (implicit_axes, implicit_values)
+        implicit_indices = dict(zip(implicit_axes, implicit_values))
+        value_indices = []
+        for index in expr.multiindex:
+            if index in ctx.active_indices:
+                value_indices.append(ctx.active_indices[index])
+            else:
+                value_indices.append(implicit_indices[index])
+        value_indices = tuple(value_indices)
         var, sub_idx = ctx.pymbolic_variable_and_destruct(expr)
-        lhs = p.Subscript(var, sub_idx + idx)
-        with active_indices(dict(zip(expr.multiindex, idx)), ctx) as ctx_active:
+        lhs = p.Subscript(var, sub_idx + value_indices)
+        with active_indices(implicit_indices, ctx) as ctx_active:
             return [lp.Assignment(lhs, expression(expr.children[0], ctx_active), within_inames=ctx_active.active_inames())]
     elif isinstance(expr, gem.Inverse):
         idx = ctx.pymbolic_multiindex(expr.shape)
