@@ -396,7 +396,9 @@ def test_submesh_assign_cell_subset_redistributed():
     composed.assign(f_sub, subset=mesh.cell_subset(7), allow_missing_dofs=True)
     written = composed.dat.data_ro != sentinel
     assert np.allclose(composed.dat.data_ro[written], source.dat.data_ro[written])
-    assert mesh.comm.allreduce(int(written[:V.dof_dset.size].sum())) == 91
+    # The submesh covers the marked cells, so its nodes are exactly the ones
+    # written. Which they are cannot depend on how the mesh is partitioned.
+    assert mesh.comm.allreduce(int(written[:V.dof_dset.size].sum())) == f_sub.function_space().dim()
 
 
 @pytest.mark.parametrize("family,degree", [("CG", 3), ("RT", 2)])
