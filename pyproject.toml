@@ -38,7 +38,8 @@ dependencies = [
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.4.0",
+# TODO RELEASE
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git@master",
   "pycparser",
   "pytools[siphash]",
   "requests",
