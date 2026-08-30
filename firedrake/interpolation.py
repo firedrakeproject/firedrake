@@ -6,7 +6,7 @@ from typing import Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.constantvalue import as_ufl
@@ -824,7 +824,9 @@ class SameMeshInterpolator(Interpolator):
         return sparsity
 
     def _get_form_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
-        """Return the form assembler for this interpolation rank."""
+        """Return the form assembler matching `self.rank`."""
+        # Not routed through get_assembler: its BaseForm preprocessing is not
+        # needed here and can recurse forever on some composed expressions.
         from firedrake.assemble import (
             OneFormAssembler, TwoFormAssembler, ZeroFormAssembler,
         )
@@ -858,29 +860,19 @@ class SameMeshInterpolator(Interpolator):
         assembler = self._get_form_assembler(
             bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
         )
-        # Compile here rather than inside the callable below, so that a target
-        # element the code generator cannot dual evaluate is reported to
-        # whoever asked for the callable.  DirichletBC asks for one to find out
-        # whether it can interpolate its value, and projects instead when it
-        # cannot; a kernel left to the callable hides that from it until the
-        # boundary condition is first applied.
+        # DirichletBC needs to know now whether it can interpolate its value,
+        # so it can project instead when it can't.
         if isinstance(assembler, ParloopFormAssembler):
-            assembler.local_kernels
+            assembler.compile()
 
+        output = None
         copyout = ()
-        inputs = tuple(
-            coefficient for coefficient in extract_coefficients(self._assembler_form)
-            if isinstance(coefficient, Function | Cofunction)
-        )
+        inputs = assembler.input_dats if isinstance(assembler, ParloopFormAssembler) else set()
         if isinstance(self.dual_arg, Cofunction):
-            inputs += (self.dual_arg,)
-        # The coordinates reach the kernel without being coefficients of the form.
-        inputs += (self.source_mesh.unique().coordinates,
-                   self.target_mesh.unique().coordinates)
+            inputs = inputs | set(self.dual_arg.dat)
         if (
             isinstance(tensor, Function | Cofunction)
-            and any(set(tensor.dat).intersection(set(input_.dat))
-                    for input_ in inputs)
+            and set(tensor.dat) & inputs
         ):
             output = tensor
             tensor = assembler.allocate()
