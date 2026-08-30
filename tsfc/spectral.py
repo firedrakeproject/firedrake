@@ -185,8 +185,13 @@ def classify(argument_indices, expression, delta_inside):
     n = len(argument_indices.intersection(expression.free_indices))
     if n == 0:
         return OTHER
+    elif isinstance(expression, Delta):
+        # A Delta is a terminal, so expansion can never break one up.  One that
+        # ties two argument axes together survives cancellation until
+        # delta_elimination narrows the output variable onto its diagonal.
+        return ATOMIC
     elif n == 1:
-        if isinstance(expression, (Delta, FlexiblyIndexed, Indexed)) and not delta_inside(expression):
+        if isinstance(expression, (FlexiblyIndexed, Indexed)) and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND
