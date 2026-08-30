@@ -130,6 +130,12 @@ We define a function to adapt the mesh by refining elements with large error ind
 Finally, we run the adaptive loop until the upper and lower bounds agree to within a tolerance. ::
 
   max_iterations = 20
+
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      max_iterations = 2
+
   error_estimators = []
   dofs = []
   err = 1

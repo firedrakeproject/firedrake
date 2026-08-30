@@ -24,8 +24,14 @@ extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`. ::
 
   from firedrake import *
 
-  base = UnitSquareMesh(8, 8, quadrilateral=True)
-  mesh = ExtrudedMesh(base, 8)
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      base = UnitSquareMesh(4, 4, quadrilateral=True)
+      mesh = ExtrudedMesh(base, 4)
+  else:
+      base = UnitSquareMesh(8, 8, quadrilateral=True)
+      mesh = ExtrudedMesh(base, 8)
 
 
 Defining the problem: the Poisson equation
@@ -88,7 +94,12 @@ using a sparse direct LU factorization. ::
   }
 
   fdm_lu_params = fdm_params(lu_params)
-  its = run_solve(5, fdm_lu_params)
+
+  if os.getenv("FIREDRAKE_CI") == "1":
+      its = run_solve(3, fdm_lu_params)
+  else:
+      its = run_solve(5, fdm_lu_params)
+
   print(f"LU iterations {its}")
 
 
@@ -123,6 +134,10 @@ implemented via :class:`~.ASMExtrudedStarPC` as we have an extruded mesh::
   print("FDM + ASM")
   print("Degree\tIterations")
   for degree in range(3, 6):
+
+      if os.getenv("FIREDRAKE_CI") == "1" and degree > 3:
+          break
+
       its = run_solve(degree, fdm_asm_params)
       print(f"{degree}\t{its}")
 
@@ -177,6 +192,10 @@ block, and the two-level additive Schwarz method on the facets. ::
   print('FDM + SC + ASM')
   print("Degree\tIterations")
   for degree in range(3, 6):
+
+      if os.getenv("FIREDRAKE_CI") == "1" and degree > 3:
+          break
+
       its = run_solve(degree, fdm_sc_asm_params)
       print(f"{degree}\t{its}")
 
