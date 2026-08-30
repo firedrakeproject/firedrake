@@ -14,6 +14,7 @@ import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
 from pyop3.node import Node, Terminal
+from pyop3.dtypes import RealType, IntType
 
 class Expression(Node, abc.ABC):
 
@@ -28,9 +29,8 @@ class Expression(Node, abc.ABC):
         raise NotImplementedError
 
     @property
-    @abc.abstractmethod
-    def dtype(self) -> np.dtype:
-        pass
+    def dtype(self):
+        raise NotImplementedError(f"dtype not implemented for {utils.pretty_type(self)}")
 
     @property
     @abc.abstractmethod
@@ -601,7 +601,7 @@ class NameVar(TerminalExpression):
     name: Hashable
 
     def dtype(self) -> np.dtype:
-        return TypeError
+        raise TypeError("dtype of NameVars cannot be determined") 
 
     def _full_str(self) -> str:
         return f"{utils.pretty_type(self)}('{self.name}')"
@@ -660,7 +660,7 @@ class AxisVar(TerminalExpression):
 
     @property
     def dtype(self) -> np.dtype:
-        raise TypeError("not sure that this makes sense")
+        return IntType
 
     @property
     def _full_str(self) -> str:
@@ -754,8 +754,7 @@ class LoopIndexVar(TerminalExpression):
 
     @property
     def dtype(self) -> np.dtype:
-        """ Returns int32 for indexing variable """
-        return np.dtype(np.int32)
+        return IntType
 
     @property
     def _full_str(self) -> str:
@@ -794,13 +793,15 @@ def _get_dtype(expr: Any) -> np.dtype:
 def _(expr: Expression) -> np.dtype:
     return expr.dtype 
 
-@_get_dtype.register(numbers.Number)
-def _(expr: numbers.Number) -> np.dtype:
-    # NOTE: Assumptions made about numerals here, i.e. float == float64, int == int32 
-    # However, type promotion/resolution happens on higher-level .dtype property. 
-    is_float = isinstance(expr, float) 
-    dtype = "float64" if is_float else "int32"
-    return np.dtype(dtype)
+@_get_dtype.register(numbers.Real)
+@_get_dtype.register(np.floating)
+def _(expr) -> np.dtype:
+    return RealType
+
+@_get_dtype.register(numbers.Integral)
+@_get_dtype.register(np.integer)
+def _(expr) -> np.dtype:
+    return IntType
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     from pyop3.expr.visitors import collect_loop_index_vars

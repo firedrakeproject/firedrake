@@ -56,11 +56,6 @@ class OpaqueTerminal(NamedTerminalExpression):
     # {{{ interface impls
 
     @property
-    def dtype(self) -> np.dtype:
-        # NOTE: Seems anti-pattern to provide dtype for object that we know nothing about 
-        raise TypeError("No dtype information for opaque object")
-
-    @property
     def _full_str(self) -> str:
         return str(self)
 
