@@ -14,6 +14,7 @@ import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
 from pyop3.node import Node, Terminal
+from pyop3.dtypes import RealType, IntType
 
 class Expression(Node, abc.ABC):
 
@@ -26,6 +27,10 @@ class Expression(Node, abc.ABC):
     @property
     def local_min(self) -> numbers.Number:
         raise NotImplementedError
+
+    @property
+    def dtype(self):
+        raise NotImplementedError(f"dtype not implemented for {utils.pretty_type(self)}")
 
     @property
     @abc.abstractmethod
@@ -218,6 +223,11 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     child_attrs = ("a",)
 
     @property
+    def dtype(self) -> str:
+        a_dtype = _get_dtype(self.a)
+        return a_dtype
+
+    @property
     def _full_str(self) -> str:
         return f"{self.symbol}{as_str(self.a)}"
 
@@ -295,6 +305,13 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
         a, b = operands
         return self.record_new(a=a, b=b)
 
+    @property
+    def dtype(self) -> np.dtype:
+        a_dtype = _get_dtype(self.a)
+        b_dtype = _get_dtype(self.b)
+        
+        return np.result_type(a_dtype, b_dtype)
+    
     # }}}
 
     # {{{ abstract methods
@@ -504,6 +521,14 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
         a, b, c = operands
         return self.record_new(a=a, b=b, c=c)
 
+    @property
+    def dtype(self) -> np.dtype:
+        a_dtype = _get_dtype(self.a)
+        b_dtype = _get_dtype(self.b)
+        c_dtype = _get_dtype(self.c)
+        
+        return np.result_type(a_dtype, b_dtype, c_dtype)
+
     # }}}
 
 
@@ -575,6 +600,9 @@ class NameVar(TerminalExpression):
 
     name: Hashable
 
+    def dtype(self) -> np.dtype:
+        raise TypeError("dtype of NameVars cannot be determined") 
+
     def _full_str(self) -> str:
         return f"{utils.pretty_type(self)}('{self.name}')"
 
@@ -631,6 +659,10 @@ class AxisVar(TerminalExpression):
         raise TypeError("not sure that this makes sense")
 
     @property
+    def dtype(self) -> np.dtype:
+        return IntType
+
+    @property
     def _full_str(self) -> str:
         return f"i_{{{self.axis.label}}}"
 
@@ -662,6 +694,10 @@ class NaN(TerminalExpression):
 
     @property
     def local_min(self) -> NoReturn:
+        raise TypeError
+
+    @property
+    def dtype(self) -> NoReturn:
         raise TypeError
 
     _full_str = "NaN"
@@ -717,6 +753,10 @@ class LoopIndexVar(TerminalExpression):
         raise TypeError("not sure that this makes sense")
 
     @property
+    def dtype(self) -> np.dtype:
+        return IntType
+
+    @property
     def _full_str(self) -> str:
         return f"L_{{{self.loop_index.id}, {self.axis.label}}}"
 
@@ -745,6 +785,27 @@ def _(expr):
 def _(expr):
     return str(expr)
 
+@functools.singledispatch
+def _get_dtype(expr: Any) -> np.dtype:
+    return None
+
+@_get_dtype.register(np.number)
+def _(expr) -> np.dtype: 
+    raise NotImplementedError(f"Not implemented dtype for: {type(expr)}")
+
+@_get_dtype.register(Expression)
+def _(expr: Expression) -> np.dtype:
+    return expr.dtype 
+
+@_get_dtype.register(numbers.Real)
+@_get_dtype.register(np.floating)
+def _(expr) -> np.dtype:
+    return RealType
+
+@_get_dtype.register(numbers.Integral)
+@_get_dtype.register(np.integer)
+def _(expr) -> np.dtype:
+    return IntType
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     from pyop3.expr.visitors import collect_loop_index_vars
