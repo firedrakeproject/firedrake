@@ -789,6 +789,10 @@ def _(expr):
 def _get_dtype(expr: Any) -> np.dtype:
     return None
 
+@_get_dtypes.register(np.number)
+def _(expr) -> np.dtype: 
+    raise NotImplementedError(f"Not implemented dtype for: {type(expr)}")
+
 @_get_dtype.register(Expression)
 def _(expr: Expression) -> np.dtype:
     return expr.dtype 
