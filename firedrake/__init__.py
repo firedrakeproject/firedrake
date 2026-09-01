@@ -303,7 +303,7 @@ from firedrake.matrix import (  # noqa: F401
 )
 __all__ += ["MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix"]
 
-__all__ += ["utils"]
+__all__ += ["utils", "function"]
 
 # Set default log level
 set_log_level(WARNING)
