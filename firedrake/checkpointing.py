@@ -23,7 +23,7 @@ import os
 import h5py
 
 
-__all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
+__all__ = ["HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
 
 
 FILE_READ = PETSc.Viewer.Mode.READ

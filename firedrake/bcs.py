@@ -25,7 +25,7 @@ from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 
-__all__ = ['DirichletBC', 'homogenize', 'EquationBC']
+__all__ = ['homogenize', 'EquationBC']
 
 
 class BCBase(object):

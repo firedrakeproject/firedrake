@@ -23,9 +23,6 @@ import firedrake.utils as utils
 from firedrake.adjoint_utils.constant import ConstantMixin
 
 
-__all__ = ['Constant']
-
-
 def _create_dat(op2type, value, comm):
     if op2type is op2.Global and comm is None:
         raise ValueError("Attempted to create pyop2 Global with no communicator")

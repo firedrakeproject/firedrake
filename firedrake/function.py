@@ -30,7 +30,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFu
 from firedrake.exceptions import PointNotInDomainError
 
 
-__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
+__all__ = ['CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
