@@ -303,12 +303,14 @@ from firedrake.matrix import (  # noqa: F401
 )
 __all__ += ["MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix"]
 
+__all__ += ["utils"]
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot as _plot # noqa: F401
+from firedrake._deprecation import plot as _plot  # noqa: F401
 import sys
 sys.modules["firedrake.plot"] = _plot
 from firedrake.plot import *  # noqa: F401
@@ -316,8 +318,6 @@ __all__ += list(_plot.__all__)
 del sys
 del _plot
 
-
-__all__ += ["utils"]
 
 def set_blas_num_threads():
     """Try to detect threading and either disable or warn user.
