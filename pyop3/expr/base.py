@@ -648,6 +648,21 @@ class AxisVar(TerminalExpression):
 
     # }}}
 
+    def __eq__(self, other, /) -> bool:
+        return type(other) is type(self) and other._hashkey == self._hashkey
+
+    def __hash__(self, /) -> int:
+        return hash(self._hashkey)
+
+    @property
+    def _hashkey(self, /) -> tuple:
+        """Key used for hashing and equality checks."""
+        # Note that self.axis.label and self.axis.size are used here because
+        # those are the only attributes that we care about for code generation.
+        # AxisVars are generated in a number of places and we cannot guarantee
+        # agreement on everything.
+        return (type(self), self.axis.label, self.axis.size)
+
     # {{{ interface impls
 
     @property

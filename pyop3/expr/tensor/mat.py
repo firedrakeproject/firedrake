@@ -266,10 +266,6 @@ class Mat(Tensor):
         return self.row_axes.size * self.column_axes.size
 
     @cached_property
-    def alloc_size(self) -> int:
-        return self.row_axes.alloc_size * self.column_axes.alloc_size
-
-    @cached_property
     def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, AbstractNonUnitAxisTree]:
         return (self.row_axes, self.column_axes)
 

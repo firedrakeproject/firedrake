@@ -838,8 +838,9 @@ class SameMeshInterpolator(Interpolator):
         loops.extend(copyout)
 
         def callable() -> Function | Cofunction | PETSc.Mat | Number:
-            for l in loops:
-                l()
+            with op3.cache.heavy_caches(get_mesh_topologies(self.ufl_interpolate)):
+                for l in loops:
+                    l()
             if self.rank == 0:
                 return float(f)
             elif self.rank == 2:

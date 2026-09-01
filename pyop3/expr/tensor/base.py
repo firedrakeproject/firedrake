@@ -80,11 +80,6 @@ class Tensor(TerminalExpression, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def alloc_size(self) -> int:
-        pass
-
-    @property
-    @abc.abstractmethod
     def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, ...]:
         pass
 

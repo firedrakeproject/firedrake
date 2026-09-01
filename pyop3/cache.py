@@ -297,12 +297,22 @@ class _DeadInstrumentedCache(_AbstractInstrumentedCache):
 
 def print_cache_stats(*args, **kwargs):
     """Print cache statistics."""
-    data = defaultdict(lambda: defaultdict(list))
+    data = defaultdict(lambda: defaultdict(dict))
     for entry in cache_filter(*args, **kwargs):
         active = not isinstance(entry, _DeadInstrumentedCache)
-        data[(entry.comm_name, active)][(entry.cache_name, entry.cache_loc)].append(
-            (entry.cidx, entry.func_module, entry.func_name, (entry.hit, entry.miss, entry.size, entry.maxsize))
-        )
+        key1 = (entry.comm_name, active)
+        key2 = (entry.cache_name, entry.cache_loc)
+        key3 = (entry.cidx, entry.func_module, entry.func_name)
+
+        if key3 in data[key1][key2]:
+            value = list(data[key1][key2][key3])
+            value[0] += entry.hit
+            value[1] += entry.miss
+            value[2] += entry.size
+            assert value[3] == entry.maxsize
+            data[key1][key2][key3] = value
+        else:
+            data[key1][key2][key3] = (entry.hit, entry.miss, entry.size, entry.maxsize)
 
     tab = "  "
     hline = "-"*120
@@ -327,9 +337,9 @@ def print_cache_stats(*args, **kwargs):
                 print(f"|{cache_location:{col[0]}}|{no_stats}|")
             else:
                 print(f"|{cache_location:78}|")
-            for entry in function_list:
-                function_title = f"{tab*2}id={entry[0]} {'.'.join(entry[1:3])}"
-                stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col, strict=True))
+            for entry, info in function_list.items():
+                function_title = f"{tab*2}id={entry[0]} {'.'.join(entry[1:])}"
+                stats_row = "|".join(f"{s:{w}}" for s, w in zip(info, stats_col, strict=True))
                 print(f"|{function_title:{col[0]}}|{stats_row:{col[1]}}|")
         print(hline)
 
