@@ -51,12 +51,14 @@ __all__ = list(_ufl.__all__)
 del _ufl
 
 from finat.ufl import *  # noqa: F401
-__all__ += ["BrokenElement", "EnrichedElement", "NodalEnrichedElement", 
-            "FiniteElement","FiniteElementBase", "HCurlElement", 
-            "HDivElement", "WithMapping", "HDiv", "HCurl", "MixedElement", 
-            "TensorElement", "VectorElement", "RestrictedElement", "TensorProductElement"]
+__all__ += [
+    "BrokenElement", "EnrichedElement", "NodalEnrichedElement",
+    "FiniteElement", "FiniteElementBase", "HCurlElement",
+    "HDivElement", "WithMapping", "HDiv", "HCurl", "MixedElement",
+    "TensorElement", "VectorElement", "RestrictedElement", "TensorProductElement",
+]
 
-from pyop2 import op2                        # noqa: F401
+from pyop2 import op2  # noqa: F401
 __all__ += ["op2"]
 
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
@@ -82,8 +84,10 @@ from firedrake.checkpointing import (  # noqa: F401
     DumbCheckpoint, HDF5File, FILE_READ, FILE_CREATE,
     FILE_UPDATE, CheckpointFile
 )
-__all__ += ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", 
-            "FILE_UPDATE", "CheckpointFile"]
+__all__ += [
+    "DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE",
+    "FILE_UPDATE", "CheckpointFile",
+]
 
 from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
 __all__ += ["Cofunction", "RieszMap"]
@@ -99,9 +103,11 @@ from firedrake.exceptions import (  # noqa: F401
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
     SerialExecutionOnlyError, PointNotInDomainError,
 )
-__all__ += ["FiredrakeException", "ConvergenceError", "MismatchingDomainError",
-            "VertexOnlyMeshMissingPointsError", "DofNotDefinedError", "DofTypeError", 
-            "SerialExecutionOnlyError", "PointNotInDomainError"]
+__all__ += [
+    "FiredrakeException", "ConvergenceError", "MismatchingDomainError",
+    "VertexOnlyMeshMissingPointsError", "DofNotDefinedError", "DofTypeError",
+    "SerialExecutionOnlyError", "PointNotInDomainError",
+]
 
 from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
@@ -112,8 +118,10 @@ from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
     TensorFunctionSpace, RestrictedFunctionSpace
 )
-__all__ += ["MixedFunctionSpace", "FunctionSpace", "VectorFunctionSpace", 
-            "TensorFunctionSpace", "RestrictedFunctionSpace"]
+__all__ += [
+    "MixedFunctionSpace", "FunctionSpace", "VectorFunctionSpace",
+    "TensorFunctionSpace", "RestrictedFunctionSpace",
+]
 
 from firedrake.interpolation import (  # noqa: F401
     interpolate, Interpolate, get_interpolator
@@ -131,11 +139,14 @@ from firedrake.preconditioners import (  # noqa: F401
     PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
     CovariancePC, OffloadPC, AuxiliaryOperatorSNES
 )
-__all__ += ["PCBase", "SNESBase", "PCSNESBase", "ASMPatchPC", "ASMStarPC", "ASMVankaPC", 
-            "ASMLinesmoothPC", "ASMExtrudedStarPC", "AssembledPC", "AuxiliaryOperatorPC",
-            "MassInvPC", "PCDPC", "PatchPC", "PlaneSmoother", "PatchSNES", "P1PC", "P1SNES", 
-            "LORPC", "GTMGPC", "PMGPC", "PMGSNES", "HypreAMS", "HypreADS", "FDMPC", 
-            "PoissonFDMPC", "TwoLevelPC", "HiptmairPC", "FacetSplitPC", "BDDCPC", "CovariancePC", "OffloadPC", "AuxiliaryOperatorSNES"]
+__all__ += [
+    "PCBase", "SNESBase", "PCSNESBase", "ASMPatchPC", "ASMStarPC", "ASMVankaPC",
+    "ASMLinesmoothPC", "ASMExtrudedStarPC", "AssembledPC", "AuxiliaryOperatorPC",
+    "MassInvPC", "PCDPC", "PatchPC", "PlaneSmoother", "PatchSNES", "P1PC", "P1SNES",
+    "LORPC", "GTMGPC", "PMGPC", "PMGSNES", "HypreAMS", "HypreADS", "FDMPC",
+    "PoissonFDMPC", "TwoLevelPC", "HiptmairPC", "FacetSplitPC", "BDDCPC",
+    "CovariancePC", "OffloadPC", "AuxiliaryOperatorSNES",
+]
 
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
@@ -144,11 +155,13 @@ from firedrake.mesh import (  # noqa: F401
     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
     VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
 )
-__all__ += ["Mesh", "ExtrudedMesh", "VertexOnlyMesh", "RelabeledMesh",
-            "SubDomainData", "UNMARKED", "DistributedMeshOverlapType",
-            "DEFAULT_MESH_NAME", "MeshGeometry", "MeshTopology",
-            "AbstractMeshTopology", "ExtrudedMeshTopology", "Submesh",
-            "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology"]
+__all__ += [
+    "Mesh", "ExtrudedMesh", "VertexOnlyMesh", "RelabeledMesh",
+    "SubDomainData", "UNMARKED", "DistributedMeshOverlapType",
+    "DEFAULT_MESH_NAME", "MeshGeometry", "MeshTopology",
+    "AbstractMeshTopology", "ExtrudedMeshTopology", "Submesh",
+    "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology",
+]
 
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
@@ -157,11 +170,13 @@ from firedrake.mg import (  # noqa: F401
     OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
     AdaptiveTransferManager
 )
-__all__ += ["HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy",
-            "NonNestedHierarchy", "SemiCoarsenedExtrudedHierarchy", 
-            "SubmeshHierarchy", "prolong", "restrict", "inject", 
-            "TransferManager", "OpenCascadeMeshHierarchy", 
-            "AdaptiveMeshHierarchy", "AdaptiveTransferManager"]
+__all__ += [
+    "HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy",
+    "NonNestedHierarchy", "SemiCoarsenedExtrudedHierarchy",
+    "SubmeshHierarchy", "prolong", "restrict", "inject",
+    "TransferManager", "OpenCascadeMeshHierarchy",
+    "AdaptiveMeshHierarchy", "AdaptiveTransferManager",
+]
 
 from firedrake.norms import errornorm, norm  # noqa: F401
 __all__ += ["errornorm", "norm"]
@@ -253,9 +268,11 @@ from firedrake.ensemble import (  # noqa: F401
     EnsembleFunctionSpace, EnsembleDualSpace, EnsembleBJacobiPC,
     EnsembleBlockDiagonalMat
 )
-__all__ += ["Ensemble", "EnsembleFunction", "EnsembleCofunction",
-            "EnsembleFunctionSpace", "EnsembleDualSpace", 
-            "EnsembleBJacobiPC", "EnsembleBlockDiagonalMat"]
+__all__ += [
+    "Ensemble", "EnsembleFunction", "EnsembleCofunction",
+    "EnsembleFunctionSpace", "EnsembleDualSpace",
+    "EnsembleBJacobiPC", "EnsembleBlockDiagonalMat",
+]
 
 import firedrake.randomfunctiongen as _randomfunctiongen
 from firedrake.randomfunctiongen import *  # noqa: F401
