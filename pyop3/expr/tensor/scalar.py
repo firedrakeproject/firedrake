@@ -134,10 +134,6 @@ class Scalar(Tensor):
         return self
 
     @property
-    def alloc_size(self) -> int:
-        return 1
-
-    @property
     def value(self):
         return utils.just_one(self.buffer.data_ro)
 

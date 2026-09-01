@@ -31,6 +31,7 @@ from pyop3.axis_tree.tree import (
     AbstractNonUnitAxisTree,
 )
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
+from pyop3.cache import cached_method
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.expr.base import Terminal
@@ -299,7 +300,7 @@ class Dat(Tensor):
     def _full_str(self) -> str:
         try:
             return "\n".join(
-                f"{self.name}[{self.axes.subst_layouts()[self.axes.path(leaf)]}]"
+                f"{self.name}[{self.axes.layouts2[self.axes.path(leaf)]}]"
                 for leaf in self.axes.leaves
             )
         # FIXME: lazy fallback because failures make debugging annoying
@@ -329,10 +330,6 @@ class Dat(Tensor):
     @cached_property
     def _localized(self) -> Dat:
         return self.record_new(axes=self.axes.localize(), _buffer=self.buffer.localize())
-
-    @property
-    def alloc_size(self):
-        return self.axes.alloc_size
 
     @property
     def size(self):
@@ -366,15 +363,20 @@ class Dat(Tensor):
     def context_free(self):
         return self.record_new(axes=self.axes.context_free)
 
+    @cached_method()
     def concretize(self, *, linear: bool):
         """Convert to an expression, can no longer be indexed properly"""
         if linear:
             return pyop3.expr.buffer.LinearDatBufferExpression(
-                self.buffer, self.axes.subst_layouts()[self.axes.leaf_path]
+                self.buffer, self.axes.layouts2[self.axes.leaf_path]
             )
         else:
+            leaf_layouts = idict({
+                leaf_path: self.axes.layouts2[leaf_path]
+                for leaf_path in self.axes.leaf_paths
+            })
             return pyop3.expr.buffer.NonlinearDatBufferExpression(
-                self.buffer, self.axes.subst_layouts()
+                self.buffer, leaf_layouts
             )
 
     @property

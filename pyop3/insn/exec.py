@@ -10,6 +10,7 @@ from collections.abc import Callable, Hashable, Mapping
 from functools import cached_property
 from typing import Any
 
+import cachetools
 import loopy as lp
 import loopy.tools
 import numpy as np
@@ -223,11 +224,15 @@ class InstructionExecutionContext:
 
         return executor
 
-    @memory_cache(
-        hashkey=lambda self: self._executor_cache_key,
-        get_comm=lambda self: self.comm,
-        heavy=True,
-    )
+    # We use an LRU cache here because long running simulations with a
+    # timestepping loop can easily miss cache (if assembling into a
+    # different tensor each time).
+    # @memory_cache(
+    #     hashkey=lambda self: self._executor_cache_key,
+    #     get_comm=lambda self: self.comm,
+    #     heavy=True,
+    #     make_cache=lambda: cachetools.LRUCache(100),
+    # )
     def _compile(self) -> CompiledCodeExecutor:
         from pyop3.insn.visitors import collect_compiler_options
         from pyop3.compile.core import _compile_static

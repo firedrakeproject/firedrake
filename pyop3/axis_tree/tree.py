@@ -898,6 +898,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
         return get_block_shape(self)
 
+    # killing this attr, want this to be subst_layouts eventually
     @property
     @abc.abstractmethod
     def layouts(self):
@@ -907,14 +908,15 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def _matching_target(self):
         return match_target(self, self.unindexed, self.targets)
 
-    @pyop3.mpi.collective  # debugging
-    def subst_layouts(self):
-        return self._subst_layouts_default
+    # This is the new attr, replacing subst_layouts()
+    @cached_property
+    def layouts2(self):
+        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
 
     # NOTE: Do we ever want non-leaf subst_layouts?
     @property
     def leaf_subst_layouts(self) -> idict:
-        return idict({leaf_path: self.subst_layouts()[leaf_path] for leaf_path in self.leaf_paths})
+        return idict({leaf_path: self.layouts2[leaf_path] for leaf_path in self.leaf_paths})
 
     @deprecated("iter")
     def index(self) -> LoopIndex:
@@ -1116,18 +1118,6 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         pass
 
-    @cached_property
-    @memory_cache(heavy=True, get_comm=lambda self: self.comm)
-    def _subst_layouts_default(self):
-        return subst_layouts(self, self._matching_target, self.layouts)
-
-    def _alloc_size(self, axis=None):
-        if self.is_empty:
-            pyop3.debug.warn_todo("think about zero-sized things, should this be allowed?")
-            return 1
-        axis = axis or self.root
-        return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
-
     # TODO: rename to just _region_labels or similar
     @cached_property
     def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
@@ -1240,7 +1230,6 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
         return f"{type(self).__name__}()"
 
     local_max_size = 1
-    alloc_size = 1
     local_size = 1
     depth = 1
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right, probably not since the comm is anything...
@@ -1292,7 +1281,8 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
     def leaf_subst_layouts(self):
         return idict({idict(): 0})
 
-    def subst_layouts(self):
+    @cached_property
+    def layouts2(self):
         return self.leaf_subst_layouts
 
     def path_with_nodes(self, node) -> idict:
@@ -1819,7 +1809,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         else:
             size_expr = replace_terminals(subtree.size, indices)
 
-        offset_expr = replace_terminals(self.subst_layouts()[subpath], indices)
+        offset_expr = replace_terminals(self.layouts2[subpath], indices)
 
         size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
         offset_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
@@ -1841,6 +1831,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     @property
     def layouts(self):
+        assert False, "don't do this, plan is to replace this API"
         return self.unindexed.layouts
 
     def linearize(self, path: PathT, *, partial: bool = False) -> IndexedAxisTree:
@@ -2028,15 +2019,14 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     def as_axis(self) -> Axis:
         return Axis(0)
 
-    @cached_property
-    def _subst_layouts_default(self):
-        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
-
+    # TODO: replace with leaf_layouts
     @property
     def leaf_subst_layouts(self) -> idict:
-        return idict({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
+        return idict({leaf_path: self.layouts2[leaf_path] for leaf_path in self.leaf_paths})
 
-    subst_layouts = lambda self: self.leaf_subst_layouts
+    @cached_property
+    def layouts2(self):
+        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
 
     @property
     def leaf_paths(self):

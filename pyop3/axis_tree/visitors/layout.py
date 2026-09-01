@@ -36,8 +36,7 @@ if typing.TYPE_CHECKING:
     from pyop3.types import *
 
 
-@memory_cache(heavy=True, get_comm=lambda tree: tree.comm)
-@PETSc.Log.EventDecorator()
+@pyop3.cache.with_self_heavy_cache  # cache on the axis tree
 def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     """Compute the layout functions for an axis tree.
 
@@ -143,10 +142,22 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     contiguous data and so are meaningless.
 
     """
-    return _compute_layouts(axis_tree)
+    import pyop3.visitors
+
+    relabeler = pyop3.visitors.Relabeler()
+    relabeled_axis_tree = relabeler(axis_tree)
+    relabeled_layouts, sf = _compute_layouts_cached(relabeled_axis_tree)
+    unlabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map)
+    layouts = idict({
+        unlabeler.visit_path(path): unlabeler(expr)
+        for path, expr in relabeled_layouts.items()
+    })
+    return layouts, sf
 
 
-def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
+@memory_cache(heavy=True, get_comm=lambda tree: tree.comm)
+@PETSc.Log.EventDecorator()
+def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     if axis_tree.is_empty:
         return idict({idict(): None}), pyop3.sf.NullStarForest(0)
 

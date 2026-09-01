@@ -75,11 +75,6 @@ def _select_candidate_indirections_compress_serial(insn):
     # of 4*2.
     disjoint_subsets: list[tuple[dict, set]] = []
     for terminal_id, terminal_candidates in candidates.items():
-        # terminal_symdats = {
-        #     symdat
-        #     for _, _, symdats in terminal_candidates
-        #     for _, symdat, _ in symdats
-        # }
         terminal_symdats = {
             loc
             for _, _, symdats in terminal_candidates
@@ -92,11 +87,6 @@ def _select_candidate_indirections_compress_serial(insn):
     while True:
         new_disjoint_subsets = []
         for terminal_id, terminal_candidates in candidates.items():
-            # terminal_symdats = {
-            #     symdat
-            #     for _, _, symdats in terminal_candidates
-            #     for _, symdat, _ in symdats
-            # }
             terminal_symdats = {
                 loc
                 for _, _, symdats in terminal_candidates

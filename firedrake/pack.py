@@ -222,6 +222,7 @@ def transform_packed_cell_closure_dat(
             packed_dat = packed_dat[dof_perm_slice]
 
         if permutation is not None:
+            raise NotImplementedError("Need to fix uniqueness of dat")
             # needed because we relabel here... else the labels dont match
             nodal_axis = packed_dat.axes.axes[depth]
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
@@ -471,6 +472,17 @@ def _flatten_entity_dofs(element) -> np.ndarray:
     return utils.readonly(flat_entity_dofs)
 
 
+def _static_node_perm_slice_hashkey(nodal_axis, space, depth):
+    edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
+    eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    return (nodal_axis, edofs_key, eperms_key, depth)
+
+
+@op3.cache.memory_cache(
+    hashkey=_static_node_perm_slice_hashkey,
+    get_comm=lambda na, s, d: s.comm,
+    heavy=True,
+)
 def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tuple[op3.AxisTree, tuple]:
     permutation = _node_permutation_from_element(space.finat_element)
     dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
@@ -494,7 +506,7 @@ def _packed_nodal_axes(packed_axes: op3.AxisTree, space, depth):
         outer_axes.append(outer_axis)
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
-    nodal_axis = op3.Axis(permutation.size)
+    nodal_axis = op3.Axis(permutation.size, "packed_nodes")
     nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
     return nodal_axis_tree, nodal_axis
 

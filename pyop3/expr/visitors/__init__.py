@@ -25,6 +25,7 @@ from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
     AbstractNonUnitAxisTree,
     Axis,
+    AxisForest,
     AxisTree,
     IndexedAxisTree,
     _UnitAxisTree,
@@ -224,7 +225,7 @@ def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
 
     for leaf in dat.axes.leaves:
         path = dat.axes.path(leaf)
-        loop_indices |= collect_loop_index_vars(dat.axes.subst_layouts()[path])
+        loop_indices |= collect_loop_index_vars(dat.axes.layouts2[path])
     return loop_indices
 
 
@@ -248,7 +249,7 @@ def _(mat: pyop3.expr.Mat, /) -> OrderedSet:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
-                loop_indices |= collect_loop_index_vars(cf_axes.subst_layouts()[path])
+                loop_indices |= collect_loop_index_vars(cf_axes.layouts2[path])
     return loop_indices
 
 
@@ -519,7 +520,7 @@ def _materialize_composite_dat_cached(
     loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
     for path_ in composite_dat.axis_tree.node_map:
         fullpath = loop_tree.leaf_path | path_
-        layout = assignee.axes.subst_layouts()[fullpath]
+        layout = assignee.axes.layouts2[fullpath]
         newlayout = pyop3.visitors.replace(layout, utils.invert_mapping(loop_var_replace_map), assert_modified=will_modify)
         newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
@@ -588,9 +589,7 @@ def _(dat: pyop3.expr.Dat, /):
 
 
 @get_shape.register
-def _(
-    mat: pyop3.expr.Mat, /
-):
+def _(mat: pyop3.expr.Mat, /):
     return (mat.row_axes, mat.column_axes)
 
 

@@ -124,8 +124,38 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
         # Find the matching axis tree if the dat uses an axis forest
         # TODO: This is currently matching using a different process to a mat
         # when they should be the same, which approach is better?
+        # Some investigation has demonstrated that the Mat approach doesn't always work currently
         axis_tree = utils.just_one(axis_trees)
+
+        # axis_tree = pyop3.axis_tree.tree.matching_axis_tree(dat.axes, axis_tree)
+        # if axis_tree.is_linear:
+        #     layout = utils.just_one(axis_tree.leaf_subst_layouts.values())
+        #     return (pyop3.expr.LinearDatBufferExpression(dat.buffer, layout),)
+        # else:
+        #     return (pyop3.expr.NonlinearDatBufferExpression(dat.buffer, axis_tree.leaf_subst_layouts),)
+
         for dat_axis_tree in dat.axes.trees:
+            # Shortcut for the most common cases where the dat already knows
+            # the right layout expressions:
+            #
+            #   1. dat_axis_tree and axis_tree are the same
+            #   2. Either dat_axis_tree or axis_tree share the same node map but
+            #      one of them is an *unindexed* axis tree. This means that one
+            #      of them has a trivial layout and hence composition is redundant.
+            if (
+                dat_axis_tree == axis_tree
+                or (
+                    isinstance(dat_axis_tree, pyop3.axis_tree.AxisTree)
+                    and axis_tree.materialize() == dat_axis_tree
+                )
+                or (
+                    isinstance(axis_tree, pyop3.axis_tree.AxisTree)
+                    and dat_axis_tree.materialize() == axis_tree
+                )
+            ):
+                subst_layouts = dat_axis_tree.layouts2
+                break
+
             try:
                 matching_target = pyop3.axis_tree.tree.match_target(
                     axis_tree, dat_axis_tree, axis_tree.targets
@@ -134,7 +164,7 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
                 continue
             else:
                 subst_layouts = pyop3.axis_tree.tree.subst_layouts(
-                    axis_tree, matching_target, dat_axis_tree.subst_layouts()
+                    axis_tree, matching_target, dat_axis_tree.layouts2
                 )
                 break
         else:
@@ -316,7 +346,7 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
             for axis_tree in [row_axes, column_axes]:
                 layout = pyop3.expr.CompositeDat(
                     axis_tree.materialize().regionless(),
-                    axis_tree.subst_layouts(),
+                    axis_tree.layouts2,
                 )
                 layouts.append(layout)
             row_layout, column_layout = layouts
