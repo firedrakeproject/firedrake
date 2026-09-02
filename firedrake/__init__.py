@@ -46,38 +46,38 @@ if _is_logging:
 del petsc
 
 import ufl as _ufl  # Required for ufl.__all__ to be picked up by the compiler
-from ufl import *  
+from ufl import *
 __all__ = list(_ufl.__all__)
 del _ufl
 
 import finat.ufl as _finat_ufl
-from finat.ufl import *  
+from finat.ufl import *
 __all__ += list(_finat_ufl.__all__)
 del _finat_ufl
 
-from pyop2 import op2  
+from pyop2 import op2
 __all__ += ["op2"]
 
-from pyop2.mpi import COMM_WORLD, COMM_SELF  
+from pyop2.mpi import COMM_WORLD, COMM_SELF
 __all__ += ["COMM_WORLD", "COMM_SELF"]
 
 # Register possible citations
-import firedrake.citations  
+import firedrake.citations  # noqa: F401
 __all__ += ["citations"]
 
 petsctools.cite("FiredrakeUserManual")
 del petsctools
 
-from firedrake.petsc import PETSc  
+from firedrake.petsc import PETSc
 __all__ += ["PETSc"]
 
-from firedrake.assemble import assemble  
+from firedrake.assemble import assemble
 __all__ += ["assemble"]
 
-from firedrake.bcs import DirichletBC, homogenize, EquationBC  
+from firedrake.bcs import DirichletBC, homogenize, EquationBC
 __all__ += ["DirichletBC", "homogenize", "EquationBC"]
 
-from firedrake.checkpointing import (  
+from firedrake.checkpointing import (
     DumbCheckpoint, HDF5File, FILE_READ, FILE_CREATE,
     FILE_UPDATE, CheckpointFile
 )
@@ -86,16 +86,16 @@ __all__ += [
     "FILE_UPDATE", "CheckpointFile",
 ]
 
-from firedrake.cofunction import Cofunction, RieszMap  
+from firedrake.cofunction import Cofunction, RieszMap
 __all__ += ["Cofunction", "RieszMap"]
 
-from firedrake.constant import Constant  
+from firedrake.constant import Constant
 __all__ += ["Constant"]
 
-from firedrake.deflation import DeflatedSNES, Deflation  
+from firedrake.deflation import DeflatedSNES, Deflation
 __all__ += ["DeflatedSNES", "Deflation"]
 
-from firedrake.exceptions import (  
+from firedrake.exceptions import (
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
     SerialExecutionOnlyError, PointNotInDomainError,
@@ -106,12 +106,12 @@ __all__ += [
     "SerialExecutionOnlyError", "PointNotInDomainError",
 ]
 
-from firedrake.function import (  
+from firedrake.function import (
     Function, CoordinatelessFunction, PointEvaluator
 )
 __all__ += ["Function", "CoordinatelessFunction", "PointEvaluator"]
 
-from firedrake.functionspace import (  
+from firedrake.functionspace import (
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
     TensorFunctionSpace, RestrictedFunctionSpace
 )
@@ -120,15 +120,15 @@ __all__ += [
     "TensorFunctionSpace", "RestrictedFunctionSpace",
 ]
 
-from firedrake.interpolation import (  
+from firedrake.interpolation import (
     interpolate, Interpolate, get_interpolator
 )
 __all__ += ["interpolate", "Interpolate", "get_interpolator"]
 
-from firedrake.linear_solver import LinearSolver  
+from firedrake.linear_solver import LinearSolver
 __all__ += ["LinearSolver"]
 
-from firedrake.preconditioners import (  
+from firedrake.preconditioners import (
     PCBase, SNESBase, PCSNESBase, ASMPatchPC, ASMStarPC, ASMVankaPC,
     ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
@@ -145,7 +145,7 @@ __all__ += [
     "CovariancePC", "OffloadPC", "AuxiliaryOperatorSNES",
 ]
 
-from firedrake.mesh import (  
+from firedrake.mesh import (
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
     SubDomainData, UNMARKED, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
@@ -160,7 +160,7 @@ __all__ += [
     "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology",
 ]
 
-from firedrake.mg import (  
+from firedrake.mg import (
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
     NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
@@ -175,10 +175,10 @@ __all__ += [
     "AdaptiveMeshHierarchy", "AdaptiveTransferManager",
 ]
 
-from firedrake.norms import errornorm, norm  
+from firedrake.norms import errornorm, norm
 __all__ += ["errornorm", "norm"]
 
-from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  
+from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 __all__ += ["VectorSpaceBasis", "MixedVectorSpaceBasis"]
 
 from firedrake.output import VTKFile
@@ -189,17 +189,17 @@ from firedrake.parameters import (
 )
 __all__ += ["Parameters", "parameters", "disable_performance_optimisations"]
 
-from firedrake.parloops import (  
+from firedrake.parloops import (
     par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
 )
 __all__ += ["par_loop", "direct", "READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
-from firedrake.projection import (  
+from firedrake.projection import (
     project, Projector
 )
 __all__ += ["project", "Projector"]
 
-from firedrake.slate import (  
+from firedrake.slate import (
     AssembledVector, Block, Factorization, Tensor, Inverse,
     Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
     DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
@@ -210,15 +210,15 @@ __all__ += ["AssembledVector", "Block", "Factorization", "Tensor", "Inverse",
             "DiagonalTensor", "Reciprocal", "HybridizationPC", "SchurComplementBuilder",
             "SCPC", "TensorOp"]
 
-from firedrake.slope_limiter import (  
+from firedrake.slope_limiter import (
     Limiter, VertexBasedLimiter
 )
 __all__ += ["Limiter", "VertexBasedLimiter"]
 
-from firedrake.solving import solve  
+from firedrake.solving import solve
 __all__ += ["solve"]
 
-from firedrake.ufl_expr import (  
+from firedrake.ufl_expr import (
     Argument, Coargument, TestFunction, TrialFunction,
     TestFunctions, TrialFunctions, derivative, adjoint,
     action, CellSize, FacetNormal
@@ -227,7 +227,7 @@ __all__ += ["Argument", "Coargument", "TestFunction", "TrialFunction",
             "TestFunctions", "TrialFunctions", "derivative", "adjoint",
             "action", "CellSize", "FacetNormal"]
 
-from firedrake.utility_meshes import (  
+from firedrake.utility_meshes import (
     IntervalMesh, UnitIntervalMesh, PeriodicIntervalMesh,
     PeriodicUnitIntervalMesh, UnitTriangleMesh, RectangleMesh,
     TensorRectangleMesh, SquareMesh, UnitSquareMesh, PeriodicRectangleMesh,
@@ -248,19 +248,19 @@ __all__ += ["IntervalMesh", "UnitIntervalMesh", "PeriodicIntervalMesh",
             "UnitOctahedralSphereMesh", "CubedSphereMesh", "UnitCubedSphereMesh",
             "TorusMesh", "AnnulusMesh", "SolidTorusMesh", "CylinderMesh"]
 
-from firedrake.variational_solver import (  
+from firedrake.variational_solver import (
     LinearVariationalProblem, LinearVariationalSolver,
     NonlinearVariationalProblem, NonlinearVariationalSolver
 )
 __all__ += ["LinearVariationalProblem", "LinearVariationalSolver",
             "NonlinearVariationalProblem", "NonlinearVariationalSolver"]
 
-from firedrake.eigensolver import (  
+from firedrake.eigensolver import (
     LinearEigenproblem, LinearEigensolver
 )
 __all__ += ["LinearEigenproblem", "LinearEigensolver"]
 
-from firedrake.ensemble import (  
+from firedrake.ensemble import (
     Ensemble, EnsembleFunction, EnsembleCofunction,
     EnsembleFunctionSpace, EnsembleDualSpace, EnsembleBJacobiPC,
     EnsembleBlockDiagonalMat
@@ -274,21 +274,21 @@ __all__ += [
 # randomfunctiongen generates __all__ dynamically, so we cannot enumerate
 # things here
 import firedrake.randomfunctiongen as _randomfunctiongen
-from firedrake.randomfunctiongen import *  
+from firedrake.randomfunctiongen import *
 __all__ += list(_randomfunctiongen.__all__)
 del _randomfunctiongen
 
-from firedrake.external_operators import (  
+from firedrake.external_operators import (
     AbstractExternalOperator, assemble_method,
     PointexprOperator, point_expr, MLOperator
 )
 __all__ += ["AbstractExternalOperator", "assemble_method",
             "PointexprOperator", "point_expr", "MLOperator"]
 
-from firedrake.progress_bar import ProgressBar  
+from firedrake.progress_bar import ProgressBar
 __all__ += ["ProgressBar"]
 
-from firedrake.logging import (  
+from firedrake.logging import (
     set_level, set_log_handlers, set_log_level, DEBUG, INFO,
     WARNING, ERROR, CRITICAL, log, debug, info, warning, error,
     critical, info_red, info_green, info_blue, RED, GREEN, BLUE
@@ -297,7 +297,7 @@ __all__ += ["set_level", "set_log_handlers", "set_log_level", "DEBUG", "INFO",
             "WARNING", "ERROR", "CRITICAL", "log", "debug", "info", "warning", "error",
             "critical", "info_red", "info_green", "info_blue", "RED", "GREEN", "BLUE"]
 
-from firedrake.matrix import (  
+from firedrake.matrix import (
     MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
 )
 __all__ += ["MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix"]
@@ -307,25 +307,17 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot as _plot  
+from firedrake._deprecation import plot as _plot
 import sys
 sys.modules["firedrake.plot"] = _plot
-from firedrake.plot import *  
+from firedrake.plot import *
 __all__ += list(_plot.__all__)
 del sys
 del _plot
 
-
-class SpikedModule:
-  def __init__(self, module):
-      self.module = module
-
-  def __getattr__(self, key):
-    raise AttributeError(f"'{self.module}.{key}' is not available via `from firedrake import *`." 
-                         f" Please import it directly (e.g. 'import firedrake.{self.module}).")
-
-utils = SpikedModule("utils")
+from firedrake._deprecation import utils
 __all__ += ["utils"]
+
 
 def set_blas_num_threads():
     """Try to detect threading and either disable or warn user.

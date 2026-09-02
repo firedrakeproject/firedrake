@@ -45,6 +45,15 @@ class _fake_module:
         return __call__
 
 
+class SpikedModule:
+  def __init__(self, module):
+      self.module = module
+
+  def __getattr__(self, key):
+    raise AttributeError(f"'{self.module}.{key}' is not available via `from firedrake import *`." 
+                         f" Please import it directly (e.g. 'import firedrake.{self.module}).")
+
+
 # Deprecate plotting in the global namespace
 plot = _fake_module(
     "firedrake.pyplot",
@@ -53,3 +62,5 @@ plot = _fake_module(
         "tripcolor", "quiver", "streamplot", "FunctionPlotter", "pgfplot"
     ]
 )
+
+utils = SpikedModule("utils")

@@ -8,6 +8,7 @@ import numpy as np
 import ufl  # noqa: F401
 
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(scope='module')
@@ -404,7 +405,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
-@pytest.mark.skipif(not utils.complex_mode, reason="Test specific to complex mode")
+@pytest.mark.skipif(not complex_mode, reason="Test specific to complex mode")
 def test_assign_complex_value(cg1):
     f = Function(cg1)
     g = Function(cg1)

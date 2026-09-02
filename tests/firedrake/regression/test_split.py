@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.utils import complex_mode
 from firedrake.formmanipulation import ExtractSubBlock
 import numpy as np
 
@@ -36,7 +37,7 @@ def test_function_split_raises():
         derivative(phi, f)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="u**2 not complex Gateaux differentiable.")
+@pytest.mark.skipif(complex_mode, reason="u**2 not complex Gateaux differentiable.")
 def test_split_function_derivative():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
@@ -62,7 +63,7 @@ def test_split_function_derivative():
     assert np.allclose(actual.M.values, expect.M.values)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
+@pytest.mark.skipif(complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
 def test_assemble_split_mixed_derivative():
     """Assemble the derivative of a form wrt part of mixed function."""
     mesh = UnitSquareMesh(1, 1)
