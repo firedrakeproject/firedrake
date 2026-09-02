@@ -824,7 +824,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    @cached_method(key=_getitem_cache_key)
+    # @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.index_tree import index_axes
         from pyop3.index_tree.parse import as_index_forests
@@ -2253,7 +2253,7 @@ class AxisForest(LoopContextFreeAxisTreeLike):
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
 
-    @cached_method(key=_getitem_cache_key)
+    # @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False):
         from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 

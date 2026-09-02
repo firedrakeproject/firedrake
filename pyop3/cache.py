@@ -35,6 +35,10 @@ from pyop3.constants import _nothing
 from pyop3.log import LOGGER
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
+
+from cachetools import LRUCache  # noqa: F401
+
+
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
 
@@ -115,14 +119,15 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-def get_method_cache(obj):
-    if not hasattr(obj, "_pyop3_method_cache"):
+def get_method_cache(obj: Any, func, make_cache: Callable[[], Mapping]) -> None:
+    cache_name = f"_pyop3_method_cache_{func.__name__}"
+    if not hasattr(obj, cache_name):
         # Use object.__setattr__ to get around frozen dataclasses
-        object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
-    return obj._pyop3_method_cache
+        object.__setattr__(obj, cache_name, make_cache())
+    return getattr(obj, cache_name)
 
 
-def cached_method(key=default_hashkey):
+def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict) -> Callable:
     """TODO"""
     # Since this is a cache for an instance we ignore the 'self' argument
     def method_cache_key(self, *args, **kwargs):
@@ -130,7 +135,7 @@ def cached_method(key=default_hashkey):
 
     def wrapper(func):
         return cachetools.cachedmethod(
-            lambda self: get_method_cache(self)[func.__qualname__], method_cache_key
+            lambda self: get_method_cache(self, func, make_cache), method_cache_key
         )(func)
     return wrapper
 

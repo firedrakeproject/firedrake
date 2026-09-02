@@ -199,7 +199,6 @@ class Mat(Tensor):
         "The number of local columns in the matrix (including ghosts)."
         return self.column_axes.local_size
 
-    @cached_method()
     def getitem(self, row_index, column_index, *, strict=False):
         # (old comment, still useful exposition)
         # Combine the loop contexts of the row and column indices. Consider

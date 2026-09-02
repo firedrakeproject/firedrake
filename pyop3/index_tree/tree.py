@@ -543,6 +543,7 @@ class Slice(Index):
         from pyop3.index_tree.parse import _parse_slice_components
 
         if label == axis:
+            # can only be set privately
             raise ValueError("The axis and slice labels should not match")
 
         components = _parse_slice_components(components)
@@ -561,7 +562,8 @@ class Slice(Index):
             )
         else:
             if label is DECIDE:
-                label = utils.unique_name("slice")
+                # We want a deterministic yet private label for slices
+                label = f"{axis}__slice"
 
             if any(c.label is DECIDE for c in components):
                 if not all(c.label is DECIDE for c in components):

@@ -134,11 +134,4 @@ class Relabeler(IdentityVisitor):
 
 
 def relabel(obj: pyop3.obj.Object, relabel_map: Mapping) -> pyop3.obj.Object:
-    # return _get_label_canonicalizer(obj.comm, relabel_map)(obj)
     return Relabeler(relabel_map)(obj)
-
-
-# TODO: We want this to be a general pattern for all visitors, can overload __new__
-# @pyop3.cache.memory_cache(heavy=True)
-# def _get_label_canonicalizer(comm):
-#     return LabelCanonicalizer()
