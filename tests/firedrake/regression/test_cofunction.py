@@ -77,7 +77,7 @@ def test_riesz_map_options_prefix(V):
 
     riesz = RieszMap(V, options_prefix='riesz')
     with pytest.raises(ConvergenceError):
-        Cofunction(V.dual()).assign(1.)
+        f = Cofunction(V.dual()).assign(1.)
         riesz(f)
 
     del options['riesz_ksp_type']
