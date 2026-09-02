@@ -441,13 +441,12 @@ class HDF5File:
         self._h5file.flush()
 
     @PETSc.Log.EventDecorator()
-    def write(self, function: firedrake.Function,
-              path: str, timestamp: float | None = None):
+    def write(self, function, path: str, timestamp: float | None = None):
         r"""Store a function in the checkpoint file.
 
         Parameters
         ----------
-        function :
+        function : firedrake.function.Function
             The function to store.
         path :
             The path to store the function under.
@@ -492,13 +491,12 @@ class HDF5File:
             self._set_timestamp(timestamp)
 
     @PETSc.Log.EventDecorator()
-    def read(self, function: firedrake.Function,
-             path: str, timestamp: float | None = None):
+    def read(self, function, path: str, timestamp: float | None = None):
         r"""Load a function from the checkpoint file.
 
         Parameters
         ----------
-        function :
+        function : firedrake.function.Function
             The function to load values into.
         path :
             The path under which the function is stored.
