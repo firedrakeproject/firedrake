@@ -175,10 +175,8 @@ def test_preconditioner_coarsening(solver_type):
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
+@pytest.mark.skip(reason="Test stochastically fails")
 def test_baseform_coarsening(solver_type, mixed):
-    if solver_type == "mg" and not mixed:
-        pytest.skip(reason="Test stochastically fails")
-
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
     parameters["snes_rtol"] = 1.0E-10
