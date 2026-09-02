@@ -701,13 +701,9 @@ class EquivalentAxisTargetSet(tuple):
 class AbstractAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for non-forest axis tree types."""
 
-    # {{{ interface impls
-
     @property
     def trees(self) -> tuple[AbstractAxisTree, ...]:
         return (self,)
-
-    # }}}
 
 
 class AbstractUnitAxisTree(AbstractAxisTree):
@@ -818,6 +814,26 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
+    @cached_property
+    def _myrelabeler(self):
+        return pyop3.visitors.Relabeler()
+
+    @cached_property
+    def _myrelabeled(self):
+        return self._myrelabeler(self)
+
+    # @cached_property
+    @property
+    def _unrelabeler(self):
+        self._myrelabeled  # populate
+        # We allow for missing entries in the unrelabeler because some labels
+        # may be generated during indexing (e.g. dat[::2] will create a new axis
+        # but we don't know its name from just looking at dat and ::2 independently).
+        return pyop3.visitors.Relabeler(self._myrelabeler.inverse_relabel_map, allow_missing=True)
+
+    # TODO: indices may not be hashable if it contains a slice (Py3.11)
+    # TODO: split cache here between if loop indices are in use or not (LRU if so, unbounded if not)
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def getitem(
         self,
         indices,
@@ -830,20 +846,16 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         if utils.is_ellipsis_type(indices):
             return self
 
-        relabeler = pyop3.visitors.Relabeler()
-        # first relabel the axis tree, then the indices
-        relabeled_tree = relabeler(self)
+        relabeler = self._myrelabeler
+        relabeled_tree = self._myrelabeled
         relabeled_indices = pyop3.index_tree.parse.relabel_indices(indices, relabeler)
         relabeled_indexed_tree = self._getitem_cached(
             relabeled_tree, relabeled_indices, strict=strict
         )
 
-        # We allow for missing entries in the unrelabeler because some labels
-        # may be generated during indexing (e.g. dat[::2] will create a new axis
-        # but we don't know its name from just looking at dat and ::2 independently).
-        unrelabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map, allow_missing=True)
-        return unrelabeler(relabeled_indexed_tree)
+        return self._unrelabeler(relabeled_indexed_tree)
 
+    # TODO: indices may not be hashable if it contains a slice (Py3.11)
     @staticmethod
     @pyop3.cache.memory_cache(heavy=True, get_comm=lambda t, *a, **kw: t.comm)
     def _getitem_cached(
@@ -930,11 +942,6 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     @cached_property
     def _matching_target(self):
         return match_target(self, self.unindexed, self.targets)
-
-    # This is the new attr, replacing subst_layouts()
-    @cached_property
-    def layouts2(self):
-        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
 
     # NOTE: Do we ever want non-leaf subst_layouts?
     @property
@@ -1288,7 +1295,8 @@ class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
 
     def add_axis(self, path, axis):
         assert not path
-        return AxisTree(axis)
+        node_map = {idict(): axis} | {idict({axis.label: c}): None for c in axis.component_labels}
+        return AxisTree(idict(node_map), _validate=False)
 
     def with_context(self, *args, **kwargs):
         return self
@@ -1355,10 +1363,14 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
         node_map: Mapping[PathT, Node] | None = None,
         *,
         comm: MPI.Comm | None = None,
+        _validate: bool = True,
     ) -> None:
-        node_map = self._prepare_node_map(node_map)
+        if _validate:
+            node_map = self._prepare_node_map(node_map)
         object.__setattr__(self, "node_map", node_map)
         object.__setattr__(self, "_comm", comm)
+
+    _tabulating_layouts = False
 
     # }}}
 
@@ -1505,6 +1517,9 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
         layouts_, _ = self._layouts_and_sf
         return layouts_
 
+    @property
+    def layouts2(self):
+        return self.layouts
 
     @cached_property
     def sf(self) -> StarForest:
@@ -1667,10 +1682,11 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         unindexed,
         *,
         targets,
+        _validate: bool = True,
     ):
         if isinstance(node_map, AxisTree):
             node_map = node_map.node_map
-        else:
+        elif _validate:
             node_map = self._prepare_node_map(node_map)
 
         targets = complete_axis_targets(targets)
@@ -1701,7 +1717,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         if self.is_empty:
             return AxisTree()
         else:
-            return AxisTree(self.node_map)
+            return AxisTree(self.node_map, _validate=False)
 
     @cached_property
     def regionless(self) -> IndexedAxisTree:
@@ -1718,6 +1734,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             targets=self.targets,
             unindexed=self.unindexed.localize(),
         )
+
+    @cached_property
+    def layouts2(self):
+        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
 
     @cached_method()
     def regionless(self):
@@ -1777,6 +1797,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             self_blocked.node_map,
             unindexed=unindexed_blocked,
             targets=targets_blocked,
+            _validate=False,
         )
 
     def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
@@ -1879,7 +1900,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
-        return AxisTree(self.node_map)
+        return AxisTree(self.node_map, _validate=False)
 
     # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
     @cached_method()
@@ -2445,7 +2466,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -
 
             subtrees = _merge_trees(tree1, tree2, only_unit=only_unit)
 
-            merged = AxisTree(tree1.node_map)
+            merged = AxisTree(tree1.node_map, _validate=False)
             for leaf, subtree in subtrees:
                 merged = merged.add_subtree(leaf, subtree)
         else:
