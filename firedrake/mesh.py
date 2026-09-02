@@ -1398,13 +1398,12 @@ class AbstractMeshTopology(abc.ABC):
         return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is)
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
+        # Adding the 'closure' label here is a bit of a hack to make sure we
+        # can detect which axis is generated in the packed axis trees.
         if ordering == ClosureOrdering.PLEX:
-            return self._plex_closure(index)
+            return self._plex_closure(index, label="closure")
         elif ordering == ClosureOrdering.FIAT:
-            # target_paths = tuple(index.iterset.target_paths.values())
-            # if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
-            #     raise ValueError("FIAT closure ordering is only valid for cell closures")
-            return self._fiat_closure(index)
+            return self._fiat_closure(index, label="closure")
 
     @cached_property
     def _closure_sizes(self) -> idict[idict]:
@@ -1499,7 +1498,7 @@ class AbstractMeshTopology(abc.ABC):
 
             closures[full_from_path] = [full_map_components]
             closures[owned_from_path] = [owned_map_components]
-        return op3.Map(closures, name="closure")
+        return op3.Map(closures)
 
     def _reorder_closure_fiat_simplex(self, closure_data):
         return dmcommon.closure_ordering(self, closure_data)
@@ -1568,7 +1567,7 @@ class AbstractMeshTopology(abc.ABC):
         # return readonly(map_pts_renum), readonly(sizes_renum)
 
     def support(self, index: MeshLoopIndex) -> op3.CalledMap:
-        return self._support(index)
+        return self._support(index, label="support")
 
     @cached_property
     def _support(self) -> op3.Map:
@@ -1596,7 +1595,7 @@ class AbstractMeshTopology(abc.ABC):
             supports[idict({owned_axis.label: owned_axis.component.label})] = [[
                 op3.TabulatedMapComponent(self.name, self.cell_label, owned_support_dat, label=None),
             ]]
-        return op3.Map(supports, name="support")
+        return op3.Map(supports)
 
     @cached_method()
     def _support_dat(self, name: str, *, only_owned: bool) -> op3.Dat:

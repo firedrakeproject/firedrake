@@ -147,9 +147,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     relabeler = pyop3.visitors.Relabeler()
     relabeled_axis_tree = relabeler(axis_tree)
     relabeled_layouts, sf = _compute_layouts_cached(relabeled_axis_tree)
-    unlabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map)
+    unrelabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map)
     layouts = idict({
-        unlabeler.visit_path(path): unlabeler(expr)
+        unrelabeler.visit_path(path): unrelabeler(expr)
         for path, expr in relabeled_layouts.items()
     })
     return layouts, sf

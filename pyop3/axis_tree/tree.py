@@ -698,12 +698,6 @@ class EquivalentAxisTargetSet(tuple):
     pass
 
 
-def _getitem_cache_key(indices, *, strict=False) -> Hashable:
-    if isinstance(indices, list):
-        indices = tuple(indices)
-    return (indices, strict)
-
-
 class AbstractAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for non-forest axis tree types."""
 
@@ -824,16 +818,45 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # @cached_method(key=_getitem_cache_key)
-    def getitem(self, indices, *, strict=False) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
-        from pyop3.index_tree import index_axes
-        from pyop3.index_tree.parse import as_index_forests
-        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
+    def getitem(
+        self,
+        indices,
+        *,
+        strict=False,
+    ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
+        import pyop3.index_tree.parse
+        import pyop3.visitors
 
         if utils.is_ellipsis_type(indices):
             return self
 
-        index_forests = as_index_forests(indices, axes=self, strict=strict)
+        relabeler = pyop3.visitors.Relabeler()
+        # first relabel the axis tree, then the indices
+        relabeled_tree = relabeler(self)
+        relabeled_indices = pyop3.index_tree.parse.relabel_indices(indices, relabeler)
+        relabeled_indexed_tree = self._getitem_cached(
+            relabeled_tree, relabeled_indices, strict=strict
+        )
+
+        # We allow for missing entries in the unrelabeler because some labels
+        # may be generated during indexing (e.g. dat[::2] will create a new axis
+        # but we don't know its name from just looking at dat and ::2 independently).
+        unrelabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map, allow_missing=True)
+        return unrelabeler(relabeled_indexed_tree)
+
+    @staticmethod
+    @pyop3.cache.memory_cache(heavy=True, get_comm=lambda t, *a, **kw: t.comm)
+    def _getitem_cached(
+        axis_tree,
+        indices,
+        *,
+        strict,
+    ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
+        from pyop3.index_tree import index_axes
+        from pyop3.index_tree.parse import as_index_forests
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
+
+        index_forests = as_index_forests(indices, axes=axis_tree, strict=strict)
 
         if len(index_forests) == 1:
             # There is no outer loop context to consider. Needn't return a
@@ -854,7 +877,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_forest:
-                indexed_axes = index_axes(restricted_index_tree, idict(), self)
+                indexed_axes = index_axes(restricted_index_tree, idict(), axis_tree)
                 indexed_axess.append(indexed_axes)
 
             assert len(indexed_axess) > 0, "no match found at all!"
@@ -868,7 +891,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             for loop_context, index_forest in index_forests.items():
                 indexed_axess = []
                 for index_tree in index_forest:
-                    indexed_axes = index_axes(index_tree, idict(), self)
+                    indexed_axes = index_axes(index_tree, idict(), axis_tree)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:
@@ -2253,7 +2276,6 @@ class AxisForest(LoopContextFreeAxisTreeLike):
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
 
-    # @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False):
         from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
