@@ -16,7 +16,7 @@ from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
-__all__ = ["Cofunction", "RieszMap"]
+__all__ = ["RieszMap"]
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):

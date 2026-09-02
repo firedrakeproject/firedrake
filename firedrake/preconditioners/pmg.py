@@ -24,7 +24,8 @@ import os
 import tempfile
 import weakref
 
-__all__ = ("PMGPC", "PMGSNES")
+
+__all__ = ("PMGSNES")
 
 
 class PMGBase(PCSNESBase):

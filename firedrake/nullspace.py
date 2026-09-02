@@ -11,9 +11,6 @@ from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 
 
-__all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
-
-
 class VectorSpaceBasis(object):
     r"""Build a basis for a vector space.
 
