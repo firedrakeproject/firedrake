@@ -627,7 +627,10 @@ def parallel_cache(
                             raise ValueError("Inconsistent cache hit behaviour")
 
                     if value is CACHE_MISS:
-                        value = func(*args, **kwargs)
+                        try:
+                            value = func(*args, **kwargs)
+                        except BaseException as err:
+                            value = err
 
                     # Insert the result into all of the caches
                     for i, cache in enumerate(caches):
@@ -667,13 +670,19 @@ def parallel_cache(
                                 value = comm.bcast(value, root=root)
 
                             if value is CACHE_MISS:
-                                value = func(*args, **kwargs) if comm.rank == 0 else None
+                                try:
+                                    value = func(*args, **kwargs) if comm.rank == 0 else None
+                                except BaseException as err:
+                                    value = err
                                 value = comm.bcast(value, root=0)
                                 cache[key] = value
 
                         else:
                             if value is CACHE_MISS:
-                                value = func(*args, **kwargs)
+                                try:
+                                    value = func(*args, **kwargs)
+                                except BaseException as err:
+                                    value = err
                                 cache[key] = value
 
                     else:
@@ -685,9 +694,16 @@ def parallel_cache(
                                 raise ValueError("Inconsistent cache hit behaviour")
 
                         if value is CACHE_MISS:
-                            value = func(*args, **kwargs)
+                            try:
+                                value = func(*args, **kwargs)
+                            except BaseException as err:
+                                value = err
                             cache[key] = value
-                return value
+
+                if isinstance(value, BaseException):
+                    raise value
+                else:
+                    return value
         return wrapper
     return decorator
 

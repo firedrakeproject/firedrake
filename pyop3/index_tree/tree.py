@@ -34,6 +34,7 @@ from pyop3.axis_tree.tree import (
     IndexedAxisTree,
     UnitIndexedAxisTree,
 )
+from pyop3.cache import cached_method
 from pyop3.collections import StrictlyUniqueDefaultDict, StrictlyUniqueDict, UniqueList
 from pyop3.constants import DECIDE
 from pyop3.dtypes import IntType
@@ -687,6 +688,7 @@ class Map(AbstractMap):
 
         object.__setattr__(self, "connectivity", connectivity)
 
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def __call__(self, index, /, **kwargs) -> CalledMap:
         return CalledMap(self, index, **kwargs)
 
@@ -718,6 +720,7 @@ class ScalarMap(AbstractMap):
                 # hacky way to catch if we are passing in something flat or not
                 assert isinstance(entry.array.layout, AxisVar)
 
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def __call__(self, index, /, **kwargs) -> UnitCalledMap:
         return UnitCalledMap(self, index, **kwargs)
 

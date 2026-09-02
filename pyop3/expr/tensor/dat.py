@@ -108,20 +108,19 @@ class Dat(Tensor):
         We could maybe do something similar with dtype...
         """
         axes = as_axis_tree_type(axes)
-        unindexed_axis_trees = collect_unindexed_axis_trees(axes)
-        sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
             assert buffer_kwargs is None
-            assert buffer.sf == sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
             # the shape of the underlying buffer for a dat should be 1D
             data = data.flatten()
+
+            sf = axes.unindexed.sf
 
             if buffer_kwargs is None:
                 buffer_kwargs = {}
