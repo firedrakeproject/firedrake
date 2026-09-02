@@ -175,7 +175,7 @@ def test_preconditioner_coarsening(solver_type):
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
-@pytest.mark.skip(reason="Test stochastically fails")
+@pytest.mark.skip(reason="Test stochastically fails. See https://github.com/firedrakeproject/firedrake/issues/5421")
 def test_baseform_coarsening(solver_type, mixed):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
