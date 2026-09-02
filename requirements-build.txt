@@ -6,8 +6,8 @@ mpi4py>3; python_version >= '3.13'
 mpi4py; python_version < '3.13'
 numpy
 pkgconfig
-# UNDO ME
-petsctools @ git+https://github.com/firedrakeproject/petsctools.git@connorjward/noappctx
+# TODO RELEASE
+petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main
 pybind11
 setuptools>=77.0.3
 
