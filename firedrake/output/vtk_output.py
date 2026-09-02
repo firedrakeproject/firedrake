@@ -11,6 +11,7 @@ from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+from firedrake.exceptions import CommMismatchError
 
 from .paraview_reordering import *
 
@@ -655,12 +656,12 @@ class VTKFile:
 
         Raises
         ------
-        ValueError :
+        CommMismatchError :
             If function is not defined on the same MPI comm as this file.
         """
         for f in functions:
             if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-                raise ValueError("Function communicator does not match VTKFile communicator")
+                raise CommMismatchError("Function communicator does not match VTKFile communicator")
 
         time = kwargs.get("time", None)
         vtu = self._write_vtu(*functions)

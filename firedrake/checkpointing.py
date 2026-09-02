@@ -460,7 +460,7 @@ class HDF5File:
             If checkpoint mode is FILE_READ.
         TypeError :
             If function is not a Function.
-        ValueError :
+        CommMismatchException :
             If function` is not defined on the same MPI comm as this file.
         """
         if self._mode == 'r':
@@ -468,7 +468,9 @@ class HDF5File:
         if not isinstance(function, firedrake.Function):
             raise TypeError(f"Can only store functions not {type(function).__name__}")
         if MPI.Comm.Compare(function.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match HDF5File communicator")
+            raise firedrake.CommMismatchException(
+                "Function communicator does not match HDF5File communicator."
+            )
 
         if timestamp is not None:
             suffix = "/%.15e" % timestamp
@@ -507,13 +509,15 @@ class HDF5File:
         ------
         TypeError :
             If function is not a Function.
-        ValueError :
+        CommMismatchException :
             If function is not defined on the same MPI comm as this file.
         """
         if not isinstance(function, firedrake.Function):
             raise TypeError(f"Can only load functions not {type(function).__name__}")
         if MPI.Comm.Compare(function.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match HDF5File communicator")
+            raise firedrake.CommMismatchException(
+                "Function communicator does not match HDF5File communicator."
+            )
         if timestamp is not None:
             suffix = "/%.15e" % timestamp
             path = path + suffix
