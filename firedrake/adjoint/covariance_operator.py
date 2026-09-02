@@ -421,6 +421,32 @@ class WhiteNoiseGenerator:
 
 # Auto-regressive function parameters
 
+def _validate_ar_order(m: int, dim: int):
+    """Validate that the requested order of autoregressive covariance
+    approximation is well defined for the spatial dimension.
+
+    Parameters
+    ----------
+    m :
+        Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
+    """
+    # order restriction is different for even or odd dimensions
+    min_m = int((dim+2)/2 if ((dim % 2) == 0) else (dim+1)/2)
+    if m <= min_m:
+        raise ValueError(
+            f"Autoregressive covariance approximations in {dim}"
+            f" dimensions requires m>{min_m} ({m=} was received)."
+        )
+
+
 def lengthscale_m(Lar: float, m: int, dim: int):
     """Daley-equivalent lengthscale of m-th order autoregressive function.
 
@@ -437,7 +463,14 @@ def lengthscale_m(Lar: float, m: int, dim: int):
     -------
     L : float
         Lengthscale parameter for autoregressive function.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
+    _validate_ar_order(m, dim)
     return Lar/sqrt(2*m - dim - 2)
 
 
@@ -457,7 +490,14 @@ def lambda_m(Lar: float, m: int, dim: int):
     -------
     lambda : float
         Normalisation coefficient for autoregressive correlation operator.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
+    _validate_ar_order(m, dim)
     L = lengthscale_m(Lar, m, dim)
     if dim == 1:
         num = (2**(2*m - 1))*factorial(m - 1)**2
@@ -489,6 +529,12 @@ def kappa_m(Lar: float, m: int, dim: int):
     -------
     kappa : float
         Diffusion coefficient for autoregressive covariance operator.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
     return lengthscale_m(Lar, m, dim)**2
 
@@ -783,10 +829,10 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
     References
     ----------
-    Mirouze, I. and Weaver, A. T., 2010: "Representation of correlation
-    functions in variational assimilation using an implicit diffusion
-    operator". Q. J. R. Meteorol. Soc. 136: 1421–1443, July 2010 Part B.
-    https://doi.org/10.1002/qj.643
+    Weaver, A. T. and Mirouze, I., 2013: "On the diffusion equation and its
+    application to isotropic and anisotropic correlation modelling in variational
+    assimilation". Q. J. R. Meteorol. Soc. 139: 242–260, January 2013 Part A.
+    https://doi.org/10.1002/qj.1955
 
     See Also
     --------
@@ -796,6 +842,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     ~firedrake.preconditioners.covariance.CovariancePC
     diffusion_form
     """
+    petsctools.cite("Weaver2013")
 
     class DiffusionForm(Enum):
         """
