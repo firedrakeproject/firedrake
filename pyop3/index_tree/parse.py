@@ -593,8 +593,9 @@ def _(
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = idict({input_path: (output_spec,)})
-            restricted_map = called_map.map.record_new(connectivity=restricted_connectivity)(cf_index)
-            cf_maps.append(restricted_map)
+            restricted_map = called_map.map.record_new(connectivity=restricted_connectivity)
+            restricted_called_map = called_map.record_new(map=restricted_map, index=cf_index)
+            cf_maps.append(restricted_called_map)
     return tuple(cf_maps)
 
 
@@ -662,3 +663,22 @@ def _(label: str | numbers.Number | types.NoneType, /) -> AffineSliceComponent:
     return AffineSliceComponent(label)
 
 
+@functools.singledispatch
+def relabel_indices(indices, relabeler):
+    return relabeler(indices)
+
+
+@relabel_indices.register(tuple)
+def _(tuple_, relabeler):
+    return tuple(relabel_indices(item, relabeler) for item in tuple_)
+
+
+@relabel_indices.register
+def _(label: str | utils.Atom, relabeler):
+    # A string/atom is a component label, which we don't change
+    return label
+
+
+@relabel_indices.register
+def _(slice_: slice, relabeler):
+    return slice_

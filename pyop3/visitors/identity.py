@@ -36,6 +36,15 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
     def process(self, obj: Any, /, **kwargs):
         utils.raise_missing_dispatch_handler(obj)
 
+    # {{{ pyop3.labeled_tree
+
+    @process.register
+    def _(self, tree: pyop3.labeled_tree.LabeledTree, /, **kwargs):
+        new_node_map = self._visit_pathed_mapping(tree.node_map, **kwargs)
+        return tree.record_new(node_map=new_node_map)
+
+    # }}}
+
     # {{{ pyop3.axis_tree
 
     @process.register
@@ -55,11 +64,6 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
     def _(self, axis: pyop3.axis_tree.Axis, /, **kwargs):
         new_components = tuple(self(c, **kwargs) for c in axis.components)
         return axis.record_new(components=new_components)
-
-    @process.register
-    def _(self, axis_tree: pyop3.axis_tree.AxisTree, /, **kwargs):
-        new_node_map = self._visit_pathed_mapping(axis_tree.node_map, **kwargs)
-        return axis_tree.record_new(node_map=new_node_map)
 
     @process.register
     def _(self, axis_tree: pyop3.axis_tree._UnitAxisTree, /, **kwargs):

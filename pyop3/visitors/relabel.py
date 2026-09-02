@@ -28,20 +28,34 @@ class Relabeler(IdentityVisitor):
         numbered from zero.
 
     """
-    def __init__(self, relabel_map: Mapping[type, Mapping[str, str]] | None = None) -> None:
+    def __init__(
+        self,
+        relabel_map: Mapping[type, Mapping[str, str]] | None = None,
+        *,
+        allow_missing: bool | None = None,
+    ) -> None:
         if relabel_map is not None:
             renamer = None
         else:
             relabel_map = None
+            if allow_missing is not None:
+                raise ValueError("allow_missing cannot be specified if no relabel map is provided")
             renamer = pyop3.visitors.base.Renamer()
 
         self.relabel_map = relabel_map
+        self.allow_missing = allow_missing
         self._renamer = renamer
         super().__init__()
 
     def _get_label(self, type_: type, key: Hashable) -> str:
         if self.relabel_map is not None:
-            return self.relabel_map[type_][key]
+            if self.allow_missing:
+                try:
+                    return self.relabel_map[type_][key]
+                except KeyError:
+                    return key
+            else:
+                return self.relabel_map[type_][key]
         else:
             return self._renamer.add_type(type_, key)
 
@@ -129,6 +143,48 @@ class Relabeler(IdentityVisitor):
             iterset=self(loop_index.iterset),
             label=self._get_label(type(loop_index), loop_index.label),
         )
+
+    @process.register
+    def _(self, slice_: pyop3.index_tree.Slice, /):
+        new_axis = self._get_label(pyop3.axis_tree.Axis, slice_.axis)
+        new_label = self._get_label(pyop3.axis_tree.Axis, slice_.label)
+        return slice_.record_new(axis=new_axis, label=new_label)
+
+    @process.register
+    def _(self, scalar_index: pyop3.index_tree.ScalarIndex, /):
+        new_axis = self._get_label(pyop3.axis_tree.Axis, scalar_index.axis)
+        new_value = self(scalar_index.value)
+        new_label = self._get_label(pyop3.axis_tree.Axis, scalar_index.label)
+        return scalar_index.record_new(axis=new_axis, value=new_value, label=new_label)
+
+    @process.register
+    def _(self, called_map: pyop3.index_tree.AbstractCalledMap, /):
+        new_map = self(called_map.map)
+        new_index = self(called_map.index)
+        new_label = self._get_label(pyop3.axis_tree.Axis, called_map.label)
+        return called_map.record_new(map=new_map, index=new_index, label=new_label)
+
+    @process.register
+    def _(self, map_: pyop3.index_tree.Map, /):
+        new_connectivity = idict({
+            self.visit_path(path): tuple(tuple(map(self, cpts)) for cpts in cptss)
+            for path, cptss in map_.connectivity.items()
+        })
+        return map_.record_new(connectivity=new_connectivity)
+
+    @process.register
+    def _(self, map_: pyop3.index_tree.ScalarMap, /):
+        new_connectivity = idict({
+            self.visit_path(path): tuple(map(self, components))
+            for path, components in map_.connectivity.items()
+        })
+        return map_.record_new(connectivity=new_connectivity)
+
+    @process.register
+    def _(self, map_component: pyop3.index_tree.TabulatedMapComponent, /):
+        new_target_axis = self._get_label(pyop3.axis_tree.Axis, map_component.target_axis)
+        new_array = self(map_component.array)
+        return map_component.record_new(target_axis=new_target_axis, array=new_array)
 
     # }}}
 

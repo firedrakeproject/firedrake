@@ -940,7 +940,7 @@ def _(map_: UnitCalledMap, /, *args, **kwargs):
     return (pyop3.axis_tree.UNIT_AXIS_TREE, new_targets)
 
 
-def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
+def _make_leaf_axis_from_called_map_new(map_, output_spec, input_paths_and_exprs):
     from pyop3.expr.buffer import LinearDatBufferExpression
     from pyop3.expr.visitors import replace_terminals
 
@@ -957,7 +957,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
             arity = replace_terminals(map_output.arity, replace_map, assert_modified=True)
         component = pyop3.axis_tree.AxisComponent(arity, label=map_output.label)
         components.append(component)
-    axis = pyop3.axis_tree.Axis(components, label=map_name)
+    axis = pyop3.axis_tree.Axis(components, label=map_.label)
 
     targets = {}
     for component, map_output in zip(components, output_spec, strict=True):

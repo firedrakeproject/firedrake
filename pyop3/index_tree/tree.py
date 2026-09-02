@@ -46,14 +46,10 @@ from pyop3.labeled_tree import (
     accumulate_path,
 )
 from pyop3.sf import NullStarForest, StarForest
-from pyop3.utils import (
-    Labeled,
-    expand_collection_of_iterables,
-    just_one,
-    merge_dicts,
-)
+
 
 bsearch = pym.var("mybsearch")
+
 
 class Index(MultiComponentLabeledNode):
     pass
@@ -257,22 +253,9 @@ class RegionSliceComponent(SliceComponent):
     # }}}
 
 
-class MapComponent(Labeled, pyop3.obj.Object):
+class MapComponent(pyop3.obj.Object):
 
-    @property
-    @abc.abstractmethod
-    def target_axis(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def target_component(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def arity(self):
-        pass
+    __abstract_record_attrs = ("target_axis", "target_component", "arity", "label")
 
     @property
     def target_path(self) -> idict:
@@ -283,10 +266,10 @@ class MapComponent(Labeled, pyop3.obj.Object):
 @pyop3.record.frozenrecord()
 class TabulatedMapComponent(MapComponent):
 
-    _target_axis: Any
-    _target_component: Any
+    target_axis: Any
+    target_component: Any
     array: Any
-    _arity: int
+    arity: int
     label: Any
 
     def __init__(self, target_axis, target_component, array, *, label=DECIDE) -> None:
@@ -306,24 +289,17 @@ class TabulatedMapComponent(MapComponent):
 
         array = as_linear_buffer_expression(array)
 
-        object.__setattr__(self, "_target_axis", target_axis)
-        object.__setattr__(self, "_target_component", target_component)
+        object.__setattr__(self, "target_axis", target_axis)
+        object.__setattr__(self, "target_component", target_component)
         object.__setattr__(self, "array", array)
-        object.__setattr__(self, "_arity", arity)
+        object.__setattr__(self, "arity", arity)
         object.__setattr__(self, "label", label)
-
-    target_axis = pyop3.record.attr("_target_axis")
-    target_component = pyop3.record.attr("_target_component")
-    arity = pyop3.record.attr("_arity")
 
     # old alias
     @property
     def data(self):
+        assert False, "old API"
         return self.array
-
-    @functools.cached_property
-    def datamap(self):
-        return self.array.datamap
 
 
 # NOTE: I don't really remember why this type needs to exist
@@ -491,7 +467,7 @@ class ScalarIndex(UnitIndex):
 
     def __init__(self, axis, component, value, label=DECIDE) -> None:
         if label is DECIDE:
-            label = utils.unique_name("scalar")
+            label = f"{axis}__scalar"
 
         object.__setattr__(self, "axis", axis)
         object.__setattr__(self, "component", component)
@@ -621,17 +597,13 @@ class Slice(Index):
 
         return type(self)(self.axis, new_slice_components, label=self.label)
 
-    @property
-    def datamap(self):
-        return merge_dicts([s.datamap for s in self.components])
-
 
 class AbstractMap(pyop3.obj.Object):
 
     __abstract_record_attrs = ("connectivity",)
 
     @abc.abstractmethod
-    def __call__(self, index):
+    def __call__(self, index, /, **kwargs):
          pass
 
 
@@ -695,21 +667,9 @@ class Map(AbstractMap):
 
     """
 
-    # {{{ instance attrs
-
     connectivity: idict
-    name: str  # should delete this
 
-    # a class var
-    counter = 0
-
-    def __init__(self, connectivity, name=None) -> None:
-        # TODO delete entirely
-        if name is None:
-            # lazy unique name
-            name = f"_Map_{self.counter}"
-            self.counter += 1
-
+    def __init__(self, connectivity) -> None:
         new_connectivity = {}
         for key, map_cptss in connectivity.items():
             new_map_cptss = []
@@ -726,16 +686,9 @@ class Map(AbstractMap):
         connectivity = idict(new_connectivity)
 
         object.__setattr__(self, "connectivity", connectivity)
-        object.__setattr__(self, "name", name)
 
-    # }}}
-
-    # {{{ interface impls
-
-    def __call__(self, index, /) -> CalledMap:
-        return CalledMap(self, index)
-
-    # }}}
+    def __call__(self, index, /, **kwargs) -> CalledMap:
+        return CalledMap(self, index, **kwargs)
 
 
 @pyop3.record.frozenrecord()
@@ -749,13 +702,9 @@ class ScalarMap(AbstractMap):
 
     """
 
-    _name: str
-
-    def __init__(self, connectivity, name):
+    def __init__(self, connectivity):
         connectivity = utils.freeze(connectivity)
-
         object.__setattr__(self, "connectivity", connectivity)
-        object.__setattr__(self, "_name", name)
 
     def __record_post_init(self) -> None:
         from pyop3.expr import AxisVar
@@ -769,36 +718,14 @@ class ScalarMap(AbstractMap):
                 # hacky way to catch if we are passing in something flat or not
                 assert isinstance(entry.array.layout, AxisVar)
 
-    # {{{ interface impls
-
-    name = pyop3.record.attr("_name")
-
-    def __call__(self, index, /) -> UnitCalledMap:
-         return UnitCalledMap(self, index)
-
-    # }}}
+    def __call__(self, index, /, **kwargs) -> UnitCalledMap:
+        return UnitCalledMap(self, index, **kwargs)
 
 
 # TODO: I think these parent types are no longer used/useful
-class AbstractCalledMap(AxisIndependentIndex, Labeled):
+class AbstractCalledMap(AxisIndependentIndex):
 
-    # {{{ abstract methods
-
-    @property
-    @abc.abstractmethod
-    def map(self) -> Map | UnitMap:
-         pass
-
-    @property
-    @abc.abstractmethod
-    def index(self) -> LoopIndex | AbstractCalledMap:
-         pass
-
-    # }}}
-
-    @property
-    def name(self):
-        return self.map.name
+    __abstract_record_attrs = ("map", "index", "label")
 
     @property
     def connectivity(self):
@@ -820,16 +747,16 @@ class CalledMap(AbstractCalledMap):
 
     # {{{ instance attrs
 
-    _map: Map
-    _index: Any
+    map: Map
+    index: Any
     label: Any
 
-    def __init__(self, map, from_index, *, id=None, label=DECIDE) -> None:
+    def __init__(self, map, index, *, label=DECIDE) -> None:
         if label is DECIDE:
             label = utils.unique_name("map")
 
-        object.__setattr__(self, "_map", map)
-        object.__setattr__(self, "_index", from_index)
+        object.__setattr__(self, "map", map)
+        object.__setattr__(self, "index", index)
         object.__setattr__(self, "label", label)
 
     def __record_post_init(self) -> None:
@@ -848,13 +775,6 @@ class CalledMap(AbstractCalledMap):
 
     # }}}
 
-    # {{{ interface impls
-
-    map = pyop3.record.attr("_map")
-    index = pyop3.record.attr("_index")
-
-    # }}}
-
     def iter(self, *, eager=False) -> LoopIndex:
         from pyop3.index_tree.apply import collect_leaf_targets
         from pyop3.index_tree.parse import as_index_forests
@@ -865,12 +785,12 @@ class CalledMap(AbstractCalledMap):
         index_forests = as_index_forests(self)
 
         if self.is_context_free:
-            index_forest = just_one(index_forests.values())
+            index_forest = utils.just_one(index_forests.values())
 
             if len(index_forest) > 1:
                 raise NotImplementedError("Need to think about this case")
             else:
-                index_tree = just_one(index_forest)
+                index_tree = utils.just_one(index_forest)
 
             iterset = index_axes(index_tree)
         else:
@@ -879,7 +799,7 @@ class CalledMap(AbstractCalledMap):
                 if len(index_forest) > 1:
                     raise NotImplementedError("Need to think about this case")
                 else:
-                    index_tree = just_one(index_forest)
+                    index_tree = utils.just_one(index_forest)
 
                 context_map[ctx] = index_axes(index_tree, ctx)
             iterset = ContextSensitiveAxisTree(context_map)
@@ -902,7 +822,7 @@ class CalledMap(AbstractCalledMap):
         for input_leaf_path, input_leaf_targets_per_leaf in zip(input_axes.leaf_paths, collect_leaf_targets(input_axes), strict=True):
             found = False
             for input_target in input_leaf_targets_per_leaf:
-                input_target_path = merge_dicts(t.path for t in input_target)
+                input_target_path = utils.merge_dicts(t.path for t in input_target)
 
                 if input_target_path in self.connectivity:
                     if len(self.connectivity[input_target_path]) > 1:
@@ -911,11 +831,11 @@ class CalledMap(AbstractCalledMap):
                             "This ambiguity makes it impossible to form an IndexTree."
                         )
 
-                    output_spec = just_one(self.connectivity[input_target_path])
+                    output_spec = utils.just_one(self.connectivity[input_target_path])
 
                     # make a method
                     subaxis, subtargets = _make_leaf_axis_from_called_map_new(
-                        self, self.name, output_spec, input_target
+                        self, output_spec, input_target
                     )
 
                     axes_ = axes_.add_axis(input_leaf_path, subaxis)
@@ -934,28 +854,16 @@ class CalledMap(AbstractCalledMap):
 @pyop3.record.frozenrecord()
 class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
-    # {{{ instance attrs
-
-    _map: UnitMap
-    _index: UnitMap | LoopIndex
+    map: UnitMap
+    index: UnitMap | LoopIndex
     label: Any
 
-    # FIXME: do i need label?
-    def __init__(self, map, index, label=DECIDE):
+    def __init__(self, map, index, *, label=DECIDE):
         if label is DECIDE:
             label = utils.unique_name("map")
-        object.__setattr__(self, "_map", map)
-        object.__setattr__(self, "_index", index)
+        object.__setattr__(self, "map", map)
+        object.__setattr__(self, "index", index)
         object.__setattr__(self, "label", label)
-
-    # }}}
-
-    # {{{ interface impls
-
-    map = pyop3.record.attr("_map")
-    index = pyop3.record.attr("_index")
-
-    # }}}
 
 
 class LoopContextSensitive:
