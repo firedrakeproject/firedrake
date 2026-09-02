@@ -45,13 +45,23 @@ class _fake_module:
         return __call__
 
 
-class SpikedModule:
-  def __init__(self, module):
-      self.module = module
+class _spiked_module:
+    """ Replacement for modules removed from Firedrake's wildcard export.
+    
+    Parameters
+    ----------
+    module:
+        Name of the module no longer exported by 'from firedrake import *'
+    """
+    
+    def __init__(self, module):
+        self.module = module
 
-  def __getattr__(self, key):
-    raise AttributeError(f"'{self.module}.{key}' is not available via `from firedrake import *`." 
-                         f" Please import it directly (e.g. 'import firedrake.{self.module}).")
+    def __getattr__(self, key):
+        raise ImportError(
+                f"'{self.module}.{key}' is no longer exported by `from firedrake import *`." 
+                f" Please import it directly (e.g. 'import firedrake.{self.module})."
+            )
 
 
 # Deprecate plotting in the global namespace
@@ -63,4 +73,5 @@ plot = _fake_module(
     ]
 )
 
-utils = SpikedModule("utils")
+# Deprecate utils in the global namespace
+utils = _spiked_module("utils")

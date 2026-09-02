@@ -50,8 +50,8 @@ provided as a convenient shorthand.
 
 For integrals that do not specify a fixed or maximum quadrature degree, a default value
 may be keyed as the ``"quadrature_degree"`` or ``"max_quadrature_degree"`` entry
-respectively in the ``form_compiler_parameters`` dictionary passed on to :py:func:`~.solve`,
-:py:func:`~.project`, :py:class:`~.NonlinearVariationalProblem`, or :py:func:`~.assemble`.
+respectively in the ``form_compiler_parameters`` dictionary passed on to :py:func:`~firedrake.solving.solve`,
+:py:func:`~.project`, :py:class:`~.NonlinearVariationalProblem`, or :py:func:`~firedrake.assemble.assemble`.
 
 .. code-block:: python3
 

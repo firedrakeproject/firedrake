@@ -47,7 +47,7 @@ The basic syntax for interpolation is:
    :end-before: [test_interpolate_operator 2]
 
 Here, the :py:func:`~.interpolate` function returned a **symbolic** UFL_ :py:class:`~ufl.Interpolate`
-expression. To calculate a concrete numerical result, we need to call :py:func:`~.assemble` on this expression.
+expression. To calculate a concrete numerical result, we need to call :py:func:`~firedrake.assemble.assemble` on this expression.
 
 It is also possible to interpolate an expression directly into an existing
 :py:class:`~.Function`:
@@ -289,7 +289,7 @@ of the source mesh. Volume, surface and line integrals can therefore be
 calculated by interpolating onto the mesh or
 :ref:`immersed manifold <immersed_manifolds>` which defines the volume,
 surface or line of interest in the domain. The integral itself is calculated
-by calling :py:func:`~.assemble` on an appropriate form over the target mesh
+by calling :py:func:`~firedrake.assemble.assemble` on an appropriate form over the target mesh
 function space:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py

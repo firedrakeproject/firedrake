@@ -11,8 +11,6 @@ from ufl import grad, SpatialCoordinate
 from finat.ufl import FiniteElement, TensorElement, VectorElement
 from pyop2.utils import as_tuple
 
-__all__ = ("HypreAMS",)
-
 
 def chop(A, tol=1E-10):
     # remove (near) zeros from sparsity pattern

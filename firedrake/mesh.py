@@ -61,7 +61,7 @@ if typing.TYPE_CHECKING:
 
 
 __all__ = [
-    'RelabeledMesh', 'SubDomainData', 'UNMARKED', 
+    'RelabeledMesh', 'SubDomainData', 'UNMARKED',
     'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'

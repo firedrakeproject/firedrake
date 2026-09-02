@@ -12,7 +12,7 @@ from firedrake.slate.slate import Tensor, AssembledVector
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
 
-__all__ = ['HybridizationPC', 'SchurComplementBuilder']
+__all__ = ['SchurComplementBuilder']
 
 
 class HybridizationPC(SCBase):

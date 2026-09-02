@@ -18,10 +18,7 @@ from ufl import as_ufl, replace, Form
 from functools import cached_property
 from collections.abc import Callable
 
-__all__ = ["LinearVariationalProblem",
-           "LinearVariationalSolver",
-           "NonlinearVariationalProblem",
-           "NonlinearVariationalSolver"]
+__all__ = ["LinearVariationalProblem", "NonlinearVariationalProblem"]
 
 
 def check_pde_args(F, J, Jp, E=None):

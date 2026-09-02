@@ -155,7 +155,7 @@ which to place our solution:
 
    x = Function(V)
 
-We then :py:func:`~.assemble` the left hand side
+We then :py:func:`~firedrake.assemble.assemble` the left hand side
 matrix ``A`` and known right hand side ``b`` from the bilinear and
 linear forms respectively:
 
@@ -172,7 +172,7 @@ Finally, we can solve the problem placing the solution in ``x``:
 
 to apply boundary conditions to the problem, we can assemble the
 linear operator ``A`` with boundary conditions using the ``bcs``
-keyword argument to :py:func:`~.assemble` (and then
+keyword argument to :py:func:`~firedrake.assemble.assemble` (and then
 not supply them in solve call):
 
 .. code-block:: python3
@@ -185,7 +185,7 @@ not supply them in solve call):
 
    It is no longer possible to apply or change boundary
    conditions after assembling the matrix ``A``; pass any
-   necessary boundary conditions to :py:func:`~.assemble`.
+   necessary boundary conditions to :py:func:`~firedrake.assemble.assemble`.
 
 Specifying solution methods
 ---------------------------
@@ -506,7 +506,7 @@ is assembled as a nested matrix, there is a choice as to the type of
 the blocks (they may be "aij" or "baij").  The default choice can be
 controlled with ``parameters["default_sub_matrix_type"]``.  For
 finer-grained control over the matrix type, one can provide it when
-calling :func:`~.assemble` through the ``mat_type`` and
+calling :func:`~firedrake.assemble.assemble` through the ``mat_type`` and
 ``sub_mat_type`` keyword arguments.  When using variational solvers,
 the matrix type is controlled through use of the ``solver_parameters``
 dictionary by specifying the ``"mat_type"`` entry.
@@ -850,7 +850,7 @@ conditions.  Sometimes this is not possible.  In this case, you can
 ask Firedrake to remove the component of the right hand side that is
 in the transpose nullspace by providing a
 :class:`~firedrake.nullspace.VectorSpaceBasis` with the
-``transpose_nullspace`` keyword argument to :func:`~.solve`.
+``transpose_nullspace`` keyword argument to :func:`~firedrake.solving.solve`.
 
 Singular operators in mixed spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -987,7 +987,7 @@ Checking the provided Jacobian
 It is possible to verify that the provided Jacobian is consistent with
 the residual we are trying to minimise by comparing it with a finite
 differenced Jacobian computed by PETSc.  This is possible using only a
-few extra options to the call to :func:`~.solve`.  We just need to
+few extra options to the call to :func:`~firedrake.solving.solve`.  We just need to
 specify that the nonlinear solver we want PETSc to employ should be of
 type ``test``.  PETSc will then go away, compute an approximate
 Jacobian by finite differencing the residual and compare it to our

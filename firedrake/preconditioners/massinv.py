@@ -1,8 +1,6 @@
 from firedrake.preconditioners.assembled import AssembledPC
 from firedrake import inner, dx
 
-__all__ = ("MassInvPC", )
-
 
 class MassInvPC(AssembledPC):
     """A matrix free operator that assembles the mass matrix in the provided space.

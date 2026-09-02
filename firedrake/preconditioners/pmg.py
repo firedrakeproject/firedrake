@@ -25,9 +25,6 @@ import tempfile
 import weakref
 
 
-__all__ = ("PMGSNES")
-
-
 class PMGBase(PCSNESBase):
     """A class for implementing p-multigrid.
 

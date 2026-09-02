@@ -74,7 +74,7 @@ in :class:`.ImplicitMatrixContext`.  For example, it is not possible
 to extract physical parameters such as the Reynolds number from a UFL
 bilinear form.  In this case, the solver accepts a dictionary
 ``"appctx"`` as an optional keyword argument, the same argument may
-also be passed to :func:`~.assemble` in the case of preassembled
+also be passed to :func:`~firedrake.assemble.assemble` in the case of preassembled
 solves.  Firedrake passes that down into the
 :class:`.ImplicitMatrixContext` so that it is accessible to
 preconditioners.

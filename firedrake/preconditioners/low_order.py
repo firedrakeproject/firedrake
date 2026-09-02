@@ -1,6 +1,6 @@
 from firedrake.preconditioners.pmg import PMGPC, PMGSNES
 
-__all__ = ("P1PC", "P1SNES", "LORPC")
+__all__ = ("LORPC")
 
 
 class P1PC(PMGPC):

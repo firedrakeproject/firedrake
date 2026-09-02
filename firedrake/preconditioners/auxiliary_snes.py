@@ -6,8 +6,6 @@ from firedrake.petsc import PETSc
 from ufl import replace
 from firedrake.dmhooks import get_function_space, get_appctx as get_dm_appctx
 
-__all__ = ("AuxiliaryOperatorSNES",)
-
 
 class AuxiliaryOperatorSNES(SNESBase):
     """

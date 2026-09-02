@@ -4,8 +4,6 @@ from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space
 
-__all__ = ("AssembledPC", "AuxiliaryOperatorPC")
-
 
 class AssembledPC(PCBase):
     """A matrix-free PC that assembles the operator.

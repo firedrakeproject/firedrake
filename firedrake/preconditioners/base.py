@@ -6,7 +6,7 @@ from firedrake.dmhooks import get_appctx
 from firedrake.bcs import BCBase
 import ufl
 
-__all__ = ("PCBase", "SNESBase", "PCSNESBase")
+__all__ = ("PCBase", "SNESBase")
 
 
 class PCSNESBase(object, metaclass=abc.ABCMeta):

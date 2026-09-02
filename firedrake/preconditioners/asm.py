@@ -12,7 +12,7 @@ from mpi4py import MPI
 import numpy
 
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
+__all__ = ("ASMPatchPC", "ASMVankaPC", "ASMLinesmoothPC")
 
 
 class ASMPatchPC(PCBase):

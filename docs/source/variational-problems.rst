@@ -508,7 +508,7 @@ how to do it here.  First we define a function to hold the solution
 
    s = Function(V)
 
-and call :py:func:`~.solve` to solve the variational
+and call :py:func:`~firedrake.solving.solve` to solve the variational
 problem:
 
 .. code-block:: python3
