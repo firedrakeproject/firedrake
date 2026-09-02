@@ -761,7 +761,6 @@ class PlaneSmoother:
                 try:
                     axis = context.get_python_option(prefix, sweep_split[0])
                 except KeyError:
-                    breakpoint()
                     raise KeyError(f"PlaneSmoother axis key {sweep_split[0]} not provided")
 
             dir = {'+': +1, '-': -1}[sweep_split[1]]

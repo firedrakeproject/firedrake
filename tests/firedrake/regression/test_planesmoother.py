@@ -159,7 +159,6 @@ def test_tensor_grids():
 
 @pytest.mark.skipcomplex
 def test_not_aligned():
-    pytest.skip(reason="TODO")
     baseN = 4
     nrefs = 2
     base = UnitSquareMesh(baseN, baseN)
@@ -202,7 +201,7 @@ def test_not_aligned():
         prefix = f"mg_levels_{j+1}_"
         solver_parameters[f"{prefix}patch_x_plus_y_divisions"] = numpy.linspace(0.0, 2.0, 2*N+1)
         solver_parameters[f"{prefix}patch_x_minus_y_divisions"] = numpy.linspace(-1.0, 1.0, 2*N+1)
-        solver_parameters[f"{prefix}patch_pc_patch_construct_ps_sweeps"] = f"x_plus_y+x_plus_y_divisions:x_minus_y+x_minus_y_divisions"
+        solver_parameters[f"{prefix}patch_pc_patch_construct_ps_sweeps"] = "x_plus_y+x_plus_y_divisions:x_minus_y+x_minus_y_divisions"
 
     user_defined = LinearVariationalSolver(problem,
                                            options_prefix="",

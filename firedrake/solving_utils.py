@@ -319,10 +319,37 @@ class _SNESContext:
         option: str,
         default: Any = _missing,
     ) -> Any:
+        """Return a Python object from either the options database or appctx.
+
+        This is a temporary method to facilitate the deprecation process for
+        the appctx.
+
+        Parameters
+        ----------
+        prefix
+            The options prefix.
+        option
+            The option name.
+        default
+            Default value if option is not found. If unspecified then a
+            `KeyError` is raised.
+
+        Returns
+        -------
+        Any
+            The object referred to by ``option``.
+
+        Raises
+        ------
+        KeyError
+            If ``option`` is not found and ``default`` is unspecified.
+
+        """
         opts = petsctools.Options(prefix)
         try:
             value = opts[option]
         except KeyError:
+            # not in the options database - try the old, unprefixed approach
             try:
                 value = self._appctx[option]
             except KeyError:
@@ -337,7 +364,6 @@ class _SNESContext:
                     "directly instead.",
                     FutureWarning,
                 )
-
         return value
 
     def reconstruct(self,
