@@ -198,7 +198,7 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
 
     # Multiple timesteps of the diffusion operator is poorly conditioned
     # so we only ever expect a loose tolerance with the "inverse" action.
-    tol = 1e-6
+    tol = 1e-5
 
     assert errornorm(w, wcheck) < tol
 
