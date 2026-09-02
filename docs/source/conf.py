@@ -131,7 +131,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -193,6 +193,7 @@ suppress_warnings = [
 
 # Dodgy links
 linkcheck_ignore = [
+    # journals and institutions
     r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
@@ -201,17 +202,23 @@ linkcheck_ignore = [
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
-    r'https://.*\.baylor\.edu.*',
-    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
+    r'https://.*\.baylor\.edu.*',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
+    r'https://www.ox.ac.uk',
+    r'https://le.ac.uk/people/',
+
+    # event links
+    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
-    r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
+
+    # other
+    r'https://firedrakeproject.slack.com',
     r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30

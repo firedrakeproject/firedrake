@@ -239,6 +239,12 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
+#. Set ``PIP_CONSTRAINT`` to work around
+   `an issue with Cython <https://gitlab.com/petsc/petsc/-/work_items/1929>`__::
+
+      $ echo 'Cython<3.3.0' > constraints.txt
+      $ export PIP_CONSTRAINT=$PWD/constraints.txt
+
 #. Install Firedrake::
 
       $ pip install --no-binary h5py 'firedrake[check]'
@@ -380,6 +386,27 @@ For Homebrew it is sometimes useful to run the command::
 as this can flag issues with your system that should be resolved before
 installing Firedrake.
 
+Authorization required, but no authorization protocol specified
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you see the warning message::
+
+   Authorization required, but no authorization protocol specified
+
+printed to your terminal when you run programs then you can fix this
+by setting the environment variable::
+
+   $ export HWLOC_COMPONENTS="-gl"
+
+Hanging during pip install firedrake
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you encounter hanging during ``pip install firedrake`` it is
+possible that this can also be fixed by setting the environment
+variable::
+
+   $ export HWLOC_COMPONENTS="-gl"
+
 .. _customising:
 
 Customising Firedrake
@@ -392,16 +419,16 @@ Prepared configurations
 -----------------------
 
 ``firedrake-configure`` provides a number of different possible configurations
-(termed 'ARCHs') that specify how PETSc is configured and which external
-packages are built. The currently supported ARCHs are:
+that specify how PETSc is configured and which external packages are built. To
+select a non-default configuration you can pass extra flags to
+``firedrake-configure``. For example, to build Firedrake in complex mode you
+should pass ``--scalar-type complex``::
 
-* ``default``: the default installation, suitable for most users
-* ``complex``: an installation where PETSc is configured using complex numbers
+   $ python3 firedrake-configure --show-petsc-configure-options --scalar-type complex
 
-The different configurations can be selected by passing the flag ``--arch`` to
-``firedrake-configure``. For example::
+To see the full list of available options you should run::
 
-   $ python3 firedrake-configure --show-petsc-configure-options --arch complex
+   $ python3 firedrake-configure --help
 
 
 Optional dependencies
@@ -478,15 +505,22 @@ Since ``firedrake-configure`` only outputs a string of options it is straightfor
 to customise the options that are passed to PETSc ``configure``. You can either:
 
 * Append additional options when ``configure`` is invoked. For example, to
-  build PETSc with support for 64-bit indices you should run::
+  build PETSc with HPDDM you should run::
 
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-hpddm
 
 * Write the output of ``firedrake-configure`` to a file than can be modified. For example::
 
    $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
    <edit my_configure_options.txt>
    $ cat my_configure_options.txt | xargs -L1 ./configure
+
+* Append options directly to ``firedrake-configure`` by listing them after a
+  literal ``--``. They are added to the end of the generated options and, since
+  PETSc applies last-one-wins, override any generated option. For example, to
+  set a portable CPU target instead of the default ``-march=native``::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options -- --COPTFLAGS='-O3 -march=x86-64-v2 -mtune=generic'
 
 .. note::
    If additional options are passed to ``configure`` then care must be taken when
