@@ -449,10 +449,11 @@ def _collect_candidate_indirections(
     return collector(obj, compress=compress)
 
 
+# FIXME: the cache here is disabled because it was leaking memory
 # We heavy cache this visitor so we can reuse its cache if possible, but we have
 # to be careful to only work with heavy caches on COMM_SELF because the visitor
 # is only ever called on one rank and the result broadcast.
-@pyop3.cache.memory_cache(heavy=True, get_comm=lambda: MPI.COMM_SELF)
+# @pyop3.cache.memory_cache(heavy=True, get_comm=lambda: MPI.COMM_SELF)
 def _get_candidate_indirections_collector():
     return _CandidateIndirectionsCollector()
 

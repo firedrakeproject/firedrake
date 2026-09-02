@@ -37,12 +37,6 @@ if typing.TYPE_CHECKING:
 
 class BufferCollector(pyop3.node.NodeCollector):
 
-    # TODO
-    # @classmethod
-    # @memory_cache(heavy=True)
-    # def maybe_singleton(cls, comm) -> Self:
-    #     return cls(comm)
-
     @functools.singledispatchmethod
     def process(self, obj: Any, /) -> OrderedFrozenSet:
         return super().process(obj)

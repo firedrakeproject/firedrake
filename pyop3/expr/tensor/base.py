@@ -153,15 +153,19 @@ class Tensor(TerminalExpression, abc.ABC):
         if eager:
             # Have we already compiled code for this assignment? If so then reuse it
             # regardless of 'eager_strategy' (it will be faster).
-            cache = pyop3.cache.get_method_cache(self)[self._symbolic_assign.__qualname__]
-            cache_key = self._symbolic_assign.cache_key(self, other, mode)
             try:
-                assign_insn = cache[cache_key]
-            except KeyError:
+                cache = self._pyop3_method_cache__symbolic_assign
+            except AttributeError:
                 pass
             else:
-                assign_insn(compiler_parameters=compiler_parameters)
-                return
+                cache_key = self._symbolic_assign.cache_key(self, other, mode)
+                try:
+                    assign_insn = cache[cache_key]
+                except KeyError:
+                    pass
+                else:
+                    assign_insn(compiler_parameters=compiler_parameters)
+                    return
 
             if eager_strategy is None:
                 try:
@@ -185,7 +189,7 @@ class Tensor(TerminalExpression, abc.ABC):
 
             return self._symbolic_assign(other, mode)
 
-    @cached_method()
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
         from pyop3.insn import Assignment
 
