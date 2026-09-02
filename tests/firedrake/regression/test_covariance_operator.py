@@ -196,7 +196,9 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-10
+    # Multiple timesteps of the diffusion operator is poorly conditioned
+    # so we only ever expect a loose tolerance with the "inverse" action.
+    tol = 1e-6
 
     assert errornorm(w, wcheck) < tol
 
@@ -234,7 +236,9 @@ def test_covariance_inverse_action_hdiv(m):
     w = Function(V).project(wexpr)
     wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-8
+    # Multiple timesteps of the diffusion operator is poorly conditioned
+    # so we only ever expect a loose tolerance with the "inverse" action.
+    tol = 5e-6
 
     assert errornorm(w, wcheck) < tol
 
@@ -248,7 +252,7 @@ def test_covariance_mat(m, family, operation):
     """Test that covariance mat and pc apply correct and opposite actions.
     """
     nx = 20
-    L = 0.2
+    L = 0.1
     sigma = 0.9
 
     mesh = UnitIntervalMesh(nx)
@@ -297,7 +301,9 @@ def test_covariance_mat(m, family, operation):
     ksp = PETSc.KSP().create()
     ksp.setOperators(mat)
 
-    tol = 1e-8
+    # Multiple timesteps of the diffusion operator is poorly conditioned
+    # so we only ever expect a loose tolerance with the "inverse" action.
+    tol = 1e-6
 
     petsctools.set_from_options(
         ksp, options_prefix=str(operation),
@@ -333,7 +339,7 @@ def test_mixed_covariance(operation):
     """Test that covariance mat and pc apply correct and opposite actions.
     """
     nx = 20
-    L = 0.2
+    L = 0.1
     sigma = 0.9
 
     mesh = UnitIntervalMesh(nx)
