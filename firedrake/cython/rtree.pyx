@@ -165,10 +165,13 @@ def discover_remote_roots(
         RTree rtree,
         np.ndarray[np.float64_t, ndim=2, mode="c"] points,
         MPI.Comm comm):
-    """Build the remote array for a candidate star forest.
+    """Build the remote array for a candidate star forest. Collective.
 
     This implements the non-blocking consensus algorithm from Hoefler et al.
     'Scalable communication protocols for dynamic sparse data exchange'.
+
+    This routine duplicates the given comm since we send tag-0 messages
+    and listen with MPI_IProbe(MPI_ANY_SOURCE).
 
     Parameters
     ----------
@@ -187,7 +190,8 @@ def discover_remote_roots(
         remote root point.
     """
     cdef:
-        MPI.MPI_Comm mpi_comm = comm.ob_mpi
+        MPI.Comm dup_comm = comm.Dup()
+        MPI.MPI_Comm mpi_comm = dup_comm.ob_mpi
         MPI_Request *send_requests = NULL
         MPI_Request barrier_request = MPI_REQUEST_NULL
         MPI_Status status
@@ -203,24 +207,24 @@ def discover_remote_roots(
         np.ndarray[PetscInt, ndim=2, mode="c"] remote
         list recv_messages = []
 
-    # MPI does not have a builtin type for size_t
-    CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
-
-    if rtree_locate_points_grouped_by_id_unique(
-        rtree.tree,
-        <const double *>points.data,
-        n_points,
-        &send_ranks,  # unique ranks I am sending to
-        &send_offsets,  # offsets into `point_indices` of points I need to send
-        &point_indices,  # the points I need to send
-        &nranks_to,  # number of ranks I am sending to (len(send_ranks))
-    ) != Success:
-        raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
-
-    # Each rank knows where to send to, but not where it is going to receive from.
-    # The following algorithm is the 'non-blocking consenus' algorithm (Hoefler et al.)
-    # which is a sparse alternative to MPI_Alltoallv
     try:
+        # MPI does not have a builtin type for size_t
+        CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
+
+        if rtree_locate_points_grouped_by_id_unique(
+            rtree.tree,
+            <const double *>points.data,
+            n_points,
+            &send_ranks,  # unique ranks I am sending to
+            &send_offsets,  # offsets into `point_indices` of points I need to send
+            &point_indices,  # the points I need to send
+            &nranks_to,  # number of ranks I am sending to (len(send_ranks))
+        ) != Success:
+            raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
+
+        # Each rank knows where to send to, but not where it is going to receive from.
+        # The following algorithm is the 'non-blocking consenus' algorithm (Hoefler et al.)
+        # which is a sparse alternative to MPI_Alltoallv
         if nranks_to != 0:
             send_requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
         
@@ -272,6 +276,7 @@ def discover_remote_roots(
                 # to true which ends the loop.
                 CHKERRMPI(MPI_Test(&barrier_request, &barrier_complete, MPI_STATUS_IGNORE))
     finally:
+        dup_comm.Free()
         if send_requests != NULL:
             free(send_requests)
         if rtree_free_ids(send_ranks, nranks_to) != Success:

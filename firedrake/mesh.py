@@ -3921,13 +3921,11 @@ class VertexOnlyMeshSF:
             dtype=np.float64,
             order="C",
         )
-
-        with temp_internal_comm(parent_mesh.comm) as comm:
-            remote = rtree.discover_remote_roots(
-                parent_mesh.partition_rtree,
-                root_coordinates,
-                comm,
-            )
+        remote = rtree.discover_remote_roots(
+            parent_mesh.partition_rtree,
+            root_coordinates,
+            parent_mesh.comm,
+        )
         sf = PETSc.SF().create(comm=parent_mesh.comm)
         sf.setGraph(len(root_coordinates), None, remote)
 
