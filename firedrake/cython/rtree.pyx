@@ -227,7 +227,7 @@ def discover_remote_roots(
         # which is a sparse alternative to MPI_Alltoallv
         if nranks_to != 0:
             send_requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
-        
+
         # Post non-blocking synchronous sends. 'Synchronous' means that the send is not
         # considered as complete by MPI_Test until the destination starts the matching receive.
         for k in range(nranks_to):
@@ -243,7 +243,7 @@ def discover_remote_roots(
 
         # MPI_Ibarrier is a non-blocking barrier. It posts into `barrier_request`. This request is
         # not considered complete until all ranks on the comm post the barrier request.
-        # This is used to know when a rank has sent all of its messages. 
+        # This is used to know when a rank has sent all of its messages.
         # In the case we are sending no messages, we do this now.
         if nranks_to == 0:
             CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
