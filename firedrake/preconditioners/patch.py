@@ -774,7 +774,6 @@ class PlaneSmoother:
                     divisions = context.get_python_option(prefix, sweep_split[2])
                     entities = self.sort_entities(dm, axis, dir, divisions=divisions)
                 except KeyError:
-                    breakpoint()
                     raise KeyError(f"PlaneSmoother division key {sweep_split[2:]} not provided")
 
             for patch in entities:
