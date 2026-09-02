@@ -271,6 +271,8 @@ __all__ += [
     "EnsembleBJacobiPC", "EnsembleBlockDiagonalMat",
 ]
 
+# randomfunctiongen generates __all__ dynamically, so we cannot enumerate
+# things here
 import firedrake.randomfunctiongen as _randomfunctiongen
 from firedrake.randomfunctiongen import *  
 __all__ += list(_randomfunctiongen.__all__)
