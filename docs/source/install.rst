@@ -141,7 +141,7 @@ do the following steps:
 
    $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
 
-#. Compile PETSc by running the ``make`` command prompted by ``configure``.
+#. Compile PETSc by running the ``make`` command printed to the terminal at the end of a successful ``configure``.
 
 #. Test the installation (optional) and return to the parent directory::
 
