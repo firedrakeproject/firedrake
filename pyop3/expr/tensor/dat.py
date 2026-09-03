@@ -79,7 +79,7 @@ class Dat(Tensor):
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # buffers in the axis tree aren't allowed to change
-        with visitor.strong_hash_buffers():
+        with visitor.identity_hash_buffers():
             axes_key = visitor(self.axes)
         return (
             type(self),

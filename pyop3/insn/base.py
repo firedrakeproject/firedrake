@@ -139,7 +139,7 @@ class Loop(NonTerminalInstruction):
         return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        with visitor.strong_hash_buffers():
+        with visitor.identity_hash_buffers():
             index_key = visitor(self.index)
         return (
             type(self),
@@ -825,7 +825,7 @@ class Exscan(AbstractAssignmentLike):
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         assignee_key = visitor(self.assignee)
         expression_key = visitor(self.expression)
-        with visitor.strong_hash_buffers():
+        with visitor.identity_hash_buffers():
             scan_axis_key = visitor(self.scan_axis)
         return (
             type(self),

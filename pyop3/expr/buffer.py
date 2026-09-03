@@ -163,7 +163,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     def get_instruction_executor_cache_key (self, visitor) -> Hashable:
         buffer_key = visitor(self.buffer_view)
-        with visitor.strong_hash_buffers():
+        with visitor.identity_hash_buffers():
             layout_key = visitor(self.layout)
         return (type(self), buffer_key, layout_key)
 

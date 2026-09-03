@@ -142,14 +142,8 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     contiguous data and so are meaningless.
 
     """
-    import pyop3.visitors
-
-    # relabeler = pyop3.visitors.Relabeler()
-    # relabeled_axis_tree = relabeler(axis_tree)
-    relabeler = axis_tree._myrelabeler
-    relabeled_axis_tree = axis_tree._myrelabeled
-    relabeled_layouts, sf = _compute_layouts_cached(relabeled_axis_tree)
-    unrelabeler = pyop3.visitors.Relabeler(relabeler.inverse_relabel_map)
+    relabeled_layouts, sf = _compute_layouts_cached(axis_tree._canonicalized)
+    unrelabeler = axis_tree._full_canonical_unrelabeler
     layouts = idict({
         unrelabeler.visit_path(path): unrelabeler(expr)
         for path, expr in relabeled_layouts.items()

@@ -59,6 +59,7 @@ from pyop3.utils import (
 )
 
 if typing.TYPE_CHECKING:
+    import pyop3.visitors
     from pyop3.types import *
 
 
@@ -754,14 +755,81 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     # {{{ abstract methods
 
-    # @property
-    # @abc.abstractmethod
-    # def nest_indices(self) -> tuple[int, ...]:
-    #     pass
-
     @abc.abstractmethod
     def blocked(self, block_shape: Sequence[int, ...]) -> AbstractNonUnitAxisTree:
         pass
+
+    # }}}
+
+    # {{{ caching
+
+    # Useful cached properties to facilitate fast cache accesses.
+
+    @cached_property
+    def _canonical_cache_key_and_shallow_relabel_map(self):
+        import pyop3.visitors
+
+        visitor = pyop3.visitors.MemoryCacheKeyGetter()
+        cache_key = visitor(self)
+        return (cache_key, visitor.renamer.type_store)
+
+    @cached_property
+    def _canonical_cache_key(self) -> Hashable:
+        key, _ = self._canonical_cache_key_and_relabel_map
+        return key
+
+    @cached_property
+    def _shallow_canonical_relabel_map(self) -> pyop3.visitors.Relabeler:
+        _, relabel_map = self._canonical_cache_key_and_shallow_relabel_map
+        return relabel_map
+
+    @cached_property
+    def _shallow_canonical_relabeler(self) -> pyop3.visitors.Relabeler:
+        import pyop3.visitors
+
+        return pyop3.visitors.Relabeler(self._shallow_canonical_relabel_map)
+
+    @cached_property
+    def _shallow_canonical_unrelabeler(self) -> pyop3.visitors.Relabeler:
+        import pyop3.visitors
+
+        return pyop3.visitors.Relabeler(
+            self._shallow_canonical_relabeler.inverse_relabel_map,
+        )
+
+    @cached_property
+    def _canonicalized_and_full_relabel_map(self):
+        import pyop3.visitors
+
+        relabeler = pyop3.visitors.Relabeler(
+            self._shallow_canonical_relabel_map, allow_missing=True
+        )
+        canonicalized = relabeler(self)
+        return (canonicalized, relabeler.relabel_map)
+
+    @cached_property
+    def _canonicalized(self):
+        canonicalized, _ = self._canonicalized_and_full_relabel_map
+        return canonicalized
+
+    @cached_property
+    def _full_canonical_relabel_map(self):
+        _, relabel_map = self._canonicalized_and_full_relabel_map
+        return relabel_map
+
+    @cached_property
+    def _full_canonical_relabeler(self) -> pyop3.visitors.Relabeler:
+        import pyop3.visitors
+
+        return pyop3.visitors.Relabeler(self._full_canonical_relabel_map)
+
+    @cached_property
+    def _full_canonical_unrelabeler(self) -> pyop3.visitors.Relabeler:
+        import pyop3.visitors
+
+        return pyop3.visitors.Relabeler(
+            self._full_canonical_relabeler.inverse_relabel_map,
+        )
 
     # }}}
 
@@ -814,23 +882,6 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    @cached_property
-    def _myrelabeler(self):
-        return pyop3.visitors.Relabeler()
-
-    @cached_property
-    def _myrelabeled(self):
-        return self._myrelabeler(self)
-
-    # @cached_property
-    @property
-    def _unrelabeler(self):
-        self._myrelabeled  # populate
-        # We allow for missing entries in the unrelabeler because some labels
-        # may be generated during indexing (e.g. dat[::2] will create a new axis
-        # but we don't know its name from just looking at dat and ::2 independently).
-        return pyop3.visitors.Relabeler(self._myrelabeler.inverse_relabel_map, allow_missing=True)
-
     # TODO: indices may not be hashable if it contains a slice (Py3.11)
     # TODO: split cache here between if loop indices are in use or not (LRU if so, unbounded if not)
     @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
@@ -846,14 +897,23 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         if utils.is_ellipsis_type(indices):
             return self
 
-        relabeler = self._myrelabeler
-        relabeled_tree = self._myrelabeled
-        relabeled_indices = pyop3.index_tree.parse.relabel_indices(indices, relabeler)
+        relabeler = pyop3.visitors.Relabeler(
+            self._full_canonical_relabel_map, allow_missing=True
+        )
+        relabeled_indices = pyop3.index_tree.parse.relabel_indices(
+            indices, relabeler
+        )
         relabeled_indexed_tree = self._getitem_cached(
-            relabeled_tree, relabeled_indices, strict=strict
+            self._canonicalized, relabeled_indices, strict=strict
         )
 
-        return self._unrelabeler(relabeled_indexed_tree)
+        # We allow for missing entries in the unrelabeler because some labels
+        # may be generated during indexing (e.g. dat[::2] will create a new axis
+        # but we don't know its name from just looking at dat and ::2 independently).
+        unrelabeler = pyop3.visitors.Relabeler(
+            relabeler.inverse_relabel_map, allow_missing=True
+        )
+        return unrelabeler(relabeled_indexed_tree)
 
     # TODO: indices may not be hashable if it contains a slice (Py3.11)
     @staticmethod

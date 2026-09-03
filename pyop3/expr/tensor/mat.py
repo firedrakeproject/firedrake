@@ -55,7 +55,7 @@ class Mat(Tensor):
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # buffers in the axis trees aren't allowed to change
-        with visitor.strong_hash_buffers():
+        with visitor.identity_hash_buffers():
             row_axes_key = visitor(self.row_axes)
             column_axes_key = visitor(self.column_axes)
         return (
