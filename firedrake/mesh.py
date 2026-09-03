@@ -2652,8 +2652,7 @@ values from f.)"""
         with PETSc.Log.Event("rtree_build"):
             return rtree.build_from_aabb(coords_min, coords_max)
 
-    @PETSc.Log.EventDecorator()
-    def bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
+    def _bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
         side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
         return np.prod(side_lengths, axis=1).sum()
 
@@ -2677,11 +2676,11 @@ values from f.)"""
             return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
         gdim = self.geometric_dimension
         prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
-        prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
+        prev_vol = self._bounding_boxes_total_volume(prev_bboxes)
 
         for level in range(1, tree_depth):
             next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
-            next_vol = self.bounding_boxes_total_volume(next_bboxes)
+            next_vol = self._bounding_boxes_total_volume(next_bboxes)
 
             if next_vol >= prev_vol:
                 break
