@@ -9,7 +9,7 @@ that is extruded vertically to form a 3D volume.
 
 As usual, we start by importing Firedrake:
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -20,7 +20,7 @@ We use an *extruded* mesh, where the base mesh is a :math:`2^5 \times 2^5` unit 
 with 5 evenly-spaced vertical layers. This results in a 3D volume composed of 
 prisms.
 
-.. code-block:: python3
+.. code-block:: python
 
   power = 5
   m = UnitSquareMesh(2 ** power, 2 ** power)
@@ -35,7 +35,7 @@ constructed as the outer product of a 2D BDM space and a 1D DG space. This ensur
 that the normal component of the velocity is continuous across element boundaries
 in the horizontal directions, which is important for accurately capturing fluxes.
 
-.. code-block:: python3
+.. code-block:: python
 
   horiz = FiniteElement("BDM", "triangle", 1)
   vert = FiniteElement("DG", "interval", 0)
@@ -46,7 +46,7 @@ We also define a pressure space  :math:`X` using piecewise constant discontinuou
 Galerkin elements, and a plotting space :math:`X_{\text{plot}}` using continuous
 Galerkin elements for better visualization.
 
-.. code-block:: python3
+.. code-block:: python
 
   X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
   Xplot = FunctionSpace(mesh, "CG", 1, vfamily="Lagrange", vdegree=1)
@@ -57,7 +57,7 @@ Initial Conditions
 We define our functions for velocity and pressure fields. The initial pressure field
 is set to a prescribed sine function to create a wave-like disturbance.
 
-.. code-block:: python3
+.. code-block:: python
 
   # Define starting field
   u_0 = Function(W)
@@ -78,7 +78,7 @@ is set to a prescribed sine function to create a wave-like disturbance.
 Before starting the time-stepping loop, we project the initial pressure field
 into the plotting space for visualization.
 
-.. code-block:: python3
+.. code-block:: python
 
   p_trial = TrialFunction(Xplot)
   p_test = TestFunction(Xplot)
@@ -103,7 +103,7 @@ from the start of the step :math:`p_0`. Mathematically, we find :math:`u_h \in W
 
   \int_{\Omega} w \cdot u_h \, dx = \int_{\Omega} w \cdot u_0 \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_0 \, dx \quad \forall w \in W
 
-.. code-block:: python3
+.. code-block:: python
 
   a_1 = dot(w, u) * dx
   L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
@@ -117,7 +117,7 @@ intermediate velocity :math:`u_h`. We find :math:`p_1 \in X` such that:
 
   \int_{\Omega} \phi \, p_1 \, dx = \int_{\Omega} \phi \, p_0 \, dx - \Delta t \int_{\Omega} \phi (\nabla \cdot u_h) \, dx \quad \forall \phi \in X
 
-.. code-block:: python3
+.. code-block:: python
 
   a_2 = phi * p * dx
   L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
@@ -131,7 +131,7 @@ the updated pressure :math:`p_1`. We find :math:`u_1 \in W` such that:
 
   \int_{\Omega} w \cdot u_1 \, dx = \int_{\Omega} w \cdot u_h \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_1 \, dx \quad \forall w \in W
 
-.. code-block:: python3
+.. code-block:: python
 
   a_3 = dot(w, u) * dx
   L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
@@ -144,7 +144,7 @@ Here follows the complete implementation of the time-stepping loop, including th
 as well as the projection of the pressure field for visualization at each time step. 
 We also print the current simulation time at each step for tracking progress.
 
-.. code-block:: python3
+.. code-block:: python
 
   while t < T:
     u = TrialFunction(W)
@@ -182,7 +182,7 @@ Energy Calculation
 Finally, we compute and print the total energy of the system at the end of the simulation
 and compare it to the initial energy to assess conservation properties.
 
-.. code-block:: python3
+.. code-block:: python
 
   E_1 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
   print('Initial energy', E_0)

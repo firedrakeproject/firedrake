@@ -181,7 +181,7 @@ def ml_operator(model, function_space, inputs_format=0):
     Example
     -------
 
-    .. code-block:: python3
+    .. code-block:: python
 
         # Stage 1: Partially initialise the operator.
         N = ml_operator(model, function_space=V)

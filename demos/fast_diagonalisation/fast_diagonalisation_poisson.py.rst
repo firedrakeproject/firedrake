@@ -22,7 +22,7 @@ product-elements by solving an eigenproblem on the interval. Therefore, we will
 require quadrilateral or hexahedral meshes.  Currently, the solver only supports
 extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -44,7 +44,7 @@ We'll demonstrate a few different sets of solver parameters, so let's define a
 function that takes in set of parameters and uses them on a
 :class:`~.LinearVariationalSolver`.
 
-.. code-block:: python3
+.. code-block:: python
 
   def run_solve(degree, parameters):
       V = FunctionSpace(mesh, "Q", degree, variant="fdm")
@@ -71,7 +71,7 @@ obtained by assembling a sparse matrix.  This is done through the python type
 preconditioner :class:`~.FDMPC`.  We define a function that enables us to
 compose :class:`~.FDMPC` with an inner relaxation.
 
-.. code-block:: python3
+.. code-block:: python
 
   def fdm_params(relax):
       return {
@@ -85,7 +85,7 @@ compose :class:`~.FDMPC` with an inner relaxation.
 Let's start with our first test.  We'll confirm a working solve by
 using a sparse direct LU factorization.
 
-.. code-block:: python3
+.. code-block:: python
 
   lu_params = {
       "pc_type": "lu",
@@ -112,7 +112,7 @@ In addition we specify `"use_coloring"` to group non-overlapping subsets of
 patches into sparse block-diagonal matrices via a mesh coloring, which reduces
 the overhead of calling many KSP solves for each patch.
 
-.. code-block:: python3
+.. code-block:: python
 
   asm_params = {
       "pc_type": "python",
@@ -164,7 +164,7 @@ interior, as the sparse operator constructed by :class:`~.FDMPC` is only an
 approximation on non-Cartesian meshes.  We apply point-Jacobi on the interior
 block, and the two-level additive Schwarz method on the facets.
 
-.. code-block:: python3
+.. code-block:: python
 
   def fdm_static_condensation_params(relax):
       return {

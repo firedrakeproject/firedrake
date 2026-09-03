@@ -10,7 +10,7 @@ Citing Firedrake
 
 If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual:
 
-.. code-block:: python3
+.. code-block:: python
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},
@@ -24,7 +24,7 @@ If you publish results using Firedrake, we would be grateful if you would cite t
 
 The simplest way to determine any additional relevant papers to cite is by asking Firedrake itself. You can ask that a list of citations relevant to your computation be printed when exiting by calling `Citations.print_at_exit` after importing Firedrake:
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 

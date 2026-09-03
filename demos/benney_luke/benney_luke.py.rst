@@ -87,13 +87,13 @@ Finally, before implementing the problem in Firedrake, we calculate the total en
 
 The implementation of this problem in Firedrake requires solving two nonlinear variational problems and one linear problem. The Benney-Luke equations are solved in a rectangular domain :math:`\Omega=[0,10]\times[0,1]`, with :math:`\mu=\epsilon=0.01`, time step :math:`dt=0.005` and up to the final time :math:`T=2.0`. Additionally, the domain is split into 50 cells in the x-direction using a quadrilateral mesh. In the y-direction only 1 cell is enough since there are no variations in y:
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
 Now we move on to defining parameters:
 
-.. code-block:: python3
+.. code-block:: python
 
   T = 2.0
   dt = 0.005
@@ -111,7 +111,7 @@ Now we move on to defining parameters:
 
 The function space chosen consists of degree 2 continuous Lagrange polynomials, and the functions :math:`\eta,\,\phi` are initialised to take the exact soliton solutions for :math:`t=0`, centered around the middle of the domain, i.e. with :math:`x_0=\frac{1}{2}L_x`:
 
-.. code-block:: python3
+.. code-block:: python
 
   V = FunctionSpace(mesh,"CG",2)
 
@@ -135,7 +135,7 @@ The function space chosen consists of degree 2 continuous Lagrange polynomials, 
 
 Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variational solver to solve the implicit equation:
 
-.. code-block:: python3
+.. code-block:: python
 
   Fphi_h = ( v*(phi_h-phi0)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi_h-phi0)/(0.5*dt)))
              + v*eta0 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
@@ -145,7 +145,7 @@ Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variatio
 
 followed by a calculation of a half-step solution :math:`q`, performed using a linear solver:
 
-.. code-block:: python3
+.. code-block:: python
 
   aq = v*q*dx
   Lq_h = 2.0/3.0*inner(grad(v),grad(phi_h))*dx
@@ -155,7 +155,7 @@ followed by a calculation of a half-step solution :math:`q`, performed using a l
 
 Then the nonlinear implicit equation for :math:`\eta` is solved:
 
-.. code-block:: python3
+.. code-block:: python
 
   Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
            - 0.5*((1+epsilon*eta0)+(1+epsilon*eta1))*inner(grad(v),grad(phi_h))
@@ -166,7 +166,7 @@ Then the nonlinear implicit equation for :math:`\eta` is solved:
 
 and finally the second half-step (explicit this time) for the equation of :math:`\phi` is performed and :math:`q` is computed for the updated solution:
 
-.. code-block:: python3
+.. code-block:: python
 
   Fphi = ( v*(phi1-phi_h)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi1-phi_h)/(0.5*dt)))
            + v*eta1 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
@@ -180,7 +180,7 @@ and finally the second half-step (explicit this time) for the equation of :math:
 
 What is left before iterating over all time steps, is to find the initial energy :math:`E_0`, used later to evaluate the energy difference :math:`\left|E-E_0\right|/E_0`:
 
-.. code-block:: python3
+.. code-block:: python
 
   t = 0
   E0 = assemble( (0.5*eta0**2 + 0.5*(1+epsilon*eta0)*abs(grad(phi0))**2
@@ -189,7 +189,7 @@ What is left before iterating over all time steps, is to find the initial energy
 
 and define the exact solutions, which need to be updated at every time-step:
 
-.. code-block:: python3
+.. code-block:: python
 
   t_ = Constant(t)
   expr_eta = 1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0)),-2)
@@ -202,14 +202,14 @@ For visualisation, we save the computed and exact solutions to
 an output file.  Note that the visualised data will be interpolated
 from piecewise quadratic functions to piecewise linears:
 
-.. code-block:: python3
+.. code-block:: python
 
   output = VTKFile('output.pvd')
   output.write(phi0, eta0, ex_phi, ex_eta, time=t)
 
 We are now ready to enter the main time iteration loop:
 
-.. code-block:: python3
+.. code-block:: python
 
   while t < T:
         print(t, abs((E-E0)/E0))

@@ -91,7 +91,7 @@ are a few different ways of doing it. The simplest methods are:
 
 * With a context manager:
 
-  .. code-block:: python3
+  .. code-block:: python
 
       from firedrake.petsc import PETSc
 
@@ -100,7 +100,7 @@ are a few different ways of doing it. The simplest methods are:
 
 * With a decorator:
 
-  .. code-block:: python3
+  .. code-block:: python
 
       from firedrake.petsc import PETSc
 
@@ -134,7 +134,7 @@ Caveats
 
   This issue can be avoided with the simple guard:
 
-  .. code-block:: python3
+  .. code-block:: python
 
     import petsctools
 

@@ -48,7 +48,7 @@ In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangu
 
 In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     import finat
@@ -57,13 +57,13 @@ In addition to importing firedrake as usual, we will need to construct the corre
 
 A simple uniform triangular mesh is created:
 
-.. code-block:: python3
+.. code-block:: python
 
     mesh = UnitSquareMesh(50, 50)
 
 We choose a degree 2 `KMV` continuous function space, set it up and then create some functions used in time-stepping:
 
-.. code-block:: python3
+.. code-block:: python
 
     V = FunctionSpace(mesh, "KMV", 2)
 
@@ -79,13 +79,13 @@ We choose a degree 2 `KMV` continuous function space, set it up and then create 
 
 We create an output file to hold the simulation results:
 
-.. code-block:: python3
+.. code-block:: python
 
     outfile = VTKFile("out.pvd")
 
 Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds:
 
-.. code-block:: python3
+.. code-block:: python
 
     T = 1.0
     dt = 0.001
@@ -96,7 +96,7 @@ Ricker wavelets are often used to excite the domain in seismology. They have one
 
 Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant:
 
-.. code-block:: python3
+.. code-block:: python
 
     freq = 6
     c = Constant(1.5)
@@ -104,7 +104,7 @@ Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For si
 The following two functions are used to inject the Ricker wavelet source into the domain. We
 create a time-varying function to model the time evolution of the Ricker wavelet:
 
-.. code-block:: python3
+.. code-block:: python
 
     def RickerWavelet(t, freq, amp=1.0):
         # Shift in time so the entire wavelet is injected
@@ -118,7 +118,7 @@ create a time-varying function to model the time evolution of the Ricker wavelet
 The spatial distribution of the source function is a Guassian kernel with a standard deviation
 of 2,000 so that it's sufficiently localized to emulate a Dirac delta function:
 
-.. code-block:: python3
+.. code-block:: python
 
     def delta_expr(x0, x, y, sigma_x=2000.0):
         sigma_x = Constant(sigma_x)
@@ -128,13 +128,13 @@ To assemble the diagonal mass matrix, we need to create the matching colocated q
 FInAT implements custom "KMV" quadrature rules to do this. We obtain the appropriate cell from the function
 space, along with the degree of the element and construct the quadrature rule:
 
-.. code-block:: python3
+.. code-block:: python
 
     quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "KMV")
 
 Then we make a new Measure object that uses this rule:
 
-.. code-block:: python3
+.. code-block:: python
 
     dxlump=dx(scheme=quad_rule)
 
@@ -152,7 +152,7 @@ Substituting the above into the time derivative term in the variational form lea
 
 Using Firedrake, we specify the mass matrix using the special quadrature rule with the Measure object we created above like so:
 
-.. code-block:: python3
+.. code-block:: python
 
     m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
@@ -161,13 +161,13 @@ Using Firedrake, we specify the mass matrix using the special quadrature rule wi
 
 The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule and is treated explicitly:
 
-.. code-block:: python3
+.. code-block:: python
 
     a = c*c*dot(grad(u_n), grad(v)) * dx
 
 The source is injected at the center of the unit square:
 
-.. code-block:: python3
+.. code-block:: python
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
@@ -176,13 +176,13 @@ The source is injected at the center of the unit square:
 
 We also create a cofunction ``R`` to save the assembled RHS vector:
 
-.. code-block:: python3
+.. code-block:: python
 
     R = Cofunction(V.dual())
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc ``LinearSolver`` object to efficiently timestep with:
 
-.. code-block:: python3
+.. code-block:: python
 
     F = m + a -  delta_expr(source, x, y)*ricker * v * dx
     a, r = lhs(F), rhs(F)
@@ -194,7 +194,7 @@ Finally, we define the whole variational form :math:`F`, assemble it, and then c
 
 Now we are ready to start the time-stepping loop:
 
-.. code-block:: python3
+.. code-block:: python
 
     step = 0
     while t < T:

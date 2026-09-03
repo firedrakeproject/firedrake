@@ -28,7 +28,7 @@ If :math:`\Omega = (0, 1)`, then for :math:`\lambda \in (0, \lambda^\star)` the 
 
 We implement the usual weak formulation of the equation in Firedrake as standard:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     mesh = UnitIntervalMesh(10)
@@ -48,7 +48,7 @@ We implement the usual weak formulation of the equation in Firedrake as standard
 
 Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product:
 
-.. code-block:: python3
+.. code-block:: python
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
@@ -65,21 +65,21 @@ Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonline
 
 We now find the first solution:
 
-.. code-block:: python3
+.. code-block:: python
 
     u.assign(guess)
     solver.solve()
 
 The first solution has now been deflated automatically in the ``Deflation`` object. If we reset our initial guess and solve again, we find the second solution:
 
-.. code-block:: python3
+.. code-block:: python
 
     u.assign(guess)
     solver.solve()
 
 We can check that the two solutions are distinct:
 
-.. code-block:: python3
+.. code-block:: python
 
     # Prints 'Norm of difference: 1.7514003250270025'
     (first, second) = deflation.roots
@@ -88,7 +88,7 @@ We can check that the two solutions are distinct:
 
 We can plot the two solutions:
 
-.. code-block:: python3
+.. code-block:: python
 
     import matplotlib.pyplot as plt
     ax = plt.gca()

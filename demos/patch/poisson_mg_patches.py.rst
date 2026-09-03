@@ -25,7 +25,7 @@ exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
 via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -40,7 +40,7 @@ parameters and returns the iteration count required for convergence.
 To stress-test the solver, the forcing function is taken as a randomly
 generated cofunction.
 
-.. code-block:: python3
+.. code-block:: python
 
   def run_solve(deg, params):
       V = FunctionSpace(mesh, "CG", deg)
@@ -65,7 +65,7 @@ relaxation options and matrix assembly type.  On the coarsest level of the
 multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
 solver.
 
-.. code-block:: python3
+.. code-block:: python
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -90,7 +90,7 @@ automatically assemble the diagonal for us.
 Point Jacobi, however, will require more multigrid iterations as the polynomial
 degree increases.
 
-.. code-block:: python3
+.. code-block:: python
 
   jacobi_relax = mg_params({"pc_type": "jacobi"}, mat_type="matfree")
 
@@ -104,7 +104,7 @@ LU factorizations without a Krylov iteration.  As an optimization,
 patch is told to precompute all the element matrices and store the inverses
 in dense format.
 
-.. code-block:: python3
+.. code-block:: python
 
   patch_relax = mg_params({
       "pc_type": "python",
@@ -127,7 +127,7 @@ submatrices for each patch from the already-assembled global stiffness matrix.
 The `"tinyasm"` backend uses LAPACK to invert all the patch operators, which is ideal
 for low-order discretizations:
 
-.. code-block:: python3
+.. code-block:: python
 
   tinyasm_relax = mg_params({
       "pc_type": "python",
@@ -143,7 +143,7 @@ subsets of non-overlapping patches into sparse block-diagonal matrices. This
 results in a mathematically equivalent preconditioner, while reducing the
 overhead costs of calling the sparse factorization library many times.
 
-.. code-block:: python3
+.. code-block:: python
 
   color_relax = mg_params({
       "pc_type": "python",
@@ -155,7 +155,7 @@ over a range of polynomial degrees.  We see that the Jacobi relaxation leads to 
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
 latter options do the same operations, just via different code paths.
 
-.. code-block:: python3
+.. code-block:: python
 
   names = {"Jacobi": jacobi_relax,
            "Patch": patch_relax,

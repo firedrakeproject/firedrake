@@ -259,7 +259,7 @@ class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
     members by splitting into [UxV]x[VxWxU].  The following code creates the
     corresponding :class:`EnsembleFunctionSpace`:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         ensemble = Ensemble(COMM_WORLD, COMM_WORLD.size//2)
         mesh = UnitIntervalMesh(8, comm=ensemble.comm)
@@ -330,7 +330,7 @@ class EnsembleDualSpace(EnsembleFunctionSpaceBase):
     members by splitting into [U*xV*]x[V*xW*xU*].  The following code creates the
     corresponding :class:`EnsembleDualSpace`:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         ensemble = Ensemble(COMM_WORLD, COMM_WORLD.size//2)
         mesh = UnitIntervalMesh(8, comm=ensemble.comm)

@@ -6,7 +6,7 @@ piecewise quadratic elements.
 
 As usual we start by importing firedrake and setting up the problem.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -34,7 +34,7 @@ With the setup out of the way, we now demonstrate various ways of
 configuring the solver.  First, a direct solve with an assembled
 operator.
 
-.. code-block:: python3
+.. code-block:: python
 
   solve(a == L, uu, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                 "pc_type": "lu"})
@@ -44,7 +44,7 @@ actions.  This is not very efficient due to the :math:`h^{-2}`
 conditioning of the Laplacian, but demonstrates how to request an
 unassembled operator using the ``"mat_type"`` solver parameter.
 
-.. code-block:: python3
+.. code-block:: python
 
   uu.assign(0)
   solve(a == L, uu, bcs=bcs, solver_parameters={"mat_type": "matfree",
@@ -57,7 +57,7 @@ preconditioner.  This uses matrix-free actions but preconditions the
 Krylov iterations with an incomplete LU factorisation of the assembled
 operator.
 
-.. code-block:: python3
+.. code-block:: python
 
   uu.assign(0)
   solve(a == L, uu, bcs=bcs, solver_parameters={"mat_type": "matfree",
@@ -67,20 +67,20 @@ operator.
 To use the assembled matrix for the preconditioner we select a
 ``"python"`` type:
 
-.. code-block:: python3
+.. code-block:: python
 
                                                 "pc_type": "python",
 
 and set its type, by providing the name of the class constructor to
 PETSc.
 
-.. code-block:: python3
+.. code-block:: python
 
                                                 "pc_python_type": "firedrake.AssembledPC",
 
 Finally, we set the preconditioner type for the assembled operator:
 
-.. code-block:: python3
+.. code-block:: python
 
                                                 "assembled_pc_type": "ilu"})
 

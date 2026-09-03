@@ -21,7 +21,7 @@ class from `firedrake.output`, then we just need to pass the name of the
 output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
 
-.. code-block:: python3
+.. code-block:: python
 
    outfile = VTKFile("output.pvd")
    # The following raises an error
@@ -30,7 +30,7 @@ therefore the requested file name must end in ``.pvd``.
 To save functions to the :class:`~.vtk_output.VTKFile` we use the
 :meth:`~.vtk_output.VTKFile.write` method.
 
-.. code-block:: python3
+.. code-block:: python
 
    mesh = UnitSquareMesh(1, 1)
    V = FunctionSpace(mesh, "DG", 0)
@@ -56,7 +56,7 @@ same function at multiple timesteps.  This is straightforward, we must
 create the output :class:`~.vtk_output.VTKFile` outside the time loop
 and call :meth:`~.vtk_output.VTKFile.write` inside.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -74,7 +74,7 @@ used that is incremented by 1 each time
 :meth:`~.vtk_output.VTKFile.write` is called.  It is possible to
 override this by passing the keyword argument ``time``.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -106,7 +106,7 @@ use interpolation.  For example, assume we wish to output a
 vector-valued function that lives in an :math:`H(\operatorname{div})`
 space. If we want it to be interpolated in the output file we can use
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, "RT", 2)
    f = Function(V)
@@ -116,7 +116,7 @@ space. If we want it to be interpolated in the output file we can use
 
 If instead we want projection, we use
 
-.. code-block:: python3
+.. code-block:: python
 
    projected = VTKFile("proj_output.pvd", project_output=True)
    projected.write(f)
@@ -131,7 +131,7 @@ If instead we want projection, we use
    to manage this issue. For instance, we can force the output to be
    discontinuous piecewise linears via
 
-   .. code-block:: python3
+   .. code-block:: python
 
       projected = VTKFile("proj_output.pvd", target_degree=1, target_continuity=H1)
       projected.write(f)
@@ -181,7 +181,7 @@ data can also be saved for future reference.
    the View menu). For instance, Field Error can be more clearly
    specified via an argument to the Tessellate_ filter constructor.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
@@ -199,7 +199,7 @@ the same output file.  The latter may be more convenient for
 subsequent analysis.  To do this, we just need to pass multiple
 :class:`~.Function`\s to :meth:`~.vtk_output.VTKFile.write`.
 
-.. code-block:: python3
+.. code-block:: python
 
    u = Function(V, name="Velocity")
    p = Function(P, name="Pressure")
@@ -219,7 +219,7 @@ subsequent analysis.  To do this, we just need to pass multiple
    functions, and the functions must have the *same* names.  The
    following example results in an error.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       u = Function(V, name="Velocity")
       p = Function(P, name="Pressure")
@@ -269,7 +269,7 @@ would make a filled contour plot of the function ``u`` using the inferno
 colormap, with contours drawn at 0.0, 0.02, ..., 1.0, and add a colorbar to the
 figure.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       import numpy as np
@@ -301,7 +301,7 @@ the boundary should have Dirichlet or Neumann boundary conditions is a common
 source of errors in applications. To see a legend explaining the colors, you can
 add a legend like so:
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       from firedrake import *

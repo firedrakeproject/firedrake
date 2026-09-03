@@ -52,7 +52,7 @@ Saving
 In the following example we save in "example.h5" file two :class:`~.Function` s,
 along with the mesh on which they are defined.
 
-.. code-block:: python3
+.. code-block:: python
 
     mesh = UnitSquareMesh(10, 10, name="meshA")
     V = FunctionSpace(mesh, "CG", 2)
@@ -78,7 +78,7 @@ data have been saved.
 One can view the contents of the HDF5 file with "h5dump" utility shipped with
 the HDF5 installation; "h5dump -n example.h5", for instance, shows:
 
-.. code-block:: python3
+.. code-block:: python
 
     HDF5 "example.h5" {
     FILE_CONTENTS {
@@ -170,7 +170,7 @@ Loading
 We can load the mesh and :class:`~.Function` s in "example.h5" as in the
 following.
 
-.. code-block:: python3
+.. code-block:: python
 
     with CheckpointFile("example.h5", 'r') as afile:
         mesh = afile.load_mesh("meshA")
@@ -186,7 +186,7 @@ Extrusion
 
 Extruded meshes can be saved and loaded seamlessly as the following:
 
-.. code-block:: python3
+.. code-block:: python
 
     mesh = UnitSquareMesh(10, 10, name="meshA")
     extm = ExtrudedMesh(mesh, layers=4)
@@ -208,7 +208,7 @@ Timestepping
 The following demonstrates how a :class:`~.Function` can be saved and loaded
 at each timestep in a time-series simulation by setting the `idx` parameter:
 
-.. code-block:: python3
+.. code-block:: python
 
     mesh = UnitSquareMesh(2, 2, name="meshA")
     V = FunctionSpace(mesh, "CG", 1)
@@ -248,7 +248,7 @@ computation **in memory**, first import the schedule from the
 ``checkpoint_schedules`` package, start adjoint annotation with ``continue_annotation()``,
 get the working tape with ``get_working_tape()``:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     from firedrake.adjoint import *
@@ -290,7 +290,7 @@ of the adjoint solver.
 To store every time step of the forward data required for adjoint-based gradient
 computation **on disk**, write the necessary imports and start adjoint annotation:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     from firedrake.adjoint import *
@@ -327,7 +327,7 @@ increased computational effort due to repeated forward calculations.
 
 For example, to use the **Revolve** schedule:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     from firedrake.adjoint import *
@@ -408,7 +408,7 @@ Available modes are:
 For example, to open a checkpoint file for writing solution state,
 truncating any existing contents we use:
 
-.. code-block:: python3
+.. code-block:: python
 
    chk = DumbCheckpoint("dump", mode=FILE_CREATE)
 
@@ -425,14 +425,14 @@ A :class:`~.Function` is referenced in the checkpoint file by its
 passing an optional `name` argument.  For example, to store a
 :class:`~.Function` using its default name use:
 
-.. code-block:: python3
+.. code-block:: python
 
    f = Function(V, name="foo")
    chk.store(f)
 
 If instead we want to override the name we use:
 
-.. code-block:: python3
+.. code-block:: python
 
    chk.store(f, name="bar")
 
@@ -459,7 +459,7 @@ For example, assume we had previously saved a checkpoint containing
 two different :class:`~.Function`\s with names ``"A"`` and
 ``"B"``.  We can load these as follows:
 
-.. code-block:: python3
+.. code-block:: python
 
    chk = DumbCheckpoint("dump", mode=FILE_READ)
 
@@ -492,7 +492,7 @@ managers`_ which ensure that the checkpoint file is closed as soon as
 the object goes out of scope.  To use this approach, we use the python
 ``with`` statement:
 
-.. code-block:: python3
+.. code-block:: python
 
    # Normal code here
    with DumbCheckpoint("dump", mode=FILE_UPDATE) as chk:
@@ -575,7 +575,7 @@ optional ``name`` argument.
 
 As an example, consider the following sequence:
 
-.. code-block:: python3
+.. code-block:: python
 
    with DumbCheckpoint("dump", single_file=False, mode=FILE_CREATE) as chk:
        chk.store(a)

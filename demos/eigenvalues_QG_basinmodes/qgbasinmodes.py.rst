@@ -102,7 +102,7 @@ Firedrake code
 Using this form, we can now implement this eigenvalue problem in
 Firedrake. We start by importing Firedrake.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
   from firedrake.pyplot import tripcolor
@@ -110,7 +110,7 @@ Firedrake. We start by importing Firedrake.
 We specify the geometry to be a square geometry with :math:`50` cells
 with length :math:`1`.
 
-.. code-block:: python3
+.. code-block:: python
 
   Lx   = 1.
   Ly   = 1.
@@ -120,14 +120,14 @@ with length :math:`1`.
 Next we define the function spaces within which our solution will
 reside.
 
-.. code-block:: python3
+.. code-block:: python
 
   Vcg  = FunctionSpace(mesh,'CG',3)
 
 We impose zero Dirichlet boundary conditions, in a strong sense, which
 guarantee that we have no-normal flow at the boundary walls.
 
-.. code-block:: python3
+.. code-block:: python
 
   bc = DirichletBC(Vcg, 0.0, "on_boundary")
 
@@ -135,7 +135,7 @@ The two non-dimensional parameters are the :math:`\beta` parameter, set
 by the sphericity of the Earth, and the Froude number, the relative
 importance of rotation to stratification.
 
-.. code-block:: python3
+.. code-block:: python
 
   beta = Constant('1.0')
   F    = Constant('1.0')
@@ -143,7 +143,7 @@ importance of rotation to stratification.
 We define the Test Function :math:`\phi` and the Trial Function
 :math:`\psi` in our function space.
 
-.. code-block:: python3
+.. code-block:: python
 
   phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
 
@@ -153,7 +153,7 @@ matrices in the form of a generalized eigenvalue problem,
 users to avoid convergence failures by removing eigenvalues on the
 boundary, while preserving the original function space for the eigenmodes.
 
-.. code-block:: python3
+.. code-block:: python
 
   eigenproblem = LinearEigenproblem(
           A=beta*phi*psi.dx(0)*dx,
@@ -165,7 +165,7 @@ first is specifying that we have an generalized eigenvalue problem that is
 nonhermitian. Then, we ask for the eigenvalues with the largest imaginary
 part. Finally we set the spectral transform to shift with no target:
 
-.. code-block:: python3
+.. code-block:: python
 
   opts = {"eps_gen_non_hermitian": None,
           "eps_largest_imaginary": None,
@@ -176,14 +176,14 @@ part. Finally we set the spectral transform to shift with no target:
 Finally, we build our eigenvalue solver, specifying in this case that we just
 want to see the first eigenvalue, eigenvector pair:
 
-.. code-block:: python3
+.. code-block:: python
 
   eigensolver = LinearEigensolver(eigenproblem, n_evals=1,
                                   solver_parameters=opts)
 
 Now solve the system. This returns the number of converged eigenvalues.
 
-.. code-block:: python3
+.. code-block:: python
 
   nconv = eigensolver.solve()
 
@@ -191,20 +191,20 @@ We now get the real and imaginary parts of the eigenvalue and
 eigenvector for the leading eigenpair (that with the largest in
 magnitude imaginary part).
 
-.. code-block:: python3
+.. code-block:: python
 
   lam = eigensolver.eigenvalue(0)
 
 and we gather the corresponding eigenfunctions:
 
-.. code-block:: python3
+.. code-block:: python
 
   eigenmode_real, eigenmode_imag = eigensolver.eigenfunction(0)
 
 We can now list and show plots for the eigenvalues and eigenfunctions
 that were found.
 
-.. code-block:: python3
+.. code-block:: python
 
   print("Leading eigenvalue is:", lam)
 

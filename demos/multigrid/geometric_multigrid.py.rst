@@ -19,7 +19,7 @@ object remembers the relationships between them.  Currently, these
 hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -30,7 +30,7 @@ the number of refinements we would like.  Here, we request four
 refinements, going from 128 cells on the coarse mesh to 32768 cells on
 the finest.
 
-.. code-block:: python3
+.. code-block:: python
 
   hierarchy = MeshHierarchy(mesh, 4)
 
@@ -44,7 +44,7 @@ appropriate callbacks to PETSc.  In this way, we can control the
 behaviour of the solver entirely through runtime options.  So our next
 step is just to grab the finest mesh and define the problem.
 
-.. code-block:: python3
+.. code-block:: python
 
   mesh = hierarchy[-1]
 
@@ -60,7 +60,7 @@ step is just to grab the finest mesh and define the problem.
 For a forcing function, we will use a product of sines such that we
 know the exact solution and can compute an error.
 
-.. code-block:: python3
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
 
@@ -70,14 +70,14 @@ know the exact solution and can compute an error.
 
 The exact solution is:
 
-.. code-block:: python3
+.. code-block:: python
 
   exact = sin(pi*x)*tan(pi*x*0.25)*sin(pi*y)
 
 We'll demonstrate a few different sets of solver parameters, so let's define a
 function that takes in set of parameters and returns the solution:
 
-.. code-block:: python3
+.. code-block:: python
 
   def run_solve(parameters):
       u = Function(V)
@@ -86,7 +86,7 @@ function that takes in set of parameters and returns the solution:
 
 and another to compute the error.
 
-.. code-block:: python3
+.. code-block:: python
 
   def error(u):
       expect = Function(V).interpolate(exact)
@@ -98,7 +98,7 @@ Specifying the solver
 Let's start with our first test.  We'll confirm a working solve by
 using a direct method.
 
-.. code-block:: python3
+.. code-block:: python
 
   u = run_solve({"ksp_type": "preonly", "pc_type": "lu"})
   print('LU solve error', error(u))
@@ -108,7 +108,7 @@ geometric multigrid V-cycle.  Firedrake automatically takes care of
 rediscretising the operator on coarse grids, and providing the number
 of levels to PETSc.
 
-.. code-block:: python3
+.. code-block:: python
 
   u = run_solve({"ksp_type": "cg", "pc_type": "mg"})
   print('MG V-cycle + CG error', error(u))
@@ -121,7 +121,7 @@ single full multigrid cycle with appropriately chosen smoothers achieves
 discretisation error.  As ever, PETSc allows us to configure the
 appropriate settings using solver parameters.
 
-.. code-block:: python3
+.. code-block:: python
 
   parameters = {
      "ksp_type": "preonly",
@@ -145,7 +145,7 @@ other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
 with specified velocity inflow and outflow conditions.
 
-.. code-block:: python3
+.. code-block:: python
 
   mesh = RectangleMesh(15, 10, 1.5, 1)
 
@@ -183,7 +183,7 @@ with specified velocity inflow and outflow conditions.
 First up, we'll use an algebraic preconditioner, with a direct solve,
 remembering to tell PETSc to use pivoting in the factorisation.
 
-.. code-block:: python3
+.. code-block:: python
 
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
@@ -198,7 +198,7 @@ to the viscosity-weighted pressure mass matrix. Since the pressure mass
 matrix does not appear in the original form, we need to supply its
 bilinear form to the solver ourselves:
 
-.. code-block:: python3
+.. code-block:: python
 
   class Mass(AuxiliaryOperatorPC):
 
@@ -238,7 +238,7 @@ approximations.
    coarse grid we would have to say ``"mat_type": "aij"``, rather than
    ``"mat_type": "nest"``.
 
-.. code-block:: python3
+.. code-block:: python
 
   parameters = {
         "ksp_type": "gcr",
@@ -281,7 +281,7 @@ approximations.
 
 Finally, we'll write the solution for visualisation with Paraview.
 
-.. code-block:: python3
+.. code-block:: python
 
   u, p = u.subfunctions
   u.rename("Velocity")

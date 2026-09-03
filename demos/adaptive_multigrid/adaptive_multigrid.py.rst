@@ -9,7 +9,7 @@ A :func:`~.MeshHierarchy` is not restricted to uniform refinement: the same obje
 We will first have a look at how to construct such a hierarchy from Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain, and finally we will use the hierarchy to construct a scalable solver.
 We begin by importing the necessary libraries:
 
-.. code-block:: python3
+.. code-block:: python
 
    from firedrake import *
    from netgen.occ import *
@@ -21,7 +21,7 @@ We first must construct the domain over which we will solve the problem. For a m
 see `Netgen integration in Firedrake <netgen_mesh.py>`_. 
 We begin with the L-shaped domain, which we build as the union of two rectangles:
 
-.. code-block:: python3
+.. code-block:: python
 
    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
@@ -39,7 +39,7 @@ It is important to convert the initial Netgen mesh into a Firedrake mesh before 
 
 We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same:
 
-.. code-block:: python3
+.. code-block:: python
 
    mh = MeshHierarchy(mesh)
 
@@ -53,7 +53,7 @@ Now we can define a simple Poisson problem
 
 Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary:
 
-.. code-block:: python3
+.. code-block:: python
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -75,7 +75,7 @@ Our approach strongly follows the similar problem in this `lecture course <https
 
 To use the hierarchy in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_params = {
       "mat_type": "matfree",
@@ -118,7 +118,7 @@ where :math:`K` is the element, :math:`h_K` is the diameter of the element, :mat
 
 Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.
 
-.. code-block:: python3
+.. code-block:: python
 
    def estimate_error(mesh, uh):
        Q = FunctionSpace(mesh, "DG", 0)
@@ -158,7 +158,7 @@ The next step is to choose which elements to refine. For this we use a simplifie
 The logic is to select an element :math:`K` to refine if the estimator is greater than some factor :math:`\theta` of the maximum error estimate of the mesh, where :math:`\theta` ranges from 0 to 1. In our code we choose :math:`\theta=0.5`.
 With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat.
 
-.. code-block:: python3
+.. code-block:: python
 
    theta = 0.5
    refinements = 15
@@ -190,7 +190,7 @@ With these helper functions complete, we can solve the system iteratively. In th
 To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`~.HierarchyBase.adapt` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
 To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`~.HierarchyBase.adapt` does once it has marked:
 
-.. code-block:: python3
+.. code-block:: python
 
    mh.add_mesh(mh[-1].refine_marked_elements(markers))
 
@@ -219,7 +219,7 @@ The solutions at level 4 and 15 are shown below.
 
 The convergence follows the expected optimal behavior:
 
-.. code-block:: python3
+.. code-block:: python
 
    from matplotlib import pyplot as plt
 
@@ -238,7 +238,7 @@ The convergence follows the expected optimal behavior:
 
 Moreover, the multigrid iteration count is robust to the level of refinement:
 
-.. code-block:: python3
+.. code-block:: python
 
    print(" Level\t | Iterations")
    print("---------------------")

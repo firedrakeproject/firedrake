@@ -47,13 +47,13 @@ the linear variational problem interface to ``solve``.  To start, we
 need a :py:class:`~.Function` to hold the value of
 the solution:
 
-.. code-block:: python3
+.. code-block:: python
 
    s = Function(V)
 
 We can then solve the problem, placing the solution in ``s`` with:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, s)
 
@@ -62,7 +62,7 @@ To apply boundary conditions, one passes a list of
 keyword argument.  For example, if there are two boundary conditions,
 in ``bc1`` and ``bc2``, we write:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, s, bcs=[bc1, bc2])
 
@@ -83,14 +83,14 @@ where the *residual* :math:`F(u; v)` is linear in the test function
 :py:class:`~.Function` :math:`u`.  To solve such a
 problem we write, if ``F`` is the residual form:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, u)
 
 to apply strong boundary conditions, as before, we provide a list of
 ``DirichletBC`` objects using the ``bcs`` keyword:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, u, bcs=[bc1, bc2])
 
@@ -110,7 +110,7 @@ automatic differentiation of the residual form ``F`` with respect to the
 solution variable ``u``.  However, we may also supply the Jacobian
 explicitly, using the keyword argument ``J``:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, u, J=user_supplied_jacobian_form)
 
@@ -118,7 +118,7 @@ The initial guess for the Newton iterations is provided in ``u``, for
 example, to provide a non-zero guess that the solution is the value of
 the ``x`` coordinate everywhere:
 
-.. code-block:: python3
+.. code-block:: python
 
    x = SpatialCoordinate(m)
    u.interpolate(x[0])
@@ -151,7 +151,7 @@ define our problem, which, as before are denoted ``a`` and ``L``.
 Similarly to the linear variational case, we first need a function in
 which to place our solution:
 
-.. code-block:: python3
+.. code-block:: python
 
    x = Function(V)
 
@@ -159,14 +159,14 @@ We then :py:func:`~.assemble` the left hand side
 matrix ``A`` and known right hand side ``b`` from the bilinear and
 linear forms respectively:
 
-.. code-block:: python3
+.. code-block:: python
 
    A = assemble(a)
    b = assemble(L)
 
 Finally, we can solve the problem placing the solution in ``x``:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(A, x, b)
 
@@ -175,7 +175,7 @@ linear operator ``A`` with boundary conditions using the ``bcs``
 keyword argument to :py:func:`~.assemble` (and then
 not supply them in solve call):
 
-.. code-block:: python3
+.. code-block:: python
 
    A = assemble(a, bcs=[bc1, bc2])
    b = assemble(L)
@@ -223,7 +223,7 @@ good defaults for solvers, and override them on a case-by-case basis.
 
 For example, suppose we have a file ``pde.py`` that contains
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    solve(F == 0, u, options_prefix="pde",
@@ -256,7 +256,7 @@ Helmholtz equation, we know the operator is symmetric positive
 definite, and therefore can choose the conjugate gradient method,
 rather than GMRES.
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
@@ -265,7 +265,7 @@ For example, if PETSc has been installed with the `Hypre`_ package, we
 can use its algebraic multigrid preconditioner, BoomerAMG, to
 precondition the system with:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L,
          solver_parameters={'pc_type': 'hypre',
@@ -277,7 +277,7 @@ system directly by computing an LU factorisation of the problem. To
 do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 "preconditioner only" Krylov method:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L,
          solver_parameters={'ksp_type': 'preonly',
@@ -286,7 +286,7 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 In a similar manner, we can use Jacobi preconditioned Richardson
 iterations with:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
@@ -328,7 +328,7 @@ tolerance to :math:`10^{-30}`, the relative tolerance to
 :math:`10^{-9}` and the divergence tolerance to :math:`10^4` we would
 use:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'ksp_atol': 1e-30,
                       'ksp_rtol': 1e-9,
@@ -377,7 +377,7 @@ This has a stable solution if, for example, :math:`V_1` is the lowest order
 Raviart-Thomas space and :math:`V_2` is the lowest order discontinuous
 space.
 
-.. code-block:: python3
+.. code-block:: python
 
    V1 = FunctionSpace(mesh, 'RT', 1)
    V2 = FunctionSpace(mesh, 'DG', 0)
@@ -548,7 +548,7 @@ each split for the approximation to :math:`A^{-1}` and ILU to
 precondition the schur complement.  The solver parameters we need are
 as follows:
 
-.. code-block:: python3
+.. code-block:: python
 
    parameters = {"pc_type": "fieldsplit",
                  "pc_fieldsplit_type": "schur",
@@ -572,7 +572,7 @@ split, its options prefix is referred to by the space's *name* (rather
 than a number).  Concretely, if the previous example had use a set of
 FunctionSpace definitions:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(..., name="V")
    P = FunctionSpace(..., name="P")
@@ -597,7 +597,7 @@ case, the key is used as an options prefix to all of the key-value
 pairs in the nested dictionary.  As an example, the following two
 parameter sets are equivalent:
 
-.. code-block:: python3
+.. code-block:: python
 
    {"ksp_type": "cg",
     "pc_type": "fieldsplit",
@@ -609,7 +609,7 @@ parameter sets are equivalent:
 
 and
 
-.. code-block:: python3
+.. code-block:: python
 
    {"ksp_type": "cg",
     "pc_type": "fieldsplit",
@@ -624,19 +624,19 @@ do the same.  For convenience, the prefix key to a nested dict can
 omit the trailing underscore, it will be added automatically if
 missing.  Hence
 
-.. code-block:: python3
+.. code-block:: python
 
    {"a": {"b": "foo"}}
 
 and
 
-.. code-block:: python3
+.. code-block:: python
 
    {"a_": {"b": "foo"}}
 
 both expand to
 
-.. code-block:: python3
+.. code-block:: python
 
    {"a_b": "foo"}
 
@@ -653,7 +653,7 @@ linear problems.  For example, to solve a nonlinear problem using
 Newton-Krylov iterations using a line search and direct factorisation
 to solve the linear system we would write:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, u,
          solver_parameters={'snes_type': 'newtonls',
@@ -717,7 +717,7 @@ the provided form will then be used to construct an approximate
 inverse when preconditioning the problem, rather than the form we're
 solving with.
 
-.. code-block:: python3
+.. code-block:: python
 
    a = ...
    L = ...
@@ -736,7 +736,7 @@ trust-region subproblem and an initial trust region size of ``1e-4``.
 The solver monitor will report residual norm, norm of the update, and
 value of the objective functional.
 
-.. code-block:: python3
+.. code-block:: python
 
    E = 0.5 * inner(grad(u), grad(u))*dx + kappa**2 * cosh(u)*dx - inner(f, u)*dx
    F = derivative(E, u)
@@ -772,13 +772,13 @@ For nonlinear variational solves we additionally have:
 To see the full view that PETSc has of solver objects, you can pass a
 view flag to the solve call.  For linear solves pass:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'ksp_view': None}
 
 For nonlinear solves use:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'snes_view': None}
 
@@ -826,7 +826,7 @@ of constant functions, and thus the problem has solution
 problem, we will inform the solver of this constant null space, fixing
 the solution to be :math:`u(x, y) = y - 0.5`.
 
-.. code-block:: python3
+.. code-block:: python
 
    m = UnitSquareMesh(25, 25)
    V = FunctionSpace(m, 'CG', 1)
@@ -877,7 +877,7 @@ mixed poisson problem on the surface of a sphere).  We can specify the
 null space (indicating that we only really care about the constant
 function) as:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = ...
    Q = ...
@@ -909,7 +909,7 @@ additionally, we pass ``ksp_view`` so that PETSc prints its idea of
 what the solver object contains (this is useful to debug the where
 options are not being passed in correctly):
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'ksp_converged_reason': None,
                       'ksp_monitor_true_residual': None,
@@ -919,7 +919,7 @@ If the problem is converging, but only slowly, it may be that it is
 badly conditioned.  If the problem is small, we can try using a direct
 solve to see if the solution obtained is correct:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'}
 
@@ -934,7 +934,7 @@ physics-based preconditioner as described above, if not maybe try
 using an algebraic multigrid preconditioner.  If PETSc was installed
 with Hypre use:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'pc_type': 'hypre', 'pc_hypre_type': 'boomeramg'}
 
@@ -942,7 +942,7 @@ If you're using a symmetric method, such as conjugate gradient, check
 that the linear operator is actually symmetric, which you can compute
 with the following:
 
-.. code-block:: python3
+.. code-block:: python
 
    A = assemble(a)  # use bcs keyword if there are boundary conditions
    print A.petscmat.isSymmetric(tol=1e-13)
@@ -952,7 +952,7 @@ instead.  PETSc uses restarted GMRES with a default restart of 30, for
 difficult problems this might be too low, in which case, you can
 increase the restart length with:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'ksp_gmres_restart': 100}
 
@@ -966,7 +966,7 @@ first thing to do is run with monitors to see what is going on, and
 view the SNES object with ``snes_view`` to ensure that PETSc is seeing
 the correct options:
 
-.. code-block:: python3
+.. code-block:: python
 
    solver_parameters={'snes_monitor': None,
                       'snes_view': None,
@@ -999,7 +999,7 @@ To make things concrete, consider the following, somewhat contrived,
 example where we attempt to solve a Galerkin projection in a mixed
 space, but provide an incorrectly scaled Jacobian to the solve.
 
-.. code-block:: python3
+.. code-block:: python
 
    from firedrake import *
    mesh = UnitSquareMesh(1, 1)
@@ -1017,7 +1017,7 @@ space, but provide an incorrectly scaled Jacobian to the solve.
 
 When run, this produces the following output:
 
-.. code-block:: python3
+.. code-block:: python
 
    pyop2:INFO Solving nonlinear variational problem...
    Traceback (most recent call last):
@@ -1045,7 +1045,7 @@ that there is a bug in the assembly of the Jacobian, even if the
 symbolic form is correct.  To verify the Jacobian we rerun the solve,
 but pass some additional options:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, f, J=J,
          solver_parameters={'snes_type': 'test',
@@ -1053,7 +1053,7 @@ but pass some additional options:
 
 This time we get the following output
 
-.. code-block:: python3
+.. code-block:: python
 
    pyop2:INFO Solving nonlinear variational problem...
    Testing hand-coded Jacobian, if the ratio is
@@ -1083,7 +1083,7 @@ This time we get the following output
 
 The important lines are:
 
-.. code-block:: python3
+.. code-block:: python
 
    Testing hand-coded Jacobian, if the ratio is
    O(1.e-8), the hand-coded Jacobian is probably correct.
@@ -1102,7 +1102,7 @@ incorrect.
 For comparison, here are the same relevant lines when running with the
 correct Jacobian:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, f, solver_parameters={'snes_type': 'test', 'mat_type': 'aij'})
 

@@ -275,7 +275,7 @@ def cached_property_until(key: Callable[[Self], Hashable]):
     ``self.value`` changes, and will be recomputed with the new ``self.value``
     and cached when accessed again.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         class MyClass:
 

@@ -4,7 +4,7 @@ Navier-Stokes equations
 We solve the Navier-Stokes equations using Taylor-Hood elements.  The
 example is that of a lid-driven cavity.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -45,7 +45,7 @@ preconditioners by passing in a dictionary context to the solver.
 This is propagated down through the matrix-free operators and is
 therefore accessible to custom preconditioners.
 
-.. code-block:: python3
+.. code-block:: python
 
   appctx = {"Re": Re, "velocity_space": 0}
 
@@ -53,7 +53,7 @@ Now we'll solve the problem.  First, using a direct solver.  Again, if
 MUMPS is not installed, this solve will not work, so we wrap the solve
 in a ``try/except`` block.
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake.petsc import PETSc
 
@@ -75,7 +75,7 @@ that implements the pressure convection-diffusion approximation to the
 pressure Schur complement.  We'll need more solver parameters this
 time, so again we'll set those up in a dictionary.
 
-.. code-block:: python3
+.. code-block:: python
 
   parameters = {"mat_type": "matfree",
                 "snes_monitor": None,
@@ -83,7 +83,7 @@ time, so again we'll set those up in a dictionary.
 We'll use a non-stationary Krylov solve for the Schur complement, so
 we need to use a flexible Krylov method on the outside.
 
-.. code-block:: python3
+.. code-block:: python
 
                "ksp_type": "fgmres",
                "ksp_gmres_modifiedgramschmidt": None,
@@ -91,7 +91,7 @@ we need to use a flexible Krylov method on the outside.
 
 Now to configure the preconditioner:
 
-.. code-block:: python3
+.. code-block:: python
 
                "pc_type": "fieldsplit",
                "pc_fieldsplit_type": "schur",
@@ -99,7 +99,7 @@ Now to configure the preconditioner:
 
 we invert the velocity block with LU:
 
-.. code-block:: python3
+.. code-block:: python
 
                "fieldsplit_0_ksp_type": "preonly",
                "fieldsplit_0_pc_type": "python",
@@ -109,7 +109,7 @@ we invert the velocity block with LU:
 and invert the schur complement inexactly using GMRES, preconditioned
 with PCD.
 
-.. code-block:: python3
+.. code-block:: python
 
                "fieldsplit_1_ksp_type": "gmres",
                "fieldsplit_1_ksp_rtol": 1e-4,
@@ -121,14 +121,14 @@ preconditioner.  For this example, we will just invert them with LU,
 although of course we can use a scalable method if we wish. First the
 mass solve:
 
-.. code-block:: python3
+.. code-block:: python
 
                "fieldsplit_1_pcd_Mp_ksp_type": "preonly",
                "fieldsplit_1_pcd_Mp_pc_type": "lu",
 
 and the stiffness solve.
 
-.. code-block:: python3
+.. code-block:: python
 
                "fieldsplit_1_pcd_Kp_ksp_type": "preonly",
                "fieldsplit_1_pcd_Kp_pc_type": "lu",
@@ -137,7 +137,7 @@ Finally, we just need to decide whether to apply the action of the
 pressure-space convection-diffusion operator with an assembled matrix
 or matrix free.  Here we will use matrix-free:
 
-.. code-block:: python3
+.. code-block:: python
 
                "fieldsplit_1_pcd_Fp_mat_type": "matfree"}
 
@@ -145,7 +145,7 @@ With the parameters set up, we can solve the problem, remembering to
 pass in the application context so that the PCD preconditioner can
 find the Reynolds number.
 
-.. code-block:: python3
+.. code-block:: python
 
   up.assign(0)
 
@@ -154,7 +154,7 @@ find the Reynolds number.
 
 And finally we write the results to a file for visualisation.
 
-.. code-block:: python3
+.. code-block:: python
 
   u, p = up.subfunctions
   u.rename("Velocity")
