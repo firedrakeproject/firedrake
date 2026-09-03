@@ -1929,7 +1929,7 @@ class PoissonFDMPC(FDMPC):
 
         degree = max(e.degree() for e in line_elements)
         prefix = (self.pc.getOptionsPrefix() or "") + self._prefix
-        ctx = dmhooks.get_appctx(pc.getDM())
+        ctx = dmhooks.get_appctx(self.pc.getDM())
         eta = float(ctx.get_python_option(prefix, "eta", degree*(degree+1)))
         is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
@@ -2099,7 +2099,7 @@ class PoissonFDMPC(FDMPC):
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
 
             prefix = (self.pc.getOptionsPrefix() or "") + self._prefix
-            ctx = dmhooks.get_appctx(pc.getDM())
+            ctx = dmhooks.get_appctx(self.pc.getDM())
             eta = float(ctx.get_python_option(prefix, "eta", None))
 
             lgmap = self.lgmaps[V]
